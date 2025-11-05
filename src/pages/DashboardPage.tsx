@@ -6,7 +6,10 @@ import type { CallWithQA } from '../types/database'
 import { DateRangePicker } from '../components/dashboard/DateRangePicker'
 import { AgentFilter } from '../components/dashboard/AgentFilter'
 import { MetricCard } from '../components/dashboard/MetricCard'
-import { AlertTriangle, PhoneCall, Clock, CheckCircle, ThumbsUp } from 'lucide-react'
+import { ThresholdSettingsModal } from '../components/settings/ThresholdSettings'
+import { ThresholdSettings, DEFAULT_THRESHOLDS } from '../types/settings'
+import { exportDashboardToPDF } from '../lib/pdf-export'
+import { AlertTriangle, PhoneCall, Clock, CheckCircle, ThumbsUp, Settings, Download } from 'lucide-react'
 
 type QuickFilter = 'all' | 'escalations' | 'compliance' | 'threshold'
 
@@ -34,13 +37,26 @@ export default function DashboardPage() {
   const [filteredCalls, setFilteredCalls] = useState<CallWithQA[]>([])
   const [loading, setLoading] = useState(true)
 
+  // Threshold settings
+  const [showSettings, setShowSettings] = useState(false)
+  const [thresholds, setThresholds] = useState<ThresholdSettings>(DEFAULT_THRESHOLDS)
+
   // Pagination
   const [currentPage, setCurrentPage] = useState(1)
   const ITEMS_PER_PAGE = 25
 
-  // Load agents on mount
+  // Load agents and thresholds on mount
   useEffect(() => {
     fetchUniqueAgents().then(setAvailableAgents)
+    
+    const saved = localStorage.getItem('thresholdSettings')
+    if (saved) {
+      try {
+        setThresholds(JSON.parse(saved))
+      } catch (e) {
+        console.error('Failed to parse threshold settings', e)
+      }
+    }
   }, [])
 
   // Load calls when filters change
@@ -77,6 +93,26 @@ export default function DashboardPage() {
   const paginatedCalls = filteredCalls.slice(startIndex, endIndex)
   const totalPages = Math.ceil(filteredCalls.length / ITEMS_PER_PAGE)
 
+  const handleSaveThresholds = (newThresholds: ThresholdSettings) => {
+    setThresholds(newThresholds)
+  }
+
+  const handleExportPDF = async () => {
+    await exportDashboardToPDF(
+      filteredCalls,
+      {
+        totalCalls: metrics.totalCalls,
+        requiresAttention: metrics.callsRequiringAttention,
+        avgTalkTime: metrics.avgTalkTime,
+        avgHandleTime: metrics.avgHandleTime,
+        complianceRate: metrics.compliancePassRate,
+        custSatRate: metrics.highSatRate,
+      },
+      { start: startDate, end: endDate },
+      selectedAgents
+    )
+  }
+
   if (loading) {
     return (
       <div className="flex items-center justify-center h-96">
@@ -87,6 +123,26 @@ export default function DashboardPage() {
 
   return (
     <div className="space-y-6">
+      {/* Header Actions */}
+      <div className="flex items-center justify-end gap-3">
+        <button
+          onClick={() => setShowSettings(true)}
+          className="inline-flex items-center gap-2 px-4 py-2 text-foreground hover:bg-accent rounded-lg transition-colors border border-border"
+          title="Threshold Settings"
+        >
+          <Settings className="w-4 h-4" />
+          Settings
+        </button>
+
+        <button
+          onClick={handleExportPDF}
+          className="inline-flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors"
+        >
+          <Download className="w-4 h-4" />
+          Export PDF
+        </button>
+      </div>
+
       {/* Filters */}
       <div className="flex flex-wrap gap-4 items-end">
         <DateRangePicker
@@ -307,6 +363,13 @@ export default function DashboardPage() {
           </button>
         </div>
       )}
+
+      {/* Threshold Settings Modal */}
+      <ThresholdSettingsModal
+        isOpen={showSettings}
+        onClose={() => setShowSettings(false)}
+        onSave={handleSaveThresholds}
+      />
     </div>
   )
 }

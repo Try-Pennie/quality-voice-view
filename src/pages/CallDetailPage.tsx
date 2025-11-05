@@ -7,7 +7,8 @@ import { ComplianceScorecard } from '../components/call-detail/ComplianceScoreca
 import { SalesProcessScorecard } from '../components/call-detail/SalesProcessScorecard'
 import { CustomerExperienceScorecard } from '../components/call-detail/CustomerExperienceScorecard'
 import { CoachingRecommendations } from '../components/call-detail/CoachingRecommendations'
-import { ArrowLeft, ExternalLink } from 'lucide-react'
+import { exportCallDetailToPDF } from '../lib/pdf-export'
+import { ArrowLeft, ExternalLink, Download } from 'lucide-react'
 import { toast } from 'sonner'
 
 export default function CallDetailPage() {
@@ -53,6 +54,13 @@ export default function CallDetailPage() {
     if (call.qa?.original_transcript) {
       navigator.clipboard.writeText(call.qa.original_transcript)
       toast.success('Transcript copied to clipboard')
+    }
+  }
+
+  const handleExportPDF = async () => {
+    if (call) {
+      await exportCallDetailToPDF(call)
+      toast.success('PDF exported successfully')
     }
   }
 
@@ -209,12 +217,20 @@ export default function CallDetailPage() {
       )}
 
       {/* SECTION 10: Action Buttons */}
-      <div className="flex gap-4 pb-8">
+      <div className="flex gap-4 pb-8 flex-wrap">
         <button
           onClick={() => navigate('/dashboard')}
           className="px-6 py-3 bg-secondary text-secondary-foreground rounded-lg hover:bg-secondary/80 font-medium"
         >
           ← Back to Dashboard
+        </button>
+
+        <button
+          onClick={handleExportPDF}
+          className="px-6 py-3 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 font-medium flex items-center gap-2"
+        >
+          <Download className="w-4 h-4" />
+          Export to PDF
         </button>
 
         {call.qa?.recording_link && (
