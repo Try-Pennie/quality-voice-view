@@ -97,3 +97,26 @@ export function calculateMetrics(calls: CallWithQA[]) {
     highSatRate: Math.round(highSatRate)
   }
 }
+
+export async function fetchCallDetail(callId: string) {
+  const { data, error } = await supabase
+    .from('eavesly_calls')
+    .select(`
+      *,
+      qa:eavesly_transcription_qa(*)
+    `)
+    .eq('call_id', callId)
+    .maybeSingle()
+
+  if (error) {
+    console.error('Error fetching call detail:', error)
+    return null
+  }
+
+  if (!data) return null
+
+  return {
+    ...data,
+    qa: Array.isArray(data.qa) ? data.qa[0] : data.qa
+  }
+}

@@ -8,6 +8,7 @@ import { ProtectedRoute } from "./components/ProtectedRoute";
 import { DashboardLayout } from "./components/DashboardLayout";
 import LoginPage from "./pages/LoginPage";
 import DashboardPage from "./pages/DashboardPage";
+import CallDetailPage from "./pages/CallDetailPage";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -33,15 +34,12 @@ const App = () => (
               }
             />
 
-            {/* Call detail route - will be built in Phase 3 */}
             <Route
               path="/dashboard/calls/:callId"
               element={
                 <ProtectedRoute>
                   <DashboardLayout>
-                    <div className="text-center py-12">
-                      <h2 className="text-2xl font-bold text-foreground">Call detail coming in Phase 3...</h2>
-                    </div>
+                    <CallDetailPage />
                   </DashboardLayout>
                 </ProtectedRoute>
               }
