@@ -6,31 +6,43 @@ export async function fetchDashboardData(
   endDate: Date,
   selectedAgents: string[] = []
 ) {
-  let query = supabase
+  // 1) Fetch calls in range (and by agents if provided)
+  let callsQuery = supabase
     .from('eavesly_calls')
-    .select(`
-      *,
-      qa:eavesly_transcription_qa(*)
-    `)
+    .select('*')
     .gte('started_at', startDate.toISOString())
     .lte('started_at', endDate.toISOString())
     .order('started_at', { ascending: false })
 
   if (selectedAgents.length > 0) {
-    query = query.in('agent_email', selectedAgents)
+    callsQuery = callsQuery.in('agent_email', selectedAgents)
   }
 
-  const { data, error } = await query
-
-  if (error) {
-    console.error('Error fetching dashboard data:', error)
+  const { data: callsData, error: callsError } = await callsQuery
+  if (callsError) {
+    console.error('Error fetching dashboard calls:', callsError)
     return []
   }
 
-  // Transform qa (might be array)
-  return (data || []).map(call => ({
-    ...call,
-    qa: Array.isArray(call.qa) ? call.qa[0] : call.qa
+  const calls = (callsData || []) as any[]
+  if (calls.length === 0) return []
+
+  // 2) Fetch QA by call ids and merge
+  const callIds = calls.map(c => c.call_id).filter(Boolean)
+  const { data: qaRows, error: qaError } = await supabase
+    .from('eavesly_transcription_qa')
+    .select('*')
+    .in('call_id', callIds)
+
+  if (qaError) {
+    console.error('Error fetching QA rows:', qaError)
+  }
+
+  const qaByCallId = new Map<string, any>((qaRows || []).map((q: any) => [q.call_id, q]))
+
+  return calls.map(c => ({
+    ...c,
+    qa: qaByCallId.get(c.call_id) || null,
   })) as CallWithQA[]
 }
 
@@ -99,24 +111,32 @@ export function calculateMetrics(calls: CallWithQA[]) {
 }
 
 export async function fetchCallDetail(callId: string) {
-  const { data, error } = await supabase
+  // Fetch base call row
+  const { data: call, error: callError } = await supabase
     .from('eavesly_calls')
-    .select(`
-      *,
-      qa:eavesly_transcription_qa(*)
-    `)
+    .select('*')
     .eq('call_id', callId)
     .maybeSingle()
 
-  if (error) {
-    console.error('Error fetching call detail:', error)
+  if (callError) {
+    console.error('Error fetching call detail (call):', callError)
     return null
   }
+  if (!call) return null
 
-  if (!data) return null
+  // Fetch QA row separately and merge
+  const { data: qa, error: qaError } = await supabase
+    .from('eavesly_transcription_qa')
+    .select('*')
+    .eq('call_id', callId)
+    .maybeSingle()
+
+  if (qaError) {
+    console.error('Error fetching call detail (qa):', qaError)
+  }
 
   return {
-    ...data,
-    qa: Array.isArray(data.qa) ? data.qa[0] : data.qa
+    ...call,
+    qa: qa || null,
   }
 }
