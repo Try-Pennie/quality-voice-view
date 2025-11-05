@@ -33,6 +33,20 @@ const App = () => (
               }
             />
 
+            {/* Call detail route - will be built in Phase 3 */}
+            <Route
+              path="/dashboard/calls/:callId"
+              element={
+                <ProtectedRoute>
+                  <DashboardLayout>
+                    <div className="text-center py-12">
+                      <h2 className="text-2xl font-bold text-foreground">Call detail coming in Phase 3...</h2>
+                    </div>
+                  </DashboardLayout>
+                </ProtectedRoute>
+              }
+            />
+
             <Route path="/" element={<Navigate to="/login" replace />} />
             {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
             <Route path="*" element={<NotFound />} />
