@@ -38,17 +38,29 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const signInWithGoogle = async () => {
     const redirectUrl = `${window.location.origin}/dashboard`
-    
-    const { error } = await supabase.auth.signInWithOAuth({
+
+    const { data, error } = await supabase.auth.signInWithOAuth({
       provider: 'google',
       options: {
-        redirectTo: redirectUrl
+        redirectTo: redirectUrl,
+        skipBrowserRedirect: true, // avoid redirect inside iframe
+        queryParams: { prompt: 'select_account' }
       }
     })
-    
+
     if (error) {
       console.error('Login error:', error)
       alert('Failed to log in. Please try again.')
+      return
+    }
+
+    if (data?.url) {
+      // Open in a new tab to escape the editor iframe sandbox
+      const opened = window.open(data.url, '_blank', 'noopener,noreferrer')
+      if (!opened) {
+        // Fallback: attempt same-tab navigation
+        window.location.href = data.url
+      }
     }
   }
 
