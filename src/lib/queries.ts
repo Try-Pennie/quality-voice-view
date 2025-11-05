@@ -14,8 +14,10 @@ export async function fetchDashboardData(
     .lte('started_at', endDate.toISOString())
     .order('started_at', { ascending: false })
 
-  if (selectedAgents.length > 0) {
-    callsQuery = callsQuery.in('agent_email', selectedAgents)
+  // Filter out empty strings before querying
+  const validAgents = selectedAgents.filter(email => email && email.trim())
+  if (validAgents.length > 0) {
+    callsQuery = callsQuery.in('agent_email', validAgents)
   }
 
   const { data: callsData, error: callsError } = await callsQuery
