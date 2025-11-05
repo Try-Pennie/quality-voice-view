@@ -1,6 +1,35 @@
 import { supabase } from '@/integrations/supabase/client'
 import type { CallWithQA } from '../types/database'
 
+// Fetch QA summaries in batches to avoid response size limits
+async function fetchQASummaries(callIds: string[]) {
+  const BATCH_SIZE = 300
+  const batches: string[][] = []
+  
+  // Split callIds into batches
+  for (let i = 0; i < callIds.length; i += BATCH_SIZE) {
+    batches.push(callIds.slice(i, i + BATCH_SIZE))
+  }
+  
+  // Fetch all batches in parallel
+  const batchPromises = batches.map(async (batch) => {
+    const { data, error } = await supabase
+      .from('eavesly_transcription_qa')
+      .select('call_id, overall_score, compliance_rating, customer_satisfaction_likely, manager_escalation')
+      .in('call_id', batch)
+    
+    if (error) {
+      console.error('Error fetching QA batch:', error)
+      return []
+    }
+    
+    return data || []
+  })
+  
+  const results = await Promise.all(batchPromises)
+  return results.flat()
+}
+
 export async function fetchDashboardData(
   startDate: Date,
   endDate: Date,
@@ -29,18 +58,10 @@ export async function fetchDashboardData(
   const calls = (callsData || []) as any[]
   if (calls.length === 0) return []
 
-  // 2) Fetch QA by call ids and merge
+  // 2) Fetch QA summaries in batches (only essential fields for dashboard)
   const callIds = calls.map(c => c.call_id).filter(Boolean)
-  const { data: qaRows, error: qaError } = await supabase
-    .from('eavesly_transcription_qa')
-    .select('*')
-    .in('call_id', callIds)
-
-  if (qaError) {
-    console.error('Error fetching QA rows:', qaError)
-  }
-
-  const qaByCallId = new Map<string, any>((qaRows || []).map((q: any) => [q.call_id, q]))
+  const qaRows = await fetchQASummaries(callIds)
+  const qaByCallId = new Map<string, any>(qaRows.map((q: any) => [q.call_id, q]))
 
   return calls.map(c => ({
     ...c,
