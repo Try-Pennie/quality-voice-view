@@ -10,6 +10,8 @@ import LoginPage from "./pages/LoginPage";
 import DashboardPage from "./pages/DashboardPage";
 import CallDetailPage from "./pages/CallDetailPage";
 import AlertsPage from "./pages/AlertsPage";
+import TeamPage from "./pages/TeamPage";
+import AgentProfilePage from "./pages/AgentProfilePage";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -30,6 +32,28 @@ const App = () => (
                 <ProtectedRoute>
                   <DashboardLayout>
                     <DashboardPage />
+                  </DashboardLayout>
+                </ProtectedRoute>
+              }
+            />
+
+            <Route
+              path="/dashboard/team"
+              element={
+                <ProtectedRoute>
+                  <DashboardLayout>
+                    <TeamPage />
+                  </DashboardLayout>
+                </ProtectedRoute>
+              }
+            />
+
+            <Route
+              path="/dashboard/team/:agentEmail"
+              element={
+                <ProtectedRoute>
+                  <DashboardLayout>
+                    <AgentProfilePage />
                   </DashboardLayout>
                 </ProtectedRoute>
               }

@@ -20,6 +20,7 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
                 <DashNavLink to="/dashboard" end>
                   Calls
                 </DashNavLink>
+                <DashNavLink to="/dashboard/team">Team</DashNavLink>
                 <DashNavLink to="/dashboard/alerts">Alerts</DashNavLink>
               </nav>
             </div>
