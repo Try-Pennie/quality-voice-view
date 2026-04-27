@@ -1,12 +1,15 @@
 import { useState, useEffect } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { fetchCallDetail } from '../lib/queries'
+import { fetchAlertsForCall } from '../lib/alert-queries'
 import { formatDateTime, formatDuration, formatPhoneNumber, getScoreBadgeColor } from '../lib/utils'
+import type { AlertWithFeedback } from '../types/database'
 import { AudioPlayer } from '../components/call-detail/AudioPlayer'
 import { ComplianceScorecard } from '../components/call-detail/ComplianceScorecard'
 import { SalesProcessScorecard } from '../components/call-detail/SalesProcessScorecard'
 import { CustomerExperienceScorecard } from '../components/call-detail/CustomerExperienceScorecard'
 import { CoachingRecommendations } from '../components/call-detail/CoachingRecommendations'
+import { CallAlertsSection } from '../components/call-detail/CallAlertsSection'
 import { ArrowLeft, ExternalLink, Download } from 'lucide-react'
 import { toast } from 'sonner'
 
@@ -15,14 +18,22 @@ export default function CallDetailPage() {
   const navigate = useNavigate()
   const [call, setCall] = useState<any>(null)
   const [loading, setLoading] = useState(true)
+  const [alerts, setAlerts] = useState<AlertWithFeedback[]>([])
+  const [alertsLoading, setAlertsLoading] = useState(true)
 
   useEffect(() => {
-    if (callId) {
-      fetchCallDetail(callId).then(data => {
-        setCall(data)
-        setLoading(false)
+    if (!callId) return
+    setLoading(true)
+    setAlertsLoading(true)
+    Promise.all([fetchCallDetail(callId), fetchAlertsForCall(callId)])
+      .then(([callData, alertRows]) => {
+        setCall(callData)
+        setAlerts(alertRows)
       })
-    }
+      .finally(() => {
+        setLoading(false)
+        setAlertsLoading(false)
+      })
   }, [callId])
 
   if (loading) {
@@ -96,6 +107,9 @@ export default function CallDetailPage() {
           )}
         </div>
       </div>
+
+      {/* SECTION 1.5: Alerts fired for this call */}
+      <CallAlertsSection alerts={alerts} loading={alertsLoading} />
 
       {/* SECTION 2: Audio Player */}
       <div className="bg-card rounded-lg shadow p-6 border border-border">

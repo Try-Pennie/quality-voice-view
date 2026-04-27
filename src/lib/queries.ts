@@ -30,10 +30,10 @@ async function fetchQASummaries(callIds: string[]) {
   return results.flat()
 }
 
-// Columns rendered on the dashboard list. Drops large/unused fields like
-// `notes`, `disposition`, `direction`, `wrapup_time`, etc.
+// Columns rendered on the dashboard list, plus `disposition` which is needed
+// for the disposition filter.
 const CALL_LIST_COLUMNS =
-  'id, call_id, agent_email, agent_full_name, started_at, contact_phone, talk_time, handle_time'
+  'id, call_id, agent_email, agent_full_name, started_at, contact_phone, talk_time, handle_time, disposition'
 
 export async function fetchDashboardData(
   startDate: Date,

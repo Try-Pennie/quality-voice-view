@@ -5,7 +5,12 @@ import type {
   AlertWithFeedback,
 } from '../types/database'
 import type { UserScope } from './alert-queries'
-import { aggregateCoachingThemes, type CoachingThemes } from './coaching-aggregation'
+import {
+  aggregateCoachingThemes,
+  aggregateTeamCoachingThemes,
+  type CoachingThemes,
+  type TeamCoachingThemes,
+} from './coaching-aggregation'
 
 const sb = supabase as any
 
@@ -16,6 +21,8 @@ export type TrendPoint = {
   label: string // human-readable label e.g. "Apr 21"
   call_count: number
   compliance_pass_rate: number // 0-100
+  compliance_pass: number // raw count, used for re-aggregation across agents
+  compliance_total: number // raw count of pass+fail (excludes n/a)
   csat_high: number
   csat_medium: number
   csat_low: number
@@ -113,6 +120,8 @@ function buildEmptyBuckets(
         label: bucketLabel(key, size),
         call_count: 0,
         compliance_pass_rate: 0,
+        compliance_pass: 0,
+        compliance_total: 0,
         csat_high: 0,
         csat_medium: 0,
         csat_low: 0,
@@ -164,6 +173,8 @@ function buildTrendPoints(
 
   for (const [key, point] of buckets) {
     const pc = passCounts.get(key)
+    point.compliance_pass = pc?.pass ?? 0
+    point.compliance_total = pc?.total ?? 0
     point.compliance_pass_rate =
       pc && pc.total > 0 ? Math.round((pc.pass / pc.total) * 100) : 0
   }
@@ -493,4 +504,284 @@ export async function fetchAgentProfile(
     alerts,
     recent_calls: recentCallsFull,
   }
+}
+
+// ---- Per-manager rollups (god-mode breakout) ----
+
+export type ManagerRollup = {
+  manager_email: string
+  manager_full_name: string | null
+  agent_count: number
+  agent_emails: string[]
+  call_count: number
+  compliance_pass_rate: number // 0-100
+  csat_high_rate: number // 0-100
+  escalation_rate: number // 0-100
+  open_alerts_count: number
+  unreviewed_alerts_count: number
+  top_agent: AgentRollup | null
+  needs_attention: boolean
+}
+
+// Look up display names for a set of manager emails by checking whether each
+// manager also appears as an agent in eavesly_calls (most do — managers often
+// take calls themselves). Returns a Map<email, full_name>.
+export async function fetchManagerNames(
+  emails: string[],
+): Promise<Map<string, string>> {
+  const result = new Map<string, string>()
+  if (emails.length === 0) return result
+  const CHUNK = 100
+  for (let i = 0; i < emails.length; i += CHUNK) {
+    const chunk = emails.slice(i, i + CHUNK)
+    const { data, error } = await sb
+      .from('eavesly_calls')
+      .select('agent_email, agent_full_name')
+      .in('agent_email', chunk)
+      .not('agent_full_name', 'is', null)
+      .limit(2000)
+    if (error) {
+      console.error('Error fetching manager names:', error)
+      continue
+    }
+    for (const row of (data || []) as any[]) {
+      if (!result.has(row.agent_email) && row.agent_full_name) {
+        result.set(row.agent_email, row.agent_full_name)
+      }
+    }
+  }
+  return result
+}
+
+// Pull manager → agent mapping. Cheap (a few hundred rows). Returns the raw
+// pairs so callers can group by either side.
+export async function fetchAgentManagerMapping(): Promise<
+  { manager_email: string; agent_email: string }[]
+> {
+  const { data, error } = await sb
+    .from('agent_manager_mapping')
+    .select('manager_email, agent_email')
+  if (error) {
+    console.error('Error fetching agent_manager_mapping:', error)
+    return []
+  }
+  return ((data || []) as any[]).map(r => ({
+    manager_email: r.manager_email,
+    agent_email: r.agent_email,
+  }))
+}
+
+// Group agent rollups by manager and recompute aggregates correctly
+// (volume-weighted, not averaged across agents).
+export function aggregateManagerRollups(
+  rollups: AgentRollup[],
+  mapping: { manager_email: string; agent_email: string }[],
+  managerNames: Map<string, string> = new Map(),
+): ManagerRollup[] {
+  const managerByAgent = new Map<string, string>()
+  for (const m of mapping) managerByAgent.set(m.agent_email, m.manager_email)
+
+  // Pre-bucket agents per manager. Agents not in the mapping fall into
+  // "Unassigned" so god-mode users still see them.
+  const buckets = new Map<string, AgentRollup[]>()
+  for (const r of rollups) {
+    const mgr = managerByAgent.get(r.agent_email) || '__unassigned__'
+    const arr = buckets.get(mgr) || []
+    arr.push(r)
+    buckets.set(mgr, arr)
+  }
+
+  const results: ManagerRollup[] = []
+  for (const [manager_email, agents] of buckets) {
+    const callCount = agents.reduce((s, a) => s + a.call_count, 0)
+    if (callCount === 0 && manager_email === '__unassigned__') continue
+    // Re-derive compliance from underlying counts via trend_points
+    let compPass = 0
+    let compTotal = 0
+    let escalations = 0
+    let csatHigh = 0
+    let csatTotal = 0
+    for (const a of agents) {
+      for (const p of a.trend_points) {
+        compPass += p.compliance_pass
+        compTotal += p.compliance_total
+        escalations += p.escalations
+        csatHigh += p.csat_high
+        csatTotal += p.csat_high + p.csat_medium + p.csat_low
+      }
+    }
+    const compliance_pass_rate =
+      compTotal > 0 ? Math.round((compPass / compTotal) * 100) : 0
+    const csat_high_rate =
+      csatTotal > 0 ? Math.round((csatHigh / csatTotal) * 100) : 0
+    const escalation_rate =
+      callCount > 0 ? Math.round((escalations / callCount) * 100) : 0
+    const open_alerts_count = agents.reduce((s, a) => s + a.open_alerts_count, 0)
+    const unreviewed_alerts_count = agents.reduce(
+      (s, a) => s + a.unreviewed_alerts_count,
+      0,
+    )
+    const topAgent = agents
+      .filter(a => a.call_count > 0)
+      .sort((x, y) => y.compliance_pass_rate - x.compliance_pass_rate)[0]
+    const needs_attention =
+      callCount > 0 &&
+      (compliance_pass_rate < 80 ||
+        escalation_rate >= 10 ||
+        csat_high_rate < 50 ||
+        unreviewed_alerts_count > 0)
+    results.push({
+      manager_email,
+      manager_full_name: managerNames.get(manager_email) ?? null,
+      agent_count: agents.length,
+      agent_emails: agents.map(a => a.agent_email),
+      call_count: callCount,
+      compliance_pass_rate,
+      csat_high_rate,
+      escalation_rate,
+      open_alerts_count,
+      unreviewed_alerts_count,
+      top_agent: topAgent || null,
+      needs_attention,
+    })
+  }
+  return results.sort((a, b) => b.call_count - a.call_count)
+}
+
+// Fetch coaching themes aggregated across the manager's team.
+// Samples the most recent N calls per agent so high-volume agents don't
+// dominate the theme ranking and so the qa_json fetch stays bounded.
+export async function fetchTeamCoachingThemes(
+  scope: UserScope,
+  startDate: Date,
+  endDate: Date,
+  perAgentSample = 30,
+): Promise<TeamCoachingThemes> {
+  const empty: TeamCoachingThemes = {
+    strengths: [],
+    improvements: [],
+    coachingPoints: [],
+    trainingRecs: [],
+  }
+  if (!scope.isGodMode && scope.managedAgents.length === 0) return empty
+
+  const agentEmails: string[] = scope.isGodMode
+    ? await (async () => {
+        const { data, error } = await sb
+          .from('eavesly_calls')
+          .select('agent_email')
+          .gte('started_at', startDate.toISOString())
+          .lte('started_at', endDate.toISOString())
+          .not('agent_email', 'is', null)
+          .limit(2000)
+        if (error) {
+          console.error('Error fetching godmode agents for themes:', error)
+          return []
+        }
+        return Array.from(
+          new Set(((data || []) as any[]).map(r => r.agent_email)),
+        )
+      })()
+    : scope.managedAgents
+
+  if (agentEmails.length === 0) return empty
+
+  // Fetch per-agent most-recent call_ids in parallel.
+  const callsPerAgent = await Promise.all(
+    agentEmails.map(async email => {
+      const { data, error } = await sb
+        .from('eavesly_calls')
+        .select('call_id')
+        .eq('agent_email', email)
+        .gte('started_at', startDate.toISOString())
+        .lte('started_at', endDate.toISOString())
+        .order('started_at', { ascending: false })
+        .limit(perAgentSample)
+      if (error) {
+        console.error(`Error fetching recent calls for ${email}:`, error)
+        return { email, callIds: [] as string[] }
+      }
+      const callIds = ((data || []) as any[])
+        .map(c => c.call_id)
+        .filter(Boolean) as string[]
+      return { email, callIds }
+    }),
+  )
+
+  const callIdToAgent = new Map<string, string>()
+  const allCallIds: string[] = []
+  for (const { email, callIds } of callsPerAgent) {
+    for (const id of callIds) {
+      callIdToAgent.set(id, email)
+      allCallIds.push(id)
+    }
+  }
+
+  if (allCallIds.length === 0) return empty
+
+  // Batch fetch qa_json across the sampled call_ids.
+  const qaJsonRows = await fetchInBatches<{ call_id: string; qa_json: QAJson | null }>(
+    allCallIds,
+    50,
+    async batch => {
+      const { data, error } = await sb
+        .from('eavesly_transcription_qa')
+        .select('call_id, qa_json')
+        .in('call_id', batch)
+      if (error) {
+        console.error('Error fetching team qa_json batch:', error)
+        return []
+      }
+      return (data || []) as any[]
+    },
+  )
+
+  const byAgent = new Map<string, QAJson[]>()
+  for (const r of qaJsonRows) {
+    if (!r.qa_json) continue
+    const email = callIdToAgent.get(r.call_id)
+    if (!email) continue
+    const arr = byAgent.get(email) || []
+    arr.push(r.qa_json)
+    byAgent.set(email, arr)
+  }
+
+  return aggregateTeamCoachingThemes(
+    Array.from(byAgent.entries()).map(([agent_email, qaJson]) => ({
+      agent_email,
+      qaJson,
+    })),
+  )
+}
+
+// Aggregate per-agent trend points into a single team-level series.
+// Sums raw counts per bucket across agents and re-derives compliance_pass_rate
+// from pass/total counts (averaging per-agent rates would be biased by volume).
+export function aggregateTeamTrend(rollups: AgentRollup[]): TrendPoint[] {
+  const byBucket = new Map<string, TrendPoint>()
+  for (const r of rollups) {
+    for (const p of r.trend_points) {
+      const existing = byBucket.get(p.bucket)
+      if (!existing) {
+        byBucket.set(p.bucket, { ...p })
+      } else {
+        existing.call_count += p.call_count
+        existing.compliance_pass += p.compliance_pass
+        existing.compliance_total += p.compliance_total
+        existing.csat_high += p.csat_high
+        existing.csat_medium += p.csat_medium
+        existing.csat_low += p.csat_low
+        existing.escalations += p.escalations
+      }
+    }
+  }
+  for (const point of byBucket.values()) {
+    point.compliance_pass_rate =
+      point.compliance_total > 0
+        ? Math.round((point.compliance_pass / point.compliance_total) * 100)
+        : 0
+  }
+  return Array.from(byBucket.values()).sort((a, b) =>
+    a.bucket.localeCompare(b.bucket),
+  )
 }

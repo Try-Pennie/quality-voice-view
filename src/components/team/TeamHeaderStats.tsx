@@ -12,9 +12,15 @@ type TeamMetrics = {
 export function TeamHeaderStats({
   metrics,
   loading,
+  onComplianceClick,
+  onEscalationClick,
+  onAlertsClick,
 }: {
   metrics: TeamMetrics
   loading: boolean
+  onComplianceClick?: () => void
+  onEscalationClick?: () => void
+  onAlertsClick?: () => void
 }) {
   return (
     <header className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-end">
@@ -42,21 +48,52 @@ export function TeamHeaderStats({
         <SupportingStat
           label="Compliance"
           value={loading ? '—' : `${metrics.avgCompliance}%`}
+          onClick={onComplianceClick}
+          actionLabel="Show agents needing attention"
         />
         <SupportingStat
           label="Escalation"
           value={loading ? '—' : `${metrics.avgEscalation}%`}
+          onClick={onEscalationClick}
+          actionLabel="Show agents needing attention"
         />
         <SupportingStat
           label="Open alerts"
           value={loading ? '—' : metrics.openAlerts.toLocaleString()}
+          onClick={onAlertsClick}
+          actionLabel="Go to alerts inbox"
         />
       </dl>
     </header>
   )
 }
 
-function SupportingStat({ label, value }: { label: string; value: string | number }) {
+function SupportingStat({
+  label,
+  value,
+  onClick,
+  actionLabel,
+}: {
+  label: string
+  value: string | number
+  onClick?: () => void
+  actionLabel?: string
+}) {
+  if (onClick) {
+    return (
+      <button
+        type="button"
+        onClick={onClick}
+        aria-label={actionLabel ? `${label}: ${value}. ${actionLabel}` : undefined}
+        className="text-left rounded-2xl -m-2 p-2 transition-colors hover:bg-pennie-beige/60 focus:outline-none focus:ring-2 focus:ring-pennie-blue-dark/40 group"
+      >
+        <dt className="pennie-label group-hover:text-pennie-navy transition-colors">{label}</dt>
+        <dd className="mt-1 text-2xl font-semibold text-pennie-navy tabular-nums">
+          {value}
+        </dd>
+      </button>
+    )
+  }
   return (
     <div>
       <dt className="pennie-label">{label}</dt>

@@ -1,11 +1,32 @@
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../hooks/useAuth'
-import { fetchUserScope, type UserScope } from '../lib/alert-queries'
-import { fetchTeamRollup, type AgentRollup } from '../lib/team-queries'
+import {
+  fetchUserScope,
+  fetchAlertBreakdown,
+  type UserScope,
+  type AlertBreakdownCell,
+} from '../lib/alert-queries'
+import {
+  fetchTeamRollup,
+  aggregateTeamTrend,
+  fetchTeamCoachingThemes,
+  fetchAgentManagerMapping,
+  aggregateManagerRollups,
+  fetchManagerNames,
+  type AgentRollup,
+  type ManagerRollup,
+} from '../lib/team-queries'
+import type { TeamCoachingThemes as TeamCoachingThemesType } from '../lib/coaching-aggregation'
 import { DateRangePicker } from '../components/dashboard/DateRangePicker'
 import { TeamHeaderStats } from '../components/team/TeamHeaderStats'
 import { TeamLeaderboard } from '../components/team/TeamLeaderboard'
+import { TeamTrendSection } from '../components/team/TeamTrendSection'
+import { TeamCoachingThemes } from '../components/team/TeamCoachingThemes'
+import { TeamBreakdownByManager } from '../components/team/TeamBreakdownByManager'
+import { AlertHeatmap } from '../components/alerts/AlertHeatmap'
+import { MigoCoverageCard } from '../components/team/MigoCoverageCard'
+import { fetchMigoCoverage, type MigoCoverage } from '../lib/migo-queries'
 
 type QuickFilter = 'all' | 'attention' | 'top' | 'alerts'
 
@@ -30,6 +51,21 @@ export default function TeamPage() {
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
   const [quickFilter, setQuickFilter] = useState<QuickFilter>('all')
+  const [teamThemes, setTeamThemes] = useState<TeamCoachingThemesType | null>(null)
+  const [themesLoading, setThemesLoading] = useState(true)
+  const [breakdown, setBreakdown] = useState<AlertBreakdownCell[]>([])
+  const [breakdownLoading, setBreakdownLoading] = useState(true)
+  const [migoCoverage, setMigoCoverage] = useState<MigoCoverage | null>(null)
+  const [migoLoading, setMigoLoading] = useState(true)
+  const [managerMapping, setManagerMapping] = useState<
+    { manager_email: string; agent_email: string }[]
+  >([])
+  const [managerNames, setManagerNames] = useState<Map<string, string>>(
+    new Map(),
+  )
+  const [selectedManager, setSelectedManager] = useState<ManagerRollup | null>(
+    null,
+  )
 
   useEffect(() => {
     if (!user?.email) return
@@ -44,8 +80,61 @@ export default function TeamPage() {
       .finally(() => setLoading(false))
   }, [scope, startDate, endDate])
 
+  useEffect(() => {
+    if (!scope) return
+    setThemesLoading(true)
+    fetchTeamCoachingThemes(scope, startDate, endDate)
+      .then(setTeamThemes)
+      .finally(() => setThemesLoading(false))
+  }, [scope, startDate, endDate])
+
+  useEffect(() => {
+    if (!scope) return
+    setBreakdownLoading(true)
+    fetchAlertBreakdown(scope, startDate, endDate)
+      .then(setBreakdown)
+      .finally(() => setBreakdownLoading(false))
+  }, [scope, startDate, endDate])
+
+  useEffect(() => {
+    if (!scope) return
+    if (loading) return // wait for rollup so we know the agent universe
+    setMigoLoading(true)
+    const agentEmails = rollup.map(r => r.agent_email)
+    fetchMigoCoverage(scope, agentEmails, startDate, endDate)
+      .then(setMigoCoverage)
+      .finally(() => setMigoLoading(false))
+  }, [scope, rollup, loading, startDate, endDate])
+
+  // Manager mapping is only relevant for god-mode users — regular managers
+  // already see only their own team via scope.managedAgents.
+  useEffect(() => {
+    if (!scope?.isGodMode) {
+      setManagerMapping([])
+      setManagerNames(new Map())
+      return
+    }
+    fetchAgentManagerMapping().then(async mapping => {
+      setManagerMapping(mapping)
+      const uniqueManagers = Array.from(
+        new Set(mapping.map(m => m.manager_email)),
+      )
+      const names = await fetchManagerNames(uniqueManagers)
+      setManagerNames(names)
+    })
+  }, [scope])
+
+  const managerRollups = useMemo(() => {
+    if (!scope?.isGodMode) return []
+    return aggregateManagerRollups(rollup, managerMapping, managerNames)
+  }, [scope, rollup, managerMapping, managerNames])
+
   const filtered = useMemo(() => {
     let rows = rollup
+    if (selectedManager) {
+      const agentSet = new Set(selectedManager.agent_emails)
+      rows = rows.filter(r => agentSet.has(r.agent_email))
+    }
     if (search.trim()) {
       const s = search.trim().toLowerCase()
       rows = rows.filter(
@@ -62,7 +151,7 @@ export default function TeamPage() {
         .slice(0, 10)
     if (quickFilter === 'alerts') rows = rows.filter(r => r.unreviewed_alerts_count > 0)
     return rows
-  }, [rollup, search, quickFilter])
+  }, [rollup, search, quickFilter, selectedManager])
 
   const teamMetrics = useMemo(() => {
     if (rollup.length === 0) {
@@ -101,20 +190,67 @@ export default function TeamPage() {
     }
   }, [rollup])
 
+  const teamTrend = useMemo(() => aggregateTeamTrend(rollup), [rollup])
+
+  const leaderboardRef = useRef<HTMLDivElement>(null)
+
+  const focusAttentionList = () => {
+    setQuickFilter('attention')
+    setSearch('')
+    requestAnimationFrame(() => {
+      leaderboardRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    })
+  }
+
+  const goToAlerts = () => {
+    navigate('/dashboard/alerts')
+  }
+
   const noAgents = !loading && scope && !scope.isGodMode && scope.managedAgents.length === 0
 
   return (
     <div className="space-y-8 animate-pennie-rise">
-      <TeamHeaderStats metrics={teamMetrics} loading={loading} />
+      <div className="flex flex-wrap items-end justify-between gap-4">
+        <DateRangePicker
+          startDate={startDate}
+          endDate={endDate}
+          onStartDateChange={setStartDate}
+          onEndDateChange={setEndDate}
+          maxRangeDays={30}
+        />
+      </div>
+
+      <TeamHeaderStats
+        metrics={teamMetrics}
+        loading={loading}
+        onComplianceClick={focusAttentionList}
+        onEscalationClick={focusAttentionList}
+        onAlertsClick={goToAlerts}
+      />
+
+      <TeamTrendSection points={teamTrend} loading={loading} />
+
+      {scope?.isGodMode && (
+        <TeamBreakdownByManager
+          rows={managerRollups}
+          loading={loading}
+          selectedManager={selectedManager?.manager_email ?? null}
+          onSelect={mgr => {
+            setSelectedManager(mgr)
+            if (mgr) {
+              requestAnimationFrame(() => {
+                leaderboardRef.current?.scrollIntoView({
+                  behavior: 'smooth',
+                  block: 'start',
+                })
+              })
+            }
+          }}
+        />
+      )}
 
       <div className="flex flex-wrap items-center justify-between gap-4">
         <div className="flex flex-wrap gap-5 items-end">
-          <DateRangePicker
-            startDate={startDate}
-            endDate={endDate}
-            onStartDateChange={setStartDate}
-            onEndDateChange={setEndDate}
-          />
           <div className="flex flex-col">
             <label htmlFor="agent-search" className="pennie-label mb-2">
               Search
@@ -156,20 +292,42 @@ export default function TeamPage() {
         ))}
       </div>
 
-      {noAgents ? (
-        <div className="text-center py-12 bg-pennie-white rounded-3xl shadow-resting">
-          <p className="text-pennie-graphite font-medium">
-            No agents are assigned to you yet.
-          </p>
-          <p className="text-sm text-pennie-graphite/70 mt-2">
-            Talk to an admin to set up your team mapping.
-          </p>
-        </div>
-      ) : (
-        <TeamLeaderboard
-          rows={filtered}
-          loading={loading}
-          onSelect={agent => navigate(`/dashboard/team/${encodeURIComponent(agent.agent_email)}`)}
+      <div ref={leaderboardRef} className="scroll-mt-8">
+        {noAgents ? (
+          <div className="text-center py-12 bg-pennie-white rounded-3xl shadow-resting">
+            <p className="text-pennie-graphite font-medium">
+              No agents are assigned to you yet.
+            </p>
+            <p className="text-sm text-pennie-graphite/70 mt-2">
+              Talk to an admin to set up your team mapping.
+            </p>
+          </div>
+        ) : (
+          <TeamLeaderboard
+            rows={filtered}
+            loading={loading}
+            onSelect={agent => navigate(`/dashboard/team/${encodeURIComponent(agent.agent_email)}`)}
+          />
+        )}
+      </div>
+
+      {!noAgents && (
+        <AlertHeatmap
+          cells={breakdown}
+          rollups={rollup}
+          loading={breakdownLoading}
+        />
+      )}
+
+      {!noAgents && (
+        <MigoCoverageCard coverage={migoCoverage} loading={migoLoading} />
+      )}
+
+      {!noAgents && (
+        <TeamCoachingThemes
+          themes={teamThemes}
+          loading={themesLoading}
+          totalAgents={teamMetrics.agentCount}
         />
       )}
     </div>

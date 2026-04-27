@@ -11,6 +11,7 @@ import { accentForScore, pillClasses } from '../lib/violation-styles'
 import type { CallWithQA } from '../types/database'
 import { DateRangePicker } from '../components/dashboard/DateRangePicker'
 import { AgentFilter } from '../components/dashboard/AgentFilter'
+import { DispositionFilter } from '../components/dashboard/DispositionFilter'
 import { ThresholdSettingsSheet } from '../components/settings/ThresholdSettings'
 import { ThresholdSettings, DEFAULT_THRESHOLDS } from '../types/settings'
 import { Settings, Download, Loader2 } from 'lucide-react'
@@ -34,6 +35,7 @@ export default function DashboardPage() {
 
   const [selectedAgents, setSelectedAgents] = useState<string[]>([])
   const [availableAgents, setAvailableAgents] = useState<any[]>([])
+  const [selectedDispositions, setSelectedDispositions] = useState<string[]>([])
   const [quickFilter, setQuickFilter] = useState<QuickFilter>('all')
 
   const [calls, setCalls] = useState<CallWithQA[]>([])
@@ -65,12 +67,27 @@ export default function DashboardPage() {
     })
   }, [startDate, endDate, selectedAgents])
 
+  const availableDispositions = useMemo(() => {
+    const set = new Set<string>()
+    for (const c of calls) {
+      if (c.disposition) set.add(c.disposition)
+    }
+    return Array.from(set).sort((a, b) => a.localeCompare(b))
+  }, [calls])
+
   const filteredCalls = useMemo(() => {
-    if (quickFilter === 'escalations') return calls.filter(c => c.qa?.manager_escalation === true)
-    if (quickFilter === 'compliance') return calls.filter(c => c.qa?.compliance_rating === 'fail')
-    if (quickFilter === 'threshold') return calls.filter(c => requiresAttention(c.qa))
-    return calls
-  }, [calls, quickFilter])
+    let rows = calls
+    if (selectedDispositions.length > 0) {
+      const set = new Set(selectedDispositions)
+      rows = rows.filter(c => c.disposition && set.has(c.disposition))
+    }
+    if (quickFilter === 'escalations')
+      return rows.filter(c => c.qa?.manager_escalation === true)
+    if (quickFilter === 'compliance')
+      return rows.filter(c => c.qa?.compliance_rating === 'fail')
+    if (quickFilter === 'threshold') return rows.filter(c => requiresAttention(c.qa))
+    return rows
+  }, [calls, quickFilter, selectedDispositions])
 
   useEffect(() => {
     setCurrentPage(1)
@@ -160,6 +177,11 @@ export default function DashboardPage() {
             availableAgents={availableAgents}
             selectedAgents={selectedAgents}
             onSelectionChange={setSelectedAgents}
+          />
+          <DispositionFilter
+            available={availableDispositions}
+            selected={selectedDispositions}
+            onSelectionChange={setSelectedDispositions}
           />
         </div>
         <div className="flex items-center gap-2">
@@ -376,6 +398,7 @@ export default function DashboardPage() {
             onClick={() => {
               setQuickFilter('all')
               setSelectedAgents([])
+              setSelectedDispositions([])
             }}
             className="mt-3 text-sm font-semibold text-pennie-blue-dark hover:underline underline-offset-4"
           >

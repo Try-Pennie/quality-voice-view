@@ -106,6 +106,24 @@ export async function fetchAlerts(
   return (data || []) as AlertWithFeedback[]
 }
 
+// All alerts (any status, includes false-positives + non-violations) for a
+// single call. Used on the call detail page so users can see whether Eavesly
+// fired anything for this call.
+export async function fetchAlertsForCall(
+  callId: string,
+): Promise<AlertWithFeedback[]> {
+  const { data, error } = await sb
+    .from('eavesly_alerts_with_feedback')
+    .select('*')
+    .eq('call_id', callId)
+    .order('alert_created_at', { ascending: true })
+  if (error) {
+    console.error('Error fetching alerts for call:', error)
+    return []
+  }
+  return (data || []) as AlertWithFeedback[]
+}
+
 export async function fetchAlertOne(
   callId: string,
   moduleName: string,
@@ -144,6 +162,76 @@ export async function submitAlertFeedback(
     return { ok: false, error: error.message }
   }
   return { ok: true }
+}
+
+// ---- team breakdown (heatmap) ----
+
+export type AlertBreakdownCell = {
+  module: string
+  agent_email: string
+  agent_full_name: string | null
+  total: number // total violations in window
+  unreviewed: number // open + not reviewed
+  false_positives: number // accurate=false
+  reviewed: number // any feedback submitted
+}
+
+export async function fetchAlertBreakdown(
+  scope: UserScope,
+  startDate: Date,
+  endDate: Date,
+): Promise<AlertBreakdownCell[]> {
+  if (!scope.isGodMode && scope.managedAgents.length === 0) return []
+
+  let q = sb
+    .from('eavesly_alerts_with_feedback')
+    .select(
+      'module_name, agent_email, has_violation, is_reviewed, accurate, alert_created_at',
+    )
+    .eq('has_violation', true)
+    .gte('alert_created_at', startDate.toISOString())
+    .lte('alert_created_at', endDate.toISOString())
+    .limit(5000)
+
+  if (!scope.isGodMode) {
+    q = q.in('agent_email', scope.managedAgents)
+  }
+
+  const { data, error } = await q
+  if (error) {
+    console.error('Error fetching alert breakdown:', error)
+    return []
+  }
+
+  const rows = (data || []) as Array<{
+    module_name: string | null
+    agent_email: string | null
+    has_violation: boolean | null
+    is_reviewed: boolean | null
+    accurate: boolean | null
+  }>
+
+  const byKey = new Map<string, AlertBreakdownCell>()
+  for (const r of rows) {
+    if (!r.module_name || !r.agent_email) continue
+    const key = `${r.module_name}::${r.agent_email}`
+    const existing = byKey.get(key) || {
+      module: r.module_name,
+      agent_email: r.agent_email,
+      agent_full_name: null,
+      total: 0,
+      unreviewed: 0,
+      false_positives: 0,
+      reviewed: 0,
+    }
+    existing.total += 1
+    if (!r.is_reviewed) existing.unreviewed += 1
+    if (r.is_reviewed) existing.reviewed += 1
+    if (r.accurate === false) existing.false_positives += 1
+    byKey.set(key, existing)
+  }
+
+  return Array.from(byKey.values())
 }
 
 // ---- display labels ----

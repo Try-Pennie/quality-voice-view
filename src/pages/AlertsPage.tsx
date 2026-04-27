@@ -1,15 +1,19 @@
 import { useState, useEffect, useMemo, useCallback, useId, type KeyboardEvent } from 'react'
-import { useParams, useNavigate } from 'react-router-dom'
+import { useParams, useNavigate, useSearchParams } from 'react-router-dom'
 import { useAuth } from '../hooks/useAuth'
 import {
   fetchUserScope,
   fetchAlerts,
   fetchAlertOne,
+  fetchAlertBreakdown,
   VIOLATION_TYPE_LABELS,
   MODULE_LABELS,
   type UserScope,
   type AlertFilters,
+  type AlertBreakdownCell,
 } from '../lib/alert-queries'
+import { AlertHeatmap } from '../components/alerts/AlertHeatmap'
+import { fetchTeamRollup, type AgentRollup } from '../lib/team-queries'
 import {
   accentForReviewStatus,
   accentForViolation,
@@ -35,6 +39,7 @@ export default function AlertsPage() {
   const { user } = useAuth()
   const navigate = useNavigate()
   const { callId: routeCallId, moduleName: routeModuleName } = useParams()
+  const [searchParams] = useSearchParams()
   const searchInputId = useId()
 
   const [scope, setScope] = useState<UserScope | null>(null)
@@ -53,9 +58,20 @@ export default function AlertsPage() {
     d.setHours(23, 59, 59, 999)
     return d
   })
-  const [statusView, setStatusView] = useState<StatusView>('new')
-  const [moduleFilter, setModuleFilter] = useState<string[]>([])
-  const [search, setSearch] = useState('')
+  // Lazy-init from URL params so heatmap drilldowns land pre-filtered.
+  const [statusView, setStatusView] = useState<StatusView>(() => {
+    const s = searchParams.get('status')
+    return s === 'new' || s === 'reviewed' || s === 'all' ? s : 'new'
+  })
+  const [moduleFilter, setModuleFilter] = useState<string[]>(() => {
+    const m = searchParams.get('module')
+    return m ? [m] : []
+  })
+  const [search, setSearch] = useState(() => searchParams.get('search') || '')
+
+  const [breakdown, setBreakdown] = useState<AlertBreakdownCell[]>([])
+  const [breakdownLoading, setBreakdownLoading] = useState(true)
+  const [rollups, setRollups] = useState<AgentRollup[]>([])
 
   useEffect(() => {
     if (!user?.email) return
@@ -82,6 +98,22 @@ export default function AlertsPage() {
       setLoading(false)
     })
   }, [scope, serverFilters])
+
+  // Heatmap data is independent of in-page module filter — it always shows the
+  // full breakdown so users can pivot from one cell to another.
+  useEffect(() => {
+    if (!scope) return
+    setBreakdownLoading(true)
+    Promise.all([
+      fetchAlertBreakdown(scope, startDate, endDate),
+      fetchTeamRollup(scope, startDate, endDate),
+    ])
+      .then(([cells, rolls]) => {
+        setBreakdown(cells)
+        setRollups(rolls)
+      })
+      .finally(() => setBreakdownLoading(false))
+  }, [scope, startDate, endDate])
 
   const alerts = useMemo(() => {
     let rows = allAlerts
@@ -302,6 +334,13 @@ export default function AlertsPage() {
           <SupportingStat label="Agents flagged" value={stats.flaggedAgents} />
         </dl>
       </header>
+
+      <AlertHeatmap
+        cells={breakdown}
+        rollups={rollups}
+        loading={breakdownLoading}
+        compact
+      />
 
       {/* Filters */}
       <section className="pennie-card-tight space-y-4">
