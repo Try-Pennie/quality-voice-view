@@ -35,25 +35,26 @@ export function formatDateTime(dateString: string | null): string {
   })
 }
 
-// Get score badge color
+// Pennie pill classes for legacy CallDetailPage callers. Prefer
+// pillClasses(accentForScore(...)) from lib/violation-styles for new code.
 export function getScoreBadgeColor(score: string | null): string {
   switch (score?.toLowerCase()) {
     case 'excellent':
     case 'pass':
     case 'high':
-      return 'bg-green-100 text-green-800'
+      return 'pennie-pill bg-pennie-green-light text-pennie-green-dark'
     case 'good':
     case 'medium':
-      return 'bg-blue-100 text-blue-800'
+      return 'pennie-pill bg-pennie-blue-light text-pennie-blue-dark'
     case 'needs_improvement':
     case 'fair':
     case 'low':
-      return 'bg-yellow-100 text-yellow-800'
+      return 'pennie-pill bg-pennie-yellow-light text-pennie-yellow-dark'
     case 'poor':
     case 'fail':
-      return 'bg-red-100 text-red-800'
+      return 'pennie-pill bg-pennie-peach-light text-pennie-peach-dark'
     default:
-      return 'bg-gray-100 text-gray-800'
+      return 'pennie-pill bg-pennie-beige text-pennie-navy'
   }
 }
 

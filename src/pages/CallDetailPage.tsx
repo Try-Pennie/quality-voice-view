@@ -7,7 +7,6 @@ import { ComplianceScorecard } from '../components/call-detail/ComplianceScoreca
 import { SalesProcessScorecard } from '../components/call-detail/SalesProcessScorecard'
 import { CustomerExperienceScorecard } from '../components/call-detail/CustomerExperienceScorecard'
 import { CoachingRecommendations } from '../components/call-detail/CoachingRecommendations'
-import { exportCallDetailToPDF } from '../lib/pdf-export'
 import { ArrowLeft, ExternalLink, Download } from 'lucide-react'
 import { toast } from 'sonner'
 
@@ -59,6 +58,7 @@ export default function CallDetailPage() {
 
   const handleExportPDF = async () => {
     if (call) {
+      const { exportCallDetailToPDF } = await import('../lib/pdf-export')
       await exportCallDetailToPDF(call)
       toast.success('PDF exported successfully')
     }

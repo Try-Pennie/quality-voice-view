@@ -1,7 +1,12 @@
-import { useState, useEffect } from 'react'
-import { X } from 'lucide-react'
+import { useEffect, useState } from 'react'
+import {
+  Sheet,
+  SheetContent,
+  SheetFooter,
+  SheetHeader,
+  SheetTitle,
+} from '../ui/sheet'
 import { ThresholdSettings, DEFAULT_THRESHOLDS } from '../../types/settings'
-import { Button } from '../ui/button'
 import { Input } from '../ui/input'
 import { Label } from '../ui/label'
 
@@ -11,7 +16,7 @@ interface Props {
   onSave: (thresholds: ThresholdSettings) => void
 }
 
-export function ThresholdSettingsModal({ isOpen, onClose, onSave }: Props) {
+export function ThresholdSettingsSheet({ isOpen, onClose, onSave }: Props) {
   const [thresholds, setThresholds] = useState<ThresholdSettings>(DEFAULT_THRESHOLDS)
 
   useEffect(() => {
@@ -35,178 +40,224 @@ export function ThresholdSettingsModal({ isOpen, onClose, onSave }: Props) {
     setThresholds(DEFAULT_THRESHOLDS)
   }
 
-  if (!isOpen) return null
-
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center">
-      <div
-        className="absolute inset-0 bg-black/50"
-        onClick={onClose}
-      />
+    <Sheet open={isOpen} onOpenChange={open => !open && onClose()}>
+      <SheetContent
+        side="right"
+        className="w-full sm:max-w-xl flex flex-col gap-0 p-0 overflow-hidden bg-pennie-white"
+      >
+        <SheetHeader className="px-8 py-5 border-b border-border text-left">
+          <SheetTitle className="text-xl font-semibold text-pennie-navy">
+            Threshold settings
+          </SheetTitle>
+          <p className="text-sm text-muted-foreground">
+            Set the bands that mark calls as needing attention.
+          </p>
+        </SheetHeader>
 
-      <div className="relative bg-card rounded-lg shadow-xl max-w-2xl w-full mx-4 max-h-[90vh] overflow-y-auto border border-border">
-        <div className="flex items-center justify-between p-6 border-b border-border">
-          <h2 className="text-xl font-semibold text-foreground">Threshold Settings</h2>
-          <Button
-            onClick={onClose}
-            variant="ghost"
-            size="icon"
+        <div className="flex-1 overflow-y-auto px-8 py-6 space-y-7">
+          <FieldGroup
+            title="Talk time"
+            unit="seconds"
+            help="Calls outside this range are flagged for attention."
           >
-            <X className="w-5 h-5" />
-          </Button>
-        </div>
-
-        <div className="p-6 space-y-6">
-          <div className="space-y-3">
-            <h3 className="text-lg font-semibold text-foreground">Talk Time (seconds)</h3>
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <Label htmlFor="talk-min">Minimum</Label>
-                <Input
-                  id="talk-min"
-                  type="number"
-                  value={thresholds.talkTime.min}
-                  onChange={(e) => setThresholds({
-                    ...thresholds,
-                    talkTime: { ...thresholds.talkTime, min: parseInt(e.target.value) || 0 }
-                  })}
-                />
-              </div>
-              <div>
-                <Label htmlFor="talk-max">Maximum</Label>
-                <Input
-                  id="talk-max"
-                  type="number"
-                  value={thresholds.talkTime.max}
-                  onChange={(e) => setThresholds({
-                    ...thresholds,
-                    talkTime: { ...thresholds.talkTime, max: parseInt(e.target.value) || 0 }
-                  })}
-                />
-              </div>
-            </div>
-            <p className="text-sm text-muted-foreground">
-              Calls outside this range will be flagged for attention
-            </p>
-          </div>
-
-          <div className="space-y-3">
-            <h3 className="text-lg font-semibold text-foreground">Handle Time (seconds)</h3>
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <Label htmlFor="handle-min">Minimum</Label>
-                <Input
-                  id="handle-min"
-                  type="number"
-                  value={thresholds.handleTime.min}
-                  onChange={(e) => setThresholds({
-                    ...thresholds,
-                    handleTime: { ...thresholds.handleTime, min: parseInt(e.target.value) || 0 }
-                  })}
-                />
-              </div>
-              <div>
-                <Label htmlFor="handle-max">Maximum</Label>
-                <Input
-                  id="handle-max"
-                  type="number"
-                  value={thresholds.handleTime.max}
-                  onChange={(e) => setThresholds({
-                    ...thresholds,
-                    handleTime: { ...thresholds.handleTime, max: parseInt(e.target.value) || 0 }
-                  })}
-                />
-              </div>
-            </div>
-          </div>
-
-          <div className="space-y-3">
-            <h3 className="text-lg font-semibold text-foreground">Compliance Pass Rate (%)</h3>
-            <div>
-              <Label htmlFor="compliance-min">Minimum Acceptable Rate</Label>
-              <Input
-                id="compliance-min"
-                type="number"
-                min="0"
-                max="100"
-                value={thresholds.complianceRate.min}
-                onChange={(e) => setThresholds({
+            <NumberField
+              id="talk-min"
+              label="Minimum"
+              value={thresholds.talkTime.min}
+              onChange={n =>
+                setThresholds({
                   ...thresholds,
-                  complianceRate: { min: parseInt(e.target.value) || 0 }
-                })}
-              />
-              <p className="text-sm text-muted-foreground mt-1">
-                Alert when team compliance rate falls below this threshold
-              </p>
-            </div>
-          </div>
+                  talkTime: { ...thresholds.talkTime, min: n },
+                })
+              }
+            />
+            <NumberField
+              id="talk-max"
+              label="Maximum"
+              value={thresholds.talkTime.max}
+              onChange={n =>
+                setThresholds({
+                  ...thresholds,
+                  talkTime: { ...thresholds.talkTime, max: n },
+                })
+              }
+            />
+          </FieldGroup>
 
-          <div className="space-y-3">
-            <h3 className="text-lg font-semibold text-foreground">Customer Satisfaction (%)</h3>
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <Label htmlFor="csat-high">High Threshold</Label>
-                <Input
-                  id="csat-high"
-                  type="number"
-                  min="0"
-                  max="100"
-                  value={thresholds.customerSatisfaction.highThreshold}
-                  onChange={(e) => setThresholds({
-                    ...thresholds,
-                    customerSatisfaction: {
-                      ...thresholds.customerSatisfaction,
-                      highThreshold: parseInt(e.target.value) || 0
-                    }
-                  })}
-                />
-                <p className="text-xs text-muted-foreground mt-1">Above this = "High"</p>
-              </div>
-              <div>
-                <Label htmlFor="csat-low">Low Threshold</Label>
-                <Input
-                  id="csat-low"
-                  type="number"
-                  min="0"
-                  max="100"
-                  value={thresholds.customerSatisfaction.lowThreshold}
-                  onChange={(e) => setThresholds({
-                    ...thresholds,
-                    customerSatisfaction: {
-                      ...thresholds.customerSatisfaction,
-                      lowThreshold: parseInt(e.target.value) || 0
-                    }
-                  })}
-                />
-                <p className="text-xs text-muted-foreground mt-1">Below this = "Low"</p>
-              </div>
-            </div>
-          </div>
+          <FieldGroup title="Handle time" unit="seconds">
+            <NumberField
+              id="handle-min"
+              label="Minimum"
+              value={thresholds.handleTime.min}
+              onChange={n =>
+                setThresholds({
+                  ...thresholds,
+                  handleTime: { ...thresholds.handleTime, min: n },
+                })
+              }
+            />
+            <NumberField
+              id="handle-max"
+              label="Maximum"
+              value={thresholds.handleTime.max}
+              onChange={n =>
+                setThresholds({
+                  ...thresholds,
+                  handleTime: { ...thresholds.handleTime, max: n },
+                })
+              }
+            />
+          </FieldGroup>
+
+          <FieldGroup
+            title="Compliance pass rate"
+            unit="%"
+            help="Alert when team compliance falls below this threshold."
+          >
+            <NumberField
+              id="compliance-min"
+              label="Minimum acceptable rate"
+              min={0}
+              max={100}
+              value={thresholds.complianceRate.min}
+              onChange={n =>
+                setThresholds({
+                  ...thresholds,
+                  complianceRate: { min: n },
+                })
+              }
+              className="col-span-2"
+            />
+          </FieldGroup>
+
+          <FieldGroup title="Customer satisfaction" unit="%">
+            <NumberField
+              id="csat-high"
+              label="High threshold"
+              hint='Above this = "High"'
+              min={0}
+              max={100}
+              value={thresholds.customerSatisfaction.highThreshold}
+              onChange={n =>
+                setThresholds({
+                  ...thresholds,
+                  customerSatisfaction: {
+                    ...thresholds.customerSatisfaction,
+                    highThreshold: n,
+                  },
+                })
+              }
+            />
+            <NumberField
+              id="csat-low"
+              label="Low threshold"
+              hint='Below this = "Low"'
+              min={0}
+              max={100}
+              value={thresholds.customerSatisfaction.lowThreshold}
+              onChange={n =>
+                setThresholds({
+                  ...thresholds,
+                  customerSatisfaction: {
+                    ...thresholds.customerSatisfaction,
+                    lowThreshold: n,
+                  },
+                })
+              }
+            />
+          </FieldGroup>
         </div>
 
-        <div className="flex items-center justify-between p-6 border-t border-border">
-          <Button
+        <SheetFooter className="border-t border-border bg-pennie-beige/40 px-8 py-4 flex-row sm:flex-row sm:justify-between gap-3">
+          <button
+            type="button"
             onClick={handleReset}
-            variant="outline"
+            className="min-h-[40px] px-4 py-2 rounded-full text-sm font-semibold text-pennie-graphite hover:bg-pennie-white border border-border transition-colors"
           >
-            Reset to Defaults
-          </Button>
-
-          <div className="flex gap-3">
-            <Button
+            Reset to defaults
+          </button>
+          <div className="flex gap-2">
+            <button
+              type="button"
               onClick={onClose}
-              variant="outline"
+              className="min-h-[40px] px-4 py-2 rounded-full text-sm font-semibold text-pennie-graphite hover:bg-pennie-white border border-border transition-colors"
             >
               Cancel
-            </Button>
-            <Button
+            </button>
+            <button
+              type="button"
               onClick={handleSave}
+              className="min-h-[40px] px-5 py-2 rounded-full bg-pennie-navy text-pennie-white text-sm font-semibold hover:bg-pennie-navy/90 transition-colors"
             >
-              Save Settings
-            </Button>
+              Save settings
+            </button>
           </div>
-        </div>
-      </div>
+        </SheetFooter>
+      </SheetContent>
+    </Sheet>
+  )
+}
+
+function FieldGroup({
+  title,
+  unit,
+  help,
+  children,
+}: {
+  title: string
+  unit?: string
+  help?: string
+  children: React.ReactNode
+}) {
+  return (
+    <fieldset className="space-y-3">
+      <legend className="flex items-baseline gap-2">
+        <span className="text-base font-semibold text-pennie-navy">{title}</span>
+        {unit && (
+          <span className="text-xs text-muted-foreground">({unit})</span>
+        )}
+      </legend>
+      <div className="grid grid-cols-2 gap-4">{children}</div>
+      {help && <p className="text-xs text-muted-foreground">{help}</p>}
+    </fieldset>
+  )
+}
+
+function NumberField({
+  id,
+  label,
+  value,
+  onChange,
+  hint,
+  min,
+  max,
+  className,
+}: {
+  id: string
+  label: string
+  value: number
+  onChange: (n: number) => void
+  hint?: string
+  min?: number
+  max?: number
+  className?: string
+}) {
+  return (
+    <div className={className}>
+      <Label htmlFor={id} className="text-sm font-semibold text-pennie-graphite">
+        {label}
+      </Label>
+      <Input
+        id={id}
+        type="number"
+        min={min}
+        max={max}
+        value={value}
+        onChange={e => onChange(parseInt(e.target.value) || 0)}
+        className="mt-1.5"
+      />
+      {hint && <p className="text-xs text-muted-foreground mt-1">{hint}</p>}
     </div>
   )
 }

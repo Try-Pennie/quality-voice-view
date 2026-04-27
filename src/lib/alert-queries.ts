@@ -45,6 +45,31 @@ export type AlertFilters = {
   search?: string
 }
 
+// Columns rendered in the alerts table. Crucially excludes result_json,
+// recording_link, transcript_url — those are only needed when the drawer
+// opens and are fetched on demand via fetchAlertOne.
+const ALERT_LIST_COLUMNS = [
+  'call_id',
+  'module_name',
+  'violation_type',
+  'alert_created_at',
+  'has_violation',
+  'alert_sent',
+  'agent_email',
+  'contact_name',
+  'contact_phone',
+  'call_summary',
+  'sfdc_lead_id',
+  'is_reviewed',
+  'accurate',
+  'action_taken',
+  'inaccuracy_reason',
+  'feedback_id',
+  'feedback_by',
+  'feedback_comment',
+  'reviewed_at',
+].join(',')
+
 export async function fetchAlerts(
   filters: AlertFilters,
   scope: UserScope,
@@ -54,7 +79,7 @@ export async function fetchAlerts(
 
   let q = sb
     .from('eavesly_alerts_with_feedback')
-    .select('*')
+    .select(ALERT_LIST_COLUMNS)
     .gte('alert_created_at', filters.startDate.toISOString())
     .lte('alert_created_at', filters.endDate.toISOString())
     .order('alert_created_at', { ascending: false })
@@ -70,12 +95,8 @@ export async function fetchAlerts(
   if (filters.accuracy === 'accurate') q = q.eq('accurate', true)
   if (filters.accuracy === 'inaccurate') q = q.eq('accurate', false)
 
-  if (filters.search?.trim()) {
-    const t = `%${filters.search.trim()}%`
-    q = q.or(
-      `contact_phone.ilike.${t},sfdc_lead_id.ilike.${t},call_id.ilike.${t},agent_email.ilike.${t}`,
-    )
-  }
+  // Search is applied client-side now (small result set, removes per-keystroke
+  // round-trip). The `search` field is ignored here intentionally.
 
   const { data, error } = await q
   if (error) {

@@ -30,6 +30,11 @@ async function fetchQASummaries(callIds: string[]) {
   return results.flat()
 }
 
+// Columns rendered on the dashboard list. Drops large/unused fields like
+// `notes`, `disposition`, `direction`, `wrapup_time`, etc.
+const CALL_LIST_COLUMNS =
+  'id, call_id, agent_email, agent_full_name, started_at, contact_phone, talk_time, handle_time'
+
 export async function fetchDashboardData(
   startDate: Date,
   endDate: Date,
@@ -38,7 +43,7 @@ export async function fetchDashboardData(
   // 1) Fetch calls in range (and by agents if provided)
   let callsQuery = supabase
     .from('eavesly_calls')
-    .select('*')
+    .select(CALL_LIST_COLUMNS)
     .gte('started_at', startDate.toISOString())
     .lte('started_at', endDate.toISOString())
     .order('started_at', { ascending: false })
