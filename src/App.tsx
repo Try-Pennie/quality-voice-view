@@ -9,6 +9,7 @@ import { DashboardLayout } from "./components/DashboardLayout";
 import LoginPage from "./pages/LoginPage";
 import DashboardPage from "./pages/DashboardPage";
 import CallDetailPage from "./pages/CallDetailPage";
+import AlertsPage from "./pages/AlertsPage";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -40,6 +41,28 @@ const App = () => (
                 <ProtectedRoute>
                   <DashboardLayout>
                     <CallDetailPage />
+                  </DashboardLayout>
+                </ProtectedRoute>
+              }
+            />
+
+            <Route
+              path="/dashboard/alerts"
+              element={
+                <ProtectedRoute>
+                  <DashboardLayout>
+                    <AlertsPage />
+                  </DashboardLayout>
+                </ProtectedRoute>
+              }
+            />
+
+            <Route
+              path="/dashboard/alerts/:callId/:moduleName"
+              element={
+                <ProtectedRoute>
+                  <DashboardLayout>
+                    <AlertsPage />
                   </DashboardLayout>
                 </ProtectedRoute>
               }

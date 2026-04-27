@@ -110,3 +110,73 @@ export type QAJson = {
 export type CallWithQA = Call & {
   qa: TranscriptionQA | null
 }
+
+// Eavesly alerts — rows from view eavesly_alerts_with_feedback
+// (eavesly_module_results LEFT JOIN agent_manager_mapping LEFT JOIN eavesly_alert_feedback)
+
+export type AlertViolationType =
+  | 'manager_escalation'
+  | 'budget_compliance'
+  | 'warm_transfer'
+  | 'litigation_check'
+  | 'program_expectations'
+
+export type AlertModuleName =
+  | 'full_qa'
+  | 'budget_inputs'
+  | 'warm_transfer'
+  | 'litigation_check'
+  | 'program_expectations'
+
+export type AlertActionTaken =
+  | 'coached'
+  | 'escalated'
+  | 'follow_up_later'
+  | 'no_action_needed'
+
+export type AlertInaccuracyReason =
+  | 'soft_inquiry_misclassified'
+  | 'wrong_context'
+  | 'evidence_misquoted'
+  | 'policy_does_not_apply'
+  | 'addressed_off_call'
+  | 'other'
+
+export type AlertWithFeedback = {
+  module_result_id: number
+  alert_created_at: string
+  alert_sent_at: string | null
+  call_id: string
+  module_name: AlertModuleName | string
+  violation_type: AlertViolationType | string
+  has_violation: boolean
+  alert_sent: boolean
+  agent_email: string | null
+  contact_name: string | null
+  contact_phone: string | null
+  recording_link: string | null
+  transcript_url: string | null
+  call_summary: string | null
+  sfdc_lead_id: string | null
+  processing_time_ms: number | null
+  result_json: any
+  assigned_manager_email: string | null
+  feedback_id: number | null
+  feedback_by: string | null
+  accurate: boolean | null
+  action_taken: AlertActionTaken | null
+  inaccuracy_reason: AlertInaccuracyReason | null
+  feedback_comment: string | null
+  reviewed_at: string | null
+  is_reviewed: boolean
+}
+
+export type AlertFeedbackInput = {
+  call_id: string
+  module_name: string
+  manager_email: string
+  accurate: boolean
+  action_taken?: AlertActionTaken | null
+  inaccuracy_reason?: AlertInaccuracyReason | null
+  comment?: string | null
+}
