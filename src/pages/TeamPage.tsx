@@ -25,8 +25,6 @@ import { TeamTrendSection } from '../components/team/TeamTrendSection'
 import { TeamCoachingThemes } from '../components/team/TeamCoachingThemes'
 import { TeamBreakdownByManager } from '../components/team/TeamBreakdownByManager'
 import { AlertHeatmap } from '../components/alerts/AlertHeatmap'
-import { MigoCoverageCard } from '../components/team/MigoCoverageCard'
-import { fetchMigoCoverage, type MigoCoverage } from '../lib/migo-queries'
 
 type QuickFilter = 'all' | 'attention' | 'top' | 'alerts'
 
@@ -55,8 +53,6 @@ export default function TeamPage() {
   const [themesLoading, setThemesLoading] = useState(true)
   const [breakdown, setBreakdown] = useState<AlertBreakdownCell[]>([])
   const [breakdownLoading, setBreakdownLoading] = useState(true)
-  const [migoCoverage, setMigoCoverage] = useState<MigoCoverage | null>(null)
-  const [migoLoading, setMigoLoading] = useState(true)
   const [managerMapping, setManagerMapping] = useState<
     { manager_email: string; agent_email: string }[]
   >([])
@@ -95,16 +91,6 @@ export default function TeamPage() {
       .then(setBreakdown)
       .finally(() => setBreakdownLoading(false))
   }, [scope, startDate, endDate])
-
-  useEffect(() => {
-    if (!scope) return
-    if (loading) return // wait for rollup so we know the agent universe
-    setMigoLoading(true)
-    const agentEmails = rollup.map(r => r.agent_email)
-    fetchMigoCoverage(scope, agentEmails, startDate, endDate)
-      .then(setMigoCoverage)
-      .finally(() => setMigoLoading(false))
-  }, [scope, rollup, loading, startDate, endDate])
 
   // Manager mapping is only relevant for god-mode users — regular managers
   // already see only their own team via scope.managedAgents.
@@ -317,10 +303,6 @@ export default function TeamPage() {
           rollups={rollup}
           loading={breakdownLoading}
         />
-      )}
-
-      {!noAgents && (
-        <MigoCoverageCard coverage={migoCoverage} loading={migoLoading} />
       )}
 
       {!noAgents && (
