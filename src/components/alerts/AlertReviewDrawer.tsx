@@ -240,9 +240,14 @@ export function AlertReviewDrawer({
                 </a>
               )}
               {alert.sfdc_lead_id && (
-                <span className="text-muted-foreground">
-                  SFDC: {alert.sfdc_lead_id}
-                </span>
+                <a
+                  href={`https://trypennie.lightning.force.com/lightning/r/Lead/${alert.sfdc_lead_id}/view`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1 text-pennie-blue-dark font-semibold hover:underline underline-offset-4"
+                >
+                  SFDC: {alert.sfdc_lead_id} <ExternalLink className="w-3 h-3" aria-hidden="true" />
+                </a>
               )}
             </div>
           </section>
