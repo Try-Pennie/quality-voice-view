@@ -1,30 +1,23 @@
-import { useState, useEffect } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import { fetchCallDetail } from '../lib/queries'
+import { useCallDetail, useAlertsForCall } from '../hooks/use-queries'
 import { formatDateTime, formatDuration, formatPhoneNumber, getScoreBadgeColor } from '../lib/utils'
 import { AudioPlayer } from '../components/call-detail/AudioPlayer'
 import { ComplianceScorecard } from '../components/call-detail/ComplianceScorecard'
 import { SalesProcessScorecard } from '../components/call-detail/SalesProcessScorecard'
 import { CustomerExperienceScorecard } from '../components/call-detail/CustomerExperienceScorecard'
 import { CoachingRecommendations } from '../components/call-detail/CoachingRecommendations'
-import { exportCallDetailToPDF } from '../lib/pdf-export'
+import { CallAlertsSection } from '../components/call-detail/CallAlertsSection'
 import { ArrowLeft, ExternalLink, Download } from 'lucide-react'
 import { toast } from 'sonner'
 
 export default function CallDetailPage() {
   const { callId } = useParams()
   const navigate = useNavigate()
-  const [call, setCall] = useState<any>(null)
-  const [loading, setLoading] = useState(true)
-
-  useEffect(() => {
-    if (callId) {
-      fetchCallDetail(callId).then(data => {
-        setCall(data)
-        setLoading(false)
-      })
-    }
-  }, [callId])
+  const { data: call, isPending: callPending } = useCallDetail(callId)
+  const loading = callPending
+  const { data: alertsData, isPending: alertsPending } = useAlertsForCall(callId)
+  const alerts = alertsData ?? []
+  const alertsLoading = alertsPending && !alertsData
 
   if (loading) {
     return (
@@ -59,6 +52,7 @@ export default function CallDetailPage() {
 
   const handleExportPDF = async () => {
     if (call) {
+      const { exportCallDetailToPDF } = await import('../lib/pdf-export')
       await exportCallDetailToPDF(call)
       toast.success('PDF exported successfully')
     }
@@ -96,6 +90,9 @@ export default function CallDetailPage() {
           )}
         </div>
       </div>
+
+      {/* SECTION 1.5: Alerts fired for this call */}
+      <CallAlertsSection alerts={alerts} loading={alertsLoading} />
 
       {/* SECTION 2: Audio Player */}
       <div className="bg-card rounded-lg shadow p-6 border border-border">

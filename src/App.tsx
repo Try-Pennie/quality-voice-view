@@ -9,9 +9,27 @@ import { DashboardLayout } from "./components/DashboardLayout";
 import LoginPage from "./pages/LoginPage";
 import DashboardPage from "./pages/DashboardPage";
 import CallDetailPage from "./pages/CallDetailPage";
+import AlertsPage from "./pages/AlertsPage";
+import TeamPage from "./pages/TeamPage";
+import AgentProfilePage from "./pages/AgentProfilePage";
 import NotFound from "./pages/NotFound";
 
-const queryClient = new QueryClient();
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      // Cross-page navigation hits the cache without refetching for a minute.
+      staleTime: 60_000,
+      // Hold cached results for 10 minutes after their last subscriber unmounts
+      // so back-navigating still feels instant.
+      gcTime: 10 * 60_000,
+      // We invalidate explicitly on data changes; refetching when the tab
+      // regains focus or the network reconnects creates surprise reloads.
+      refetchOnWindowFocus: false,
+      refetchOnReconnect: false,
+      retry: 1,
+    },
+  },
+});
 
 const App = () => (
   <QueryClientProvider client={queryClient}>
@@ -35,11 +53,55 @@ const App = () => (
             />
 
             <Route
+              path="/dashboard/team"
+              element={
+                <ProtectedRoute>
+                  <DashboardLayout>
+                    <TeamPage />
+                  </DashboardLayout>
+                </ProtectedRoute>
+              }
+            />
+
+            <Route
+              path="/dashboard/team/:agentEmail"
+              element={
+                <ProtectedRoute>
+                  <DashboardLayout>
+                    <AgentProfilePage />
+                  </DashboardLayout>
+                </ProtectedRoute>
+              }
+            />
+
+            <Route
               path="/dashboard/calls/:callId"
               element={
                 <ProtectedRoute>
                   <DashboardLayout>
                     <CallDetailPage />
+                  </DashboardLayout>
+                </ProtectedRoute>
+              }
+            />
+
+            <Route
+              path="/dashboard/alerts"
+              element={
+                <ProtectedRoute>
+                  <DashboardLayout>
+                    <AlertsPage />
+                  </DashboardLayout>
+                </ProtectedRoute>
+              }
+            />
+
+            <Route
+              path="/dashboard/alerts/:callId/:moduleName"
+              element={
+                <ProtectedRoute>
+                  <DashboardLayout>
+                    <AlertsPage />
                   </DashboardLayout>
                 </ProtectedRoute>
               }

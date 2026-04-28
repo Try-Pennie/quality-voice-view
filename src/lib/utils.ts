@@ -1,5 +1,6 @@
 import { type ClassValue, clsx } from "clsx";
 import { twMerge } from "tailwind-merge";
+import { BUSINESS_TIMEZONE } from "./time-zone";
 
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -22,38 +23,42 @@ export function formatPhoneNumber(phone: string | null): string {
   return phone
 }
 
-// Format date/time
-export function formatDateTime(dateString: string | null): string {
+// Format date/time in Eastern time so every viewer sees the same wall-clock
+// stamp regardless of where they're sitting. Pair with an "(ET)" column
+// header / label where the timezone isn't otherwise obvious.
+export function formatDateTime(dateString: string | Date | null): string {
   if (!dateString) return 'N/A'
-  const date = new Date(dateString)
+  const date = typeof dateString === 'string' ? new Date(dateString) : dateString
   return date.toLocaleString('en-US', {
+    timeZone: BUSINESS_TIMEZONE,
     month: '2-digit',
     day: '2-digit',
     year: 'numeric',
     hour: '2-digit',
-    minute: '2-digit'
+    minute: '2-digit',
   })
 }
 
-// Get score badge color
+// Pennie pill classes for legacy CallDetailPage callers. Prefer
+// pillClasses(accentForScore(...)) from lib/violation-styles for new code.
 export function getScoreBadgeColor(score: string | null): string {
   switch (score?.toLowerCase()) {
     case 'excellent':
     case 'pass':
     case 'high':
-      return 'bg-green-100 text-green-800'
+      return 'pennie-pill bg-pennie-green-light text-pennie-green-dark'
     case 'good':
     case 'medium':
-      return 'bg-blue-100 text-blue-800'
+      return 'pennie-pill bg-pennie-blue-light text-pennie-blue-dark'
     case 'needs_improvement':
     case 'fair':
     case 'low':
-      return 'bg-yellow-100 text-yellow-800'
+      return 'pennie-pill bg-pennie-yellow-light text-pennie-yellow-dark'
     case 'poor':
     case 'fail':
-      return 'bg-red-100 text-red-800'
+      return 'pennie-pill bg-pennie-peach-light text-pennie-peach-dark'
     default:
-      return 'bg-gray-100 text-gray-800'
+      return 'pennie-pill bg-pennie-beige text-pennie-navy'
   }
 }
 
