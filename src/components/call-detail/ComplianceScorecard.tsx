@@ -1,5 +1,13 @@
 import { useState } from 'react'
-import { ChevronDown, ChevronRight } from 'lucide-react'
+import {
+  AlertTriangle,
+  CheckCircle2,
+  ChevronDown,
+  ChevronRight,
+  Circle,
+  ShieldCheck,
+  XCircle,
+} from 'lucide-react'
 
 export function ComplianceScorecard({ data }: { data: any }) {
   const [isExpanded, setIsExpanded] = useState(data.overall_compliance_score === 'fail')
@@ -13,10 +21,11 @@ export function ComplianceScorecard({ data }: { data: any }) {
     { label: 'No Misleading Claims', value: data.no_misleading_claims },
   ]
 
-  const getIcon = (value: string) => {
-    if (value === 'pass') return '✅'
-    if (value === 'fail') return '❌'
-    return '⚪'
+  const renderIcon = (value: string) => {
+    const className = 'w-5 h-5 shrink-0'
+    if (value === 'pass') return <CheckCircle2 className={`${className} text-green-600`} />
+    if (value === 'fail') return <XCircle className={`${className} text-red-600`} />
+    return <Circle className={`${className} text-muted-foreground`} />
   }
 
   return (
@@ -27,7 +36,10 @@ export function ComplianceScorecard({ data }: { data: any }) {
       >
         <div className="flex items-center gap-3">
           {isExpanded ? <ChevronDown className="w-5 h-5" /> : <ChevronRight className="w-5 h-5" />}
-          <h2 className="text-lg font-semibold text-foreground">🔒 Compliance Scorecard</h2>
+          <h2 className="text-lg font-semibold text-foreground flex items-center gap-2">
+            <ShieldCheck className="w-5 h-5 text-emerald-600" />
+            Compliance Scorecard
+          </h2>
         </div>
         <span className={`px-3 py-1 rounded-full text-sm font-semibold ${
           data.overall_compliance_score === 'pass'
@@ -42,7 +54,9 @@ export function ComplianceScorecard({ data }: { data: any }) {
         <div className="px-6 pb-6 space-y-4">
           {data.requires_manager_review && (
             <div className="bg-red-50 border-2 border-red-300 rounded p-4">
-              <div className="font-bold text-red-900 mb-2">⚠️ REQUIRES MANAGER REVIEW</div>
+              <div className="font-bold text-red-900 mb-2 flex items-center gap-2">
+                <AlertTriangle className="w-4 h-4" /> REQUIRES MANAGER REVIEW
+              </div>
               <div className="text-red-800 text-sm">{data.escalation_reason}</div>
             </div>
           )}
@@ -50,7 +64,7 @@ export function ComplianceScorecard({ data }: { data: any }) {
           <div className="space-y-3">
             {checks.map((check, i) => (
               <div key={i} className="flex items-start gap-3">
-                <span className="text-xl">{getIcon(check.value)}</span>
+                <span className="mt-0.5">{renderIcon(check.value)}</span>
                 <div className="flex-1">
                   <div className="font-medium text-foreground">{check.label}</div>
                   {check.timestamp && (

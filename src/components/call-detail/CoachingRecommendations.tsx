@@ -1,5 +1,13 @@
 import { useState } from 'react'
-import { ChevronDown, ChevronRight } from 'lucide-react'
+import {
+  AlertTriangle,
+  BookOpen,
+  CheckCircle2,
+  ChevronDown,
+  ChevronRight,
+  Lightbulb,
+  Target,
+} from 'lucide-react'
 
 export function CoachingRecommendations({ data }: { data: any }) {
   const [isExpanded, setIsExpanded] = useState(true)
@@ -12,7 +20,10 @@ export function CoachingRecommendations({ data }: { data: any }) {
       >
         <div className="flex items-center gap-3">
           {isExpanded ? <ChevronDown className="w-5 h-5" /> : <ChevronRight className="w-5 h-5" />}
-          <h2 className="text-lg font-semibold text-foreground">💡 Coaching Recommendations</h2>
+          <h2 className="text-lg font-semibold text-foreground flex items-center gap-2">
+            <Lightbulb className="w-5 h-5 text-amber-500" />
+            Coaching Recommendations
+          </h2>
         </div>
       </button>
 
@@ -21,7 +32,7 @@ export function CoachingRecommendations({ data }: { data: any }) {
           {data.strengths?.length > 0 && (
             <div>
               <div className="font-semibold text-green-900 mb-2 flex items-center gap-2">
-                <span>✅</span> Strengths
+                <CheckCircle2 className="w-4 h-4 text-green-600" /> Strengths
               </div>
               <ul className="list-disc list-inside space-y-1 text-sm text-foreground bg-green-50 border border-green-200 rounded p-4">
                 {data.strengths.map((s: string, i: number) => (
@@ -34,7 +45,7 @@ export function CoachingRecommendations({ data }: { data: any }) {
           {data.areas_for_improvement?.length > 0 && (
             <div>
               <div className="font-semibold text-yellow-900 mb-2 flex items-center gap-2">
-                <span>⚠️</span> Areas for Improvement
+                <AlertTriangle className="w-4 h-4 text-yellow-600" /> Areas for Improvement
               </div>
               <ul className="list-disc list-inside space-y-1 text-sm text-foreground bg-yellow-50 border border-yellow-200 rounded p-4">
                 {data.areas_for_improvement.map((a: string, i: number) => (
@@ -47,7 +58,7 @@ export function CoachingRecommendations({ data }: { data: any }) {
           {data.specific_coaching_points?.length > 0 && (
             <div>
               <div className="font-semibold text-blue-900 mb-2 flex items-center gap-2">
-                <span>🎯</span> Specific Coaching Points
+                <Target className="w-4 h-4 text-blue-600" /> Specific Coaching Points
               </div>
               <ul className="list-disc list-inside space-y-1 text-sm text-foreground bg-blue-50 border border-blue-200 rounded p-4">
                 {data.specific_coaching_points.map((c: string, i: number) => (
@@ -60,7 +71,7 @@ export function CoachingRecommendations({ data }: { data: any }) {
           {data.training_recommendations?.length > 0 && (
             <div>
               <div className="font-semibold text-purple-900 mb-2 flex items-center gap-2">
-                <span>📚</span> Training Recommendations
+                <BookOpen className="w-4 h-4 text-purple-600" /> Training Recommendations
               </div>
               <ul className="list-disc list-inside space-y-1 text-sm text-foreground bg-purple-50 border border-purple-200 rounded p-4">
                 {data.training_recommendations.map((t: string, i: number) => (

@@ -7,7 +7,19 @@ import { SalesProcessScorecard } from '../components/call-detail/SalesProcessSco
 import { CustomerExperienceScorecard } from '../components/call-detail/CustomerExperienceScorecard'
 import { CoachingRecommendations } from '../components/call-detail/CoachingRecommendations'
 import { CallAlertsSection } from '../components/call-detail/CallAlertsSection'
-import { ArrowLeft, ExternalLink, Download } from 'lucide-react'
+import {
+  AlertTriangle,
+  ArrowLeft,
+  BarChart3,
+  ClipboardList,
+  Download,
+  ExternalLink,
+  FileText,
+  Link as LinkIcon,
+  PhoneIncoming,
+  PhoneOutgoing,
+  Volume2,
+} from 'lucide-react'
 import { toast } from 'sonner'
 
 export default function CallDetailPage() {
@@ -33,9 +45,10 @@ export default function CallDetailPage() {
         <h2 className="text-2xl font-bold text-foreground mb-4">Call not found</h2>
         <button
           onClick={() => navigate('/dashboard')}
-          className="text-primary hover:text-primary/80 font-medium"
+          className="inline-flex items-center gap-2 text-primary hover:text-primary/80 font-medium"
         >
-          ← Back to Dashboard
+          <ArrowLeft className="w-4 h-4" />
+          Back to Dashboard
         </button>
       </div>
     )
@@ -78,14 +91,26 @@ export default function CallDetailPage() {
               <div><strong className="text-foreground">Agent:</strong> {call.agent_full_name} ({call.agent_email})</div>
               <div><strong className="text-foreground">Date:</strong> {formatDateTime(call.started_at)} - {formatDateTime(call.ended_at)}</div>
               <div><strong className="text-foreground">Contact:</strong> {formatPhoneNumber(call.contact_phone)}</div>
-              <div><strong className="text-foreground">Direction:</strong> {call.direction === 'inbound' ? '📞 Inbound' : '📱 Outbound'}</div>
+              <div className="flex items-center gap-1.5">
+                <strong className="text-foreground">Direction:</strong>
+                {call.direction === 'inbound' ? (
+                  <span className="inline-flex items-center gap-1">
+                    <PhoneIncoming className="w-4 h-4 text-blue-600" /> Inbound
+                  </span>
+                ) : (
+                  <span className="inline-flex items-center gap-1">
+                    <PhoneOutgoing className="w-4 h-4 text-emerald-600" /> Outbound
+                  </span>
+                )}
+              </div>
               {call.campaign_name && <div><strong className="text-foreground">Campaign:</strong> {call.campaign_name}</div>}
             </div>
           </div>
 
           {call.qa?.manager_escalation && (
             <div className="bg-red-600 text-white px-4 py-2 rounded-lg font-bold flex items-center gap-2">
-              ⚠️ MANAGER ESCALATION
+              <AlertTriangle className="w-4 h-4" />
+              MANAGER ESCALATION
             </div>
           )}
         </div>
@@ -96,13 +121,19 @@ export default function CallDetailPage() {
 
       {/* SECTION 2: Audio Player */}
       <div className="bg-card rounded-lg shadow p-6 border border-border">
-        <h2 className="text-lg font-semibold text-foreground mb-4">🔊 Recording</h2>
+        <h2 className="text-lg font-semibold text-foreground mb-4 flex items-center gap-2">
+          <Volume2 className="w-5 h-5 text-blue-600" />
+          Recording
+        </h2>
         <AudioPlayer recordingUrl={call.qa?.recording_link} />
       </div>
 
       {/* SECTION 3: Call Metrics */}
       <div className="bg-card rounded-lg shadow p-6 border border-border">
-        <h2 className="text-lg font-semibold text-foreground mb-4">📊 Call Metrics</h2>
+        <h2 className="text-lg font-semibold text-foreground mb-4 flex items-center gap-2">
+          <BarChart3 className="w-5 h-5 text-indigo-600" />
+          Call Metrics
+        </h2>
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
           <div>
             <div className="text-sm text-muted-foreground">Talk Time</div>
@@ -149,14 +180,20 @@ export default function CallDetailPage() {
       {/* SECTION 4: Call Summary */}
       {call.qa?.call_summary && (
         <div className="bg-card rounded-lg shadow p-6 border border-border">
-          <h2 className="text-lg font-semibold text-foreground mb-4">📋 Call Summary</h2>
+          <h2 className="text-lg font-semibold text-foreground mb-4 flex items-center gap-2">
+            <ClipboardList className="w-5 h-5 text-slate-600" />
+            Call Summary
+          </h2>
           <p className="text-sm text-foreground whitespace-pre-wrap">{call.qa.call_summary}</p>
         </div>
       )}
 
       {qaData?.call_overview && (
         <div className="bg-card rounded-lg shadow p-6 border border-border">
-          <h2 className="text-lg font-semibold text-foreground mb-4">📋 Call Overview</h2>
+          <h2 className="text-lg font-semibold text-foreground mb-4 flex items-center gap-2">
+            <ClipboardList className="w-5 h-5 text-slate-600" />
+            Call Overview
+          </h2>
           <div className="space-y-3 text-sm">
             <div><strong className="text-foreground">Topic:</strong> <span className="text-muted-foreground">{qaData.call_overview.call_topic}</span></div>
             <div><strong className="text-foreground">Purpose:</strong> <span className="text-muted-foreground">{qaData.call_overview.call_purpose}</span></div>
@@ -165,7 +202,10 @@ export default function CallDetailPage() {
 
             {qaData.call_overview.manager_review_required && (
               <div className="bg-yellow-50 border border-yellow-300 rounded p-3 mt-4">
-                <div className="font-semibold text-yellow-900">⚠️ Manager Review Required</div>
+                <div className="font-semibold text-yellow-900 flex items-center gap-2">
+                  <AlertTriangle className="w-4 h-4" />
+                  Manager Review Required
+                </div>
                 <div className="text-yellow-800 text-sm mt-1">{qaData.call_overview.manager_review_reason}</div>
               </div>
             )}
@@ -197,7 +237,10 @@ export default function CallDetailPage() {
       {call.qa?.original_transcript && (
         <div className="bg-card rounded-lg shadow p-6 border border-border">
           <div className="flex items-center justify-between mb-4">
-            <h2 className="text-lg font-semibold text-foreground">📄 Full Transcript</h2>
+            <h2 className="text-lg font-semibold text-foreground flex items-center gap-2">
+              <FileText className="w-5 h-5 text-slate-600" />
+              Full Transcript
+            </h2>
             <button
               onClick={copyTranscript}
               className="text-sm text-primary hover:text-primary/80 font-medium"
@@ -217,9 +260,10 @@ export default function CallDetailPage() {
       <div className="flex gap-4 pb-8 flex-wrap">
         <button
           onClick={() => navigate('/dashboard')}
-          className="px-6 py-3 bg-secondary text-secondary-foreground rounded-lg hover:bg-secondary/80 font-medium"
+          className="px-6 py-3 bg-secondary text-secondary-foreground rounded-lg hover:bg-secondary/80 font-medium inline-flex items-center gap-2"
         >
-          ← Back to Dashboard
+          <ArrowLeft className="w-4 h-4" />
+          Back to Dashboard
         </button>
 
         <button
@@ -237,7 +281,8 @@ export default function CallDetailPage() {
             rel="noopener noreferrer"
             className="px-6 py-3 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 font-medium flex items-center gap-2"
           >
-            🔗 Open Recording
+            <LinkIcon className="w-4 h-4" />
+            Open Recording
             <ExternalLink className="w-4 h-4" />
           </a>
         )}
@@ -249,7 +294,8 @@ export default function CallDetailPage() {
             rel="noopener noreferrer"
             className="px-6 py-3 bg-accent text-accent-foreground rounded-lg hover:bg-accent/80 font-medium flex items-center gap-2"
           >
-            📝 View Transcription
+            <FileText className="w-4 h-4" />
+            View Transcription
             <ExternalLink className="w-4 h-4" />
           </a>
         )}

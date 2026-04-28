@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { ChevronDown, ChevronRight } from 'lucide-react'
+import { AlertTriangle, ChevronDown, ChevronRight, Circle, CheckCircle2, Smile, Star, XCircle } from 'lucide-react'
 
 export function CustomerExperienceScorecard({ data }: { data: any }) {
   const [isExpanded, setIsExpanded] = useState(false)
@@ -12,12 +12,13 @@ export function CustomerExperienceScorecard({ data }: { data: any }) {
     { label: 'Customer Focused', value: data.customer_focused, examples: data.customer_focused_examples },
   ]
 
-  const getIcon = (value: string) => {
-    if (value === 'excellent') return '🌟'
-    if (value === 'good') return '✅'
-    if (value === 'fair' || value === 'needs_improvement') return '⚠️'
-    if (value === 'poor') return '❌'
-    return '⚪'
+  const renderIcon = (value: string) => {
+    const className = 'w-5 h-5 shrink-0'
+    if (value === 'excellent') return <Star className={`${className} text-yellow-500 fill-yellow-500`} />
+    if (value === 'good') return <CheckCircle2 className={`${className} text-green-600`} />
+    if (value === 'fair' || value === 'needs_improvement') return <AlertTriangle className={`${className} text-yellow-600`} />
+    if (value === 'poor') return <XCircle className={`${className} text-red-600`} />
+    return <Circle className={`${className} text-muted-foreground`} />
   }
 
   return (
@@ -28,7 +29,10 @@ export function CustomerExperienceScorecard({ data }: { data: any }) {
       >
         <div className="flex items-center gap-3">
           {isExpanded ? <ChevronDown className="w-5 h-5" /> : <ChevronRight className="w-5 h-5" />}
-          <h2 className="text-lg font-semibold text-foreground">😊 Customer Experience Scorecard</h2>
+          <h2 className="text-lg font-semibold text-foreground flex items-center gap-2">
+            <Smile className="w-5 h-5 text-blue-600" />
+            Customer Experience Scorecard
+          </h2>
         </div>
         <span className={`px-3 py-1 rounded-full text-sm font-semibold ${
           data.overall_customer_experience === 'excellent' ? 'bg-green-100 text-green-800' :
@@ -46,7 +50,7 @@ export function CustomerExperienceScorecard({ data }: { data: any }) {
             {aspects.map((aspect, i) => (
               <div key={i} className="border-b border-border pb-3 last:border-0">
                 <div className="flex items-start gap-3 mb-2">
-                  <span className="text-xl">{getIcon(aspect.value)}</span>
+                  <span className="mt-0.5">{renderIcon(aspect.value)}</span>
                   <div className="flex-1">
                     <div className="font-medium text-foreground">{aspect.label}</div>
                     <div className="text-sm text-muted-foreground capitalize">{aspect.value || 'N/A'}</div>

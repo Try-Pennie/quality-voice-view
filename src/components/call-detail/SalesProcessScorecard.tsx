@@ -1,5 +1,14 @@
 import { useState } from 'react'
-import { ChevronDown, ChevronRight } from 'lucide-react'
+import {
+  AlertTriangle,
+  BarChart3,
+  CheckCircle2,
+  ChevronDown,
+  ChevronRight,
+  Circle,
+  Star,
+  XCircle,
+} from 'lucide-react'
 
 export function SalesProcessScorecard({ data }: { data: any }) {
   const [isExpanded, setIsExpanded] = useState(false)
@@ -13,12 +22,13 @@ export function SalesProcessScorecard({ data }: { data: any }) {
     { label: 'Step 6: Debt Resolution', value: data.step6_debt_resolution, timestamp: data.step6_timestamp },
   ]
 
-  const getIcon = (value: string) => {
-    if (value === 'excellent') return '🌟'
-    if (value === 'good') return '✅'
-    if (value === 'fair' || value === 'needs_improvement') return '⚠️'
-    if (value === 'poor') return '❌'
-    return '⚪'
+  const renderIcon = (value: string) => {
+    const className = 'w-5 h-5 shrink-0'
+    if (value === 'excellent') return <Star className={`${className} text-yellow-500 fill-yellow-500`} />
+    if (value === 'good') return <CheckCircle2 className={`${className} text-green-600`} />
+    if (value === 'fair' || value === 'needs_improvement') return <AlertTriangle className={`${className} text-yellow-600`} />
+    if (value === 'poor') return <XCircle className={`${className} text-red-600`} />
+    return <Circle className={`${className} text-muted-foreground`} />
   }
 
   return (
@@ -29,7 +39,10 @@ export function SalesProcessScorecard({ data }: { data: any }) {
       >
         <div className="flex items-center gap-3">
           {isExpanded ? <ChevronDown className="w-5 h-5" /> : <ChevronRight className="w-5 h-5" />}
-          <h2 className="text-lg font-semibold text-foreground">📊 Sales Process Scorecard</h2>
+          <h2 className="text-lg font-semibold text-foreground flex items-center gap-2">
+            <BarChart3 className="w-5 h-5 text-indigo-600" />
+            Sales Process Scorecard
+          </h2>
         </div>
         <span className={`px-3 py-1 rounded-full text-sm font-semibold ${
           data.overall_process_adherence === 'excellent' ? 'bg-green-100 text-green-800' :
@@ -46,7 +59,7 @@ export function SalesProcessScorecard({ data }: { data: any }) {
           <div className="space-y-3">
             {steps.map((step, i) => (
               <div key={i} className="flex items-start gap-3">
-                <span className="text-xl">{getIcon(step.value)}</span>
+                <span className="mt-0.5">{renderIcon(step.value)}</span>
                 <div className="flex-1">
                   <div className="font-medium text-foreground">{step.label}</div>
                   <div className="text-sm text-muted-foreground mt-1 capitalize">{step.value || 'N/A'}</div>

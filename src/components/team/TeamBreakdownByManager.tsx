@@ -1,4 +1,5 @@
 import { useState, useMemo } from 'react'
+import { X } from 'lucide-react'
 import type { ManagerRollup } from '../../lib/team-queries'
 
 type SortKey =
@@ -55,9 +56,10 @@ export function TeamBreakdownByManager({
           <button
             type="button"
             onClick={() => onSelect(null)}
-            className="text-xs font-semibold text-pennie-blue-dark hover:underline"
+            className="inline-flex items-center gap-1 text-xs font-semibold text-pennie-blue-dark hover:underline"
           >
-            Clear team filter ✕
+            Clear team filter
+            <X className="w-3 h-3" />
           </button>
         )}
       </header>
