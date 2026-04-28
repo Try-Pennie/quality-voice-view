@@ -21,7 +21,7 @@ import { AgentFilter } from '../components/dashboard/AgentFilter'
 import { DispositionFilter, prettify as prettifyDisposition } from '../components/dashboard/DispositionFilter'
 import { ThresholdSettingsSheet } from '../components/settings/ThresholdSettings'
 import { ThresholdSettings, DEFAULT_THRESHOLDS } from '../types/settings'
-import { Settings, Download, Loader2 } from 'lucide-react'
+import { Settings, Download, Loader2, ChevronRight } from 'lucide-react'
 import { HelpHint } from '../components/ui/help-hint'
 import type { HelpId } from '../lib/help-content'
 
@@ -337,7 +337,7 @@ export default function DashboardPage() {
                   Cust sat
                   <HelpHint id="column.csat" className="ml-1" />
                 </Th>
-                <Th>Action</Th>
+                <th aria-hidden="true" className="w-10" />
               </tr>
             </thead>
             <tbody>
@@ -348,7 +348,7 @@ export default function DashboardPage() {
                       className={i !== 0 ? 'border-t border-border/60' : ''}
                     >
                       {Array.from({ length: 9 }).map((__, j) => (
-                        <td key={j} className="px-6 py-4 align-top">
+                        <td key={j} className="px-4 py-4 align-top">
                           <span
                             className="block h-3 rounded-full bg-pennie-beige animate-pulse"
                             style={{ width: `${45 + ((i * 8 + j) % 6) * 8}%` }}
@@ -367,14 +367,24 @@ export default function DashboardPage() {
                   : isComplianceFail
                     ? 'border-pennie-yellow-dark'
                     : 'border-transparent'
+                const goToCall = () => navigate(`/dashboard/calls/${call.call_id}`)
                 return (
                   <tr
                     key={call.id}
-                    className={`transition-colors duration-150 hover:bg-pennie-beige/40 ${
+                    role="link"
+                    tabIndex={0}
+                    onClick={goToCall}
+                    onKeyDown={e => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault()
+                        goToCall()
+                      }
+                    }}
+                    className={`group cursor-pointer transition-colors duration-150 hover:bg-pennie-beige/40 focus:outline-none focus:bg-pennie-beige/40 focus-visible:ring-2 focus-visible:ring-pennie-blue-dark/40 focus-visible:ring-inset ${
                       i !== 0 ? 'border-t border-border/60' : ''
                     }`}
                   >
-                    <td className={`pl-5 pr-6 py-4 whitespace-nowrap text-sm text-muted-foreground tabular-nums border-l-4 ${stripeBorder}`}>
+                    <td className={`pl-5 pr-4 py-4 whitespace-nowrap text-sm text-muted-foreground tabular-nums border-l-4 ${stripeBorder}`}>
                       {isEscalation ? (
                         <span className="inline-block w-2 h-2 rounded-full bg-pennie-peach-dark mr-2 align-middle" aria-label="escalation" />
                       ) : isComplianceFail ? (
@@ -382,35 +392,37 @@ export default function DashboardPage() {
                       ) : null}
                       {formatDateTime(call.started_at)}
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm font-semibold text-pennie-navy">
+                    <td className="px-4 py-4 whitespace-nowrap text-sm font-semibold text-pennie-navy">
                       {call.agent_full_name || 'Unknown'}
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-muted-foreground tabular-nums">
+                    <td className="px-4 py-4 whitespace-nowrap text-sm text-muted-foreground tabular-nums">
                       {formatPhoneNumber(call.contact_phone)}
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-pennie-graphite tabular-nums">
+                    <td className="px-4 py-4 whitespace-nowrap text-sm text-pennie-graphite tabular-nums">
                       {formatDuration(call.talk_time)}
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-pennie-graphite">
-                      {call.disposition ? prettifyDisposition(call.disposition) : '—'}
+                    <td className="px-4 py-4 text-sm">
+                      {call.disposition ? (
+                        <DispositionCell value={call.disposition} />
+                      ) : (
+                        <span className="text-muted-foreground">—</span>
+                      )}
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
+                    <td className="px-4 py-4 whitespace-nowrap">
                       <ScorePill score={call.qa?.overall_score} />
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
+                    <td className="px-4 py-4 whitespace-nowrap">
                       <ScorePill score={call.qa?.compliance_rating} />
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
+                    <td className="px-4 py-4 whitespace-nowrap">
                       <ScorePill score={call.qa?.customer_satisfaction_likely} />
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <button
-                        type="button"
-                        onClick={() => navigate(`/dashboard/calls/${call.call_id}`)}
-                        className="text-pennie-blue-dark font-semibold text-sm hover:underline underline-offset-4"
-                      >
-                        View details
-                      </button>
+                    <td className="pl-2 pr-5 py-4 w-10 text-right">
+                      <ChevronRight
+                        aria-hidden="true"
+                        className="inline-block w-4 h-4 text-pennie-graphite/35 transition-all duration-150 group-hover:text-pennie-blue-dark group-hover:translate-x-0.5"
+                      />
+                      <span className="sr-only">View call details</span>
                     </td>
                   </tr>
                 )
@@ -523,7 +535,7 @@ function SupportingStat({
 
 function Th({ children }: { children: React.ReactNode }) {
   return (
-    <th className="text-left text-[11px] font-bold text-pennie-graphite/70 uppercase tracking-[0.06em] px-6 py-3">
+    <th className="text-left text-[11px] font-bold text-pennie-graphite/70 uppercase tracking-[0.06em] px-4 py-3 first:pl-5">
       {children}
     </th>
   )
@@ -532,5 +544,23 @@ function Th({ children }: { children: React.ReactNode }) {
 function ScorePill({ score }: { score: string | null | undefined }) {
   return (
     <span className={pillClasses(accentForScore(score))}>{score || 'N/A'}</span>
+  )
+}
+
+function DispositionCell({ value }: { value: string }) {
+  const dashIdx = value.indexOf(' - ')
+  const hasCode = dashIdx >= 0
+  const code = hasCode ? value.slice(0, dashIdx) : ''
+  const rest = hasCode ? value.slice(dashIdx + 3) : value
+  const label = prettifyDisposition(rest).replace(/\s*>\s*/g, ' → ')
+  return (
+    <div className="leading-tight">
+      {hasCode && (
+        <div className="text-[11px] font-semibold tracking-wide text-pennie-graphite/50 tabular-nums">
+          {code}
+        </div>
+      )}
+      <div className="mt-0.5 text-pennie-graphite font-medium">{label}</div>
+    </div>
   )
 }
