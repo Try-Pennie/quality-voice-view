@@ -18,10 +18,12 @@ import { accentForScore, pillClasses } from '../lib/violation-styles'
 import type { CallWithQA } from '../types/database'
 import { DateRangePicker } from '../components/dashboard/DateRangePicker'
 import { AgentFilter } from '../components/dashboard/AgentFilter'
-import { DispositionFilter } from '../components/dashboard/DispositionFilter'
+import { DispositionFilter, prettify as prettifyDisposition } from '../components/dashboard/DispositionFilter'
 import { ThresholdSettingsSheet } from '../components/settings/ThresholdSettings'
 import { ThresholdSettings, DEFAULT_THRESHOLDS } from '../types/settings'
 import { Settings, Download, Loader2 } from 'lucide-react'
+import { HelpHint } from '../components/ui/help-hint'
+import type { HelpId } from '../lib/help-content'
 
 type QuickFilter = 'all' | 'escalations' | 'compliance' | 'threshold'
 
@@ -216,13 +218,24 @@ export default function DashboardPage() {
           </p>
         </div>
         <dl className="lg:col-span-5 grid grid-cols-2 sm:grid-cols-4 gap-3">
-          <SupportingStat label="Avg talk" value={formatDuration(metrics.avgTalkTime)} />
-          <SupportingStat label="Avg handle" value={formatDuration(metrics.avgHandleTime)} />
+          <SupportingStat
+            label="Avg talk"
+            value={formatDuration(metrics.avgTalkTime)}
+          />
+          <SupportingStat
+            label="Avg handle"
+            value={formatDuration(metrics.avgHandleTime)}
+          />
           <SupportingStat
             label="Compliance"
             value={`${metrics.compliancePassRate}%`}
+            helpId="metric.compliance_rate"
           />
-          <SupportingStat label="High CSAT" value={`${metrics.highSatRate}%`} />
+          <SupportingStat
+            label="High CSAT"
+            value={`${metrics.highSatRate}%`}
+            helpId="metric.high_csat"
+          />
         </dl>
       </header>
 
@@ -307,13 +320,23 @@ export default function DashboardPage() {
           <table className="min-w-full">
             <thead className="bg-pennie-beige/60">
               <tr>
-                <Th>Date / time (ET)</Th>
+                <Th>
+                  Date / time (ET)
+                  <HelpHint id="column.severity" className="ml-1" />
+                </Th>
                 <Th>Agent</Th>
                 <Th>Contact</Th>
                 <Th>Talk time</Th>
-                <Th>Score</Th>
+                <Th>Disposition</Th>
+                <Th>
+                  Score
+                  <HelpHint id="column.score" className="ml-1" />
+                </Th>
                 <Th>Compliance</Th>
-                <Th>Cust sat</Th>
+                <Th>
+                  Cust sat
+                  <HelpHint id="column.csat" className="ml-1" />
+                </Th>
                 <Th>Action</Th>
               </tr>
             </thead>
@@ -324,7 +347,7 @@ export default function DashboardPage() {
                       key={`sk-${i}`}
                       className={i !== 0 ? 'border-t border-border/60' : ''}
                     >
-                      {Array.from({ length: 8 }).map((__, j) => (
+                      {Array.from({ length: 9 }).map((__, j) => (
                         <td key={j} className="px-6 py-4 align-top">
                           <span
                             className="block h-3 rounded-full bg-pennie-beige animate-pulse"
@@ -337,19 +360,21 @@ export default function DashboardPage() {
                 : paginatedCalls.map((call, i) => {
                 const isEscalation = call.qa?.manager_escalation
                 const isComplianceFail = call.qa?.compliance_rating === 'fail'
-                const stripe = isEscalation
-                  ? 'before:bg-pennie-peach-dark'
+                // Severity stripe lives on the first td as a left border so the
+                // browser doesn't synthesize an anonymous cell from a tr ::before.
+                const stripeBorder = isEscalation
+                  ? 'border-pennie-peach-dark'
                   : isComplianceFail
-                    ? 'before:bg-pennie-yellow-dark'
-                    : 'before:bg-transparent'
+                    ? 'border-pennie-yellow-dark'
+                    : 'border-transparent'
                 return (
                   <tr
                     key={call.id}
-                    className={`relative transition-colors duration-150 hover:bg-pennie-beige/40 ${
+                    className={`transition-colors duration-150 hover:bg-pennie-beige/40 ${
                       i !== 0 ? 'border-t border-border/60' : ''
-                    } before:absolute before:left-0 before:top-0 before:bottom-0 before:w-1 ${stripe}`}
+                    }`}
                   >
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-muted-foreground tabular-nums">
+                    <td className={`pl-5 pr-6 py-4 whitespace-nowrap text-sm text-muted-foreground tabular-nums border-l-4 ${stripeBorder}`}>
                       {isEscalation ? (
                         <span className="inline-block w-2 h-2 rounded-full bg-pennie-peach-dark mr-2 align-middle" aria-label="escalation" />
                       ) : isComplianceFail ? (
@@ -365,6 +390,9 @@ export default function DashboardPage() {
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-pennie-graphite tabular-nums">
                       {formatDuration(call.talk_time)}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-pennie-graphite">
+                      {call.disposition ? prettifyDisposition(call.disposition) : '—'}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
                       <ScorePill score={call.qa?.overall_score} />
@@ -474,13 +502,18 @@ export default function DashboardPage() {
 function SupportingStat({
   label,
   value,
+  helpId,
 }: {
   label: string
   value: string | number
+  helpId?: HelpId
 }) {
   return (
     <div>
-      <dt className="pennie-label">{label}</dt>
+      <dt className="pennie-label inline-flex items-center gap-1">
+        {label}
+        {helpId && <HelpHint id={helpId} />}
+      </dt>
       <dd className="mt-1 text-2xl font-semibold text-pennie-navy tabular-nums">
         {value}
       </dd>

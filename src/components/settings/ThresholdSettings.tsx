@@ -9,6 +9,8 @@ import {
 import { ThresholdSettings, DEFAULT_THRESHOLDS } from '../../types/settings'
 import { Input } from '../ui/input'
 import { Label } from '../ui/label'
+import { HelpHint } from '../ui/help-hint'
+import type { HelpId } from '../../lib/help-content'
 
 interface Props {
   isOpen: boolean
@@ -59,7 +61,7 @@ export function ThresholdSettingsSheet({ isOpen, onClose, onSave }: Props) {
           <FieldGroup
             title="Talk time"
             unit="seconds"
-            help="Calls outside this range are flagged for attention."
+            helpId="setting.talk_time"
           >
             <NumberField
               id="talk-min"
@@ -85,7 +87,7 @@ export function ThresholdSettingsSheet({ isOpen, onClose, onSave }: Props) {
             />
           </FieldGroup>
 
-          <FieldGroup title="Handle time" unit="seconds">
+          <FieldGroup title="Handle time" unit="seconds" helpId="setting.handle_time">
             <NumberField
               id="handle-min"
               label="Minimum"
@@ -113,7 +115,7 @@ export function ThresholdSettingsSheet({ isOpen, onClose, onSave }: Props) {
           <FieldGroup
             title="Compliance pass rate"
             unit="%"
-            help="Alert when team compliance falls below this threshold."
+            helpId="setting.compliance_threshold"
           >
             <NumberField
               id="compliance-min"
@@ -131,7 +133,7 @@ export function ThresholdSettingsSheet({ isOpen, onClose, onSave }: Props) {
             />
           </FieldGroup>
 
-          <FieldGroup title="Customer satisfaction" unit="%">
+          <FieldGroup title="Customer satisfaction" unit="%" helpId="setting.csat_thresholds">
             <NumberField
               id="csat-high"
               label="High threshold"
@@ -202,24 +204,26 @@ export function ThresholdSettingsSheet({ isOpen, onClose, onSave }: Props) {
 function FieldGroup({
   title,
   unit,
-  help,
+  helpId,
   children,
 }: {
   title: string
   unit?: string
-  help?: string
+  helpId?: HelpId
   children: React.ReactNode
 }) {
   return (
     <fieldset className="space-y-3">
       <legend className="flex items-baseline gap-2">
-        <span className="text-base font-semibold text-pennie-navy">{title}</span>
+        <span className="text-base font-semibold text-pennie-navy inline-flex items-baseline gap-1.5">
+          {title}
+          {helpId && <HelpHint id={helpId} />}
+        </span>
         {unit && (
           <span className="text-xs text-muted-foreground">({unit})</span>
         )}
       </legend>
       <div className="grid grid-cols-2 gap-4">{children}</div>
-      {help && <p className="text-xs text-muted-foreground">{help}</p>}
     </fieldset>
   )
 }

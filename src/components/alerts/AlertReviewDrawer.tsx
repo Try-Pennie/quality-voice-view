@@ -15,6 +15,8 @@ import {
   extractReason,
   submitAlertFeedback,
 } from '@/lib/alert-queries'
+import { VIOLATION_HELP_IDS } from '@/lib/help-content'
+import { HelpHint } from '@/components/ui/help-hint'
 import {
   accentForViolation,
   pillClasses,
@@ -200,9 +202,12 @@ export function AlertReviewDrawer({
               </button>
             </div>
           </div>
-          <SheetTitle className="text-xl font-semibold text-pennie-navy text-left">
-            {violationLabel}{' '}
-            <span className="text-pennie-graphite/60 font-normal">
+          <SheetTitle className="text-xl font-semibold text-pennie-navy text-left inline-flex items-center gap-1.5">
+            {violationLabel}
+            {VIOLATION_HELP_IDS[alert.violation_type] && (
+              <HelpHint id={VIOLATION_HELP_IDS[alert.violation_type]} size={4} />
+            )}
+            <span className="text-pennie-graphite/60 font-normal ml-1">
               · call {alert.call_id}
             </span>
           </SheetTitle>

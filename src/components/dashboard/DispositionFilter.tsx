@@ -61,7 +61,7 @@ export function DispositionFilter({
   )
 }
 
-function prettify(s: string): string {
+export function prettify(s: string): string {
   return s
     .split(/[_\s]+/)
     .map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())

@@ -12,6 +12,7 @@ import CallDetailPage from "./pages/CallDetailPage";
 import AlertsPage from "./pages/AlertsPage";
 import TeamPage from "./pages/TeamPage";
 import AgentProfilePage from "./pages/AgentProfilePage";
+import HelpPage from "./pages/HelpPage";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient({
@@ -102,6 +103,17 @@ const App = () => (
                 <ProtectedRoute>
                   <DashboardLayout>
                     <AlertsPage />
+                  </DashboardLayout>
+                </ProtectedRoute>
+              }
+            />
+
+            <Route
+              path="/dashboard/help"
+              element={
+                <ProtectedRoute>
+                  <DashboardLayout>
+                    <HelpPage />
                   </DashboardLayout>
                 </ProtectedRoute>
               }

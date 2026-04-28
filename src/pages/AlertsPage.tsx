@@ -27,6 +27,8 @@ import { AlertReviewDrawer } from '../components/alerts/AlertReviewDrawer'
 import { formatDateParam, parseDateParam } from '../lib/url-filters'
 import { ymdInBusinessTZ } from '../lib/time-zone'
 import { Inbox, Search } from 'lucide-react'
+import { HelpHint } from '../components/ui/help-hint'
+import type { HelpId } from '../lib/help-content'
 
 const MODULE_OPTIONS = [
   { value: 'full_qa', label: MODULE_LABELS.full_qa },
@@ -386,6 +388,7 @@ export default function AlertsPage() {
           <SupportingStat
             label="Reviewed"
             value={`${stats.reviewed} / ${stats.total}`}
+            helpId="metric.alert_reviewed"
           />
           <SupportingStat
             label="False-positive rate"
@@ -395,8 +398,13 @@ export default function AlertsPage() {
                 ? `${stats.inaccurate} of ${stats.reviewed}`
                 : 'No feedback yet'
             }
+            helpId="metric.fp_rate"
           />
-          <SupportingStat label="Agents flagged" value={stats.flaggedAgents} />
+          <SupportingStat
+            label="Agents flagged"
+            value={stats.flaggedAgents}
+            helpId="metric.agents_flagged"
+          />
         </dl>
       </header>
 
@@ -427,7 +435,10 @@ export default function AlertsPage() {
           />
 
           <fieldset className="flex flex-col gap-1.5">
-            <legend className="pennie-label">Status</legend>
+            <legend className="pennie-label inline-flex items-center gap-1">
+              Status
+              <HelpHint id="filter.alerts.status" />
+            </legend>
             <div className="flex gap-1" role="radiogroup" aria-label="Filter by status">
               {(['new', 'reviewed', 'all'] as const).map(s => (
                 <button
@@ -467,7 +478,10 @@ export default function AlertsPage() {
         </div>
 
         <div>
-          <p className="pennie-label mb-2">Filter by module</p>
+          <p className="pennie-label mb-2 inline-flex items-center gap-1">
+            Filter by module
+            <HelpHint id="filter.alerts.module" />
+          </p>
           <div
             className="flex flex-wrap gap-2"
             role="group"
@@ -662,14 +676,19 @@ function SupportingStat({
   label,
   value,
   hint,
+  helpId,
 }: {
   label: string
   value: string | number
   hint?: string
+  helpId?: HelpId
 }) {
   return (
     <div>
-      <dt className="pennie-label">{label}</dt>
+      <dt className="pennie-label inline-flex items-center gap-1">
+        {label}
+        {helpId && <HelpHint id={helpId} />}
+      </dt>
       <dd className="mt-1 text-2xl font-semibold text-pennie-navy tabular-nums">
         {value}
       </dd>
