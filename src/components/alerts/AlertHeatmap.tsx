@@ -124,7 +124,7 @@ export function AlertHeatmap({
   return (
     <section className="bg-pennie-white rounded-3xl shadow-resting p-6">
       <Header compact={compact} hiddenAgents={Math.max(0, totalAgentsInData - agents.length)} />
-      <div className="overflow-x-auto -mx-2 px-2">
+      <div className="overflow-x-auto overflow-y-visible -mx-2 px-2 pt-4 pr-12">
         <table className="min-w-full text-sm border-separate border-spacing-1">
           <thead>
             <tr>
@@ -135,16 +135,18 @@ export function AlertHeatmap({
                 <th
                   key={a.email}
                   scope="col"
-                  className="px-1 align-bottom"
+                  className="px-1 align-bottom h-24 overflow-visible"
                 >
-                  <button
-                    type="button"
-                    onClick={() => onAgentClick(a.email)}
-                    className="text-[11px] text-pennie-navy/80 font-semibold tracking-wide hover:text-pennie-navy whitespace-nowrap rotate-[-30deg] origin-bottom-left translate-y-1 inline-block max-w-[120px] truncate"
-                    title={a.name || a.email}
-                  >
-                    {shortenName(a.name, a.email)}
-                  </button>
+                  <div className="h-full flex items-end justify-start">
+                    <button
+                      type="button"
+                      onClick={() => onAgentClick(a.email)}
+                      className="text-[11px] text-pennie-navy/80 font-semibold tracking-wide hover:text-pennie-navy whitespace-nowrap rotate-[-30deg] origin-bottom-left translate-y-1 inline-block"
+                      title={a.name || a.email}
+                    >
+                      {shortenName(a.name, a.email)}
+                    </button>
+                  </div>
                 </th>
               ))}
               <th className="text-left text-[11px] uppercase tracking-wider text-pennie-graphite/60 font-semibold pl-3">
