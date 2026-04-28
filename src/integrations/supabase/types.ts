@@ -80,39 +80,45 @@ export type Database = {
         }
         Relationships: []
       }
-      eavesly_api_logs: {
+      eavesly_alert_feedback: {
         Row: {
-          correlation_id: string
+          accurate: boolean
+          action_taken: string | null
+          call_id: string
+          comment: string | null
           created_at: string
-          endpoint: string
-          error_message: string | null
-          http_method: string
-          http_status_code: number
           id: number
-          processing_time_ms: number
-          request_timestamp: string
+          inaccuracy_reason: string | null
+          manager_email: string
+          module_name: string
+          reviewed_at: string
+          updated_at: string
         }
         Insert: {
-          correlation_id: string
+          accurate: boolean
+          action_taken?: string | null
+          call_id: string
+          comment?: string | null
           created_at?: string
-          endpoint: string
-          error_message?: string | null
-          http_method?: string
-          http_status_code: number
           id?: number
-          processing_time_ms: number
-          request_timestamp?: string
+          inaccuracy_reason?: string | null
+          manager_email: string
+          module_name: string
+          reviewed_at?: string
+          updated_at?: string
         }
         Update: {
-          correlation_id?: string
+          accurate?: boolean
+          action_taken?: string | null
+          call_id?: string
+          comment?: string | null
           created_at?: string
-          endpoint?: string
-          error_message?: string | null
-          http_method?: string
-          http_status_code?: number
           id?: number
-          processing_time_ms?: number
-          request_timestamp?: string
+          inaccuracy_reason?: string | null
+          manager_email?: string
+          module_name?: string
+          reviewed_at?: string
+          updated_at?: string
         }
         Relationships: []
       }
@@ -191,57 +197,102 @@ export type Database = {
         }
         Relationships: []
       }
-      eavesly_evaluation_results: {
+      eavesly_module_results: {
         Row: {
-          agent_id: string
-          api_evaluation_timestamp: string
-          api_overall_score: number
+          agent_email: string | null
+          alert_sent: boolean | null
+          alert_sent_at: string | null
           call_id: string
-          classification_result: Json
-          communication_result: Json
-          compliance_result: Json
-          correlation_id: string
-          created_at: string
-          deep_dive_result: Json | null
-          evaluation_version: string
+          call_summary: string | null
+          contact_name: string | null
+          contact_phone: string | null
+          created_at: string | null
+          has_violation: boolean | null
           id: number
-          processing_time_ms: number
-          script_deviation_result: Json
-          updated_at: string
+          module_name: string
+          processing_time_ms: number | null
+          recording_link: string | null
+          result_json: Json
+          sfdc_lead_id: string | null
+          transcript_url: string | null
+          violation_type: string | null
         }
         Insert: {
-          agent_id: string
-          api_evaluation_timestamp: string
-          api_overall_score: number
+          agent_email?: string | null
+          alert_sent?: boolean | null
+          alert_sent_at?: string | null
           call_id: string
-          classification_result: Json
-          communication_result: Json
-          compliance_result: Json
-          correlation_id: string
-          created_at?: string
-          deep_dive_result?: Json | null
-          evaluation_version?: string
+          call_summary?: string | null
+          contact_name?: string | null
+          contact_phone?: string | null
+          created_at?: string | null
+          has_violation?: boolean | null
           id?: number
-          processing_time_ms: number
-          script_deviation_result: Json
-          updated_at?: string
+          module_name: string
+          processing_time_ms?: number | null
+          recording_link?: string | null
+          result_json: Json
+          sfdc_lead_id?: string | null
+          transcript_url?: string | null
+          violation_type?: string | null
         }
         Update: {
-          agent_id?: string
-          api_evaluation_timestamp?: string
-          api_overall_score?: number
+          agent_email?: string | null
+          alert_sent?: boolean | null
+          alert_sent_at?: string | null
           call_id?: string
-          classification_result?: Json
-          communication_result?: Json
-          compliance_result?: Json
-          correlation_id?: string
-          created_at?: string
-          deep_dive_result?: Json | null
-          evaluation_version?: string
+          call_summary?: string | null
+          contact_name?: string | null
+          contact_phone?: string | null
+          created_at?: string | null
+          has_violation?: boolean | null
           id?: number
-          processing_time_ms?: number
-          script_deviation_result?: Json
-          updated_at?: string
+          module_name?: string
+          processing_time_ms?: number | null
+          recording_link?: string | null
+          result_json?: Json
+          sfdc_lead_id?: string | null
+          transcript_url?: string | null
+          violation_type?: string | null
+        }
+        Relationships: []
+      }
+      eavesly_request_log: {
+        Row: {
+          call_id: string | null
+          correlation_id: string | null
+          created_at: string | null
+          endpoint: string
+          error_details: Json | null
+          error_message: string | null
+          id: number
+          raw_body: string | null
+          status: string
+          status_code: number | null
+        }
+        Insert: {
+          call_id?: string | null
+          correlation_id?: string | null
+          created_at?: string | null
+          endpoint: string
+          error_details?: Json | null
+          error_message?: string | null
+          id?: number
+          raw_body?: string | null
+          status: string
+          status_code?: number | null
+        }
+        Update: {
+          call_id?: string | null
+          correlation_id?: string | null
+          created_at?: string | null
+          endpoint?: string
+          error_details?: Json | null
+          error_message?: string | null
+          id?: number
+          raw_body?: string | null
+          status?: string
+          status_code?: number | null
         }
         Relationships: []
       }
@@ -362,6 +413,7 @@ export type Database = {
           created_at: string | null
           has_customized: boolean | null
           id: string
+          is_god_mode: boolean | null
           manager_email: string
           shown_default_warning: boolean | null
           updated_at: string | null
@@ -371,6 +423,7 @@ export type Database = {
           created_at?: string | null
           has_customized?: boolean | null
           id?: string
+          is_god_mode?: boolean | null
           manager_email: string
           shown_default_warning?: boolean | null
           updated_at?: string | null
@@ -380,44 +433,66 @@ export type Database = {
           created_at?: string | null
           has_customized?: boolean | null
           id?: string
+          is_god_mode?: boolean | null
           manager_email?: string
           shown_default_warning?: boolean | null
           updated_at?: string | null
         }
         Relationships: []
       }
-      time_off_requests: {
+    }
+    Views: {
+      eavesly_alerts_with_feedback: {
         Row: {
-          approved_at: string | null
-          approved_by: string | null
-          created_at: string
-          employee_email: string | null
-          id: number
-          request_id: string | null
-          request_json: Json | null
-        }
-        Insert: {
-          approved_at?: string | null
-          approved_by?: string | null
-          created_at?: string
-          employee_email?: string | null
-          id?: number
-          request_id?: string | null
-          request_json?: Json | null
-        }
-        Update: {
-          approved_at?: string | null
-          approved_by?: string | null
-          created_at?: string
-          employee_email?: string | null
-          id?: number
-          request_id?: string | null
-          request_json?: Json | null
+          accurate: boolean | null
+          action_taken: string | null
+          agent_email: string | null
+          alert_created_at: string | null
+          alert_sent: boolean | null
+          alert_sent_at: string | null
+          assigned_manager_email: string | null
+          call_id: string | null
+          call_summary: string | null
+          contact_name: string | null
+          contact_phone: string | null
+          feedback_by: string | null
+          feedback_comment: string | null
+          feedback_id: number | null
+          has_violation: boolean | null
+          inaccuracy_reason: string | null
+          is_reviewed: boolean | null
+          module_name: string | null
+          module_result_id: number | null
+          processing_time_ms: number | null
+          recording_link: string | null
+          result_json: Json | null
+          reviewed_at: string | null
+          sfdc_lead_id: string | null
+          transcript_url: string | null
+          violation_type: string | null
         }
         Relationships: []
       }
-    }
-    Views: {
+      eavesly_session_index: {
+        Row: {
+          agent_email: string | null
+          agent_full_name: string | null
+          call_id: string | null
+          call_summary: string | null
+          campaign_id: number | null
+          campaign_name: string | null
+          compliance_rating: string | null
+          contact_phone: string | null
+          direction: string | null
+          ended_at: string | null
+          handle_time: number | null
+          overall_score: string | null
+          qa_id: number | null
+          recording_link: string | null
+          started_at: string | null
+        }
+        Relationships: []
+      }
       eavesly_transcription_qa_with_calls: {
         Row: {
           agent_email: string | null
@@ -445,15 +520,75 @@ export type Database = {
       }
     }
     Functions: {
+      agent_daily_metrics: {
+        Args: { p_agent_email: string; p_end: string; p_start: string }
+        Returns: {
+          agent_email: string
+          agent_full_name: string
+          bucket_day: string
+          call_count: number
+          compliance_pass_count: number
+          compliance_total_count: number
+          csat_high_count: number
+          csat_low_count: number
+          csat_medium_count: number
+          escalation_count: number
+          open_alerts: number
+          qa_count: number
+          talk_time_n: number
+          talk_time_sum: number
+          unreviewed_alerts: number
+        }[]
+      }
       check_call_completed: { Args: { call_id: string }; Returns: Json }
       check_transcription_completed: {
         Args: { call_id: string }
         Returns: Json
       }
       eavesly_call_data: { Args: { call_id: string }; Returns: Json }
+      get_current_user_email: { Args: never; Returns: string }
       get_lead_profile_recap_agent_view: {
         Args: { p_sfdc_lead_id: string }
         Returns: Json
+      }
+      is_god_mode_user: { Args: { user_email: string }; Returns: boolean }
+      preview_manager_email_updates: {
+        Args: never
+        Returns: {
+          agent_email: string
+          manager_email: string
+          rows_to_update: number
+          sample_ids: number[]
+        }[]
+      }
+      sync_all_manager_emails: { Args: never; Returns: undefined }
+      team_daily_metrics: {
+        Args: { p_end: string; p_start: string }
+        Returns: {
+          agent_email: string
+          agent_full_name: string
+          bucket_day: string
+          call_count: number
+          compliance_pass_count: number
+          compliance_total_count: number
+          csat_high_count: number
+          csat_low_count: number
+          csat_medium_count: number
+          escalation_count: number
+          open_alerts: number
+          qa_count: number
+          talk_time_n: number
+          talk_time_sum: number
+          unreviewed_alerts: number
+        }[]
+      }
+      update_manager_emails_from_mapping: {
+        Args: never
+        Returns: {
+          agent_email: string
+          manager_email: string
+          rows_updated: number
+        }[]
       }
     }
     Enums: {

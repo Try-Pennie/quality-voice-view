@@ -11,12 +11,6 @@ import {
   type CoachingThemes,
   type TeamCoachingThemes,
 } from './coaching-aggregation'
-import { fetchAllPaginated } from './supabase-helpers'
-import {
-  startOfBusinessDay,
-  endOfBusinessDay,
-  ymdInBusinessTZ,
-} from './time-zone'
 
 const sb = supabase as any
 
@@ -62,16 +56,37 @@ export type AgentProfile = {
   recent_calls: CallWithQA[]
 }
 
-// ---------- Helpers ----------
+// Shape returned by team_daily_metrics / agent_daily_metrics RPCs.
+// Values come back as Postgres bigints which the JS driver renders as
+// strings or numbers depending on size — coerce on read.
+type DailyMetricRow = {
+  agent_email: string
+  agent_full_name: string | null
+  bucket_day: string // YYYY-MM-DD
+  call_count: number
+  talk_time_sum: number
+  talk_time_n: number
+  qa_count: number
+  compliance_pass_count: number
+  compliance_total_count: number
+  escalation_count: number
+  csat_high_count: number
+  csat_medium_count: number
+  csat_low_count: number
+  open_alerts: number
+  unreviewed_alerts: number
+}
 
-const QA_SUMMARY_COLUMNS =
-  'call_id, agent_email, overall_score, compliance_rating, customer_satisfaction_likely, manager_escalation, created_at'
+// ---------- Helpers ----------
 
 const ALERT_COUNT_COLUMNS =
   'call_id, module_name, agent_email, alert_created_at, has_violation, is_reviewed, accurate, action_taken, inaccuracy_reason, contact_name, contact_phone, call_summary, sfdc_lead_id, violation_type, alert_sent, feedback_id, feedback_by, feedback_comment, reviewed_at'
 
 const RECENT_CALL_COLUMNS =
   'id, call_id, agent_email, agent_full_name, started_at, contact_phone, talk_time, handle_time'
+
+const QA_SUMMARY_COLUMNS =
+  'call_id, agent_email, overall_score, compliance_rating, customer_satisfaction_likely, manager_escalation, created_at'
 
 async function fetchInBatches<T>(
   values: string[],
@@ -87,24 +102,21 @@ async function fetchInBatches<T>(
   return results.flat()
 }
 
-
 function pickBucketSize(startDate: Date, endDate: Date): 'day' | 'week' {
   const days = (endDate.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24)
   return days <= 14 ? 'day' : 'week'
 }
 
 function bucketKey(date: Date, size: 'day' | 'week'): string {
-  // Bucket on Eastern time so trends stay aligned with the business day,
-  // not the viewer's local timezone.
-  const ymd = ymdInBusinessTZ(date) // "YYYY-MM-DD"
-  if (size !== 'week') return ymd
-  // Snap to the Monday of the ET week. Day-of-week for a calendar date is
-  // timezone-independent, so we can use a local Date for the math.
-  const [y, m, d] = ymd.split('-').map(Number)
-  const cal = new Date(y, m - 1, d)
-  const diff = (cal.getDay() + 6) % 7
-  cal.setDate(cal.getDate() - diff)
-  return `${cal.getFullYear()}-${String(cal.getMonth() + 1).padStart(2, '0')}-${String(cal.getDate()).padStart(2, '0')}`
+  const d = new Date(date)
+  d.setHours(0, 0, 0, 0)
+  if (size === 'week') {
+    // Start of week (Monday)
+    const day = d.getDay()
+    const diff = (day + 6) % 7
+    d.setDate(d.getDate() - diff)
+  }
+  return d.toISOString().slice(0, 10)
 }
 
 function bucketLabel(iso: string, size: 'day' | 'week'): string {
@@ -121,29 +133,10 @@ function buildEmptyBuckets(
   size: 'day' | 'week',
 ): Map<string, TrendPoint> {
   const map = new Map<string, TrendPoint>()
-  // Picker-state Dates carry the intended ET Y/M/D in their local components.
-  // We iterate calendar days using getFullYear/Month/Date — which is timezone-
-  // independent — so cursor keys match the ET keys produced by bucketKey for
-  // each QA row's started_at.
-  const cursor = new Date(
-    startDate.getFullYear(),
-    startDate.getMonth(),
-    startDate.getDate(),
-  )
-  const stop = new Date(
-    endDate.getFullYear(),
-    endDate.getMonth(),
-    endDate.getDate(),
-  )
-  const ymd = (d: Date) =>
-    `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
-  while (cursor <= stop) {
-    let key = ymd(cursor)
-    if (size === 'week') {
-      const monday = new Date(cursor)
-      monday.setDate(monday.getDate() - ((monday.getDay() + 6) % 7))
-      key = ymd(monday)
-    }
+  const cursor = new Date(startDate)
+  cursor.setHours(0, 0, 0, 0)
+  while (cursor <= endDate) {
+    const key = bucketKey(cursor, size)
     if (!map.has(key)) {
       map.set(key, {
         bucket: key,
@@ -164,104 +157,112 @@ function buildEmptyBuckets(
   return map
 }
 
-type QASummaryRow = {
-  call_id: string
-  agent_email: string | null
-  overall_score: string | null
-  compliance_rating: string | null
-  customer_satisfaction_likely: string | null
-  manager_escalation: boolean | null
-  created_at: string
-  // Joined in from eavesly_calls before bucketing — `created_at` reflects
-  // when the QA row was inserted (often a batched backfill timestamp), not
-  // when the call actually happened, so we bucket on the call's started_at.
-  started_at?: string | null
+function toNum(v: unknown): number {
+  if (typeof v === 'number') return v
+  if (typeof v === 'string') return Number(v) || 0
+  return 0
 }
 
-function buildTrendPoints(
-  qaRows: QASummaryRow[],
+function normalizeDailyRow(r: any): DailyMetricRow {
+  return {
+    agent_email: r.agent_email,
+    agent_full_name: r.agent_full_name ?? null,
+    bucket_day: r.bucket_day,
+    call_count: toNum(r.call_count),
+    talk_time_sum: toNum(r.talk_time_sum),
+    talk_time_n: toNum(r.talk_time_n),
+    qa_count: toNum(r.qa_count),
+    compliance_pass_count: toNum(r.compliance_pass_count),
+    compliance_total_count: toNum(r.compliance_total_count),
+    escalation_count: toNum(r.escalation_count),
+    csat_high_count: toNum(r.csat_high_count),
+    csat_medium_count: toNum(r.csat_medium_count),
+    csat_low_count: toNum(r.csat_low_count),
+    open_alerts: toNum(r.open_alerts),
+    unreviewed_alerts: toNum(r.unreviewed_alerts),
+  }
+}
+
+// Postgres `date` -> 'YYYY-MM-DD'. Use the local-tz year/month/day so the
+// browser's window aligns with the MV's NY-time bucketing for east-coast
+// users. Acceptable drift elsewhere.
+function toDateParam(d: Date): string {
+  const y = d.getFullYear()
+  const m = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  return `${y}-${m}-${day}`
+}
+
+function trendPointsFromDailyRows(
+  rows: DailyMetricRow[],
   startDate: Date,
   endDate: Date,
 ): TrendPoint[] {
   const size = pickBucketSize(startDate, endDate)
   const buckets = buildEmptyBuckets(startDate, endDate, size)
-  // Track pass/fail counts per bucket separately for accurate rate calc
-  const passCounts = new Map<string, { pass: number; total: number }>()
-
-  for (const qa of qaRows) {
-    // Prefer the call's started_at (set by the caller) over the QA row's
-    // created_at — the latter is a DB insert timestamp and skews to whenever
-    // the QA pipeline ran, not when the call took place.
-    const ts = qa.started_at || qa.created_at
-    const key = bucketKey(new Date(ts), size)
+  for (const r of rows) {
+    const dayDate = new Date(r.bucket_day + 'T00:00:00')
+    const key = bucketKey(dayDate, size)
     const point = buckets.get(key)
     if (!point) continue
-    point.call_count += 1
-    if (qa.manager_escalation) point.escalations += 1
-    if (qa.customer_satisfaction_likely === 'high') point.csat_high += 1
-    else if (qa.customer_satisfaction_likely === 'medium') point.csat_medium += 1
-    else if (qa.customer_satisfaction_likely === 'low') point.csat_low += 1
-    const pc = passCounts.get(key) || { pass: 0, total: 0 }
-    if (qa.compliance_rating === 'pass' || qa.compliance_rating === 'fail') {
-      pc.total += 1
-      if (qa.compliance_rating === 'pass') pc.pass += 1
-    }
-    passCounts.set(key, pc)
+    point.call_count += r.call_count
+    point.compliance_pass += r.compliance_pass_count
+    point.compliance_total += r.compliance_total_count
+    point.csat_high += r.csat_high_count
+    point.csat_medium += r.csat_medium_count
+    point.csat_low += r.csat_low_count
+    point.escalations += r.escalation_count
   }
-
-  for (const [key, point] of buckets) {
-    const pc = passCounts.get(key)
-    point.compliance_pass = pc?.pass ?? 0
-    point.compliance_total = pc?.total ?? 0
+  for (const point of buckets.values()) {
+    // null (not 0) when no compliance-graded calls landed in this bucket so
+    // the line chart renders a gap instead of a misleading 0%.
     point.compliance_pass_rate =
-      pc && pc.total > 0 ? Math.round((pc.pass / pc.total) * 100) : null
+      point.compliance_total > 0
+        ? Math.round((point.compliance_pass / point.compliance_total) * 100)
+        : null
   }
-
   return Array.from(buckets.values()).sort((a, b) =>
     a.bucket.localeCompare(b.bucket),
   )
 }
 
-function computeRollup(
+function rollupFromDailyRows(
   agentEmail: string,
   agentFullName: string | null,
-  calls: { talk_time: number | null }[],
-  qaRows: QASummaryRow[],
-  alertCounts: { open: number; unreviewed: number },
-  trendPoints: TrendPoint[],
+  rows: DailyMetricRow[],
+  trend: TrendPoint[],
 ): AgentRollup {
-  const callCount = calls.length
-  const qaCount = qaRows.length
-  const avgTalkTime =
-    callCount > 0
-      ? Math.round(calls.reduce((s, c) => s + (c.talk_time || 0), 0) / callCount)
-      : 0
-  const compRated = qaRows.filter(
-    q => q.compliance_rating === 'pass' || q.compliance_rating === 'fail',
-  )
-  const compPass = compRated.filter(q => q.compliance_rating === 'pass').length
+  const callCount = rows.reduce((s, r) => s + r.call_count, 0)
+  const qaCount = rows.reduce((s, r) => s + r.qa_count, 0)
+  const talkTimeSum = rows.reduce((s, r) => s + r.talk_time_sum, 0)
+  const talkTimeN = rows.reduce((s, r) => s + r.talk_time_n, 0)
+  const avgTalkTime = talkTimeN > 0 ? Math.round(talkTimeSum / talkTimeN) : 0
+
+  const compPass = rows.reduce((s, r) => s + r.compliance_pass_count, 0)
+  const compTotal = rows.reduce((s, r) => s + r.compliance_total_count, 0)
   const compliancePassRate =
-    compRated.length > 0 ? Math.round((compPass / compRated.length) * 100) : 0
+    compTotal > 0 ? Math.round((compPass / compTotal) * 100) : 0
 
-  const csatRated = qaRows.filter(q => q.customer_satisfaction_likely)
-  const csatHigh = csatRated.filter(
-    q => q.customer_satisfaction_likely === 'high',
-  ).length
+  const csatHigh = rows.reduce((s, r) => s + r.csat_high_count, 0)
+  const csatMed = rows.reduce((s, r) => s + r.csat_medium_count, 0)
+  const csatLow = rows.reduce((s, r) => s + r.csat_low_count, 0)
+  const csatTotal = csatHigh + csatMed + csatLow
   const csatHighRate =
-    csatRated.length > 0 ? Math.round((csatHigh / csatRated.length) * 100) : 0
+    csatTotal > 0 ? Math.round((csatHigh / csatTotal) * 100) : 0
 
-  const escalations = qaRows.filter(q => q.manager_escalation === true).length
+  const escalations = rows.reduce((s, r) => s + r.escalation_count, 0)
   const escalationRate =
     qaCount > 0 ? Math.round((escalations / qaCount) * 100) : 0
 
-  // "Needs attention" mirrors the call-level rule but at the agent level:
-  // any below-bar metric flips the flag.
+  const openAlerts = rows.reduce((s, r) => s + r.open_alerts, 0)
+  const unreviewedAlerts = rows.reduce((s, r) => s + r.unreviewed_alerts, 0)
+
   const needsAttention =
     callCount > 0 &&
     (compliancePassRate < 80 ||
       escalationRate >= 10 ||
       csatHighRate < 50 ||
-      alertCounts.unreviewed > 0)
+      unreviewedAlerts > 0)
 
   return {
     agent_email: agentEmail,
@@ -272,9 +273,9 @@ function computeRollup(
     compliance_pass_rate: compliancePassRate,
     csat_high_rate: csatHighRate,
     escalation_rate: escalationRate,
-    open_alerts_count: alertCounts.open,
-    unreviewed_alerts_count: alertCounts.unreviewed,
-    trend_points: trendPoints,
+    open_alerts_count: openAlerts,
+    unreviewed_alerts_count: unreviewedAlerts,
+    trend_points: trend,
     needs_attention: needsAttention,
   }
 }
@@ -288,122 +289,37 @@ export async function fetchTeamRollup(
 ): Promise<AgentRollup[]> {
   if (!scope.isGodMode && scope.managedAgents.length === 0) return []
 
-  // 1. Resolve agentEmails immediately so alerts can fetch in parallel with
-  // the calls query. For non-godmode this is just scope.managedAgents — we
-  // derive display names from the calls fetch itself, skipping a roundtrip.
-  // For godmode we still need a discovery query to know the universe.
-  const agentEmails: string[] = scope.isGodMode
-    ? await (async () => {
-        // Paginate so we capture every active agent in the window, not just
-        // those appearing in the most recent 1000 rows.
-        const rows = await fetchAllPaginated<{ agent_email: string }>(
-          (from, to) =>
-            sb
-              .from('eavesly_calls')
-              .select('agent_email')
-              .gte('started_at', startOfBusinessDay(startDate).toISOString())
-              .lte('started_at', endOfBusinessDay(endDate).toISOString())
-              .not('agent_email', 'is', null)
-              .order('started_at', { ascending: false })
-              .range(from, to),
-        )
-        return Array.from(new Set(rows.map(r => r.agent_email)))
-      })()
-    : scope.managedAgents
-
-  if (agentEmails.length === 0) return []
-
-  // 2. Fire calls + alerts in parallel — alerts only depends on agentEmails.
-  // Calls fetch paginates because Supabase caps each response at 1000 rows;
-  // a multi-day window across many agents easily exceeds that.
-  const [calls, alertRows] = await Promise.all([
-    fetchInBatches(agentEmails, 100, async batch =>
-      fetchAllPaginated<any>((from, to) =>
-        sb
-          .from('eavesly_calls')
-          .select('call_id, agent_email, agent_full_name, talk_time, started_at')
-          .in('agent_email', batch)
-          .gte('started_at', startOfBusinessDay(startDate).toISOString())
-          .lte('started_at', endOfBusinessDay(endDate).toISOString())
-          .order('started_at', { ascending: false })
-          .range(from, to),
-      ),
-    ),
-    fetchAgentAlertCounts(agentEmails, startDate, endDate),
-  ])
-
-  // Build agents with names derived from calls (no extra query).
-  const nameByEmail = new Map<string, string | null>()
-  for (const c of calls) {
-    if (c.agent_email && !nameByEmail.has(c.agent_email)) {
-      nameByEmail.set(c.agent_email, c.agent_full_name ?? null)
-    }
-  }
-  const agents = agentEmails.map(email => ({
-    agent_email: email,
-    agent_full_name: nameByEmail.get(email) ?? null,
-  }))
-
-  // 3. Fetch QA summaries for those calls in batches.
-  const callIds = calls.map(c => c.call_id).filter(Boolean) as string[]
-  const qaRows = await fetchInBatches<QASummaryRow>(callIds, 300, async batch => {
-    const { data, error } = await sb
-      .from('eavesly_transcription_qa')
-      .select(QA_SUMMARY_COLUMNS)
-      .in('call_id', batch)
-    if (error) {
-      console.error('Error fetching team QA batch:', error)
-      return []
-    }
-    return (data || []) as QASummaryRow[]
+  const { data, error } = await sb.rpc('team_daily_metrics', {
+    p_start: toDateParam(startDate),
+    p_end: toDateParam(endDate),
   })
-
-  // Enrich QA rows with the call's started_at so trend bucketing keys off
-  // the actual call time rather than the QA pipeline insert timestamp.
-  const startedAtByCallId = new Map<string, string>()
-  for (const c of calls) {
-    if (c.call_id && c.started_at) startedAtByCallId.set(c.call_id, c.started_at)
-  }
-  for (const q of qaRows) {
-    q.started_at = startedAtByCallId.get(q.call_id) ?? null
+  if (error) {
+    console.error('Error calling team_daily_metrics:', error)
+    return []
   }
 
-  // 5. Group everything by agent_email and compute rollups.
-  const callsByAgent = new Map<string, any[]>()
-  for (const c of calls) {
-    const arr = callsByAgent.get(c.agent_email) || []
-    arr.push(c)
-    callsByAgent.set(c.agent_email, arr)
-  }
-  const qaByAgent = new Map<string, QASummaryRow[]>()
-  for (const q of qaRows) {
-    if (!q.agent_email) continue
-    const arr = qaByAgent.get(q.agent_email) || []
-    arr.push(q)
-    qaByAgent.set(q.agent_email, arr)
-  }
-  const alertsByAgent = new Map<string, { open: number; unreviewed: number }>()
-  for (const a of alertRows) {
-    if (!a.agent_email) continue
-    const counts = alertsByAgent.get(a.agent_email) || { open: 0, unreviewed: 0 }
-    if (a.has_violation) counts.open += 1
-    if (a.has_violation && !a.is_reviewed) counts.unreviewed += 1
-    alertsByAgent.set(a.agent_email, counts)
+  const rows = ((data || []) as any[]).map(normalizeDailyRow)
+  const byAgent = new Map<string, DailyMetricRow[]>()
+  const nameByAgent = new Map<string, string | null>()
+  for (const r of rows) {
+    if (!r.agent_email) continue
+    const arr = byAgent.get(r.agent_email) || []
+    arr.push(r)
+    byAgent.set(r.agent_email, arr)
+    if (!nameByAgent.has(r.agent_email) || (r.agent_full_name && !nameByAgent.get(r.agent_email))) {
+      nameByAgent.set(r.agent_email, r.agent_full_name)
+    }
   }
 
-  return agents.map(a => {
-    const agentCalls = callsByAgent.get(a.agent_email) || []
-    const agentQA = qaByAgent.get(a.agent_email) || []
-    const counts = alertsByAgent.get(a.agent_email) || { open: 0, unreviewed: 0 }
-    const trend = buildTrendPoints(agentQA, startDate, endDate)
-    return computeRollup(
-      a.agent_email,
-      a.agent_full_name,
-      agentCalls,
-      agentQA,
-      counts,
-      trend,
-    )
+  // Surface every agent in scope, even those with zero activity in the window,
+  // so the leaderboard "All agents" view stays consistent with prior behavior.
+  const allAgents = new Set<string>(byAgent.keys())
+  if (!scope.isGodMode) for (const e of scope.managedAgents) allAgents.add(e)
+
+  return Array.from(allAgents).map(email => {
+    const agentRows = byAgent.get(email) || []
+    const trend = trendPointsFromDailyRows(agentRows, startDate, endDate)
+    return rollupFromDailyRows(email, nameByAgent.get(email) ?? null, agentRows, trend)
   })
 }
 
@@ -413,18 +329,20 @@ export async function fetchAgentAlertCounts(
   endDate: Date,
 ): Promise<AlertWithFeedback[]> {
   if (agentEmails.length === 0) return []
-  return fetchInBatches<AlertWithFeedback>(agentEmails, 100, async batch =>
-    fetchAllPaginated<AlertWithFeedback>((from, to) =>
-      sb
-        .from('eavesly_alerts_with_feedback')
-        .select(ALERT_COUNT_COLUMNS)
-        .in('agent_email', batch)
-        .gte('alert_created_at', startOfBusinessDay(startDate).toISOString())
-        .lte('alert_created_at', endOfBusinessDay(endDate).toISOString())
-        .order('alert_created_at', { ascending: false })
-        .range(from, to),
-    ),
-  )
+  return fetchInBatches<AlertWithFeedback>(agentEmails, 100, async batch => {
+    const { data, error } = await sb
+      .from('eavesly_alerts_with_feedback')
+      .select(ALERT_COUNT_COLUMNS)
+      .in('agent_email', batch)
+      .gte('alert_created_at', startDate.toISOString())
+      .lte('alert_created_at', endDate.toISOString())
+      .limit(2000)
+    if (error) {
+      console.error('Error fetching agent alerts batch:', error)
+      return []
+    }
+    return (data || []) as AlertWithFeedback[]
+  })
 }
 
 export async function fetchAgentProfile(
@@ -432,45 +350,49 @@ export async function fetchAgentProfile(
   startDate: Date,
   endDate: Date,
 ): Promise<AgentProfile | null> {
-  // Calls in window — paginated to bypass Supabase's 1000-row response cap.
-  const calls = await fetchAllPaginated<any>((from, to) =>
+  // Metrics + trend come from the RPC (no row-cap surprises). Coaching themes
+  // and recent-call detail still need raw rows, but they're sample-bounded
+  // (<= 50 calls, <= 10 calls) so they're safe to fetch directly.
+  const COACHING_SAMPLE_SIZE = 50
+  const RECENT_CALL_SIZE = 10
+  const sampleSize = Math.max(COACHING_SAMPLE_SIZE, RECENT_CALL_SIZE)
+
+  const [metricsRes, sampleCallsRes, alerts] = await Promise.all([
+    sb.rpc('agent_daily_metrics', {
+      p_agent_email: agentEmail,
+      p_start: toDateParam(startDate),
+      p_end: toDateParam(endDate),
+    }),
     sb
       .from('eavesly_calls')
       .select('call_id, agent_email, agent_full_name, talk_time, started_at')
       .eq('agent_email', agentEmail)
-      .gte('started_at', startOfBusinessDay(startDate).toISOString())
-      .lte('started_at', endOfBusinessDay(endDate).toISOString())
+      .gte('started_at', startDate.toISOString())
+      .lte('started_at', endDate.toISOString())
       .order('started_at', { ascending: false })
-      .range(from, to),
-  )
-  const agentFullName = calls.find(c => c.agent_full_name)?.agent_full_name ?? null
-  const callIds = calls.map(c => c.call_id).filter(Boolean) as string[]
+      .limit(sampleSize),
+    fetchAgentAlertCounts([agentEmail], startDate, endDate),
+  ])
 
-  // QA summaries (light) for ALL calls in window — drives metrics + trend.
-  // qa_json (heavy) only for the most recent CALL_LIMIT calls — drives
-  // coaching themes. Sampling keeps the payload bounded for high-volume
-  // agents while still producing a representative theme ranking.
-  const COACHING_SAMPLE_SIZE = 50
-  const coachingCallIds = calls.slice(0, COACHING_SAMPLE_SIZE)
+  if (metricsRes.error) {
+    console.error('Error calling agent_daily_metrics:', metricsRes.error)
+    return null
+  }
+  const dailyRows = ((metricsRes.data || []) as any[]).map(normalizeDailyRow)
+  const sampleCalls = ((sampleCallsRes.data || []) as any[])
+  const agentFullName =
+    dailyRows.find(r => r.agent_full_name)?.agent_full_name ??
+    sampleCalls.find(c => c.agent_full_name)?.agent_full_name ??
+    null
+
+  const coachingCallIds = sampleCalls
+    .slice(0, COACHING_SAMPLE_SIZE)
     .map(c => c.call_id)
     .filter(Boolean) as string[]
-
-  // Fire QA summaries, coaching qa_json, alerts, and recent-call detail in parallel.
-  const recentCallRows = calls.slice(0, 10)
+  const recentCallRows = sampleCalls.slice(0, RECENT_CALL_SIZE)
   const recentCallIds = recentCallRows.map(c => c.call_id).filter(Boolean) as string[]
 
-  const [qaRows, qaJsonRows, alerts, fullCallRows] = await Promise.all([
-    fetchInBatches<QASummaryRow>(callIds, 300, async batch => {
-      const { data, error } = await sb
-        .from('eavesly_transcription_qa')
-        .select(QA_SUMMARY_COLUMNS)
-        .in('call_id', batch)
-      if (error) {
-        console.error('Error fetching agent QA batch:', error)
-        return []
-      }
-      return (data || []) as QASummaryRow[]
-    }),
+  const [qaJsonRows, qaSummaryRows, fullCallRows] = await Promise.all([
     coachingCallIds.length === 0
       ? Promise.resolve<{ call_id: string; qa_json: QAJson | null }[]>([])
       : fetchInBatches<{ call_id: string; qa_json: QAJson | null }>(
@@ -488,7 +410,15 @@ export async function fetchAgentProfile(
             return (data || []) as any[]
           },
         ),
-    fetchAgentAlertCounts([agentEmail], startDate, endDate),
+    recentCallIds.length === 0
+      ? Promise.resolve<any[]>([])
+      : (async () => {
+          const { data } = await sb
+            .from('eavesly_transcription_qa')
+            .select(QA_SUMMARY_COLUMNS)
+            .in('call_id', recentCallIds)
+          return (data || []) as any[]
+        })(),
     recentCallIds.length === 0
       ? Promise.resolve<any[]>([])
       : (async () => {
@@ -504,21 +434,14 @@ export async function fetchAgentProfile(
     qaJsonRows.map(r => r.qa_json).filter((j): j is QAJson => !!j),
   )
 
-  const alertCounts = alerts.reduce(
-    (acc, a) => {
-      if (a.has_violation) acc.open += 1
-      if (a.has_violation && !a.is_reviewed) acc.unreviewed += 1
-      return acc
-    },
-    { open: 0, unreviewed: 0 },
-  )
-
   let recentCallsFull: CallWithQA[] = []
   if (recentCallIds.length) {
     const fullCallById = new Map<string, any>(
       fullCallRows.map(c => [c.call_id, c]),
     )
-    const qaByCallId = new Map<string, any>(qaRows.map(q => [q.call_id, q]))
+    const qaByCallId = new Map<string, any>(
+      qaSummaryRows.map(q => [q.call_id, q]),
+    )
     recentCallsFull = recentCallRows.map(c => {
       const full = fullCallById.get(c.call_id) || c
       return {
@@ -528,25 +451,8 @@ export async function fetchAgentProfile(
     })
   }
 
-  // Enrich QA rows with the call's started_at so trend bucketing keys off
-  // call time, not the QA pipeline insert timestamp.
-  const startedAtByCallId = new Map<string, string>()
-  for (const c of calls) {
-    if (c.call_id && c.started_at) startedAtByCallId.set(c.call_id, c.started_at)
-  }
-  for (const q of qaRows) {
-    q.started_at = startedAtByCallId.get(q.call_id) ?? null
-  }
-
-  const trend = buildTrendPoints(qaRows, startDate, endDate)
-  const rollup = computeRollup(
-    agentEmail,
-    agentFullName,
-    calls,
-    qaRows,
-    alertCounts,
-    trend,
-  )
+  const trend = trendPointsFromDailyRows(dailyRows, startDate, endDate)
+  const rollup = rollupFromDailyRows(agentEmail, agentFullName, dailyRows, trend)
 
   return {
     agent_email: agentEmail,
@@ -723,8 +629,8 @@ export async function fetchTeamCoachingThemes(
         const { data, error } = await sb
           .from('eavesly_calls')
           .select('agent_email')
-          .gte('started_at', startOfBusinessDay(startDate).toISOString())
-          .lte('started_at', endOfBusinessDay(endDate).toISOString())
+          .gte('started_at', startDate.toISOString())
+          .lte('started_at', endDate.toISOString())
           .not('agent_email', 'is', null)
           .limit(2000)
         if (error) {
@@ -746,8 +652,8 @@ export async function fetchTeamCoachingThemes(
         .from('eavesly_calls')
         .select('call_id')
         .eq('agent_email', email)
-        .gte('started_at', startOfBusinessDay(startDate).toISOString())
-        .lte('started_at', endOfBusinessDay(endDate).toISOString())
+        .gte('started_at', startDate.toISOString())
+        .lte('started_at', endDate.toISOString())
         .order('started_at', { ascending: false })
         .limit(perAgentSample)
       if (error) {
@@ -829,6 +735,8 @@ export function aggregateTeamTrend(rollups: AgentRollup[]): TrendPoint[] {
     }
   }
   for (const point of byBucket.values()) {
+    // Match trendPointsFromDailyRows: null when no compliance-graded calls
+    // landed so the line chart renders a gap instead of a misleading 0%.
     point.compliance_pass_rate =
       point.compliance_total > 0
         ? Math.round((point.compliance_pass / point.compliance_total) * 100)
