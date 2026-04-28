@@ -14,7 +14,22 @@ import TeamPage from "./pages/TeamPage";
 import AgentProfilePage from "./pages/AgentProfilePage";
 import NotFound from "./pages/NotFound";
 
-const queryClient = new QueryClient();
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      // Cross-page navigation hits the cache without refetching for a minute.
+      staleTime: 60_000,
+      // Hold cached results for 10 minutes after their last subscriber unmounts
+      // so back-navigating still feels instant.
+      gcTime: 10 * 60_000,
+      // We invalidate explicitly on data changes; refetching when the tab
+      // regains focus or the network reconnects creates surprise reloads.
+      refetchOnWindowFocus: false,
+      refetchOnReconnect: false,
+      retry: 1,
+    },
+  },
+});
 
 const App = () => (
   <QueryClientProvider client={queryClient}>

@@ -1,9 +1,6 @@
-import { useState, useEffect } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import { fetchCallDetail } from '../lib/queries'
-import { fetchAlertsForCall } from '../lib/alert-queries'
+import { useCallDetail, useAlertsForCall } from '../hooks/use-queries'
 import { formatDateTime, formatDuration, formatPhoneNumber, getScoreBadgeColor } from '../lib/utils'
-import type { AlertWithFeedback } from '../types/database'
 import { AudioPlayer } from '../components/call-detail/AudioPlayer'
 import { ComplianceScorecard } from '../components/call-detail/ComplianceScorecard'
 import { SalesProcessScorecard } from '../components/call-detail/SalesProcessScorecard'
@@ -16,25 +13,11 @@ import { toast } from 'sonner'
 export default function CallDetailPage() {
   const { callId } = useParams()
   const navigate = useNavigate()
-  const [call, setCall] = useState<any>(null)
-  const [loading, setLoading] = useState(true)
-  const [alerts, setAlerts] = useState<AlertWithFeedback[]>([])
-  const [alertsLoading, setAlertsLoading] = useState(true)
-
-  useEffect(() => {
-    if (!callId) return
-    setLoading(true)
-    setAlertsLoading(true)
-    Promise.all([fetchCallDetail(callId), fetchAlertsForCall(callId)])
-      .then(([callData, alertRows]) => {
-        setCall(callData)
-        setAlerts(alertRows)
-      })
-      .finally(() => {
-        setLoading(false)
-        setAlertsLoading(false)
-      })
-  }, [callId])
+  const { data: call, isPending: callPending } = useCallDetail(callId)
+  const loading = callPending
+  const { data: alertsData, isPending: alertsPending } = useAlertsForCall(callId)
+  const alerts = alertsData ?? []
+  const alertsLoading = alertsPending && !alertsData
 
   if (loading) {
     return (

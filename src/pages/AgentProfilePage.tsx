@@ -1,8 +1,7 @@
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useAuth } from '../hooks/useAuth'
-import { fetchUserScope, type UserScope } from '../lib/alert-queries'
-import { fetchAgentProfile, type AgentProfile } from '../lib/team-queries'
+import { useUserScope, useAgentProfile } from '../hooks/use-queries'
 import { DateRangePicker } from '../components/dashboard/DateRangePicker'
 import { AgentProfileHeader } from '../components/team/AgentProfileHeader'
 import { ScoreTrendChart } from '../components/team/ScoreTrendChart'
@@ -31,26 +30,19 @@ export default function AgentProfilePage() {
     return date
   })
 
-  const [scope, setScope] = useState<UserScope | null>(null)
-  const [profile, setProfile] = useState<AgentProfile | null>(null)
-  const [loading, setLoading] = useState(true)
-
-  useEffect(() => {
-    if (!user?.email) return
-    fetchUserScope(user.email).then(setScope)
-  }, [user?.email])
-
-  useEffect(() => {
-    if (!scope || !agentEmail) return
-    setLoading(true)
-    fetchAgentProfile(agentEmail, startDate, endDate)
-      .then(setProfile)
-      .finally(() => setLoading(false))
-  }, [scope, agentEmail, startDate, endDate])
-
+  const { data: scope } = useUserScope(user?.email)
   const allowed =
     scope &&
     (scope.isGodMode || scope.managedAgents.includes(agentEmail))
+
+  const { data: profileData, isPending } = useAgentProfile(
+    agentEmail,
+    startDate,
+    endDate,
+    !!scope && !!allowed,
+  )
+  const profile = profileData ?? null
+  const loading = isPending && !profileData
 
   if (scope && !allowed) {
     return (

@@ -5,6 +5,7 @@ import {
   type AlertBreakdownCell,
 } from '../../lib/alert-queries'
 import type { AgentRollup } from '../../lib/team-queries'
+import { formatDateParam } from '../../lib/url-filters'
 
 const MAX_AGENTS = 12
 
@@ -13,11 +14,15 @@ export function AlertHeatmap({
   rollups,
   loading,
   compact = false,
+  startDate,
+  endDate,
 }: {
   cells: AlertBreakdownCell[]
   rollups: AgentRollup[]
   loading: boolean
   compact?: boolean
+  startDate: Date
+  endDate: Date
 }) {
   const navigate = useNavigate()
 
@@ -83,18 +88,36 @@ export function AlertHeatmap({
     )
   }
 
+  const dateParams = () => ({
+    start: formatDateParam(startDate),
+    end: formatDateParam(endDate),
+  })
+
   const onCellClick = (module: string, agentEmail: string) => {
-    const params = new URLSearchParams({ module, search: agentEmail, status: 'new' })
+    const params = new URLSearchParams({
+      ...dateParams(),
+      module,
+      search: agentEmail,
+      status: 'new',
+    })
     navigate(`/dashboard/alerts?${params.toString()}`)
   }
 
   const onModuleClick = (module: string) => {
-    const params = new URLSearchParams({ module, status: 'new' })
+    const params = new URLSearchParams({
+      ...dateParams(),
+      module,
+      status: 'new',
+    })
     navigate(`/dashboard/alerts?${params.toString()}`)
   }
 
   const onAgentClick = (agentEmail: string) => {
-    const params = new URLSearchParams({ search: agentEmail, status: 'new' })
+    const params = new URLSearchParams({
+      ...dateParams(),
+      search: agentEmail,
+      status: 'new',
+    })
     navigate(`/dashboard/alerts?${params.toString()}`)
   }
 

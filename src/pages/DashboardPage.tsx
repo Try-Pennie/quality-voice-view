@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
-import { fetchDashboardData, fetchUniqueAgents, calculateMetrics } from '../lib/queries'
+import { calculateMetrics } from '../lib/queries'
+import { useDashboardData, useUniqueAgents } from '../hooks/use-queries'
 import {
   formatDateParam,
   parseDateParam,
@@ -56,7 +57,8 @@ export default function DashboardPage() {
   const [selectedAgents, setSelectedAgents] = useState<string[]>(() =>
     parseListParam(searchParams.get('agents')),
   )
-  const [availableAgents, setAvailableAgents] = useState<any[]>([])
+  const { data: availableAgentsData } = useUniqueAgents()
+  const availableAgents = availableAgentsData ?? []
   const [selectedDispositions, setSelectedDispositions] = useState<string[]>(
     () => parseListParam(searchParams.get('dispo')),
   )
@@ -70,8 +72,13 @@ export default function DashboardPage() {
       : 'all'
   })
 
-  const [calls, setCalls] = useState<CallWithQA[]>([])
-  const [loading, setLoading] = useState(true)
+  const { data: callsData, isPending } = useDashboardData(
+    startDate,
+    endDate,
+    selectedAgents,
+  )
+  const calls = useMemo(() => callsData ?? [], [callsData])
+  const loading = isPending && !callsData
 
   const [showSettings, setShowSettings] = useState(false)
   const [, setThresholds] = useState<ThresholdSettings>(DEFAULT_THRESHOLDS)
@@ -80,7 +87,6 @@ export default function DashboardPage() {
   const ITEMS_PER_PAGE = 25
 
   useEffect(() => {
-    fetchUniqueAgents().then(setAvailableAgents)
     const saved = localStorage.getItem('thresholdSettings')
     if (saved) {
       try {
@@ -90,14 +96,6 @@ export default function DashboardPage() {
       }
     }
   }, [])
-
-  useEffect(() => {
-    setLoading(true)
-    fetchDashboardData(startDate, endDate, selectedAgents).then(data => {
-      setCalls(data)
-      setLoading(false)
-    })
-  }, [startDate, endDate, selectedAgents])
 
   // Write filter state back to URL so the current view is shareable.
   // `replace: true` keeps each filter tweak from polluting back-button history.

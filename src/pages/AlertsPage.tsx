@@ -1,19 +1,20 @@
 import { useState, useEffect, useMemo, useCallback, useId, type KeyboardEvent } from 'react'
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom'
+import { useQueryClient } from '@tanstack/react-query'
 import { useAuth } from '../hooks/useAuth'
 import {
-  fetchUserScope,
-  fetchAlerts,
   fetchAlertOne,
-  fetchAlertBreakdown,
   VIOLATION_TYPE_LABELS,
   MODULE_LABELS,
-  type UserScope,
   type AlertFilters,
-  type AlertBreakdownCell,
 } from '../lib/alert-queries'
 import { AlertHeatmap } from '../components/alerts/AlertHeatmap'
-import { fetchTeamRollup, type AgentRollup } from '../lib/team-queries'
+import {
+  useUserScope,
+  useAlerts,
+  useAlertBreakdown,
+  useTeamRollup,
+} from '../hooks/use-queries'
 import {
   accentForReviewStatus,
   accentForViolation,
@@ -40,13 +41,12 @@ type StatusView = 'all' | 'new' | 'reviewed'
 export default function AlertsPage() {
   const { user } = useAuth()
   const navigate = useNavigate()
+  const queryClient = useQueryClient()
   const { callId: routeCallId, moduleName: routeModuleName } = useParams()
   const [searchParams, setSearchParams] = useSearchParams()
   const searchInputId = useId()
 
-  const [scope, setScope] = useState<UserScope | null>(null)
-  const [allAlerts, setAllAlerts] = useState<AlertWithFeedback[]>([])
-  const [loading, setLoading] = useState(true)
+  const { data: scope } = useUserScope(user?.email)
   const [drawerAlert, setDrawerAlert] = useState<AlertWithFeedback | null>(null)
 
   // Default to today only — interpreted as Eastern time so all viewers see
@@ -82,15 +82,6 @@ export default function AlertsPage() {
   })
   const [search, setSearch] = useState(() => searchParams.get('search') || '')
 
-  const [breakdown, setBreakdown] = useState<AlertBreakdownCell[]>([])
-  const [breakdownLoading, setBreakdownLoading] = useState(true)
-  const [rollups, setRollups] = useState<AgentRollup[]>([])
-
-  useEffect(() => {
-    if (!user?.email) return
-    fetchUserScope(user.email).then(setScope)
-  }, [user?.email])
-
   // Only date + module hit the server; status, accuracy, and search are
   // applied client-side against the in-memory result set.
   const serverFilters = useMemo<AlertFilters>(
@@ -103,14 +94,23 @@ export default function AlertsPage() {
     [startDate, endDate, moduleFilter],
   )
 
-  useEffect(() => {
-    if (!scope) return
-    setLoading(true)
-    fetchAlerts(serverFilters, scope).then(rows => {
-      setAllAlerts(rows)
-      setLoading(false)
-    })
-  }, [scope, serverFilters])
+  const { data: allAlertsData, isPending: alertsPending } = useAlerts(
+    serverFilters,
+    scope,
+  )
+  const allAlerts = useMemo(() => allAlertsData ?? [], [allAlertsData])
+  const loading = alertsPending && !allAlertsData
+
+  const { data: breakdownData, isPending: breakdownPending } = useAlertBreakdown(
+    scope,
+    startDate,
+    endDate,
+  )
+  const breakdown = useMemo(() => breakdownData ?? [], [breakdownData])
+  const breakdownLoading = breakdownPending && !breakdownData
+
+  const { data: rollupsData } = useTeamRollup(scope, startDate, endDate)
+  const rollups = useMemo(() => rollupsData ?? [], [rollupsData])
 
   // Write filter state back to URL so the current view is shareable (and
   // survives reloads). Skipped while a deep-link drawer route is active so
@@ -134,23 +134,6 @@ export default function AlertsPage() {
     routeModuleName,
     setSearchParams,
   ])
-
-  // Heatmap data is fetched once per (scope, date) so it includes every
-  // module — module is the heatmap's column axis and shouldn't be filtered.
-  // Status + search are layered on client-side below.
-  useEffect(() => {
-    if (!scope) return
-    setBreakdownLoading(true)
-    Promise.all([
-      fetchAlertBreakdown(scope, startDate, endDate),
-      fetchTeamRollup(scope, startDate, endDate),
-    ])
-      .then(([cells, rolls]) => {
-        setBreakdown(cells)
-        setRollups(rolls)
-      })
-      .finally(() => setBreakdownLoading(false))
-  }, [scope, startDate, endDate])
 
   const alerts = useMemo(() => {
     let rows = allAlerts
@@ -247,13 +230,21 @@ export default function AlertsPage() {
         ...updated,
         is_reviewed: true,
       }
-      setAllAlerts(prev =>
-        prev.map(a =>
-          a.call_id === merged.call_id && a.module_name === merged.module_name
-            ? merged
-            : a,
-        ),
+      // Optimistically update every cached alerts query (different filter
+      // combinations across pages) so the row reflects the new feedback
+      // without a round-trip.
+      queryClient.setQueriesData<AlertWithFeedback[]>(
+        { queryKey: ['alerts'] },
+        old =>
+          old?.map(a =>
+            a.call_id === merged.call_id && a.module_name === merged.module_name
+              ? merged
+              : a,
+          ) ?? old,
       )
+      // Heatmap counts (reviewed / unreviewed / false_positives) are derived
+      // server-side, so refetch once the row's feedback row is in.
+      queryClient.invalidateQueries({ queryKey: ['alertBreakdown'] })
       if (statusView === 'new') {
         const remaining = allAlerts.filter(
           a =>
@@ -269,7 +260,7 @@ export default function AlertsPage() {
         setDrawerAlert(merged)
       }
     },
-    [allAlerts, drawerAlert, openDrawer, closeDrawer, statusView],
+    [allAlerts, drawerAlert, openDrawer, closeDrawer, statusView, queryClient],
   )
 
   const stats = useMemo(() => {
@@ -414,6 +405,8 @@ export default function AlertsPage() {
           cells={heatmapCells}
           rollups={heatmapRollups}
           loading={breakdownLoading}
+          startDate={startDate}
+          endDate={endDate}
           compact
         />
         {moduleFilter.length > 0 && (

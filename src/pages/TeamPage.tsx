@@ -7,22 +7,18 @@ import {
 } from '../lib/url-filters'
 import { ymdInBusinessTZ } from '../lib/time-zone'
 import {
-  fetchUserScope,
-  fetchAlertBreakdown,
-  type UserScope,
-  type AlertBreakdownCell,
-} from '../lib/alert-queries'
-import {
-  fetchTeamRollup,
   aggregateTeamTrend,
-  fetchTeamCoachingThemes,
-  fetchAgentManagerMapping,
   aggregateManagerRollups,
-  fetchManagerNames,
-  type AgentRollup,
   type ManagerRollup,
 } from '../lib/team-queries'
-import type { TeamCoachingThemes as TeamCoachingThemesType } from '../lib/coaching-aggregation'
+import {
+  useUserScope,
+  useTeamRollup,
+  useAlertBreakdown,
+  useTeamCoachingThemes,
+  useAgentManagerMapping,
+  useManagerNames,
+} from '../hooks/use-queries'
 import { DateRangePicker } from '../components/dashboard/DateRangePicker'
 import { TeamHeaderStats } from '../components/team/TeamHeaderStats'
 import { TeamLeaderboard } from '../components/team/TeamLeaderboard'
@@ -66,9 +62,6 @@ export default function TeamPage() {
     ),
   )
 
-  const [scope, setScope] = useState<UserScope | null>(null)
-  const [rollup, setRollup] = useState<AgentRollup[]>([])
-  const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState(() => searchParams.get('search') || '')
   const [quickFilter, setQuickFilter] = useState<QuickFilter>(() => {
     const q = searchParams.get('qf')
@@ -79,58 +72,45 @@ export default function TeamPage() {
   // Manager email persisted from URL, hydrated to ManagerRollup once
   // managerRollups are computed (god-mode only).
   const initialManagerEmail = searchParams.get('mgr')
-  const [teamThemes, setTeamThemes] = useState<TeamCoachingThemesType | null>(null)
-  const [themesLoading, setThemesLoading] = useState(true)
-  const [breakdown, setBreakdown] = useState<AlertBreakdownCell[]>([])
-  const [breakdownLoading, setBreakdownLoading] = useState(true)
-  const [managerMapping, setManagerMapping] = useState<
-    { manager_email: string; agent_email: string }[]
-  >([])
-  const [managerNames, setManagerNames] = useState<Map<string, string>>(
-    new Map(),
-  )
   const [selectedManager, setSelectedManager] = useState<ManagerRollup | null>(
     null,
   )
 
-  useEffect(() => {
-    if (!user?.email) return
-    fetchUserScope(user.email).then(setScope)
-  }, [user?.email])
+  const { data: scope } = useUserScope(user?.email)
 
-  useEffect(() => {
-    if (!scope) return
-    setLoading(true)
-    fetchTeamRollup(scope, startDate, endDate)
-      .then(setRollup)
-      .finally(() => setLoading(false))
-  }, [scope, startDate, endDate])
+  const { data: rollupData, isPending: rollupPending } = useTeamRollup(
+    scope,
+    startDate,
+    endDate,
+  )
+  const rollup = useMemo(() => rollupData ?? [], [rollupData])
+  const loading = rollupPending && !rollupData
 
-  useEffect(() => {
-    if (!scope) return
-    setBreakdownLoading(true)
-    fetchAlertBreakdown(scope, startDate, endDate)
-      .then(setBreakdown)
-      .finally(() => setBreakdownLoading(false))
-  }, [scope, startDate, endDate])
+  const { data: breakdownData, isPending: breakdownPending } = useAlertBreakdown(
+    scope,
+    startDate,
+    endDate,
+  )
+  const breakdown = useMemo(() => breakdownData ?? [], [breakdownData])
+  const breakdownLoading = breakdownPending && !breakdownData
 
   // Manager mapping is only relevant for god-mode users — regular managers
   // already see only their own team via scope.managedAgents.
-  useEffect(() => {
-    if (!scope?.isGodMode) {
-      setManagerMapping([])
-      setManagerNames(new Map())
-      return
-    }
-    fetchAgentManagerMapping().then(async mapping => {
-      setManagerMapping(mapping)
-      const uniqueManagers = Array.from(
-        new Set(mapping.map(m => m.manager_email)),
-      )
-      const names = await fetchManagerNames(uniqueManagers)
-      setManagerNames(names)
-    })
-  }, [scope])
+  const { data: managerMappingData } = useAgentManagerMapping(!!scope?.isGodMode)
+  const managerMapping = useMemo(
+    () => managerMappingData ?? [],
+    [managerMappingData],
+  )
+
+  const uniqueManagerEmails = useMemo(
+    () => Array.from(new Set(managerMapping.map(m => m.manager_email))),
+    [managerMapping],
+  )
+  const { data: managerNamesData } = useManagerNames(uniqueManagerEmails)
+  const managerNames = useMemo(
+    () => managerNamesData ?? new Map<string, string>(),
+    [managerNamesData],
+  )
 
   const managerRollups = useMemo(() => {
     if (!scope?.isGodMode) return []
@@ -248,20 +228,20 @@ export default function TeamPage() {
 
   // Coaching themes refetch when selectedManager changes — themes are
   // pre-aggregated server-side, so we re-run with a synthesized scope.
-  useEffect(() => {
-    if (!scope) return
-    const effectiveScope: UserScope = selectedManager
+  const themesScope = useMemo(() => {
+    if (!scope) return null
+    return selectedManager
       ? {
           email: scope.email,
           isGodMode: false,
           managedAgents: selectedManager.agent_emails,
         }
       : scope
-    setThemesLoading(true)
-    fetchTeamCoachingThemes(effectiveScope, startDate, endDate)
-      .then(setTeamThemes)
-      .finally(() => setThemesLoading(false))
-  }, [scope, startDate, endDate, selectedManager])
+  }, [scope, selectedManager])
+  const { data: teamThemesData, isPending: themesPending } =
+    useTeamCoachingThemes(themesScope, startDate, endDate)
+  const teamThemes = teamThemesData ?? null
+  const themesLoading = themesPending && !teamThemesData
 
   const leaderboardRef = useRef<HTMLDivElement>(null)
 
@@ -387,6 +367,8 @@ export default function TeamPage() {
           cells={scopedBreakdown}
           rollups={scopedRollup}
           loading={breakdownLoading}
+          startDate={startDate}
+          endDate={endDate}
         />
       )}
 
