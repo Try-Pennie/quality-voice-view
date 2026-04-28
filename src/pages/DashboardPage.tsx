@@ -307,7 +307,6 @@ export default function DashboardPage() {
           <table className="min-w-full">
             <thead className="bg-pennie-beige/60">
               <tr>
-                <Th srOnly>Severity</Th>
                 <Th>Date / time (ET)</Th>
                 <Th>Agent</Th>
                 <Th>Contact</Th>
@@ -325,9 +324,6 @@ export default function DashboardPage() {
                       key={`sk-${i}`}
                       className={i !== 0 ? 'border-t border-border/60' : ''}
                     >
-                      <td className="px-3 py-4" aria-hidden="true">
-                        <span className="block w-2 h-2 rounded-full bg-pennie-beige animate-pulse" />
-                      </td>
                       {Array.from({ length: 8 }).map((__, j) => (
                         <td key={j} className="px-6 py-4 align-top">
                           <span
@@ -341,7 +337,6 @@ export default function DashboardPage() {
                 : paginatedCalls.map((call, i) => {
                 const isEscalation = call.qa?.manager_escalation
                 const isComplianceFail = call.qa?.compliance_rating === 'fail'
-                // Severity stripe communicates priority without emoji + heavy red bg.
                 const stripe = isEscalation
                   ? 'before:bg-pennie-peach-dark'
                   : isComplianceFail
@@ -354,14 +349,12 @@ export default function DashboardPage() {
                       i !== 0 ? 'border-t border-border/60' : ''
                     } before:absolute before:left-0 before:top-0 before:bottom-0 before:w-1 ${stripe}`}
                   >
-                    <td className="px-3 py-4 whitespace-nowrap text-center" aria-hidden="true">
-                      {isEscalation ? (
-                        <span className="inline-block w-2 h-2 rounded-full bg-pennie-peach-dark" />
-                      ) : isComplianceFail ? (
-                        <span className="inline-block w-2 h-2 rounded-full bg-pennie-yellow-dark" />
-                      ) : null}
-                    </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-muted-foreground tabular-nums">
+                      {isEscalation ? (
+                        <span className="inline-block w-2 h-2 rounded-full bg-pennie-peach-dark mr-2 align-middle" aria-label="escalation" />
+                      ) : isComplianceFail ? (
+                        <span className="inline-block w-2 h-2 rounded-full bg-pennie-yellow-dark mr-2 align-middle" aria-label="compliance fail" />
+                      ) : null}
                       {formatDateTime(call.started_at)}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm font-semibold text-pennie-navy">
@@ -495,19 +488,9 @@ function SupportingStat({
   )
 }
 
-function Th({
-  children,
-  srOnly,
-}: {
-  children: React.ReactNode
-  srOnly?: boolean
-}) {
+function Th({ children }: { children: React.ReactNode }) {
   return (
-    <th
-      className={`text-left text-[11px] font-bold text-pennie-graphite/70 uppercase tracking-[0.06em] ${
-        srOnly ? 'sr-only' : 'px-6 py-3'
-      }`}
-    >
+    <th className="text-left text-[11px] font-bold text-pennie-graphite/70 uppercase tracking-[0.06em] px-6 py-3">
       {children}
     </th>
   )

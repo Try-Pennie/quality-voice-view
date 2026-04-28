@@ -307,12 +307,11 @@ function Th({
   children: React.ReactNode
   srOnly?: boolean
 }) {
+  if (srOnly) {
+    return <th className="px-3 py-3" aria-label={typeof children === 'string' ? children : undefined} />
+  }
   return (
-    <th
-      className={`text-left text-[11px] font-bold text-pennie-graphite/70 uppercase tracking-[0.06em] ${
-        srOnly ? 'sr-only' : 'px-6 py-3'
-      }`}
-    >
+    <th className="text-left text-[11px] font-bold text-pennie-graphite/70 uppercase tracking-[0.06em] px-6 py-3">
       {children}
     </th>
   )
