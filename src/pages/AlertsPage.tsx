@@ -23,6 +23,8 @@ import { formatDateTime, formatPhoneNumber } from '../lib/utils'
 import type { AlertWithFeedback } from '../types/database'
 import { DateRangePicker } from '../components/dashboard/DateRangePicker'
 import { AlertReviewDrawer } from '../components/alerts/AlertReviewDrawer'
+import { formatDateParam, parseDateParam } from '../lib/url-filters'
+import { ymdInBusinessTZ } from '../lib/time-zone'
 import { Inbox, Search } from 'lucide-react'
 
 const MODULE_OPTIONS = [
@@ -39,7 +41,7 @@ export default function AlertsPage() {
   const { user } = useAuth()
   const navigate = useNavigate()
   const { callId: routeCallId, moduleName: routeModuleName } = useParams()
-  const [searchParams] = useSearchParams()
+  const [searchParams, setSearchParams] = useSearchParams()
   const searchInputId = useId()
 
   const [scope, setScope] = useState<UserScope | null>(null)
@@ -47,17 +49,28 @@ export default function AlertsPage() {
   const [loading, setLoading] = useState(true)
   const [drawerAlert, setDrawerAlert] = useState<AlertWithFeedback | null>(null)
 
-  // Default to today only — 00:00 → 23:59:59.999 in the local timezone.
-  const [startDate, setStartDate] = useState<Date>(() => {
-    const d = new Date()
-    d.setHours(0, 0, 0, 0)
-    return d
-  })
-  const [endDate, setEndDate] = useState<Date>(() => {
-    const d = new Date()
-    d.setHours(23, 59, 59, 999)
-    return d
-  })
+  // Default to today only — interpreted as Eastern time so all viewers see
+  // the same window regardless of browser timezone.
+  const [startDate, setStartDate] = useState<Date>(() =>
+    parseDateParam(searchParams.get('start'), (() => {
+      const [y, m, d] = ymdInBusinessTZ(new Date()).split('-').map(Number)
+      const local = new Date(y, m - 1, d)
+      local.setHours(0, 0, 0, 0)
+      return local
+    })()),
+  )
+  const [endDate, setEndDate] = useState<Date>(() =>
+    parseDateParam(
+      searchParams.get('end'),
+      (() => {
+        const [y, m, d] = ymdInBusinessTZ(new Date()).split('-').map(Number)
+        const local = new Date(y, m - 1, d)
+        local.setHours(23, 59, 59, 999)
+        return local
+      })(),
+      true,
+    ),
+  )
   // Lazy-init from URL params so heatmap drilldowns land pre-filtered.
   const [statusView, setStatusView] = useState<StatusView>(() => {
     const s = searchParams.get('status')
@@ -65,7 +78,7 @@ export default function AlertsPage() {
   })
   const [moduleFilter, setModuleFilter] = useState<string[]>(() => {
     const m = searchParams.get('module')
-    return m ? [m] : []
+    return m ? m.split(',').filter(Boolean) : []
   })
   const [search, setSearch] = useState(() => searchParams.get('search') || '')
 
@@ -99,8 +112,32 @@ export default function AlertsPage() {
     })
   }, [scope, serverFilters])
 
-  // Heatmap data is independent of in-page module filter — it always shows the
-  // full breakdown so users can pivot from one cell to another.
+  // Write filter state back to URL so the current view is shareable (and
+  // survives reloads). Skipped while a deep-link drawer route is active so
+  // we don't overwrite /:callId/:moduleName.
+  useEffect(() => {
+    if (routeCallId && routeModuleName) return
+    const params = new URLSearchParams()
+    params.set('start', formatDateParam(startDate))
+    params.set('end', formatDateParam(endDate))
+    if (statusView !== 'new') params.set('status', statusView)
+    if (moduleFilter.length) params.set('module', moduleFilter.join(','))
+    if (search.trim()) params.set('search', search.trim())
+    setSearchParams(params, { replace: true })
+  }, [
+    startDate,
+    endDate,
+    statusView,
+    moduleFilter,
+    search,
+    routeCallId,
+    routeModuleName,
+    setSearchParams,
+  ])
+
+  // Heatmap data is fetched once per (scope, date) so it includes every
+  // module — module is the heatmap's column axis and shouldn't be filtered.
+  // Status + search are layered on client-side below.
   useEffect(() => {
     if (!scope) return
     setBreakdownLoading(true)
@@ -246,6 +283,43 @@ export default function AlertsPage() {
     return { total, reviewed, inaccurate, fpRate, flaggedAgents, queued }
   }, [alerts])
 
+  // Heatmap respects status + search (search narrows by agent email/name)
+  // but NOT module — module is the column axis. Swap each cell's `total` to
+  // match the active status view; AlertHeatmap drives intensity off `total`.
+  const heatmapCells = useMemo<AlertBreakdownCell[]>(() => {
+    const nameByEmail = new Map<string, string | null>()
+    for (const r of rollups) nameByEmail.set(r.agent_email, r.agent_full_name)
+    const q = search.trim().toLowerCase()
+    return breakdown
+      .filter(c => {
+        if (!q) return true
+        const name = nameByEmail.get(c.agent_email) || ''
+        return (
+          c.agent_email.toLowerCase().includes(q) ||
+          name.toLowerCase().includes(q)
+        )
+      })
+      .map(c => ({
+        ...c,
+        total:
+          statusView === 'new'
+            ? c.unreviewed
+            : statusView === 'reviewed'
+              ? c.reviewed
+              : c.total,
+      }))
+  }, [breakdown, rollups, search, statusView])
+
+  const heatmapRollups = useMemo<AgentRollup[]>(() => {
+    const q = search.trim().toLowerCase()
+    if (!q) return rollups
+    return rollups.filter(
+      r =>
+        r.agent_email.toLowerCase().includes(q) ||
+        (r.agent_full_name || '').toLowerCase().includes(q),
+    )
+  }, [rollups, search])
+
   const toggleModule = (m: string) => {
     setModuleFilter(prev =>
       prev.includes(m) ? prev.filter(x => x !== m) : [...prev, m],
@@ -335,12 +409,19 @@ export default function AlertsPage() {
         </dl>
       </header>
 
-      <AlertHeatmap
-        cells={breakdown}
-        rollups={rollups}
-        loading={breakdownLoading}
-        compact
-      />
+      <div className="space-y-2">
+        <AlertHeatmap
+          cells={heatmapCells}
+          rollups={heatmapRollups}
+          loading={breakdownLoading}
+          compact
+        />
+        {moduleFilter.length > 0 && (
+          <p className="text-xs text-pennie-graphite/60 px-2">
+            Heatmap shows all modules — module filter applies to the alert list below.
+          </p>
+        )}
+      </div>
 
       {/* Filters */}
       <section className="pennie-card-tight space-y-4">

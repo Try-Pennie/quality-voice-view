@@ -11,6 +11,12 @@ import {
   type CoachingThemes,
   type TeamCoachingThemes,
 } from './coaching-aggregation'
+import { fetchAllPaginated } from './supabase-helpers'
+import {
+  startOfBusinessDay,
+  endOfBusinessDay,
+  ymdInBusinessTZ,
+} from './time-zone'
 
 const sb = supabase as any
 
@@ -20,7 +26,9 @@ export type TrendPoint = {
   bucket: string // ISO date string for the bucket start
   label: string // human-readable label e.g. "Apr 21"
   call_count: number
-  compliance_pass_rate: number // 0-100
+  // null when no compliance-graded calls landed in this bucket — lets the
+  // line chart render a gap instead of a misleading 0%.
+  compliance_pass_rate: number | null
   compliance_pass: number // raw count, used for re-aggregation across agents
   compliance_total: number // raw count of pass+fail (excludes n/a)
   csat_high: number
@@ -79,21 +87,24 @@ async function fetchInBatches<T>(
   return results.flat()
 }
 
+
 function pickBucketSize(startDate: Date, endDate: Date): 'day' | 'week' {
   const days = (endDate.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24)
   return days <= 14 ? 'day' : 'week'
 }
 
 function bucketKey(date: Date, size: 'day' | 'week'): string {
-  const d = new Date(date)
-  d.setHours(0, 0, 0, 0)
-  if (size === 'week') {
-    // Start of week (Monday)
-    const day = d.getDay()
-    const diff = (day + 6) % 7
-    d.setDate(d.getDate() - diff)
-  }
-  return d.toISOString().slice(0, 10)
+  // Bucket on Eastern time so trends stay aligned with the business day,
+  // not the viewer's local timezone.
+  const ymd = ymdInBusinessTZ(date) // "YYYY-MM-DD"
+  if (size !== 'week') return ymd
+  // Snap to the Monday of the ET week. Day-of-week for a calendar date is
+  // timezone-independent, so we can use a local Date for the math.
+  const [y, m, d] = ymd.split('-').map(Number)
+  const cal = new Date(y, m - 1, d)
+  const diff = (cal.getDay() + 6) % 7
+  cal.setDate(cal.getDate() - diff)
+  return `${cal.getFullYear()}-${String(cal.getMonth() + 1).padStart(2, '0')}-${String(cal.getDate()).padStart(2, '0')}`
 }
 
 function bucketLabel(iso: string, size: 'day' | 'week'): string {
@@ -110,16 +121,35 @@ function buildEmptyBuckets(
   size: 'day' | 'week',
 ): Map<string, TrendPoint> {
   const map = new Map<string, TrendPoint>()
-  const cursor = new Date(startDate)
-  cursor.setHours(0, 0, 0, 0)
-  while (cursor <= endDate) {
-    const key = bucketKey(cursor, size)
+  // Picker-state Dates carry the intended ET Y/M/D in their local components.
+  // We iterate calendar days using getFullYear/Month/Date — which is timezone-
+  // independent — so cursor keys match the ET keys produced by bucketKey for
+  // each QA row's started_at.
+  const cursor = new Date(
+    startDate.getFullYear(),
+    startDate.getMonth(),
+    startDate.getDate(),
+  )
+  const stop = new Date(
+    endDate.getFullYear(),
+    endDate.getMonth(),
+    endDate.getDate(),
+  )
+  const ymd = (d: Date) =>
+    `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+  while (cursor <= stop) {
+    let key = ymd(cursor)
+    if (size === 'week') {
+      const monday = new Date(cursor)
+      monday.setDate(monday.getDate() - ((monday.getDay() + 6) % 7))
+      key = ymd(monday)
+    }
     if (!map.has(key)) {
       map.set(key, {
         bucket: key,
         label: bucketLabel(key, size),
         call_count: 0,
-        compliance_pass_rate: 0,
+        compliance_pass_rate: null,
         compliance_pass: 0,
         compliance_total: 0,
         csat_high: 0,
@@ -142,6 +172,10 @@ type QASummaryRow = {
   customer_satisfaction_likely: string | null
   manager_escalation: boolean | null
   created_at: string
+  // Joined in from eavesly_calls before bucketing — `created_at` reflects
+  // when the QA row was inserted (often a batched backfill timestamp), not
+  // when the call actually happened, so we bucket on the call's started_at.
+  started_at?: string | null
 }
 
 function buildTrendPoints(
@@ -155,7 +189,11 @@ function buildTrendPoints(
   const passCounts = new Map<string, { pass: number; total: number }>()
 
   for (const qa of qaRows) {
-    const key = bucketKey(new Date(qa.created_at), size)
+    // Prefer the call's started_at (set by the caller) over the QA row's
+    // created_at — the latter is a DB insert timestamp and skews to whenever
+    // the QA pipeline ran, not when the call took place.
+    const ts = qa.started_at || qa.created_at
+    const key = bucketKey(new Date(ts), size)
     const point = buckets.get(key)
     if (!point) continue
     point.call_count += 1
@@ -176,7 +214,7 @@ function buildTrendPoints(
     point.compliance_pass = pc?.pass ?? 0
     point.compliance_total = pc?.total ?? 0
     point.compliance_pass_rate =
-      pc && pc.total > 0 ? Math.round((pc.pass / pc.total) * 100) : 0
+      pc && pc.total > 0 ? Math.round((pc.pass / pc.total) * 100) : null
   }
 
   return Array.from(buckets.values()).sort((a, b) =>
@@ -256,41 +294,41 @@ export async function fetchTeamRollup(
   // For godmode we still need a discovery query to know the universe.
   const agentEmails: string[] = scope.isGodMode
     ? await (async () => {
-        const { data, error } = await sb
-          .from('eavesly_calls')
-          .select('agent_email')
-          .gte('started_at', startDate.toISOString())
-          .lte('started_at', endDate.toISOString())
-          .not('agent_email', 'is', null)
-          .limit(2000)
-        if (error) {
-          console.error('Error fetching godmode agents:', error)
-          return []
-        }
-        return Array.from(
-          new Set(((data || []) as any[]).map(r => r.agent_email)),
+        // Paginate so we capture every active agent in the window, not just
+        // those appearing in the most recent 1000 rows.
+        const rows = await fetchAllPaginated<{ agent_email: string }>(
+          (from, to) =>
+            sb
+              .from('eavesly_calls')
+              .select('agent_email')
+              .gte('started_at', startOfBusinessDay(startDate).toISOString())
+              .lte('started_at', endOfBusinessDay(endDate).toISOString())
+              .not('agent_email', 'is', null)
+              .order('started_at', { ascending: false })
+              .range(from, to),
         )
+        return Array.from(new Set(rows.map(r => r.agent_email)))
       })()
     : scope.managedAgents
 
   if (agentEmails.length === 0) return []
 
   // 2. Fire calls + alerts in parallel — alerts only depends on agentEmails.
+  // Calls fetch paginates because Supabase caps each response at 1000 rows;
+  // a multi-day window across many agents easily exceeds that.
   const [calls, alertRows] = await Promise.all([
-    fetchInBatches(agentEmails, 100, async batch => {
-      const { data, error } = await sb
-        .from('eavesly_calls')
-        .select('call_id, agent_email, agent_full_name, talk_time, started_at')
-        .in('agent_email', batch)
-        .gte('started_at', startDate.toISOString())
-        .lte('started_at', endDate.toISOString())
-        .limit(5000)
-      if (error) {
-        console.error('Error fetching team calls batch:', error)
-        return []
-      }
-      return (data || []) as any[]
-    }),
+    fetchInBatches(agentEmails, 100, async batch =>
+      fetchAllPaginated<any>((from, to) =>
+        sb
+          .from('eavesly_calls')
+          .select('call_id, agent_email, agent_full_name, talk_time, started_at')
+          .in('agent_email', batch)
+          .gte('started_at', startOfBusinessDay(startDate).toISOString())
+          .lte('started_at', endOfBusinessDay(endDate).toISOString())
+          .order('started_at', { ascending: false })
+          .range(from, to),
+      ),
+    ),
     fetchAgentAlertCounts(agentEmails, startDate, endDate),
   ])
 
@@ -319,6 +357,16 @@ export async function fetchTeamRollup(
     }
     return (data || []) as QASummaryRow[]
   })
+
+  // Enrich QA rows with the call's started_at so trend bucketing keys off
+  // the actual call time rather than the QA pipeline insert timestamp.
+  const startedAtByCallId = new Map<string, string>()
+  for (const c of calls) {
+    if (c.call_id && c.started_at) startedAtByCallId.set(c.call_id, c.started_at)
+  }
+  for (const q of qaRows) {
+    q.started_at = startedAtByCallId.get(q.call_id) ?? null
+  }
 
   // 5. Group everything by agent_email and compute rollups.
   const callsByAgent = new Map<string, any[]>()
@@ -365,20 +413,18 @@ export async function fetchAgentAlertCounts(
   endDate: Date,
 ): Promise<AlertWithFeedback[]> {
   if (agentEmails.length === 0) return []
-  return fetchInBatches<AlertWithFeedback>(agentEmails, 100, async batch => {
-    const { data, error } = await sb
-      .from('eavesly_alerts_with_feedback')
-      .select(ALERT_COUNT_COLUMNS)
-      .in('agent_email', batch)
-      .gte('alert_created_at', startDate.toISOString())
-      .lte('alert_created_at', endDate.toISOString())
-      .limit(2000)
-    if (error) {
-      console.error('Error fetching agent alerts batch:', error)
-      return []
-    }
-    return (data || []) as AlertWithFeedback[]
-  })
+  return fetchInBatches<AlertWithFeedback>(agentEmails, 100, async batch =>
+    fetchAllPaginated<AlertWithFeedback>((from, to) =>
+      sb
+        .from('eavesly_alerts_with_feedback')
+        .select(ALERT_COUNT_COLUMNS)
+        .in('agent_email', batch)
+        .gte('alert_created_at', startOfBusinessDay(startDate).toISOString())
+        .lte('alert_created_at', endOfBusinessDay(endDate).toISOString())
+        .order('alert_created_at', { ascending: false })
+        .range(from, to),
+    ),
+  )
 }
 
 export async function fetchAgentProfile(
@@ -386,20 +432,17 @@ export async function fetchAgentProfile(
   startDate: Date,
   endDate: Date,
 ): Promise<AgentProfile | null> {
-  // Calls in window
-  const { data: callsData, error: callsError } = await sb
-    .from('eavesly_calls')
-    .select('call_id, agent_email, agent_full_name, talk_time, started_at')
-    .eq('agent_email', agentEmail)
-    .gte('started_at', startDate.toISOString())
-    .lte('started_at', endDate.toISOString())
-    .order('started_at', { ascending: false })
-    .limit(5000)
-  if (callsError) {
-    console.error('Error fetching agent calls:', callsError)
-    return null
-  }
-  const calls = (callsData || []) as any[]
+  // Calls in window — paginated to bypass Supabase's 1000-row response cap.
+  const calls = await fetchAllPaginated<any>((from, to) =>
+    sb
+      .from('eavesly_calls')
+      .select('call_id, agent_email, agent_full_name, talk_time, started_at')
+      .eq('agent_email', agentEmail)
+      .gte('started_at', startOfBusinessDay(startDate).toISOString())
+      .lte('started_at', endOfBusinessDay(endDate).toISOString())
+      .order('started_at', { ascending: false })
+      .range(from, to),
+  )
   const agentFullName = calls.find(c => c.agent_full_name)?.agent_full_name ?? null
   const callIds = calls.map(c => c.call_id).filter(Boolean) as string[]
 
@@ -483,6 +526,16 @@ export async function fetchAgentProfile(
         qa: qaByCallId.get(c.call_id) || null,
       } as CallWithQA
     })
+  }
+
+  // Enrich QA rows with the call's started_at so trend bucketing keys off
+  // call time, not the QA pipeline insert timestamp.
+  const startedAtByCallId = new Map<string, string>()
+  for (const c of calls) {
+    if (c.call_id && c.started_at) startedAtByCallId.set(c.call_id, c.started_at)
+  }
+  for (const q of qaRows) {
+    q.started_at = startedAtByCallId.get(q.call_id) ?? null
   }
 
   const trend = buildTrendPoints(qaRows, startDate, endDate)
@@ -670,8 +723,8 @@ export async function fetchTeamCoachingThemes(
         const { data, error } = await sb
           .from('eavesly_calls')
           .select('agent_email')
-          .gte('started_at', startDate.toISOString())
-          .lte('started_at', endDate.toISOString())
+          .gte('started_at', startOfBusinessDay(startDate).toISOString())
+          .lte('started_at', endOfBusinessDay(endDate).toISOString())
           .not('agent_email', 'is', null)
           .limit(2000)
         if (error) {
@@ -693,8 +746,8 @@ export async function fetchTeamCoachingThemes(
         .from('eavesly_calls')
         .select('call_id')
         .eq('agent_email', email)
-        .gte('started_at', startDate.toISOString())
-        .lte('started_at', endDate.toISOString())
+        .gte('started_at', startOfBusinessDay(startDate).toISOString())
+        .lte('started_at', endOfBusinessDay(endDate).toISOString())
         .order('started_at', { ascending: false })
         .limit(perAgentSample)
       if (error) {
@@ -779,7 +832,7 @@ export function aggregateTeamTrend(rollups: AgentRollup[]): TrendPoint[] {
     point.compliance_pass_rate =
       point.compliance_total > 0
         ? Math.round((point.compliance_pass / point.compliance_total) * 100)
-        : 0
+        : null
   }
   return Array.from(byBucket.values()).sort((a, b) =>
     a.bucket.localeCompare(b.bucket),

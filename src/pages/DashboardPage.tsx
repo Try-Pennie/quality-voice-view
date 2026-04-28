@@ -1,6 +1,12 @@
 import { useState, useEffect, useMemo } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { fetchDashboardData, fetchUniqueAgents, calculateMetrics } from '../lib/queries'
+import {
+  formatDateParam,
+  parseDateParam,
+  parseListParam,
+} from '../lib/url-filters'
+import { ymdInBusinessTZ } from '../lib/time-zone'
 import {
   formatDuration,
   formatPhoneNumber,
@@ -20,23 +26,49 @@ type QuickFilter = 'all' | 'escalations' | 'compliance' | 'threshold'
 
 export default function DashboardPage() {
   const navigate = useNavigate()
+  const [searchParams, setSearchParams] = useSearchParams()
 
-  const [startDate, setStartDate] = useState<Date>(() => {
-    const date = new Date()
-    date.setDate(date.getDate() - 7)
-    date.setHours(0, 0, 0, 0)
-    return date
-  })
-  const [endDate, setEndDate] = useState<Date>(() => {
-    const date = new Date()
-    date.setHours(23, 59, 59, 999)
-    return date
-  })
+  // Filter state lazy-inits from URL so /dashboard?start=…&qf=… is a
+  // shareable view. A useEffect below writes it back on every change.
+  // Defaults scoped to Eastern time — see TeamPage for the picker convention.
+  const [startDate, setStartDate] = useState<Date>(() =>
+    parseDateParam(searchParams.get('start'), (() => {
+      const [y, m, d] = ymdInBusinessTZ(new Date()).split('-').map(Number)
+      const local = new Date(y, m - 1, d)
+      local.setDate(local.getDate() - 6)
+      local.setHours(0, 0, 0, 0)
+      return local
+    })()),
+  )
+  const [endDate, setEndDate] = useState<Date>(() =>
+    parseDateParam(
+      searchParams.get('end'),
+      (() => {
+        const [y, m, d] = ymdInBusinessTZ(new Date()).split('-').map(Number)
+        const local = new Date(y, m - 1, d)
+        local.setHours(23, 59, 59, 999)
+        return local
+      })(),
+      true,
+    ),
+  )
 
-  const [selectedAgents, setSelectedAgents] = useState<string[]>([])
+  const [selectedAgents, setSelectedAgents] = useState<string[]>(() =>
+    parseListParam(searchParams.get('agents')),
+  )
   const [availableAgents, setAvailableAgents] = useState<any[]>([])
-  const [selectedDispositions, setSelectedDispositions] = useState<string[]>([])
-  const [quickFilter, setQuickFilter] = useState<QuickFilter>('all')
+  const [selectedDispositions, setSelectedDispositions] = useState<string[]>(
+    () => parseListParam(searchParams.get('dispo')),
+  )
+  const [quickFilter, setQuickFilter] = useState<QuickFilter>(() => {
+    const q = searchParams.get('qf')
+    return q === 'escalations' ||
+      q === 'compliance' ||
+      q === 'threshold' ||
+      q === 'all'
+      ? q
+      : 'all'
+  })
 
   const [calls, setCalls] = useState<CallWithQA[]>([])
   const [loading, setLoading] = useState(true)
@@ -67,6 +99,26 @@ export default function DashboardPage() {
     })
   }, [startDate, endDate, selectedAgents])
 
+  // Write filter state back to URL so the current view is shareable.
+  // `replace: true` keeps each filter tweak from polluting back-button history.
+  useEffect(() => {
+    const params = new URLSearchParams()
+    params.set('start', formatDateParam(startDate))
+    params.set('end', formatDateParam(endDate))
+    if (selectedAgents.length) params.set('agents', selectedAgents.join(','))
+    if (selectedDispositions.length)
+      params.set('dispo', selectedDispositions.join(','))
+    if (quickFilter !== 'all') params.set('qf', quickFilter)
+    setSearchParams(params, { replace: true })
+  }, [
+    startDate,
+    endDate,
+    selectedAgents,
+    selectedDispositions,
+    quickFilter,
+    setSearchParams,
+  ])
+
   const availableDispositions = useMemo(() => {
     const set = new Set<string>()
     for (const c of calls) {
@@ -93,7 +145,13 @@ export default function DashboardPage() {
     setCurrentPage(1)
   }, [quickFilter, calls])
 
-  const metrics = calculateMetrics(calls)
+  // Headline + supporting stats track filteredCalls so disposition + quick
+  // filter are reflected. windowMetrics keeps the unfiltered total for the
+  // "of N in window" subline.
+  const metrics = useMemo(() => calculateMetrics(filteredCalls), [filteredCalls])
+  const windowMetrics = useMemo(() => calculateMetrics(calls), [calls])
+  const isFiltered =
+    selectedDispositions.length > 0 || quickFilter !== 'all'
 
   const startIndex = (currentPage - 1) * ITEMS_PER_PAGE
   const endIndex = startIndex + ITEMS_PER_PAGE
@@ -139,18 +197,24 @@ export default function DashboardPage() {
           <h1 className="font-display text-[clamp(2.25rem,5vw,3.5rem)] leading-[1.05] tracking-[-0.02em] text-pennie-navy">
             {metrics.totalCalls.toLocaleString()}{' '}
             <span className="text-pennie-graphite/70 font-normal text-[0.6em] align-baseline">
-              {metrics.totalCalls === 1 ? 'call in window' : 'calls in window'}
+              {isFiltered
+                ? `of ${windowMetrics.totalCalls.toLocaleString()} in window`
+                : metrics.totalCalls === 1
+                  ? 'call in window'
+                  : 'calls in window'}
             </span>
           </h1>
           <p className="mt-3 text-pennie-graphite/70">
             {metrics.callsRequiringAttention.toLocaleString()} need attention.{' '}
-            <button
-              type="button"
-              onClick={() => setQuickFilter('threshold')}
-              className="text-pennie-blue-dark font-semibold hover:underline underline-offset-4"
-            >
-              Show me →
-            </button>
+            {quickFilter !== 'threshold' && (
+              <button
+                type="button"
+                onClick={() => setQuickFilter('threshold')}
+                className="text-pennie-blue-dark font-semibold hover:underline underline-offset-4"
+              >
+                Show me →
+              </button>
+            )}
           </p>
         </div>
         <dl className="lg:col-span-5 grid grid-cols-2 sm:grid-cols-4 gap-3">

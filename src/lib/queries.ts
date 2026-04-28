@@ -1,5 +1,7 @@
 import { supabase } from '@/integrations/supabase/client'
 import type { CallWithQA } from '../types/database'
+import { fetchAllPaginated } from './supabase-helpers'
+import { startOfBusinessDay, endOfBusinessDay } from './time-zone'
 
 // Fetch QA summaries in batches to avoid response size limits
 async function fetchQASummaries(callIds: string[]) {
@@ -40,27 +42,19 @@ export async function fetchDashboardData(
   endDate: Date,
   selectedAgents: string[] = []
 ) {
-  // 1) Fetch calls in range (and by agents if provided)
-  let callsQuery = supabase
-    .from('eavesly_calls')
-    .select(CALL_LIST_COLUMNS)
-    .gte('started_at', startDate.toISOString())
-    .lte('started_at', endDate.toISOString())
-    .order('started_at', { ascending: false })
-
-  // Filter out empty strings before querying
+  // 1) Fetch calls in range — paginated to bypass Supabase's 1000-row cap.
   const validAgents = selectedAgents.filter(email => email && email.trim())
-  if (validAgents.length > 0) {
-    callsQuery = callsQuery.in('agent_email', validAgents)
-  }
-
-  const { data: callsData, error: callsError } = await callsQuery
-  if (callsError) {
-    console.error('Error fetching dashboard calls:', callsError)
-    return []
-  }
-
-  const calls = (callsData || []) as any[]
+  const calls = await fetchAllPaginated<any>((from, to) => {
+    let q = supabase
+      .from('eavesly_calls')
+      .select(CALL_LIST_COLUMNS)
+      .gte('started_at', startOfBusinessDay(startDate).toISOString())
+      .lte('started_at', endOfBusinessDay(endDate).toISOString())
+      .order('started_at', { ascending: false })
+      .range(from, to)
+    if (validAgents.length > 0) q = q.in('agent_email', validAgents)
+    return q
+  })
   if (calls.length === 0) return []
 
   // 2) Fetch QA summaries in batches (only essential fields for dashboard)
@@ -75,17 +69,24 @@ export async function fetchDashboardData(
 }
 
 export async function fetchUniqueAgents() {
-  const { data, error } = await supabase
-    .from('eavesly_calls')
-    .select('agent_email, agent_full_name')
-    .not('agent_email', 'is', null)
-    .not('agent_full_name', 'is', null)
-    .limit(1000)
-
-  if (error) {
-    console.error('Error fetching agents:', error)
-    return []
-  }
+  // Scoped to the last 30 days so we don't scan the full ~440k-row calls
+  // table just to populate the filter dropdown. Any agent who's been
+  // active in the last month shows up here.
+  const since = new Date()
+  since.setDate(since.getDate() - 30)
+  const data = await fetchAllPaginated<{
+    agent_email: string
+    agent_full_name: string | null
+  }>((from, to) =>
+    supabase
+      .from('eavesly_calls')
+      .select('agent_email, agent_full_name')
+      .gte('started_at', since.toISOString())
+      .not('agent_email', 'is', null)
+      .not('agent_full_name', 'is', null)
+      .order('started_at', { ascending: false })
+      .range(from, to),
+  )
 
   const uniqueAgents = Array.from(
     new Map(data.map(item => [item.agent_email, item])).values()

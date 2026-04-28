@@ -1,6 +1,11 @@
 import { useState, useEffect, useMemo, useRef } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useAuth } from '../hooks/useAuth'
+import {
+  formatDateParam,
+  parseDateParam,
+} from '../lib/url-filters'
+import { ymdInBusinessTZ } from '../lib/time-zone'
 import {
   fetchUserScope,
   fetchAlertBreakdown,
@@ -31,24 +36,49 @@ type QuickFilter = 'all' | 'attention' | 'top' | 'alerts'
 export default function TeamPage() {
   const navigate = useNavigate()
   const { user } = useAuth()
+  const [searchParams, setSearchParams] = useSearchParams()
 
-  const [startDate, setStartDate] = useState<Date>(() => {
-    const date = new Date()
-    date.setDate(date.getDate() - 7)
-    date.setHours(0, 0, 0, 0)
-    return date
-  })
-  const [endDate, setEndDate] = useState<Date>(() => {
-    const date = new Date()
-    date.setHours(23, 59, 59, 999)
-    return date
-  })
+  // Filter state lazy-inits from URL so /dashboard/team?start=…&qf=…&mgr=…
+  // is shareable. A useEffect below writes it back on every change.
+  // Defaults are scoped to Eastern time so all viewers (regardless of their
+  // browser timezone) see the same window. Picker-state Date carries the
+  // intended ET Y/M/D in its local components — fetch + bucket layers convert
+  // to absolute UTC moments via startOfBusinessDay / endOfBusinessDay.
+  const [startDate, setStartDate] = useState<Date>(() =>
+    parseDateParam(searchParams.get('start'), (() => {
+      const [y, m, d] = ymdInBusinessTZ(new Date()).split('-').map(Number)
+      const local = new Date(y, m - 1, d)
+      local.setDate(local.getDate() - 6) // last 7 days inclusive
+      local.setHours(0, 0, 0, 0)
+      return local
+    })()),
+  )
+  const [endDate, setEndDate] = useState<Date>(() =>
+    parseDateParam(
+      searchParams.get('end'),
+      (() => {
+        const [y, m, d] = ymdInBusinessTZ(new Date()).split('-').map(Number)
+        const local = new Date(y, m - 1, d)
+        local.setHours(23, 59, 59, 999)
+        return local
+      })(),
+      true,
+    ),
+  )
 
   const [scope, setScope] = useState<UserScope | null>(null)
   const [rollup, setRollup] = useState<AgentRollup[]>([])
   const [loading, setLoading] = useState(true)
-  const [search, setSearch] = useState('')
-  const [quickFilter, setQuickFilter] = useState<QuickFilter>('all')
+  const [search, setSearch] = useState(() => searchParams.get('search') || '')
+  const [quickFilter, setQuickFilter] = useState<QuickFilter>(() => {
+    const q = searchParams.get('qf')
+    return q === 'attention' || q === 'top' || q === 'alerts' || q === 'all'
+      ? q
+      : 'all'
+  })
+  // Manager email persisted from URL, hydrated to ManagerRollup once
+  // managerRollups are computed (god-mode only).
+  const initialManagerEmail = searchParams.get('mgr')
   const [teamThemes, setTeamThemes] = useState<TeamCoachingThemesType | null>(null)
   const [themesLoading, setThemesLoading] = useState(true)
   const [breakdown, setBreakdown] = useState<AlertBreakdownCell[]>([])
@@ -74,14 +104,6 @@ export default function TeamPage() {
     fetchTeamRollup(scope, startDate, endDate)
       .then(setRollup)
       .finally(() => setLoading(false))
-  }, [scope, startDate, endDate])
-
-  useEffect(() => {
-    if (!scope) return
-    setThemesLoading(true)
-    fetchTeamCoachingThemes(scope, startDate, endDate)
-      .then(setTeamThemes)
-      .finally(() => setThemesLoading(false))
   }, [scope, startDate, endDate])
 
   useEffect(() => {
@@ -115,12 +137,51 @@ export default function TeamPage() {
     return aggregateManagerRollups(rollup, managerMapping, managerNames)
   }, [scope, rollup, managerMapping, managerNames])
 
-  const filtered = useMemo(() => {
-    let rows = rollup
-    if (selectedManager) {
-      const agentSet = new Set(selectedManager.agent_emails)
-      rows = rows.filter(r => agentSet.has(r.agent_email))
+  // Hydrate selectedManager from URL once the manager rollups exist. Tracked
+  // by a ref so we only attempt hydration on the first qualifying render.
+  const hydratedManagerRef = useRef(false)
+  useEffect(() => {
+    if (hydratedManagerRef.current) return
+    if (!scope?.isGodMode) return
+    if (managerRollups.length === 0) return
+    if (initialManagerEmail) {
+      const match = managerRollups.find(
+        m => m.manager_email === initialManagerEmail,
+      )
+      if (match) setSelectedManager(match)
     }
+    hydratedManagerRef.current = true
+  }, [scope, managerRollups, initialManagerEmail])
+
+  // Write filter state back to URL so the current view is shareable.
+  useEffect(() => {
+    const params = new URLSearchParams()
+    params.set('start', formatDateParam(startDate))
+    params.set('end', formatDateParam(endDate))
+    if (search.trim()) params.set('search', search.trim())
+    if (quickFilter !== 'all') params.set('qf', quickFilter)
+    if (selectedManager) params.set('mgr', selectedManager.manager_email)
+    setSearchParams(params, { replace: true })
+  }, [
+    startDate,
+    endDate,
+    search,
+    quickFilter,
+    selectedManager,
+    setSearchParams,
+  ])
+
+  // selectedManager scopes everything on the page (header stats, trends,
+  // heatmap, themes, leaderboard). search + quickFilter further narrow only
+  // the leaderboard — they're inspection tools, not data filters.
+  const scopedRollup = useMemo(() => {
+    if (!selectedManager) return rollup
+    const agentSet = new Set(selectedManager.agent_emails)
+    return rollup.filter(r => agentSet.has(r.agent_email))
+  }, [rollup, selectedManager])
+
+  const filtered = useMemo(() => {
+    let rows = scopedRollup
     if (search.trim()) {
       const s = search.trim().toLowerCase()
       rows = rows.filter(
@@ -137,10 +198,10 @@ export default function TeamPage() {
         .slice(0, 10)
     if (quickFilter === 'alerts') rows = rows.filter(r => r.unreviewed_alerts_count > 0)
     return rows
-  }, [rollup, search, quickFilter, selectedManager])
+  }, [scopedRollup, search, quickFilter])
 
   const teamMetrics = useMemo(() => {
-    if (rollup.length === 0) {
+    if (scopedRollup.length === 0) {
       return {
         agentCount: 0,
         callCount: 0,
@@ -150,8 +211,8 @@ export default function TeamPage() {
         topAgent: null as AgentRollup | null,
       }
     }
-    const callCount = rollup.reduce((s, r) => s + r.call_count, 0)
-    const withCalls = rollup.filter(r => r.call_count > 0)
+    const callCount = scopedRollup.reduce((s, r) => s + r.call_count, 0)
+    const withCalls = scopedRollup.filter(r => r.call_count > 0)
     const avgCompliance =
       withCalls.length > 0
         ? withCalls.reduce((s, r) => s + r.compliance_pass_rate, 0) / withCalls.length
@@ -160,23 +221,47 @@ export default function TeamPage() {
       withCalls.length > 0
         ? withCalls.reduce((s, r) => s + r.escalation_rate, 0) / withCalls.length
         : 0
-    const openAlerts = rollup.reduce((s, r) => s + r.unreviewed_alerts_count, 0)
+    const openAlerts = scopedRollup.reduce((s, r) => s + r.unreviewed_alerts_count, 0)
     const topAgent = withCalls.length
       ? [...withCalls].sort(
           (a, b) => b.compliance_pass_rate - a.compliance_pass_rate,
         )[0]
       : null
     return {
-      agentCount: rollup.length,
+      agentCount: scopedRollup.length,
       callCount,
       avgCompliance: Math.round(avgCompliance),
       avgEscalation: Math.round(avgEscalation),
       openAlerts,
       topAgent,
     }
-  }, [rollup])
+  }, [scopedRollup])
 
-  const teamTrend = useMemo(() => aggregateTeamTrend(rollup), [rollup])
+  const teamTrend = useMemo(() => aggregateTeamTrend(scopedRollup), [scopedRollup])
+
+  // Heatmap cells filtered to scoped agents — avoids a second round-trip.
+  const scopedBreakdown = useMemo(() => {
+    if (!selectedManager) return breakdown
+    const agentSet = new Set(selectedManager.agent_emails)
+    return breakdown.filter(c => agentSet.has(c.agent_email))
+  }, [breakdown, selectedManager])
+
+  // Coaching themes refetch when selectedManager changes — themes are
+  // pre-aggregated server-side, so we re-run with a synthesized scope.
+  useEffect(() => {
+    if (!scope) return
+    const effectiveScope: UserScope = selectedManager
+      ? {
+          email: scope.email,
+          isGodMode: false,
+          managedAgents: selectedManager.agent_emails,
+        }
+      : scope
+    setThemesLoading(true)
+    fetchTeamCoachingThemes(effectiveScope, startDate, endDate)
+      .then(setTeamThemes)
+      .finally(() => setThemesLoading(false))
+  }, [scope, startDate, endDate, selectedManager])
 
   const leaderboardRef = useRef<HTMLDivElement>(null)
 
@@ -299,8 +384,8 @@ export default function TeamPage() {
 
       {!noAgents && (
         <AlertHeatmap
-          cells={breakdown}
-          rollups={rollup}
+          cells={scopedBreakdown}
+          rollups={scopedRollup}
           loading={breakdownLoading}
         />
       )}

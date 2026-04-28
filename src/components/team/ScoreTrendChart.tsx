@@ -63,7 +63,9 @@ export function ScoreTrendChart({
                   boxShadow: '0 4px 16px rgba(10,31,61,0.12)',
                   fontSize: 12,
                 }}
-                formatter={(v: number) => [`${v}%`, 'Compliance']}
+                formatter={(v: number | null) =>
+                  v == null ? ['No graded calls', 'Compliance'] : [`${v}%`, 'Compliance']
+                }
               />
               <ReferenceLine
                 y={80}
