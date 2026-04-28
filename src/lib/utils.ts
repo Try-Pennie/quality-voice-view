@@ -1,5 +1,6 @@
 import { type ClassValue, clsx } from "clsx";
 import { twMerge } from "tailwind-merge";
+import { BUSINESS_TIMEZONE } from "./time-zone";
 
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -22,16 +23,19 @@ export function formatPhoneNumber(phone: string | null): string {
   return phone
 }
 
-// Format date/time
-export function formatDateTime(dateString: string | null): string {
+// Format date/time in Eastern time so every viewer sees the same wall-clock
+// stamp regardless of where they're sitting. Pair with an "(ET)" column
+// header / label where the timezone isn't otherwise obvious.
+export function formatDateTime(dateString: string | Date | null): string {
   if (!dateString) return 'N/A'
-  const date = new Date(dateString)
+  const date = typeof dateString === 'string' ? new Date(dateString) : dateString
   return date.toLocaleString('en-US', {
+    timeZone: BUSINESS_TIMEZONE,
     month: '2-digit',
     day: '2-digit',
     year: 'numeric',
     hour: '2-digit',
-    minute: '2-digit'
+    minute: '2-digit',
   })
 }
 

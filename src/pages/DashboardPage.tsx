@@ -308,7 +308,7 @@ export default function DashboardPage() {
             <thead className="bg-pennie-beige/60">
               <tr>
                 <Th srOnly>Severity</Th>
-                <Th>Date / time</Th>
+                <Th>Date / time (ET)</Th>
                 <Th>Agent</Th>
                 <Th>Contact</Th>
                 <Th>Talk time</Th>

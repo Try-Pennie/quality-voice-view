@@ -527,7 +527,7 @@ export default function AlertsPage() {
             <table className="min-w-full">
               <thead className="bg-pennie-beige/60">
                 <tr>
-                  <Th>Time</Th>
+                  <Th>Time (ET)</Th>
                   <Th>Agent</Th>
                   <Th>Contact</Th>
                   <Th>Violation</Th>
@@ -627,7 +627,7 @@ function SkeletonAlertsTable() {
       <table className="min-w-full">
         <thead className="bg-pennie-beige/60">
           <tr>
-            <Th>Time</Th>
+            <Th>Time (ET)</Th>
             <Th>Agent</Th>
             <Th>Contact</Th>
             <Th>Violation</Th>
