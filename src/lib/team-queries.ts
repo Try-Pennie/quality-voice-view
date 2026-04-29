@@ -530,15 +530,45 @@ export async function fetchAgentManagerMapping(): Promise<
   }))
 }
 
+// Canonical manager list. Anything that doesn't appear here is a sentinel
+// or stale row in agent_manager_mapping (e.g. "No longer at Pennie",
+// "Excluded", "AI Agent") and should not surface as its own team.
+export async function fetchRealManagers(): Promise<Set<string>> {
+  const { data, error } = await sb
+    .from('manager_coaching_prompts')
+    .select('manager_email')
+  if (error) {
+    console.error('Error fetching manager_coaching_prompts:', error)
+    return new Set()
+  }
+  return new Set(
+    ((data || []) as any[])
+      .map(r => (r.manager_email ?? '').toLowerCase())
+      .filter(Boolean),
+  )
+}
+
 // Group agent rollups by manager and recompute aggregates correctly
-// (volume-weighted, not averaged across agents).
+// (volume-weighted, not averaged across agents). Sentinel manager_email
+// values in agent_manager_mapping (e.g. "No longer at Pennie", "Excluded")
+// are filtered out via realManagers; affected agents fall through to the
+// __unassigned__ bucket so they still surface in god-mode views.
 export function aggregateManagerRollups(
   rollups: AgentRollup[],
   mapping: { manager_email: string; agent_email: string }[],
   managerNames: Map<string, string> = new Map(),
+  realManagers?: Set<string>,
 ): ManagerRollup[] {
   const managerByAgent = new Map<string, string>()
-  for (const m of mapping) managerByAgent.set(m.agent_email, m.manager_email)
+  for (const m of mapping) {
+    if (
+      realManagers &&
+      !realManagers.has((m.manager_email ?? '').toLowerCase())
+    ) {
+      continue
+    }
+    managerByAgent.set(m.agent_email, m.manager_email)
+  }
 
   // Pre-bucket agents per manager. Agents not in the mapping fall into
   // "Unassigned" so god-mode users still see them.
