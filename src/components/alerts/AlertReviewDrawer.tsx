@@ -27,7 +27,7 @@ import type {
   AlertInaccuracyReason,
   AlertWithFeedback,
 } from '@/types/database'
-import { ExternalLink, ChevronLeft, ChevronRight } from 'lucide-react'
+import { ExternalLink, ChevronLeft, ChevronRight, ArrowLeft, X } from 'lucide-react'
 
 const ACTION_OPTIONS: AlertActionTaken[] = [
   'coached',
@@ -168,15 +168,25 @@ export function AlertReviewDrawer({
     <Sheet open={!!alert} onOpenChange={open => !open && onClose()}>
       <SheetContent
         side="right"
+        hideClose
         className="w-full sm:max-w-2xl flex flex-col gap-0 p-0 overflow-hidden bg-pennie-white"
       >
         {/* Header */}
-        <SheetHeader className="px-8 py-5 border-b border-border space-y-3 text-left">
-          <div className="flex items-center gap-3">
-            <span className={pillClasses(accentForViolation(alert.violation_type))}>
+        <SheetHeader className="px-4 sm:px-8 pt-4 pb-5 sm:py-5 border-b border-border space-y-3 text-left">
+          <div className="flex items-center gap-2 sm:gap-3">
+            <button
+              type="button"
+              onClick={onClose}
+              aria-label="Back to alerts"
+              className="min-h-[40px] -ml-1 sm:hidden inline-flex items-center gap-1 px-2 py-2 rounded-full text-sm font-semibold text-pennie-navy hover:bg-pennie-beige transition-colors"
+            >
+              <ArrowLeft className="w-4 h-4" aria-hidden="true" />
+              Back
+            </button>
+            <span className={`${pillClasses(accentForViolation(alert.violation_type))} hidden sm:inline-flex`}>
               {violationLabel}
             </span>
-            <span className="text-xs text-muted-foreground tabular-nums">
+            <span className="text-xs text-muted-foreground tabular-nums hidden sm:inline">
               {formatDateTime(alert.alert_created_at)}
             </span>
             <div className="ml-auto flex gap-1">
@@ -200,7 +210,24 @@ export function AlertReviewDrawer({
               >
                 <ChevronRight className="w-4 h-4" aria-hidden="true" />
               </button>
+              <button
+                type="button"
+                onClick={onClose}
+                aria-label="Close (Esc)"
+                title="Close (Esc)"
+                className="hidden sm:inline-flex min-h-[40px] min-w-[40px] items-center justify-center rounded-full border border-border hover:bg-pennie-beige transition-colors ml-1"
+              >
+                <X className="w-4 h-4" aria-hidden="true" />
+              </button>
             </div>
+          </div>
+          <div className="flex items-center gap-2 sm:hidden">
+            <span className={pillClasses(accentForViolation(alert.violation_type))}>
+              {violationLabel}
+            </span>
+            <span className="text-xs text-muted-foreground tabular-nums">
+              {formatDateTime(alert.alert_created_at)}
+            </span>
           </div>
           <SheetTitle className="text-xl font-semibold text-pennie-navy text-left inline-flex items-center gap-1.5">
             {violationLabel}
