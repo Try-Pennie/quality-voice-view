@@ -4,6 +4,7 @@ import {
   fetchAlerts,
   fetchAlertBreakdown,
   fetchAlertsForCall,
+  fetchAlertThread,
   type UserScope,
   type AlertFilters,
 } from '../lib/alert-queries'
@@ -198,5 +199,16 @@ export function useAlertsForCall(callId: string | null | undefined) {
     queryKey: ['alertsForCall', callId],
     queryFn: () => fetchAlertsForCall(callId!),
     enabled: !!callId,
+  })
+}
+
+export function useAlertThread(
+  callId: string | null | undefined,
+  moduleName: string | null | undefined,
+) {
+  return useQuery({
+    queryKey: ['alertThread', callId, moduleName],
+    queryFn: () => fetchAlertThread(callId!, moduleName!),
+    enabled: !!callId && !!moduleName,
   })
 }

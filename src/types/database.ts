@@ -169,6 +169,29 @@ export type AlertWithFeedback = {
   feedback_comment: string | null
   reviewed_at: string | null
   is_reviewed: boolean
+  message_count: number
+  last_message_at: string | null
+  acker_emails: string[]
+}
+
+export type AlertMessage = {
+  id: number
+  call_id: string
+  module_name: string
+  author_email: string
+  body: string
+  parent_message_id: number | null
+  posted_at: string
+  edited_at: string | null
+  deleted_at: string | null
+}
+
+export type AlertAck = {
+  id: number
+  call_id: string
+  module_name: string
+  acker_email: string
+  acknowledged_at: string
 }
 
 export type AlertFeedbackInput = {

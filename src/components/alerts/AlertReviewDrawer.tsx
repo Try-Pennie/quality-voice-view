@@ -1,5 +1,6 @@
-import { useEffect, useId, useState } from 'react'
+import { useEffect, useId, useMemo, useState } from 'react'
 import { toast } from 'sonner'
+import { useQueryClient } from '@tanstack/react-query'
 import {
   Sheet,
   SheetContent,
@@ -11,10 +12,15 @@ import {
   ACTION_TAKEN_LABELS,
   INACCURACY_REASON_LABELS,
   VIOLATION_TYPE_LABELS,
+  editAlertMessage,
   extractEvidence,
   extractReason,
+  postAlertMessage,
+  setAlertAck,
+  softDeleteAlertMessage,
   submitAlertFeedback,
 } from '@/lib/alert-queries'
+import { useAlertThread } from '@/hooks/use-queries'
 import { VIOLATION_HELP_IDS } from '@/lib/help-content'
 import { HelpHint } from '@/components/ui/help-hint'
 import {
@@ -24,10 +30,23 @@ import {
 import { formatDateTime, formatPhoneNumber } from '@/lib/utils'
 import type {
   AlertActionTaken,
+  AlertAck,
   AlertInaccuracyReason,
+  AlertMessage,
   AlertWithFeedback,
 } from '@/types/database'
-import { ExternalLink, ChevronLeft, ChevronRight } from 'lucide-react'
+import {
+  CheckCheck,
+  ChevronLeft,
+  ChevronRight,
+  CornerDownRight,
+  ExternalLink,
+  MessageSquare,
+  Pencil,
+  Send,
+  Trash2,
+  X as XIcon,
+} from 'lucide-react'
 
 const ACTION_OPTIONS: AlertActionTaken[] = [
   'coached',
@@ -70,8 +89,19 @@ export function AlertReviewDrawer({
   const [comment, setComment] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const [showRaw, setShowRaw] = useState(false)
+  const [draftBody, setDraftBody] = useState('')
+  const [replyTo, setReplyTo] = useState<AlertMessage | null>(null)
+  const [posting, setPosting] = useState(false)
+  const [editingId, setEditingId] = useState<number | null>(null)
+  const [ackPending, setAckPending] = useState(false)
   const commentId = useId()
   const rawJsonId = useId()
+  const queryClient = useQueryClient()
+
+  const { data: thread, refetch: refetchThread } = useAlertThread(
+    alert?.call_id,
+    alert?.module_name,
+  )
 
   useEffect(() => {
     if (!alert) return
@@ -80,6 +110,9 @@ export function AlertReviewDrawer({
     setReason(alert.inaccuracy_reason)
     setComment(alert.feedback_comment ?? '')
     setShowRaw(false)
+    setDraftBody('')
+    setReplyTo(null)
+    setEditingId(null)
   }, [alert?.call_id, alert?.module_name])
 
   useEffect(() => {
@@ -121,6 +154,93 @@ export function AlertReviewDrawer({
     return () => window.removeEventListener('keydown', handler)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [alert, accurate, hasNext, hasPrev])
+
+  const ackedByMe = useMemo(() => {
+    if (!alert || !currentUserEmail) return false
+    const lower = currentUserEmail.toLowerCase()
+    return (alert.acker_emails ?? []).some(e => e.toLowerCase() === lower)
+  }, [alert, currentUserEmail])
+
+  const invalidateAlertList = () => {
+    queryClient.invalidateQueries({ queryKey: ['alerts'] })
+  }
+
+  const handleToggleAck = async () => {
+    if (!alert || !currentUserEmail) return
+    setAckPending(true)
+    const next = !ackedByMe
+    const res = await setAlertAck({
+      call_id: alert.call_id,
+      module_name: alert.module_name,
+      acker_email: currentUserEmail,
+      acked: next,
+    })
+    setAckPending(false)
+    if (!res.ok) {
+      toast.error(`Couldn't update ack: ${res.error}`)
+      return
+    }
+    const updatedAckers = next
+      ? Array.from(
+          new Set([...(alert.acker_emails ?? []), currentUserEmail]),
+        )
+      : (alert.acker_emails ?? []).filter(
+          e => e.toLowerCase() !== currentUserEmail.toLowerCase(),
+        )
+    onSubmitted({ acker_emails: updatedAckers })
+    invalidateAlertList()
+  }
+
+  const handlePostMessage = async () => {
+    if (!alert || !currentUserEmail) return
+    const body = draftBody.trim()
+    if (!body) return
+    setPosting(true)
+    const res = await postAlertMessage({
+      call_id: alert.call_id,
+      module_name: alert.module_name,
+      author_email: currentUserEmail,
+      body,
+      parent_message_id: replyTo?.id ?? null,
+    })
+    setPosting(false)
+    if (!res.ok) {
+      toast.error(`Couldn't post message: ${res.error}`)
+      return
+    }
+    setDraftBody('')
+    setReplyTo(null)
+    refetchThread()
+    onSubmitted({
+      message_count: (alert.message_count ?? 0) + 1,
+      last_message_at: new Date().toISOString(),
+    })
+    invalidateAlertList()
+  }
+
+  const handleEditMessage = async (messageId: number, body: string) => {
+    const res = await editAlertMessage(messageId, body)
+    if (!res.ok) {
+      toast.error(`Couldn't edit message: ${res.error}`)
+      return false
+    }
+    setEditingId(null)
+    refetchThread()
+    return true
+  }
+
+  const handleDeleteMessage = async (messageId: number) => {
+    const res = await softDeleteAlertMessage(messageId)
+    if (!res.ok) {
+      toast.error(`Couldn't delete message: ${res.error}`)
+      return
+    }
+    refetchThread()
+    onSubmitted({
+      message_count: Math.max(0, (alert?.message_count ?? 0) - 1),
+    })
+    invalidateAlertList()
+  }
 
   const handleSubmit = async () => {
     if (!alert || !currentUserEmail) return
@@ -220,6 +340,14 @@ export function AlertReviewDrawer({
 
         {/* Scrollable body */}
         <div className="flex-1 overflow-y-auto px-8 py-6 space-y-7">
+          <AckSection
+            ackers={alert.acker_emails ?? []}
+            ackedByMe={ackedByMe}
+            currentUserEmail={currentUserEmail}
+            pending={ackPending}
+            onToggle={handleToggleAck}
+          />
+
           <section>
             <h2 className="pennie-label mb-2">Recording</h2>
             <AudioPlayer recordingUrl={alert.recording_link} />
@@ -307,6 +435,21 @@ export function AlertReviewDrawer({
               )}
             </div>
           </section>
+
+          <ThreadSection
+            messages={thread?.messages ?? []}
+            currentUserEmail={currentUserEmail}
+            replyTo={replyTo}
+            onSetReplyTo={setReplyTo}
+            editingId={editingId}
+            onSetEditingId={setEditingId}
+            onEdit={handleEditMessage}
+            onDelete={handleDeleteMessage}
+            draft={draftBody}
+            onDraftChange={setDraftBody}
+            onPost={handlePostMessage}
+            posting={posting}
+          />
         </div>
 
         {/* Sticky feedback footer */}
@@ -486,4 +629,351 @@ function Chip({
       {label}
     </button>
   )
+}
+
+function AckSection({
+  ackers,
+  ackedByMe,
+  currentUserEmail,
+  pending,
+  onToggle,
+}: {
+  ackers: string[]
+  ackedByMe: boolean
+  currentUserEmail: string | null | undefined
+  pending: boolean
+  onToggle: () => void
+}) {
+  const others = currentUserEmail
+    ? ackers.filter(e => e.toLowerCase() !== currentUserEmail.toLowerCase())
+    : ackers
+  const summary =
+    ackers.length === 0
+      ? 'Not yet reviewed by anyone.'
+      : ackedByMe && others.length === 0
+        ? 'Reviewed by you.'
+        : ackedByMe
+          ? `Reviewed by you and ${formatNameList(others)}.`
+          : `Reviewed by ${formatNameList(ackers)}.`
+  return (
+    <section className="flex flex-wrap items-center justify-between gap-3 rounded-2xl bg-pennie-beige/50 px-4 py-3">
+      <div className="flex items-center gap-2 min-w-0">
+        <CheckCheck
+          className={`w-4 h-4 flex-none ${
+            ackers.length > 0 ? 'text-pennie-green-dark' : 'text-pennie-graphite/40'
+          }`}
+          aria-hidden="true"
+        />
+        <p className="text-sm text-pennie-graphite truncate">{summary}</p>
+      </div>
+      <button
+        type="button"
+        onClick={onToggle}
+        disabled={pending || !currentUserEmail}
+        aria-pressed={ackedByMe}
+        className={`min-h-[36px] inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-xs font-semibold border transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
+          ackedByMe
+            ? 'bg-pennie-green-dark border-pennie-green-dark text-pennie-white hover:bg-pennie-green-dark/90'
+            : 'bg-pennie-white border-border text-pennie-graphite hover:bg-pennie-green-light hover:border-pennie-green-light'
+        }`}
+      >
+        {ackedByMe ? (
+          <>
+            <CheckCheck className="w-3.5 h-3.5" aria-hidden="true" />
+            Reviewed
+          </>
+        ) : (
+          'Mark as reviewed'
+        )}
+      </button>
+    </section>
+  )
+}
+
+function ThreadSection({
+  messages,
+  currentUserEmail,
+  replyTo,
+  onSetReplyTo,
+  editingId,
+  onSetEditingId,
+  onEdit,
+  onDelete,
+  draft,
+  onDraftChange,
+  onPost,
+  posting,
+}: {
+  messages: AlertMessage[]
+  currentUserEmail: string | null | undefined
+  replyTo: AlertMessage | null
+  onSetReplyTo: (m: AlertMessage | null) => void
+  editingId: number | null
+  onSetEditingId: (id: number | null) => void
+  onEdit: (id: number, body: string) => Promise<boolean>
+  onDelete: (id: number) => void
+  draft: string
+  onDraftChange: (s: string) => void
+  onPost: () => void
+  posting: boolean
+}) {
+  const composeId = useId()
+  const messageById = useMemo(() => {
+    const m = new Map<number, AlertMessage>()
+    for (const msg of messages) m.set(msg.id, msg)
+    return m
+  }, [messages])
+
+  return (
+    <section>
+      <h2 className="pennie-label mb-3 inline-flex items-center gap-1.5">
+        <MessageSquare className="w-3.5 h-3.5" aria-hidden="true" />
+        Discussion
+        {messages.length > 0 && (
+          <span className="text-pennie-graphite/60 font-normal">
+            · {messages.filter(m => !m.deleted_at).length}
+          </span>
+        )}
+      </h2>
+      <div className="space-y-3">
+        {messages.length === 0 ? (
+          <p className="text-sm text-pennie-graphite/60 italic">
+            No messages yet. Start the conversation below.
+          </p>
+        ) : (
+          messages.map(msg => (
+            <MessageItem
+              key={msg.id}
+              message={msg}
+              parent={
+                msg.parent_message_id
+                  ? messageById.get(msg.parent_message_id) ?? null
+                  : null
+              }
+              currentUserEmail={currentUserEmail}
+              isEditing={editingId === msg.id}
+              onStartEdit={() => onSetEditingId(msg.id)}
+              onCancelEdit={() => onSetEditingId(null)}
+              onSaveEdit={body => onEdit(msg.id, body)}
+              onDelete={() => onDelete(msg.id)}
+              onReply={() => onSetReplyTo(msg)}
+            />
+          ))
+        )}
+      </div>
+
+      <div className="mt-4">
+        {replyTo && (
+          <div className="flex items-center gap-2 px-3 py-1.5 mb-2 rounded-full bg-pennie-blue-light/50 text-xs text-pennie-graphite">
+            <CornerDownRight className="w-3 h-3" aria-hidden="true" />
+            <span className="truncate">
+              Replying to {emailLabel(replyTo.author_email)}:{' '}
+              <span className="text-pennie-graphite/70">
+                "{snippet(replyTo.body, 60)}"
+              </span>
+            </span>
+            <button
+              type="button"
+              onClick={() => onSetReplyTo(null)}
+              aria-label="Cancel reply"
+              className="ml-auto text-pennie-graphite/60 hover:text-pennie-navy"
+            >
+              <XIcon className="w-3 h-3" aria-hidden="true" />
+            </button>
+          </div>
+        )}
+        <label htmlFor={composeId} className="sr-only">
+          Add a message
+        </label>
+        <div className="flex gap-2 items-end">
+          <textarea
+            id={composeId}
+            value={draft}
+            onChange={e => onDraftChange(e.target.value)}
+            placeholder={
+              currentUserEmail
+                ? 'Add a message…'
+                : 'Sign in to post a message'
+            }
+            disabled={!currentUserEmail || posting}
+            rows={2}
+            onKeyDown={e => {
+              if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+                e.preventDefault()
+                onPost()
+              }
+            }}
+            className="flex-1 px-3 py-2 rounded-2xl border border-border bg-pennie-white text-sm font-medium resize-none focus:outline-none focus:ring-2 focus:ring-pennie-blue-dark/40 focus:border-pennie-blue-dark disabled:opacity-50"
+          />
+          <button
+            type="button"
+            onClick={onPost}
+            disabled={!draft.trim() || !currentUserEmail || posting}
+            aria-label="Post message"
+            className="min-h-[44px] min-w-[44px] inline-flex items-center justify-center rounded-full bg-pennie-navy text-pennie-white hover:bg-pennie-navy/90 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+          >
+            <Send className="w-4 h-4" aria-hidden="true" />
+          </button>
+        </div>
+      </div>
+    </section>
+  )
+}
+
+function MessageItem({
+  message,
+  parent,
+  currentUserEmail,
+  isEditing,
+  onStartEdit,
+  onCancelEdit,
+  onSaveEdit,
+  onDelete,
+  onReply,
+}: {
+  message: AlertMessage
+  parent: AlertMessage | null
+  currentUserEmail: string | null | undefined
+  isEditing: boolean
+  onStartEdit: () => void
+  onCancelEdit: () => void
+  onSaveEdit: (body: string) => Promise<boolean>
+  onDelete: () => void
+  onReply: () => void
+}) {
+  const [draft, setDraft] = useState(message.body)
+  const [saving, setSaving] = useState(false)
+  const isMine =
+    !!currentUserEmail &&
+    message.author_email.toLowerCase() === currentUserEmail.toLowerCase()
+  const isDeleted = !!message.deleted_at
+
+  useEffect(() => {
+    if (isEditing) setDraft(message.body)
+  }, [isEditing, message.body])
+
+  if (isDeleted) {
+    return (
+      <div className="rounded-2xl border border-dashed border-border px-4 py-2 text-xs italic text-pennie-graphite/50">
+        (message deleted by {emailLabel(message.author_email)})
+      </div>
+    )
+  }
+
+  return (
+    <article
+      className={`rounded-2xl px-4 py-3 border ${
+        isMine
+          ? 'bg-pennie-blue-light/40 border-pennie-blue-light'
+          : 'bg-pennie-white border-border'
+      }`}
+    >
+      {parent && !parent.deleted_at && (
+        <div className="text-[11px] text-pennie-graphite/60 mb-1.5 flex items-center gap-1">
+          <CornerDownRight className="w-3 h-3" aria-hidden="true" />
+          <span className="truncate">
+            replying to {emailLabel(parent.author_email)}: "{snippet(parent.body, 50)}"
+          </span>
+        </div>
+      )}
+      <header className="flex items-baseline justify-between gap-2 mb-1">
+        <span className="text-sm font-semibold text-pennie-navy">
+          {emailLabel(message.author_email)}
+        </span>
+        <span className="text-[11px] text-muted-foreground tabular-nums">
+          {formatDateTime(message.posted_at)}
+          {message.edited_at && ' · edited'}
+        </span>
+      </header>
+      {isEditing ? (
+        <div>
+          <textarea
+            value={draft}
+            onChange={e => setDraft(e.target.value)}
+            rows={3}
+            className="w-full px-3 py-2 rounded-xl border border-border bg-pennie-white text-sm font-medium resize-none focus:outline-none focus:ring-2 focus:ring-pennie-blue-dark/40 focus:border-pennie-blue-dark"
+          />
+          <div className="flex justify-end gap-2 mt-2">
+            <button
+              type="button"
+              onClick={onCancelEdit}
+              disabled={saving}
+              className="min-h-[32px] px-3 py-1 text-xs font-semibold text-pennie-graphite hover:text-pennie-navy"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={async () => {
+                if (!draft.trim()) return
+                setSaving(true)
+                const ok = await onSaveEdit(draft.trim())
+                setSaving(false)
+                if (!ok) return
+              }}
+              disabled={saving || !draft.trim() || draft.trim() === message.body}
+              className="min-h-[32px] px-3 py-1 rounded-full bg-pennie-navy text-pennie-white text-xs font-semibold disabled:opacity-40"
+            >
+              {saving ? 'Saving…' : 'Save'}
+            </button>
+          </div>
+        </div>
+      ) : (
+        <>
+          <p className="text-sm text-pennie-graphite leading-relaxed whitespace-pre-wrap">
+            {message.body}
+          </p>
+          <footer className="mt-2 flex items-center gap-3 text-[11px]">
+            <button
+              type="button"
+              onClick={onReply}
+              className="font-semibold text-pennie-graphite/70 hover:text-pennie-navy"
+            >
+              Reply
+            </button>
+            {isMine && (
+              <>
+                <button
+                  type="button"
+                  onClick={onStartEdit}
+                  aria-label="Edit message"
+                  className="inline-flex items-center gap-1 font-semibold text-pennie-graphite/70 hover:text-pennie-navy"
+                >
+                  <Pencil className="w-3 h-3" aria-hidden="true" />
+                  Edit
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (confirm('Delete this message?')) onDelete()
+                  }}
+                  aria-label="Delete message"
+                  className="inline-flex items-center gap-1 font-semibold text-pennie-graphite/70 hover:text-pennie-peach-dark"
+                >
+                  <Trash2 className="w-3 h-3" aria-hidden="true" />
+                  Delete
+                </button>
+              </>
+            )}
+          </footer>
+        </>
+      )}
+    </article>
+  )
+}
+
+function emailLabel(email: string): string {
+  return email.split('@')[0] || email
+}
+
+function formatNameList(emails: string[]): string {
+  const names = emails.map(emailLabel)
+  if (names.length <= 1) return names.join('')
+  if (names.length === 2) return names.join(' and ')
+  return `${names.slice(0, -1).join(', ')}, and ${names[names.length - 1]}`
+}
+
+function snippet(text: string, max: number): string {
+  const t = text.replace(/\s+/g, ' ').trim()
+  return t.length <= max ? t : `${t.slice(0, max - 1)}…`
 }

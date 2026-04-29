@@ -80,7 +80,7 @@ type DailyMetricRow = {
 // ---------- Helpers ----------
 
 const ALERT_COUNT_COLUMNS =
-  'call_id, module_name, agent_email, alert_created_at, has_violation, is_reviewed, accurate, action_taken, inaccuracy_reason, contact_name, contact_phone, call_summary, sfdc_lead_id, violation_type, alert_sent, feedback_id, feedback_by, feedback_comment, reviewed_at'
+  'call_id, module_name, agent_email, alert_created_at, has_violation, is_reviewed, accurate, action_taken, inaccuracy_reason, contact_name, contact_phone, call_summary, sfdc_lead_id, violation_type, alert_sent, feedback_id, feedback_by, feedback_comment, reviewed_at, message_count, last_message_at, acker_emails'
 
 const RECENT_CALL_COLUMNS =
   'id, call_id, agent_email, agent_full_name, started_at, contact_phone, talk_time, handle_time'

@@ -1,5 +1,7 @@
 import { supabase } from '@/integrations/supabase/client'
 import type {
+  AlertAck,
+  AlertMessage,
   AlertWithFeedback,
   AlertFeedbackInput,
 } from '@/types/database'
@@ -70,6 +72,9 @@ const ALERT_LIST_COLUMNS = [
   'feedback_by',
   'feedback_comment',
   'reviewed_at',
+  'message_count',
+  'last_message_at',
+  'acker_emails',
 ].join(',')
 
 export async function fetchAlerts(
@@ -161,6 +166,129 @@ export async function submitAlertFeedback(
     .upsert(payload, { onConflict: 'call_id,module_name' })
   if (error) {
     console.error('Error submitting feedback:', error)
+    return { ok: false, error: error.message }
+  }
+  return { ok: true }
+}
+
+// ---- thread + acks ----
+
+export type AlertThread = {
+  messages: AlertMessage[]
+  acks: AlertAck[]
+}
+
+export async function fetchAlertThread(
+  callId: string,
+  moduleName: string,
+): Promise<AlertThread> {
+  const [messagesRes, acksRes] = await Promise.all([
+    sb
+      .from('eavesly_alert_messages')
+      .select('*')
+      .eq('call_id', callId)
+      .eq('module_name', moduleName)
+      .order('posted_at', { ascending: true }),
+    sb
+      .from('eavesly_alert_acks')
+      .select('*')
+      .eq('call_id', callId)
+      .eq('module_name', moduleName)
+      .order('acknowledged_at', { ascending: true }),
+  ])
+  if (messagesRes.error) {
+    console.error('Error fetching alert messages:', messagesRes.error)
+  }
+  if (acksRes.error) {
+    console.error('Error fetching alert acks:', acksRes.error)
+  }
+  return {
+    messages: (messagesRes.data || []) as AlertMessage[],
+    acks: (acksRes.data || []) as AlertAck[],
+  }
+}
+
+export async function postAlertMessage(input: {
+  call_id: string
+  module_name: string
+  author_email: string
+  body: string
+  parent_message_id?: number | null
+}): Promise<{ ok: boolean; message?: AlertMessage; error?: string }> {
+  const { data, error } = await sb
+    .from('eavesly_alert_messages')
+    .insert({
+      call_id: input.call_id,
+      module_name: input.module_name,
+      author_email: input.author_email,
+      body: input.body.trim(),
+      parent_message_id: input.parent_message_id ?? null,
+    })
+    .select()
+    .single()
+  if (error) {
+    console.error('Error posting alert message:', error)
+    return { ok: false, error: error.message }
+  }
+  return { ok: true, message: data as AlertMessage }
+}
+
+export async function editAlertMessage(
+  messageId: number,
+  body: string,
+): Promise<{ ok: boolean; error?: string }> {
+  const { error } = await sb
+    .from('eavesly_alert_messages')
+    .update({ body: body.trim(), edited_at: new Date().toISOString() })
+    .eq('id', messageId)
+  if (error) {
+    console.error('Error editing alert message:', error)
+    return { ok: false, error: error.message }
+  }
+  return { ok: true }
+}
+
+export async function softDeleteAlertMessage(
+  messageId: number,
+): Promise<{ ok: boolean; error?: string }> {
+  const { error } = await sb
+    .from('eavesly_alert_messages')
+    .update({ deleted_at: new Date().toISOString() })
+    .eq('id', messageId)
+  if (error) {
+    console.error('Error deleting alert message:', error)
+    return { ok: false, error: error.message }
+  }
+  return { ok: true }
+}
+
+export async function setAlertAck(input: {
+  call_id: string
+  module_name: string
+  acker_email: string
+  acked: boolean
+}): Promise<{ ok: boolean; error?: string }> {
+  if (input.acked) {
+    const { error } = await sb.from('eavesly_alert_acks').insert({
+      call_id: input.call_id,
+      module_name: input.module_name,
+      acker_email: input.acker_email,
+    })
+    // 23505 = unique violation; idempotent ack toggle, treat as success.
+    if (error && (error as any).code !== '23505') {
+      console.error('Error setting alert ack:', error)
+      return { ok: false, error: error.message }
+    }
+    return { ok: true }
+  }
+  const { error } = await sb
+    .from('eavesly_alert_acks')
+    .delete()
+    .eq('call_id', input.call_id)
+    .eq('module_name', input.module_name)
+    .eq('acker_email', input.acker_email)
+  if (error) {
+    console.error('Error clearing alert ack:', error)
     return { ok: false, error: error.message }
   }
   return { ok: true }
