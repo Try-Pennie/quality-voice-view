@@ -4,10 +4,12 @@ import type { ManagerRollup } from '../../lib/team-queries'
 
 type SortKey =
   | 'call_count'
+  | 'qa_count'
   | 'compliance_pass_rate'
   | 'escalation_rate'
   | 'csat_high_rate'
   | 'unreviewed_alerts_count'
+  | 'total_alerts_count'
   | 'agent_count'
 
 export function TeamBreakdownByManager({
@@ -93,6 +95,12 @@ export function TeamBreakdownByManager({
                   onClick={() => toggleSort('call_count')}
                 />
                 <SortHeader
+                  label="Reviewed"
+                  active={sortKey === 'qa_count'}
+                  desc={sortDesc}
+                  onClick={() => toggleSort('qa_count')}
+                />
+                <SortHeader
                   label="Compliance"
                   active={sortKey === 'compliance_pass_rate'}
                   desc={sortDesc}
@@ -115,6 +123,12 @@ export function TeamBreakdownByManager({
                   active={sortKey === 'unreviewed_alerts_count'}
                   desc={sortDesc}
                   onClick={() => toggleSort('unreviewed_alerts_count')}
+                />
+                <SortHeader
+                  label="Total alerts"
+                  active={sortKey === 'total_alerts_count'}
+                  desc={sortDesc}
+                  onClick={() => toggleSort('total_alerts_count')}
                 />
               </tr>
             </thead>
@@ -172,6 +186,13 @@ export function TeamBreakdownByManager({
                     <td className="py-3 pr-4 tabular-nums text-pennie-navy">
                       {r.call_count.toLocaleString()}
                     </td>
+                    <td className="py-3 pr-4 tabular-nums text-pennie-navy">
+                      {r.qa_count > 0 ? (
+                        r.qa_count.toLocaleString()
+                      ) : (
+                        <span className="text-pennie-graphite/40">—</span>
+                      )}
+                    </td>
                     <td className="py-3 pr-4 tabular-nums">
                       <Bar value={r.compliance_pass_rate} target={80} positiveAbove />
                     </td>
@@ -187,6 +208,9 @@ export function TeamBreakdownByManager({
                     </td>
                     <td className="py-3 pr-4 tabular-nums text-pennie-navy">
                       {r.unreviewed_alerts_count}
+                    </td>
+                    <td className="py-3 pr-4 tabular-nums text-pennie-navy">
+                      {r.total_alerts_count}
                     </td>
                   </tr>
                 )

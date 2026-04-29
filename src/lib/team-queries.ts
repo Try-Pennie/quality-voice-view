@@ -40,6 +40,7 @@ export type AgentRollup = {
   compliance_pass_rate: number // 0-100
   csat_high_rate: number // 0-100
   escalation_rate: number // 0-100
+  total_alerts_count: number
   open_alerts_count: number
   unreviewed_alerts_count: number
   trend_points: TrendPoint[]
@@ -73,6 +74,7 @@ type DailyMetricRow = {
   csat_high_count: number
   csat_medium_count: number
   csat_low_count: number
+  total_alerts: number
   open_alerts: number
   unreviewed_alerts: number
 }
@@ -178,6 +180,7 @@ function normalizeDailyRow(r: any): DailyMetricRow {
     csat_high_count: toNum(r.csat_high_count),
     csat_medium_count: toNum(r.csat_medium_count),
     csat_low_count: toNum(r.csat_low_count),
+    total_alerts: toNum(r.total_alerts_count),
     open_alerts: toNum(r.open_alerts),
     unreviewed_alerts: toNum(r.unreviewed_alerts),
   }
@@ -254,6 +257,7 @@ function rollupFromDailyRows(
   const escalationRate =
     qaCount > 0 ? Math.round((escalations / qaCount) * 100) : 0
 
+  const totalAlerts = rows.reduce((s, r) => s + r.total_alerts, 0)
   const openAlerts = rows.reduce((s, r) => s + r.open_alerts, 0)
   const unreviewedAlerts = rows.reduce((s, r) => s + r.unreviewed_alerts, 0)
 
@@ -273,6 +277,7 @@ function rollupFromDailyRows(
     compliance_pass_rate: compliancePassRate,
     csat_high_rate: csatHighRate,
     escalation_rate: escalationRate,
+    total_alerts_count: totalAlerts,
     open_alerts_count: openAlerts,
     unreviewed_alerts_count: unreviewedAlerts,
     trend_points: trend,
@@ -473,9 +478,11 @@ export type ManagerRollup = {
   agent_count: number
   agent_emails: string[]
   call_count: number
+  qa_count: number
   compliance_pass_rate: number // 0-100
   csat_high_rate: number // 0-100
   escalation_rate: number // 0-100
+  total_alerts_count: number
   open_alerts_count: number
   unreviewed_alerts_count: number
   top_agent: AgentRollup | null
@@ -575,6 +582,11 @@ export function aggregateManagerRollups(
       csatTotal > 0 ? Math.round((csatHigh / csatTotal) * 100) : 0
     const escalation_rate =
       callCount > 0 ? Math.round((escalations / callCount) * 100) : 0
+    const qa_count = agents.reduce((s, a) => s + a.qa_count, 0)
+    const total_alerts_count = agents.reduce(
+      (s, a) => s + a.total_alerts_count,
+      0,
+    )
     const open_alerts_count = agents.reduce((s, a) => s + a.open_alerts_count, 0)
     const unreviewed_alerts_count = agents.reduce(
       (s, a) => s + a.unreviewed_alerts_count,
@@ -595,9 +607,11 @@ export function aggregateManagerRollups(
       agent_count: agents.length,
       agent_emails: agents.map(a => a.agent_email),
       call_count: callCount,
+      qa_count,
       compliance_pass_rate,
       csat_high_rate,
       escalation_rate,
+      total_alerts_count,
       open_alerts_count,
       unreviewed_alerts_count,
       top_agent: topAgent || null,
