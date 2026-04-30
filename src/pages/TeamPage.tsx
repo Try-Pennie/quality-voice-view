@@ -344,8 +344,10 @@ export default function TeamPage() {
         <DateRangePicker
           startDate={startDate}
           endDate={endDate}
-          onStartDateChange={setStartDate}
-          onEndDateChange={setEndDate}
+          onRangeChange={(start, end) => {
+            setStartDate(start)
+            setEndDate(end)
+          }}
         />
         <WideRangeLoadingHint
           loading={loading}
