@@ -40,6 +40,7 @@ export type AgentRollup = {
   compliance_pass_rate: number // 0-100
   csat_high_rate: number // 0-100
   escalation_rate: number // 0-100
+  total_alerts_count: number
   open_alerts_count: number
   unreviewed_alerts_count: number
   trend_points: TrendPoint[]
@@ -73,6 +74,7 @@ type DailyMetricRow = {
   csat_high_count: number
   csat_medium_count: number
   csat_low_count: number
+  total_alerts: number
   open_alerts: number
   unreviewed_alerts: number
 }
@@ -80,7 +82,7 @@ type DailyMetricRow = {
 // ---------- Helpers ----------
 
 const ALERT_COUNT_COLUMNS =
-  'call_id, module_name, agent_email, alert_created_at, has_violation, is_reviewed, accurate, action_taken, inaccuracy_reason, contact_name, contact_phone, call_summary, sfdc_lead_id, violation_type, alert_sent, feedback_id, feedback_by, feedback_comment, reviewed_at'
+  'call_id, module_name, agent_email, alert_created_at, has_violation, is_reviewed, accurate, action_taken, inaccuracy_reason, contact_name, contact_phone, call_summary, sfdc_lead_id, violation_type, alert_sent, feedback_id, feedback_by, feedback_comment, reviewed_at, message_count, last_message_at, acker_emails'
 
 const RECENT_CALL_COLUMNS =
   'id, call_id, agent_email, agent_full_name, started_at, contact_phone, talk_time, handle_time'
@@ -178,6 +180,7 @@ function normalizeDailyRow(r: any): DailyMetricRow {
     csat_high_count: toNum(r.csat_high_count),
     csat_medium_count: toNum(r.csat_medium_count),
     csat_low_count: toNum(r.csat_low_count),
+    total_alerts: toNum(r.total_alerts_count),
     open_alerts: toNum(r.open_alerts),
     unreviewed_alerts: toNum(r.unreviewed_alerts),
   }
@@ -254,6 +257,7 @@ function rollupFromDailyRows(
   const escalationRate =
     qaCount > 0 ? Math.round((escalations / qaCount) * 100) : 0
 
+  const totalAlerts = rows.reduce((s, r) => s + r.total_alerts, 0)
   const openAlerts = rows.reduce((s, r) => s + r.open_alerts, 0)
   const unreviewedAlerts = rows.reduce((s, r) => s + r.unreviewed_alerts, 0)
 
@@ -273,6 +277,7 @@ function rollupFromDailyRows(
     compliance_pass_rate: compliancePassRate,
     csat_high_rate: csatHighRate,
     escalation_rate: escalationRate,
+    total_alerts_count: totalAlerts,
     open_alerts_count: openAlerts,
     unreviewed_alerts_count: unreviewedAlerts,
     trend_points: trend,
@@ -289,19 +294,34 @@ export async function fetchTeamRollup(
 ): Promise<AgentRollup[]> {
   if (!scope.isGodMode && scope.managedAgents.length === 0) return []
 
-  const { data, error } = await sb.rpc('team_daily_metrics', {
-    p_start: toDateParam(startDate),
-    p_end: toDateParam(endDate),
-  })
-  if (error) {
-    console.error('Error calling team_daily_metrics:', error)
-    return []
+  // PostgREST silently truncates RPC responses at the project's max-rows
+  // setting (default 1000). The MV emits ~one row per (agent, bucket_day),
+  // so even a 30-day team query exceeds the cap. Pull with explicit
+  // pagination to be sure we get every row.
+  const rows: any[] = []
+  const PAGE_SIZE = 1000
+  let from = 0
+  while (true) {
+    const { data, error } = await sb
+      .rpc('team_daily_metrics', {
+        p_start: toDateParam(startDate),
+        p_end: toDateParam(endDate),
+      })
+      .range(from, from + PAGE_SIZE - 1)
+    if (error) {
+      console.error('Error calling team_daily_metrics:', error)
+      return []
+    }
+    const chunk = (data || []) as any[]
+    rows.push(...chunk)
+    if (chunk.length < PAGE_SIZE) break
+    from += PAGE_SIZE
   }
 
-  const rows = ((data || []) as any[]).map(normalizeDailyRow)
+  const normalized = rows.map(normalizeDailyRow)
   const byAgent = new Map<string, DailyMetricRow[]>()
   const nameByAgent = new Map<string, string | null>()
-  for (const r of rows) {
+  for (const r of normalized) {
     if (!r.agent_email) continue
     const arr = byAgent.get(r.agent_email) || []
     arr.push(r)
@@ -473,9 +493,11 @@ export type ManagerRollup = {
   agent_count: number
   agent_emails: string[]
   call_count: number
+  qa_count: number
   compliance_pass_rate: number // 0-100
   csat_high_rate: number // 0-100
   escalation_rate: number // 0-100
+  total_alerts_count: number
   open_alerts_count: number
   unreviewed_alerts_count: number
   top_agent: AgentRollup | null
@@ -530,15 +552,30 @@ export async function fetchAgentManagerMapping(): Promise<
   }))
 }
 
+// agent_manager_mapping.manager_email holds literal sentinel strings for
+// housekeeping ("No longer at Pennie", "Excluded", "AI Agent"). None of
+// them contain '@', so a looks-like-email check separates real managers
+// from sentinels — without needing to read manager_coaching_prompts,
+// which RLS scopes to the caller's own row and would hide every other
+// manager from god-mode users.
+function isRealManagerEmail(email: string | null | undefined): boolean {
+  return !!email && email.includes('@')
+}
+
 // Group agent rollups by manager and recompute aggregates correctly
-// (volume-weighted, not averaged across agents).
+// (volume-weighted, not averaged across agents). Sentinel manager_email
+// values in agent_manager_mapping are skipped; affected agents fall
+// through to the __unassigned__ bucket so god-mode users still see them.
 export function aggregateManagerRollups(
   rollups: AgentRollup[],
   mapping: { manager_email: string; agent_email: string }[],
   managerNames: Map<string, string> = new Map(),
 ): ManagerRollup[] {
   const managerByAgent = new Map<string, string>()
-  for (const m of mapping) managerByAgent.set(m.agent_email, m.manager_email)
+  for (const m of mapping) {
+    if (!isRealManagerEmail(m.manager_email)) continue
+    managerByAgent.set(m.agent_email, m.manager_email)
+  }
 
   // Pre-bucket agents per manager. Agents not in the mapping fall into
   // "Unassigned" so god-mode users still see them.
@@ -575,6 +612,11 @@ export function aggregateManagerRollups(
       csatTotal > 0 ? Math.round((csatHigh / csatTotal) * 100) : 0
     const escalation_rate =
       callCount > 0 ? Math.round((escalations / callCount) * 100) : 0
+    const qa_count = agents.reduce((s, a) => s + a.qa_count, 0)
+    const total_alerts_count = agents.reduce(
+      (s, a) => s + a.total_alerts_count,
+      0,
+    )
     const open_alerts_count = agents.reduce((s, a) => s + a.open_alerts_count, 0)
     const unreviewed_alerts_count = agents.reduce(
       (s, a) => s + a.unreviewed_alerts_count,
@@ -595,9 +637,11 @@ export function aggregateManagerRollups(
       agent_count: agents.length,
       agent_emails: agents.map(a => a.agent_email),
       call_count: callCount,
+      qa_count,
       compliance_pass_rate,
       csat_high_rate,
       escalation_rate,
+      total_alerts_count,
       open_alerts_count,
       unreviewed_alerts_count,
       top_agent: topAgent || null,

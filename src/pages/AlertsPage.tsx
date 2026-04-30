@@ -26,7 +26,7 @@ import { DateRangePicker } from '../components/dashboard/DateRangePicker'
 import { AlertReviewDrawer } from '../components/alerts/AlertReviewDrawer'
 import { formatDateParam, parseDateParam } from '../lib/url-filters'
 import { ymdInBusinessTZ } from '../lib/time-zone'
-import { Inbox, Search } from 'lucide-react'
+import { CheckCheck, Inbox, MessageSquare, Search } from 'lucide-react'
 import { HelpHint } from '../components/ui/help-hint'
 import type { HelpId } from '../lib/help-content'
 
@@ -590,7 +590,10 @@ export default function AlertsPage() {
                       </p>
                     </Td>
                     <Td>
-                      <StatusPill alert={a} />
+                      <div className="flex flex-col gap-1.5">
+                        <StatusPill alert={a} />
+                        <ActivityBadges alert={a} />
+                      </div>
                     </Td>
                     <Td>
                       <span className="text-sm font-semibold text-pennie-blue-dark group-hover:underline underline-offset-4">
@@ -714,6 +717,34 @@ function Td({ children }: { children: React.ReactNode }) {
 function ViolationPill({ type }: { type: string }) {
   const label = VIOLATION_TYPE_LABELS[type] || type
   return <span className={pillClasses(accentForViolation(type))}>{label}</span>
+}
+
+function ActivityBadges({ alert }: { alert: AlertWithFeedback }) {
+  const messageCount = alert.message_count ?? 0
+  const ackCount = alert.acker_emails?.length ?? 0
+  if (messageCount === 0 && ackCount === 0) return null
+  return (
+    <div className="flex items-center gap-1.5">
+      {messageCount > 0 && (
+        <span
+          className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-pennie-blue-light/60 text-pennie-blue-dark text-[11px] font-semibold tabular-nums"
+          title={`${messageCount} message${messageCount === 1 ? '' : 's'}`}
+        >
+          <MessageSquare className="w-3 h-3" aria-hidden="true" />
+          {messageCount}
+        </span>
+      )}
+      {ackCount > 0 && (
+        <span
+          className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-pennie-green-light/70 text-pennie-green-dark text-[11px] font-semibold tabular-nums"
+          title={`Reviewed by ${alert.acker_emails.join(', ')}`}
+        >
+          <CheckCheck className="w-3 h-3" aria-hidden="true" />
+          {ackCount}
+        </span>
+      )}
+    </div>
+  )
 }
 
 function StatusPill({ alert }: { alert: AlertWithFeedback }) {

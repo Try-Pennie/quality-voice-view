@@ -8,10 +8,12 @@ type SortKey =
   | 'attention'
   | 'name'
   | 'calls'
+  | 'reviewed'
   | 'compliance'
   | 'csat'
   | 'escalation'
   | 'alerts'
+  | 'total_alerts'
 
 export function TeamLeaderboard({
   rows,
@@ -47,6 +49,9 @@ export function TeamLeaderboard({
         case 'calls':
           cmp = a.call_count - b.call_count
           break
+        case 'reviewed':
+          cmp = a.qa_count - b.qa_count
+          break
         case 'compliance':
           cmp = a.compliance_pass_rate - b.compliance_pass_rate
           break
@@ -58,6 +63,9 @@ export function TeamLeaderboard({
           break
         case 'alerts':
           cmp = a.unreviewed_alerts_count - b.unreviewed_alerts_count
+          break
+        case 'total_alerts':
+          cmp = a.total_alerts_count - b.total_alerts_count
           break
       }
       return sortDir === 'asc' ? cmp : -cmp
@@ -96,6 +104,13 @@ export function TeamLeaderboard({
                 align="right"
               />
               <SortableTh
+                label="Reviewed"
+                active={sortKey === 'reviewed'}
+                dir={sortDir}
+                onClick={() => handleSort('reviewed')}
+                align="right"
+              />
+              <SortableTh
                 label="Compliance"
                 active={sortKey === 'compliance'}
                 dir={sortDir}
@@ -123,6 +138,13 @@ export function TeamLeaderboard({
                 onClick={() => handleSort('alerts')}
                 align="right"
               />
+              <SortableTh
+                label="Total alerts"
+                active={sortKey === 'total_alerts'}
+                dir={sortDir}
+                onClick={() => handleSort('total_alerts')}
+                align="right"
+              />
               <Th>Trend</Th>
               <th
                 className="text-left text-[11px] font-bold text-pennie-graphite/70 uppercase tracking-[0.06em] px-6 py-3"
@@ -140,11 +162,11 @@ export function TeamLeaderboard({
                   <td className="px-3 py-4" aria-hidden="true">
                     <span className="block w-2 h-2 rounded-full bg-pennie-beige animate-pulse" />
                   </td>
-                  {Array.from({ length: 8 }).map((__, j) => (
+                  {Array.from({ length: 10 }).map((__, j) => (
                     <td key={j} className="px-6 py-4 align-top">
                       <span
                         className="block h-3 rounded-full bg-pennie-beige animate-pulse"
-                        style={{ width: `${45 + ((i * 8 + j) % 6) * 8}%` }}
+                        style={{ width: `${45 + ((i * 10 + j) % 6) * 8}%` }}
                       />
                     </td>
                   ))}
@@ -152,7 +174,7 @@ export function TeamLeaderboard({
               ))
             ) : sorted.length === 0 ? (
               <tr>
-                <td colSpan={9} className="px-6 py-12 text-center text-pennie-graphite/70">
+                <td colSpan={11} className="px-6 py-12 text-center text-pennie-graphite/70">
                   No agents match your filters.
                 </td>
               </tr>
@@ -196,6 +218,13 @@ export function TeamLeaderboard({
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-pennie-graphite tabular-nums text-right">
                       {agent.call_count}
                     </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-pennie-graphite tabular-nums text-right">
+                      {agent.qa_count > 0 ? (
+                        agent.qa_count
+                      ) : (
+                        <span className="text-pennie-graphite/40">—</span>
+                      )}
+                    </td>
                     <td className="px-6 py-4 whitespace-nowrap text-right">
                       <PercentCell
                         value={agent.compliance_pass_rate}
@@ -228,6 +257,13 @@ export function TeamLeaderboard({
                         unreviewed={agent.unreviewed_alerts_count}
                         total={agent.open_alerts_count}
                       />
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-pennie-graphite tabular-nums text-right">
+                      {agent.total_alerts_count > 0 ? (
+                        agent.total_alerts_count
+                      ) : (
+                        <span className="text-pennie-graphite/40">0</span>
+                      )}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
                       <AgentSparkline points={agent.trend_points} />
