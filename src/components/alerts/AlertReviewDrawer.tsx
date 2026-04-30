@@ -48,11 +48,16 @@ import type {
 } from '@/types/database'
 import {
   ArrowLeft,
+  Check,
   CheckCheck,
+  ChevronDown,
   ChevronLeft,
   ChevronRight,
   CornerDownRight,
+  Copy,
   ExternalLink,
+  Headphones,
+  Info,
   MessageSquare,
   Pencil,
   Send,
@@ -101,6 +106,7 @@ export function AlertReviewDrawer({
   const [comment, setComment] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const [showRaw, setShowRaw] = useState(false)
+  const [overrideMode, setOverrideMode] = useState(false)
   const [draftBody, setDraftBody] = useState('')
   const [replyTo, setReplyTo] = useState<AlertMessage | null>(null)
   const [requireAck, setRequireAck] = useState(false)
@@ -123,6 +129,7 @@ export function AlertReviewDrawer({
     setReason(alert.inaccuracy_reason)
     setComment(alert.feedback_comment ?? '')
     setShowRaw(false)
+    setOverrideMode(false)
     setDraftBody('')
     setReplyTo(null)
     setEditingId(null)
@@ -260,7 +267,19 @@ export function AlertReviewDrawer({
   const handleSubmit = async () => {
     if (!alert || !currentUserEmail) return
     if (accurate === null) {
-      toast.error('Please mark the alert as accurate or not.')
+      toast.error('Pick "Real issue" or "False alarm" first.')
+      return
+    }
+    if (accurate === true && !action) {
+      toast.error('Pick how you addressed it with the agent.')
+      return
+    }
+    if (accurate === false && !reason) {
+      toast.error('Pick why this was a false alarm.')
+      return
+    }
+    if (accurate === true && comment.trim().length < 30) {
+      toast.error('Add a few sentences on what happened and how you addressed it.')
       return
     }
     setSubmitting(true)
@@ -275,10 +294,11 @@ export function AlertReviewDrawer({
     })
     setSubmitting(false)
     if (!res.ok) {
-      toast.error(`Couldn't save feedback: ${res.error}`)
+      toast.error(`Couldn't save review: ${res.error}`)
       return
     }
-    toast.success('Feedback saved')
+    toast.success('Review saved')
+    setOverrideMode(false)
     onSubmitted({
       feedback_id: alert.feedback_id ?? -1,
       feedback_by: currentUserEmail,
@@ -297,7 +317,41 @@ export function AlertReviewDrawer({
   const reasonText = extractReason(alert.violation_type, alert.result_json)
   const violationLabel =
     VIOLATION_TYPE_LABELS[alert.violation_type] || alert.violation_type
-  const promptCopy = alert.is_reviewed ? 'Update your review' : 'Was this alert accurate?'
+
+  // Three review states drive the layout:
+  //   - unreviewed       → first-pass; manager fills the structured form (required)
+  //   - reviewedByMe     → editing my own review
+  //   - reviewedByOther  → someone above the assigned manager (e.g. Kris) reviewing
+  //                        a teammate's review — one-tap ✓ Approve, comment in
+  //                        Discussion, structured form gated behind explicit Override
+  const reviewedByMe =
+    !!alert.is_reviewed &&
+    !!alert.feedback_by &&
+    !!currentUserEmail &&
+    alert.feedback_by.toLowerCase() === currentUserEmail.toLowerCase()
+  const reviewedByOther = !!alert.is_reviewed && !reviewedByMe
+
+  const showStructuredForm = !alert.is_reviewed || reviewedByMe || overrideMode
+  const showAckBar = reviewedByOther
+  const showManagerReviewSummary = reviewedByOther
+
+  const promptCopy = overrideMode
+    ? `Override ${alert.feedback_by ? emailLabel(alert.feedback_by) : 'manager'}'s review`
+    : reviewedByMe
+      ? 'Your review'
+      : 'Was this a real issue?'
+
+  // Detailed notes are only required when the manager confirms a real issue.
+  // False alarms already capture structured signal via inaccuracy_reason.
+  const NOTES_MIN = 30
+  const notesTooShort =
+    accurate === true && comment.trim().length < NOTES_MIN
+  const saveDisabled =
+    submitting ||
+    accurate === null ||
+    (accurate === true && !action) ||
+    (accurate === false && !reason) ||
+    notesTooShort
 
   return (
     <Sheet open={!!alert} onOpenChange={open => !open && onClose()}>
@@ -369,29 +423,65 @@ export function AlertReviewDrawer({
             {VIOLATION_HELP_IDS[alert.violation_type] && (
               <HelpHint id={VIOLATION_HELP_IDS[alert.violation_type]} size={4} />
             )}
-            <span className="text-pennie-graphite/60 font-normal ml-1">
-              · call {alert.call_id}
-            </span>
           </SheetTitle>
-          <p className="text-sm text-pennie-graphite/80">
-            {alert.agent_email || 'Unknown agent'} ·{' '}
-            {alert.contact_name || 'No contact name'} ·{' '}
-            <span className="tabular-nums">{formatPhoneNumber(alert.contact_phone)}</span>
-          </p>
+          <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-sm">
+            <dt className="text-[11px] font-semibold uppercase tracking-wider text-pennie-graphite/60 pt-0.5">
+              Agent
+            </dt>
+            <dd className="text-pennie-graphite font-medium break-all">
+              {alert.agent_email || 'Unknown agent'}
+            </dd>
+            <dt className="text-[11px] font-semibold uppercase tracking-wider text-pennie-graphite/60 pt-0.5">
+              Customer
+            </dt>
+            <dd className="text-pennie-graphite">
+              {alert.contact_name || 'Unknown'}
+              {alert.contact_phone && (
+                <span className="text-pennie-graphite/70 ml-2 tabular-nums">
+                  {formatPhoneNumber(alert.contact_phone)}
+                </span>
+              )}
+            </dd>
+            <dt className="text-[11px] font-semibold uppercase tracking-wider text-pennie-graphite/60 pt-0.5">
+              Call&nbsp;ID
+            </dt>
+            <dd>
+              <CallIdChip id={alert.call_id} />
+            </dd>
+          </dl>
         </SheetHeader>
 
-        {/* Scrollable body */}
-        <div className="flex-1 overflow-y-auto px-8 py-6 space-y-7">
+        {/* Layered approval bar — only shown when reviewing a teammate's review.
+             For first-pass managers, their structured form *is* the review record. */}
+        {showAckBar && (
           <AckSection
             ackers={alert.acker_emails ?? []}
             ackedByMe={ackedByMe}
+            feedbackBy={alert.feedback_by}
             currentUserEmail={currentUserEmail}
             pending={ackPending}
             onToggle={handleToggleAck}
           />
+        )}
+
+        {/* Scrollable body */}
+        <div className="flex-1 overflow-y-auto px-8 py-6 space-y-7">
+          {showManagerReviewSummary && (
+            <ManagerReviewSummary
+              authorEmail={alert.feedback_by}
+              reviewedAt={alert.reviewed_at}
+              accurate={alert.accurate}
+              actionTaken={alert.action_taken}
+              inaccuracyReason={alert.inaccuracy_reason}
+              comment={alert.feedback_comment}
+            />
+          )}
 
           <section>
-            <h2 className="pennie-label mb-2">Recording</h2>
+            <h2 className="pennie-label mb-2 inline-flex items-center gap-1.5">
+              <Headphones className="w-3.5 h-3.5" aria-hidden="true" />
+              Recording
+            </h2>
             <AudioPlayer recordingUrl={alert.recording_link} />
             <div className="mt-3 flex flex-wrap gap-4 text-sm">
               {alert.transcript_url && (
@@ -428,7 +518,10 @@ export function AlertReviewDrawer({
           </section>
 
           <section>
-            <h2 className="pennie-label mb-3">Why it fired</h2>
+            <h2 className="pennie-label mb-3 inline-flex items-center gap-1.5">
+              <Info className="w-3.5 h-3.5" aria-hidden="true" />
+              Why it fired
+            </h2>
             <div className="space-y-4 text-sm">
               {reasonText && (
                 <div>
@@ -441,7 +534,7 @@ export function AlertReviewDrawer({
               {evidence && (
                 <div>
                   <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider mb-1">
-                    Evidence
+                    Evidence (from transcript)
                   </p>
                   <blockquote className="border-l-2 border-pennie-blue-main pl-4 italic text-pennie-graphite leading-relaxed">
                     {evidence}
@@ -449,14 +542,7 @@ export function AlertReviewDrawer({
                 </div>
               )}
               {alert.call_summary && (
-                <div>
-                  <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider mb-1">
-                    Call summary
-                  </p>
-                  <p className="text-pennie-graphite leading-relaxed whitespace-pre-wrap">
-                    {alert.call_summary}
-                  </p>
-                </div>
+                <CallSummary summary={alert.call_summary} />
               )}
               <button
                 type="button"
@@ -496,120 +582,188 @@ export function AlertReviewDrawer({
           />
         </div>
 
-        {/* Sticky feedback footer */}
+        {/* Sticky review footer — content depends on review state */}
         <div className="border-t border-border bg-pennie-beige/40 px-8 py-5 space-y-4">
-          <fieldset>
-            <legend className="flex items-center justify-between w-full mb-3">
-              <span className="text-sm font-semibold text-pennie-navy">
-                {promptCopy}
-              </span>
-              {alert.is_reviewed && (
-                <span className="text-xs text-muted-foreground">
-                  Last reviewed{' '}
-                  {alert.reviewed_at ? formatDateTime(alert.reviewed_at) : ''} by{' '}
-                  {alert.feedback_by || '—'}
-                </span>
+          {/* In State B (reviewing a teammate's review), the structured form is
+              gated behind an explicit Override affordance. Approve via the bar
+              at the top; comment via Discussion. */}
+          {reviewedByOther && !overrideMode && (
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <p className="text-xs text-pennie-graphite/70 leading-relaxed">
+                Approve at the top, or comment in Discussion above. Only override if you
+                disagree with the verdict.
+              </p>
+              <button
+                type="button"
+                onClick={() => setOverrideMode(true)}
+                className="min-h-[36px] inline-flex items-center px-3.5 py-1.5 rounded-full text-xs font-semibold border border-border text-pennie-graphite hover:bg-pennie-peach-light hover:border-pennie-peach-light transition-colors"
+              >
+                Override review
+              </button>
+            </div>
+          )}
+
+          {showStructuredForm && (
+            <>
+              <fieldset>
+                <legend className="flex items-center justify-between w-full mb-3 gap-3">
+                  <span className="text-sm font-semibold text-pennie-navy">
+                    {promptCopy}
+                    <span className="text-pennie-peach-deeper ml-1" aria-hidden="true">*</span>
+                  </span>
+                  {overrideMode ? (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setOverrideMode(false)
+                        setAccurate(alert.accurate)
+                        setAction(alert.action_taken)
+                        setReason(alert.inaccuracy_reason)
+                        setComment(alert.feedback_comment ?? '')
+                      }}
+                      className="text-xs font-semibold text-pennie-graphite/70 hover:text-pennie-navy"
+                    >
+                      Cancel override
+                    </button>
+                  ) : (
+                    alert.is_reviewed && (
+                      <span className="text-xs text-muted-foreground">
+                        Last edited{' '}
+                        {alert.reviewed_at ? formatDateTime(alert.reviewed_at) : ''} by{' '}
+                        {alert.feedback_by || '—'}
+                      </span>
+                    )
+                  )}
+                </legend>
+                <div className="flex gap-2" role="radiogroup" aria-label={promptCopy}>
+                  <Toggle
+                    label="Real issue (Y)"
+                    active={accurate === true}
+                    tone="success"
+                    onClick={() => {
+                      setAccurate(true)
+                      setReason(null)
+                    }}
+                  />
+                  <Toggle
+                    label="False alarm (N)"
+                    active={accurate === false}
+                    tone="danger"
+                    onClick={() => {
+                      setAccurate(false)
+                      setAction(null)
+                    }}
+                  />
+                </div>
+              </fieldset>
+
+              {accurate === true && (
+                <fieldset>
+                  <legend className="pennie-label mb-2">
+                    How did you address it with the agent?
+                    <span className="text-pennie-peach-deeper ml-1" aria-hidden="true">*</span>
+                  </legend>
+                  <div
+                    className="flex flex-wrap gap-1.5"
+                    role="radiogroup"
+                    aria-label="Action taken"
+                  >
+                    {ACTION_OPTIONS.map((opt, i) => (
+                      <Chip
+                        key={opt}
+                        label={`${i + 1}. ${ACTION_TAKEN_LABELS[opt]}`}
+                        active={action === opt}
+                        onClick={() => setAction(action === opt ? null : opt)}
+                      />
+                    ))}
+                  </div>
+                </fieldset>
               )}
-            </legend>
 
-            <div className="flex gap-2" role="radiogroup" aria-label={promptCopy}>
-              <Toggle
-                label="Yes (Y)"
-                active={accurate === true}
-                tone="success"
-                onClick={() => {
-                  setAccurate(true)
-                  setReason(null)
-                }}
-              />
-              <Toggle
-                label="No (N)"
-                active={accurate === false}
-                tone="danger"
-                onClick={() => {
-                  setAccurate(false)
-                  setAction(null)
-                }}
-              />
-            </div>
-          </fieldset>
+              {accurate === false && (
+                <fieldset>
+                  <legend className="pennie-label mb-2">
+                    Why was it a false alarm?
+                    <span className="text-pennie-peach-deeper ml-1" aria-hidden="true">*</span>
+                  </legend>
+                  <div
+                    className="flex flex-wrap gap-1.5"
+                    role="radiogroup"
+                    aria-label="Why was it a false alarm?"
+                  >
+                    {INACCURACY_OPTIONS.map((opt, i) => (
+                      <Chip
+                        key={opt}
+                        label={`${i + 1}. ${INACCURACY_REASON_LABELS[opt]}`}
+                        active={reason === opt}
+                        onClick={() => setReason(reason === opt ? null : opt)}
+                      />
+                    ))}
+                  </div>
+                </fieldset>
+              )}
 
-          {accurate === true && (
-            <fieldset>
-              <legend className="pennie-label mb-2">What did you do?</legend>
-              <div
-                className="flex flex-wrap gap-1.5"
-                role="radiogroup"
-                aria-label="Action taken"
-              >
-                {ACTION_OPTIONS.map((opt, i) => (
-                  <Chip
-                    key={opt}
-                    label={`${i + 1}. ${ACTION_TAKEN_LABELS[opt]}`}
-                    active={action === opt}
-                    onClick={() => setAction(action === opt ? null : opt)}
+              {accurate !== null && (
+                <div>
+                  <label
+                    htmlFor={commentId}
+                    className="pennie-label mb-1.5 flex items-center justify-between"
+                  >
+                    <span>
+                      {accurate ? 'What happened and how you addressed it' : 'Notes'}
+                      {accurate === true && (
+                        <span className="text-pennie-peach-deeper ml-1" aria-hidden="true">*</span>
+                      )}
+                      {accurate === false && (
+                        <span className="text-pennie-graphite/60 ml-1 font-normal">(optional)</span>
+                      )}
+                    </span>
+                    {accurate === true && (
+                      <span
+                        className={`text-[11px] font-normal tabular-nums ${
+                          notesTooShort ? 'text-pennie-peach-deeper' : 'text-pennie-graphite/60'
+                        }`}
+                      >
+                        {comment.trim().length}/{NOTES_MIN}
+                      </span>
+                    )}
+                  </label>
+                  <textarea
+                    id={commentId}
+                    value={comment}
+                    onChange={e => setComment(e.target.value)}
+                    placeholder={
+                      accurate
+                        ? 'Spoke with agent about tone — they acknowledged and committed to next 1:1…'
+                        : 'Anything you want to flag…'
+                    }
+                    rows={3}
+                    className="w-full px-3 py-2 rounded-2xl border border-border bg-pennie-white text-base sm:text-sm font-medium resize-none focus:outline-none focus:ring-2 focus:ring-pennie-blue-deeper/40 focus:border-pennie-blue-deeper"
                   />
-                ))}
+                </div>
+              )}
+
+              <div className="flex justify-between items-center gap-3">
+                <p className="text-[11px] text-muted-foreground">
+                  ⌘/Ctrl+Enter to save · J/K to navigate
+                </p>
+                <button
+                  type="button"
+                  onClick={handleSubmit}
+                  disabled={saveDisabled}
+                  className="min-h-[44px] px-5 py-2.5 rounded-full bg-pennie-navy text-pennie-white text-sm font-semibold transition-all duration-200 hover:bg-pennie-navy/90 disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  {submitting
+                    ? 'Saving…'
+                    : overrideMode
+                      ? 'Save override'
+                      : alert.is_reviewed
+                        ? 'Update review'
+                        : 'Save review'}
+                </button>
               </div>
-            </fieldset>
+            </>
           )}
-
-          {accurate === false && (
-            <fieldset>
-              <legend className="pennie-label mb-2">What was wrong?</legend>
-              <div
-                className="flex flex-wrap gap-1.5"
-                role="radiogroup"
-                aria-label="Why was it wrong?"
-              >
-                {INACCURACY_OPTIONS.map((opt, i) => (
-                  <Chip
-                    key={opt}
-                    label={`${i + 1}. ${INACCURACY_REASON_LABELS[opt]}`}
-                    active={reason === opt}
-                    onClick={() => setReason(reason === opt ? null : opt)}
-                  />
-                ))}
-              </div>
-            </fieldset>
-          )}
-
-          {accurate !== null && (
-            <div>
-              <label
-                htmlFor={commentId}
-                className="pennie-label mb-1.5 block"
-              >
-                Optional comment
-              </label>
-              <textarea
-                id={commentId}
-                value={comment}
-                onChange={e => setComment(e.target.value)}
-                placeholder="Add context for the model team…"
-                rows={2}
-                className="w-full px-3 py-2 rounded-2xl border border-border bg-pennie-white text-base sm:text-sm font-medium resize-none focus:outline-none focus:ring-2 focus:ring-pennie-blue-deeper/40 focus:border-pennie-blue-deeper"
-              />
-            </div>
-          )}
-
-          <div className="flex justify-between items-center gap-3">
-            <p className="text-[11px] text-muted-foreground">
-              ⌘/Ctrl+Enter to submit · J/K to navigate
-            </p>
-            <button
-              type="button"
-              onClick={handleSubmit}
-              disabled={submitting || accurate === null}
-              className="min-h-[44px] px-5 py-2.5 rounded-full bg-pennie-navy text-pennie-white text-sm font-semibold transition-all duration-200 hover:bg-pennie-navy/90 disabled:opacity-40 disabled:cursor-not-allowed"
-            >
-              {submitting
-                ? 'Saving…'
-                : alert.is_reviewed
-                  ? 'Update feedback'
-                  : 'Submit feedback'}
-            </button>
-          </div>
         </div>
       </SheetContent>
     </Sheet>
@@ -627,23 +781,37 @@ function Toggle({
   tone: 'success' | 'danger'
   onClick: () => void
 }) {
-  // Pennie palette: green-dark for accurate (positive), peach-dark for false-positive.
+  // Verdict semantics live in the border + icon; text stays dark navy so the
+  // label is legible at rest. (pennie-green-dark is a mint, not a dark green.)
   const baseColors =
     tone === 'success'
       ? active
-        ? 'bg-pennie-green-dark border-pennie-green-dark text-pennie-white'
-        : 'bg-pennie-white border-border text-pennie-graphite hover:bg-pennie-green-light hover:border-pennie-green-light'
+        ? 'bg-pennie-green-dark border-pennie-green-dark text-pennie-white shadow-sm'
+        : 'bg-pennie-green-light border-2 border-pennie-green-dark text-pennie-navy hover:bg-pennie-green-main/40 hover:border-pennie-green-dark'
       : active
-        ? 'bg-pennie-peach-dark border-pennie-peach-dark text-pennie-white'
-        : 'bg-pennie-white border-border text-pennie-graphite hover:bg-pennie-peach-light hover:border-pennie-peach-light'
+        ? 'bg-pennie-peach-dark border-pennie-peach-dark text-pennie-white shadow-sm'
+        : 'bg-pennie-peach-light border-2 border-pennie-peach-dark text-pennie-navy hover:bg-pennie-peach-main/30 hover:border-pennie-peach-deeper'
+  const iconColor = active
+    ? 'text-pennie-white'
+    : tone === 'success'
+      ? 'text-pennie-green-dark'
+      : 'text-pennie-peach-deeper'
+  const Icon = tone === 'success' ? Check : X
   return (
     <button
       type="button"
       role="radio"
       aria-checked={active}
       onClick={onClick}
-      className={`flex-1 min-h-[48px] px-4 py-3 rounded-full text-sm font-semibold border transition-all duration-200 ${baseColors}`}
+      className={`flex-1 min-h-[48px] px-4 py-3 rounded-full text-sm font-semibold inline-flex items-center justify-center gap-1.5 transition-all duration-200 ${baseColors}`}
     >
+      <span
+        className={`inline-flex items-center justify-center w-5 h-5 rounded-full ${
+          active ? 'bg-pennie-white/20' : 'bg-pennie-white'
+        } ${iconColor}`}
+      >
+        <Icon className="w-3.5 h-3.5" strokeWidth={3} aria-hidden="true" />
+      </span>
       {label}
     </button>
   )
@@ -675,15 +843,80 @@ function Chip({
   )
 }
 
+function ManagerReviewSummary({
+  authorEmail,
+  reviewedAt,
+  accurate,
+  actionTaken,
+  inaccuracyReason,
+  comment,
+}: {
+  authorEmail: string | null | undefined
+  reviewedAt: string | null | undefined
+  accurate: boolean | null | undefined
+  actionTaken: AlertActionTaken | null | undefined
+  inaccuracyReason: AlertInaccuracyReason | null | undefined
+  comment: string | null | undefined
+}) {
+  const verdictLabel =
+    accurate === true ? 'Real issue' : accurate === false ? 'False alarm' : 'Reviewed'
+  const verdictTone =
+    accurate === true
+      ? 'bg-pennie-green-light text-pennie-green-dark'
+      : accurate === false
+        ? 'bg-pennie-peach-light text-pennie-peach-deeper'
+        : 'bg-pennie-beige text-pennie-graphite'
+  return (
+    <section
+      aria-label="Manager review"
+      className="rounded-2xl border border-pennie-blue-light bg-pennie-blue-light/20 px-4 py-4 space-y-3"
+    >
+      <header className="flex flex-wrap items-baseline justify-between gap-2">
+        <span className="pennie-label">Manager review</span>
+        <span className="text-xs text-pennie-graphite/70">
+          {authorEmail ? emailLabel(authorEmail) : '—'}
+          {reviewedAt && ` · ${formatDateTime(reviewedAt)}`}
+        </span>
+      </header>
+      <div className="flex flex-wrap items-center gap-2">
+        <span
+          className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-bold uppercase tracking-wider ${verdictTone}`}
+        >
+          {verdictLabel}
+        </span>
+        {accurate === true && actionTaken && (
+          <span className="text-sm text-pennie-graphite">
+            <span className="text-pennie-graphite/60">Action: </span>
+            <span className="font-semibold">{ACTION_TAKEN_LABELS[actionTaken]}</span>
+          </span>
+        )}
+        {accurate === false && inaccuracyReason && (
+          <span className="text-sm text-pennie-graphite">
+            <span className="text-pennie-graphite/60">Reason: </span>
+            <span className="font-semibold">{INACCURACY_REASON_LABELS[inaccuracyReason]}</span>
+          </span>
+        )}
+      </div>
+      {comment && comment.trim() && (
+        <p className="text-sm text-pennie-graphite leading-relaxed whitespace-pre-wrap">
+          {comment}
+        </p>
+      )}
+    </section>
+  )
+}
+
 function AckSection({
   ackers,
   ackedByMe,
+  feedbackBy,
   currentUserEmail,
   pending,
   onToggle,
 }: {
   ackers: string[]
   ackedByMe: boolean
+  feedbackBy: string | null | undefined
   currentUserEmail: string | null | undefined
   pending: boolean
   onToggle: () => void
@@ -693,42 +926,56 @@ function AckSection({
     : ackers
   const summary =
     ackers.length === 0
-      ? 'Not yet reviewed by anyone.'
+      ? 'Not yet reviewed.'
       : ackedByMe && others.length === 0
         ? 'Reviewed by you.'
         : ackedByMe
           ? `Reviewed by you and ${formatNameList(others)}.`
           : `Reviewed by ${formatNameList(ackers)}.`
+
+  // If a teammate has already submitted a verdict, frame the action as
+  // approval — Slack-style ✓ stacked on top of theirs — instead of an
+  // override. Matches Kris's "secondary review layer" ask.
+  const priorReviewer =
+    feedbackBy && feedbackBy.toLowerCase() !== (currentUserEmail || '').toLowerCase()
+      ? emailLabel(feedbackBy)
+      : null
+  const ctaLabel = ackedByMe
+    ? 'Reviewed'
+    : priorReviewer
+      ? `Approve ${priorReviewer}'s review`
+      : 'Mark reviewed'
+
   return (
-    <section className="flex flex-wrap items-center justify-between gap-3 rounded-2xl bg-pennie-beige/50 px-4 py-3">
-      <div className="flex items-center gap-2 min-w-0">
-        <CheckCheck
-          className={`w-4 h-4 flex-none ${
-            ackers.length > 0 ? 'text-pennie-green-dark' : 'text-pennie-graphite/40'
+    <section className="flex flex-wrap items-center justify-between gap-3 px-4 sm:px-8 py-4 bg-pennie-green-light/40 border-b border-pennie-green-light">
+      <div className="flex items-center gap-3 min-w-0">
+        <span
+          className={`flex-none inline-flex items-center justify-center w-8 h-8 rounded-full ${
+            ackers.length > 0
+              ? 'bg-pennie-green-dark text-pennie-white'
+              : 'bg-pennie-white border border-dashed border-pennie-graphite/30 text-pennie-graphite/40'
           }`}
           aria-hidden="true"
-        />
-        <p className="text-sm text-pennie-graphite truncate">{summary}</p>
+        >
+          <CheckCheck className="w-4 h-4" />
+        </span>
+        <p className="text-sm font-semibold text-pennie-navy truncate">
+          {summary}
+        </p>
       </div>
       <button
         type="button"
         onClick={onToggle}
         disabled={pending || !currentUserEmail}
         aria-pressed={ackedByMe}
-        className={`min-h-[44px] sm:min-h-[36px] inline-flex items-center gap-1.5 px-4 sm:px-3.5 py-2 sm:py-1.5 rounded-full text-sm sm:text-xs font-semibold border transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
+        className={`min-h-[44px] inline-flex items-center gap-1.5 px-5 py-2 rounded-full text-sm font-semibold border transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
           ackedByMe
             ? 'bg-pennie-green-dark border-pennie-green-dark text-pennie-white hover:bg-pennie-green-dark/90'
-            : 'bg-pennie-white border-border text-pennie-graphite hover:bg-pennie-green-light hover:border-pennie-green-light'
+            : 'bg-pennie-navy border-pennie-navy text-pennie-white hover:bg-pennie-navy/90'
         }`}
       >
-        {ackedByMe ? (
-          <>
-            <CheckCheck className="w-3.5 h-3.5" aria-hidden="true" />
-            Reviewed
-          </>
-        ) : (
-          'Mark as reviewed'
-        )}
+        {ackedByMe && <CheckCheck className="w-4 h-4" aria-hidden="true" />}
+        {ctaLabel}
       </button>
     </section>
   )
@@ -1092,6 +1339,72 @@ function MessageItem({
         </>
       )}
     </article>
+  )
+}
+
+function CallSummary({ summary }: { summary: string }) {
+  const COLLAPSE_THRESHOLD = 240
+  const isLong = summary.length > COLLAPSE_THRESHOLD
+  const [expanded, setExpanded] = useState(!isLong)
+  const summaryId = useId()
+  const display = expanded || !isLong ? summary : `${summary.slice(0, COLLAPSE_THRESHOLD).trimEnd()}…`
+  return (
+    <div>
+      <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider mb-1">
+        Call summary
+      </p>
+      <p
+        id={summaryId}
+        className="text-pennie-graphite leading-relaxed whitespace-pre-wrap"
+      >
+        {display}
+      </p>
+      {isLong && (
+        <button
+          type="button"
+          onClick={() => setExpanded(s => !s)}
+          aria-expanded={expanded}
+          aria-controls={summaryId}
+          className="mt-1.5 inline-flex items-center gap-1 text-xs font-semibold text-pennie-blue-deeper hover:underline underline-offset-4"
+        >
+          {expanded ? 'Show less' : 'Show full summary'}
+          <ChevronDown
+            className={`w-3 h-3 transition-transform ${expanded ? 'rotate-180' : ''}`}
+            aria-hidden="true"
+          />
+        </button>
+      )}
+    </div>
+  )
+}
+
+function CallIdChip({ id }: { id: string }) {
+  const [copied, setCopied] = useState(false)
+  const display = id.length > 14 ? `${id.slice(0, 6)}…${id.slice(-6)}` : id
+  const handleCopy = async () => {
+    try {
+      await navigator.clipboard.writeText(id)
+      setCopied(true)
+      setTimeout(() => setCopied(false), 1500)
+    } catch {
+      toast.error("Couldn't copy call ID")
+    }
+  }
+  return (
+    <button
+      type="button"
+      onClick={handleCopy}
+      title={`Copy call ID: ${id}`}
+      aria-label={`Copy call ID ${id}`}
+      className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md border border-border bg-pennie-beige/60 text-[11px] font-mono text-pennie-graphite hover:bg-pennie-beige hover:border-pennie-graphite/30 transition-colors"
+    >
+      <span className="tracking-tight">{display}</span>
+      {copied ? (
+        <CheckCheck className="w-3 h-3 text-pennie-green-dark" aria-hidden="true" />
+      ) : (
+        <Copy className="w-3 h-3 text-pennie-graphite/60" aria-hidden="true" />
+      )}
+    </button>
   )
 }
 
