@@ -1,5 +1,7 @@
 import type { AgentProfile } from '../../lib/team-queries'
 import { formatDuration } from '../../lib/utils'
+import { HelpHint } from '../ui/help-hint'
+import type { HelpId } from '../../lib/help-content'
 
 function formatRange(start: Date, end: Date): string {
   const opts: Intl.DateTimeFormatOptions = { month: 'short', day: 'numeric' }
@@ -47,21 +49,25 @@ export function AgentProfileHeader({
           label="Compliance"
           value={loading || !r || r.qa_count === 0 ? '—' : `${r.compliance_pass_rate}%`}
           warn={!!r && r.qa_count > 0 && r.compliance_pass_rate < 80}
+          helpId="metric.agent_compliance"
         />
         <SupportingStat
           label="CSAT high"
           value={loading || !r || r.qa_count === 0 ? '—' : `${r.csat_high_rate}%`}
           warn={!!r && r.qa_count > 0 && r.csat_high_rate < 50}
+          helpId="metric.agent_csat_high"
         />
         <SupportingStat
           label="Escalation"
           value={loading || !r || r.qa_count === 0 ? '—' : `${r.escalation_rate}%`}
           warn={!!r && r.qa_count > 0 && r.escalation_rate >= 10}
+          helpId="metric.agent_escalation"
         />
         <SupportingStat
           label="Open alerts"
           value={loading || !r ? '—' : r.unreviewed_alerts_count.toString()}
           warn={!!r && r.unreviewed_alerts_count > 0}
+          helpId="metric.agent_open_alerts"
         />
       </dl>
     </header>
@@ -72,14 +78,19 @@ function SupportingStat({
   label,
   value,
   warn,
+  helpId,
 }: {
   label: string
   value: string
   warn?: boolean
+  helpId?: HelpId
 }) {
   return (
     <div>
-      <dt className="pennie-label">{label}</dt>
+      <dt className="pennie-label inline-flex items-center gap-1">
+        {label}
+        {helpId && <HelpHint id={helpId} />}
+      </dt>
       <dd
         className={`mt-1 text-2xl font-semibold tabular-nums ${
           warn ? 'text-pennie-peach-dark' : 'text-pennie-navy'

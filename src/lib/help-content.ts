@@ -84,6 +84,126 @@ const ENTRIES = {
       'Alerts on your team that nobody has reviewed yet. Clicking takes you to the Alerts inbox.',
   },
 
+  // -------- Metrics (Agent profile) --------
+  'metric.agent_compliance': {
+    category: 'Metrics',
+    title: 'Agent compliance',
+    body:
+      'Share of this agent\'s scored calls in the window that passed every required compliance check. Highlighted when below 80%.',
+    formula: 'agent passing calls ÷ agent scored calls × 100',
+  },
+  'metric.agent_csat_high': {
+    category: 'Metrics',
+    title: 'Agent CSAT high',
+    body:
+      'Share of this agent\'s scored calls where inferred customer satisfaction is "High". Highlighted when below 50%.',
+  },
+  'metric.agent_escalation': {
+    category: 'Metrics',
+    title: 'Agent escalation rate',
+    body:
+      'Share of this agent\'s scored calls where Eavesly recommended a manager review. Highlighted when at 10% or higher — a coaching signal.',
+  },
+  'metric.agent_open_alerts': {
+    category: 'Metrics',
+    title: 'Agent open alerts',
+    body:
+      'Alerts on this agent that nobody has reviewed yet in the window. Highlighted any time the count is non-zero.',
+  },
+
+  // -------- Metrics (Manager breakout table) --------
+  'metric.manager_agent_count': {
+    category: 'Metrics',
+    title: 'Agents on team',
+    body:
+      'Distinct agents reporting to this manager who placed at least one call in the date window.',
+  },
+  'metric.manager_call_count': {
+    category: 'Metrics',
+    title: 'Calls placed',
+    body:
+      'Total calls placed by this manager\'s agents in the date window, before any quick-filter narrowing.',
+  },
+  'metric.manager_qa_count': {
+    category: 'Metrics',
+    title: 'Calls reviewed by Eavesly',
+    body:
+      'How many of this team\'s calls received a QA scorecard. Calls without a scorecard (e.g. very short, no conversation) are excluded from compliance and CSAT averages.',
+  },
+  'metric.manager_total_alerts': {
+    category: 'Metrics',
+    title: 'Total alerts',
+    body:
+      'Every alert fired on this team in the window — reviewed and unreviewed combined. Compare with "Open alerts" to gauge review backlog.',
+  },
+
+  // -------- Metrics (Migo coverage) --------
+  'metric.migo_briefing_coverage': {
+    category: 'Metrics',
+    title: 'Migo briefing coverage',
+    body:
+      'Share of calls in the window that were preceded by a Migo pre-call briefing. Higher coverage means more of your calls benefit from Migo prep.',
+    formula: 'briefed calls ÷ (briefed + unbriefed) × 100',
+  },
+  'metric.migo_compliance_lift': {
+    category: 'Metrics',
+    title: 'Compliance lift',
+    body:
+      'Difference in compliance pass rate between calls that had a Migo briefing and calls that did not. Positive = Migo helps; negative = it hurts (rare, worth investigating).',
+    formula: 'briefed compliance % − unbriefed compliance %',
+  },
+  'metric.migo_escalation_lift': {
+    category: 'Metrics',
+    title: 'Escalation lift',
+    body:
+      'Difference in escalation rate between briefed and unbriefed calls. Lower is better — a negative lift means Migo briefings cut down on manager escalations.',
+    formula: 'briefed escalation % − unbriefed escalation %',
+  },
+
+  // -------- Metrics (Call detail) --------
+  'metric.call_talk_time': {
+    category: 'Metrics',
+    title: 'Talk time',
+    body:
+      'Time the agent spent actually speaking with the customer on this call (excludes hold and wrap-up).',
+  },
+  'metric.call_handle_time': {
+    category: 'Metrics',
+    title: 'Handle time',
+    body:
+      'Total time the agent spent on this call: talk + hold + after-call wrap-up. A large gap from talk time means heavy hold or wrap.',
+  },
+  'metric.call_wrapup_time': {
+    category: 'Metrics',
+    title: 'Wrap-up time',
+    body:
+      'Time the agent spent on after-call work (notes, dispositioning, system updates) before becoming available again.',
+  },
+  'metric.call_conversation_happened': {
+    category: 'Metrics',
+    title: 'Conversation happened',
+    body:
+      '"Yes" if Eavesly detected a real two-sided exchange. "No" usually means voicemail, hang-up, or the call ended before the customer engaged.',
+  },
+  'metric.call_overall_score': {
+    category: 'Metrics',
+    title: 'Overall score',
+    body:
+      'Eavesly\'s rollup grade for this call: Excellent, Good, Acceptable, or Needs improvement. Combines compliance, sales process, and customer experience scorecards.',
+  },
+  'metric.call_compliance': {
+    category: 'Metrics',
+    title: 'Compliance rating',
+    body:
+      'Pass / fail / N/A for this call. Fail means at least one required check (Reg F, disclosure, warm transfer, litigation) was missed.',
+  },
+  'metric.call_csat': {
+    category: 'Metrics',
+    title: 'Customer satisfaction',
+    body:
+      'High / Medium / Low — inferred for this call from sentiment, customer affirmations, and outcome. Not a survey response.',
+  },
+
   // -------- Metrics (Alerts page) --------
   'metric.alert_reviewed': {
     category: 'Metrics',

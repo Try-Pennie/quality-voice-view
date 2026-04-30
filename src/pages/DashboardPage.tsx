@@ -221,10 +221,12 @@ export default function DashboardPage() {
           <SupportingStat
             label="Avg talk"
             value={formatDuration(metrics.avgTalkTime)}
+            helpId="metric.avg_talk"
           />
           <SupportingStat
             label="Avg handle"
             value={formatDuration(metrics.avgHandleTime)}
+            helpId="metric.avg_handle"
           />
           <SupportingStat
             label="Compliance"
@@ -327,12 +329,18 @@ export default function DashboardPage() {
                 <Th>Agent</Th>
                 <Th>Contact</Th>
                 <Th>Talk time</Th>
-                <Th>Disposition</Th>
+                <Th>
+                  Disposition
+                  <HelpHint id="column.disposition" className="ml-1" />
+                </Th>
                 <Th>
                   Score
                   <HelpHint id="column.score" className="ml-1" />
                 </Th>
-                <Th>Compliance</Th>
+                <Th>
+                  Compliance
+                  <HelpHint id="column.compliance" className="ml-1" />
+                </Th>
                 <Th>
                   Cust sat
                   <HelpHint id="column.csat" className="ml-1" />
