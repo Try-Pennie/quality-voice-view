@@ -13,6 +13,7 @@ import {
   fetchAgentProfile,
   fetchTeamCoachingThemes,
   fetchAgentManagerMapping,
+  fetchAgentManagerMappingAt,
   fetchManagerNames,
 } from '../lib/team-queries'
 import {
@@ -20,6 +21,7 @@ import {
   fetchUniqueAgents,
   fetchCallDetail,
 } from '../lib/queries'
+import { fetchRecentNotifications } from '../lib/notification-queries'
 
 // React Query hashes queryKeys via stable JSON serialization, so primitives are
 // preferable to live Date / UserScope references — both are reconstructed on
@@ -132,6 +134,19 @@ export function useAgentManagerMapping(enabled: boolean) {
   })
 }
 
+// Date-aware mapping (issue #15). Used by god-mode breakdown so historical
+// date ranges resolve "who was on Bobby's team in February" instead of "who
+// is on Bobby's team today". Falls back transparently to the live snapshot
+// when the migration hasn't been applied yet.
+export function useAgentManagerMappingAt(asOfDate: Date, enabled: boolean) {
+  return useQuery({
+    queryKey: ['agentManagerMappingAt', dateKey(asOfDate)],
+    queryFn: () => fetchAgentManagerMappingAt(asOfDate),
+    enabled,
+    staleTime: 5 * 60_000,
+  })
+}
+
 export function useManagerNames(emails: string[]) {
   return useQuery({
     queryKey: ['managerNames', [...emails].sort()],
@@ -210,5 +225,17 @@ export function useAlertThread(
     queryKey: ['alertThread', callId, moduleName],
     queryFn: () => fetchAlertThread(callId!, moduleName!),
     enabled: !!callId && !!moduleName,
+  })
+}
+
+// Bell dropdown feed. Polled because we don't have realtime wired up yet —
+// 60s is responsive enough for the coaching-loop SLA without hammering RLS.
+export function useNotifications(email: string | null | undefined) {
+  return useQuery({
+    queryKey: ['notifications', email],
+    queryFn: () => fetchRecentNotifications(email!),
+    enabled: !!email,
+    refetchInterval: 60_000,
+    refetchOnWindowFocus: true,
   })
 }

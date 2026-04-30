@@ -552,6 +552,33 @@ export async function fetchAgentManagerMapping(): Promise<
   }))
 }
 
+// Effective-dated mapping (issue #15). Returns the (manager, agent) pairs
+// active on a given date. Falls back to the current snapshot if the RPC
+// doesn't exist yet (the migration hasn't been applied to the env in use).
+// Same shape as fetchAgentManagerMapping so callers can swap freely.
+export async function fetchAgentManagerMappingAt(
+  asOfDate: Date,
+): Promise<{ manager_email: string; agent_email: string }[]> {
+  const y = asOfDate.getFullYear()
+  const m = String(asOfDate.getMonth() + 1).padStart(2, '0')
+  const d = String(asOfDate.getDate()).padStart(2, '0')
+  const p_as_of = `${y}-${m}-${d}`
+  const { data, error } = await sb.rpc('agent_manager_mapping_at', { p_as_of })
+  if (error) {
+    // 42883 = "function does not exist" — migration not applied yet; degrade
+    // gracefully to the live snapshot so the page keeps rendering.
+    if ((error as any).code === '42883') {
+      return fetchAgentManagerMapping()
+    }
+    console.error('Error calling agent_manager_mapping_at:', error)
+    return []
+  }
+  return ((data || []) as any[]).map(r => ({
+    manager_email: r.manager_email,
+    agent_email: r.agent_email,
+  }))
+}
+
 // agent_manager_mapping.manager_email holds literal sentinel strings for
 // housekeeping ("No longer at Pennie", "Excluded", "AI Agent"). None of
 // them contain '@', so a looks-like-email check separates real managers

@@ -471,7 +471,7 @@ export default function AlertsPage() {
                 value={search}
                 onChange={e => setSearch(e.target.value)}
                 placeholder="Call id, phone, lead, or agent…"
-                className="w-full min-h-[40px] pl-9 pr-3 py-2 rounded-full border border-border bg-pennie-white text-sm font-medium placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-pennie-blue-dark/40 focus:border-pennie-blue-dark"
+                className="w-full min-h-[44px] sm:min-h-[40px] pl-9 pr-3 py-2 rounded-full border border-border bg-pennie-white text-base sm:text-sm font-medium placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-pennie-blue-dark/40 focus:border-pennie-blue-dark"
               />
             </div>
           </div>
@@ -704,14 +704,14 @@ function SupportingStat({
 
 function Th({ children }: { children: React.ReactNode }) {
   return (
-    <th className="px-6 py-3 text-left text-[11px] font-bold text-pennie-graphite/70 uppercase tracking-[0.06em]">
+    <th className="px-4 sm:px-6 py-3 text-left text-[11px] font-bold text-pennie-graphite/70 uppercase tracking-[0.06em]">
       {children}
     </th>
   )
 }
 
 function Td({ children }: { children: React.ReactNode }) {
-  return <td className="px-6 py-4 align-top">{children}</td>
+  return <td className="px-4 sm:px-6 py-3 sm:py-4 align-top">{children}</td>
 }
 
 function ViolationPill({ type }: { type: string }) {

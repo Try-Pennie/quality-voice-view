@@ -3,6 +3,7 @@ import { NavLink, useNavigate, useLocation } from 'react-router-dom'
 import { BookOpen, Lightbulb, LightbulbOff } from 'lucide-react'
 import { useAuth } from '../hooks/useAuth'
 import { HintsProvider, useHints } from './ui/help-hint'
+import { NotificationBell } from './NotificationBell'
 
 export function DashboardLayout({ children }: { children: React.ReactNode }) {
   return (
@@ -61,6 +62,7 @@ function DashboardChrome({ children }: { children: React.ReactNode }) {
             </div>
 
             <div className="flex items-center gap-2">
+              <NotificationBell />
               <button
                 type="button"
                 onClick={toggleHints}
@@ -124,9 +126,20 @@ function DashNavLink({
   end?: boolean
   children: React.ReactNode
 }) {
+  const location = useLocation()
+  // Calls / Team / Alerts all use the same ?start=&end= contract, so carrying
+  // the current range across the top-nav keeps the date window stable when a
+  // user pivots from one view to another.
+  const params = new URLSearchParams(location.search)
+  const start = params.get('start')
+  const endParam = params.get('end')
+  const carry = new URLSearchParams()
+  if (start) carry.set('start', start)
+  if (endParam) carry.set('end', endParam)
+  const target = carry.toString() ? `${to}?${carry.toString()}` : to
   return (
     <NavLink
-      to={to}
+      to={target}
       end={end}
       className={({ isActive }) =>
         `relative px-4 py-2 rounded-full text-sm font-semibold transition-colors ${

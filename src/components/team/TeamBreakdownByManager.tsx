@@ -1,10 +1,10 @@
-import { useState, useMemo } from 'react'
+import { useMemo } from 'react'
 import { X } from 'lucide-react'
 import type { ManagerRollup } from '../../lib/team-queries'
 import { HelpHint } from '../ui/help-hint'
 import type { HelpId } from '../../lib/help-content'
 
-type SortKey =
+export type ManagerSortKey =
   | 'call_count'
   | 'qa_count'
   | 'compliance_pass_rate'
@@ -19,15 +19,18 @@ export function TeamBreakdownByManager({
   loading,
   selectedManager,
   onSelect,
+  sortKey,
+  sortDesc,
+  onSortChange,
 }: {
   rows: ManagerRollup[]
   loading: boolean
   selectedManager: string | null
   onSelect: (row: ManagerRollup | null) => void
+  sortKey: ManagerSortKey
+  sortDesc: boolean
+  onSortChange: (key: ManagerSortKey, desc: boolean) => void
 }) {
-  const [sortKey, setSortKey] = useState<SortKey>('call_count')
-  const [sortDesc, setSortDesc] = useState(true)
-
   const sorted = useMemo(() => {
     const copy = [...rows]
     copy.sort((a, b) => {
@@ -38,12 +41,9 @@ export function TeamBreakdownByManager({
     return copy
   }, [rows, sortKey, sortDesc])
 
-  const toggleSort = (key: SortKey) => {
-    if (key === sortKey) setSortDesc(d => !d)
-    else {
-      setSortKey(key)
-      setSortDesc(true)
-    }
+  const toggleSort = (key: ManagerSortKey) => {
+    if (key === sortKey) onSortChange(key, !sortDesc)
+    else onSortChange(key, true)
   }
 
   return (

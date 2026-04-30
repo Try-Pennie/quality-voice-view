@@ -92,6 +92,7 @@ export function AlertReviewDrawer({
   const [showRaw, setShowRaw] = useState(false)
   const [draftBody, setDraftBody] = useState('')
   const [replyTo, setReplyTo] = useState<AlertMessage | null>(null)
+  const [requireAck, setRequireAck] = useState(false)
   const [posting, setPosting] = useState(false)
   const [editingId, setEditingId] = useState<number | null>(null)
   const [ackPending, setAckPending] = useState(false)
@@ -203,6 +204,7 @@ export function AlertReviewDrawer({
       author_email: currentUserEmail,
       body,
       parent_message_id: replyTo?.id ?? null,
+      requires_acknowledgment: requireAck,
     })
     setPosting(false)
     if (!res.ok) {
@@ -211,6 +213,7 @@ export function AlertReviewDrawer({
     }
     setDraftBody('')
     setReplyTo(null)
+    setRequireAck(false)
     refetchThread()
     onSubmitted({
       message_count: (alert.message_count ?? 0) + 1,
@@ -299,7 +302,7 @@ export function AlertReviewDrawer({
               type="button"
               onClick={onClose}
               aria-label="Back to alerts"
-              className="min-h-[40px] -ml-1 sm:hidden inline-flex items-center gap-1 px-2 py-2 rounded-full text-sm font-semibold text-pennie-navy hover:bg-pennie-beige transition-colors"
+              className="min-h-[44px] -ml-1 sm:hidden inline-flex items-center gap-1 px-3 py-2 rounded-full text-sm font-semibold text-pennie-navy hover:bg-pennie-beige transition-colors"
             >
               <ArrowLeft className="w-4 h-4" aria-hidden="true" />
               Back
@@ -317,7 +320,7 @@ export function AlertReviewDrawer({
                 disabled={!hasPrev}
                 aria-label="Previous alert (k)"
                 title="Previous (k)"
-                className="min-h-[40px] min-w-[40px] inline-flex items-center justify-center rounded-full border border-border hover:bg-pennie-beige disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                className="min-h-[44px] min-w-[44px] inline-flex items-center justify-center rounded-full border border-border hover:bg-pennie-beige disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
               >
                 <ChevronLeft className="w-4 h-4" aria-hidden="true" />
               </button>
@@ -327,7 +330,7 @@ export function AlertReviewDrawer({
                 disabled={!hasNext}
                 aria-label="Next alert (j)"
                 title="Next (j)"
-                className="min-h-[40px] min-w-[40px] inline-flex items-center justify-center rounded-full border border-border hover:bg-pennie-beige disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                className="min-h-[44px] min-w-[44px] inline-flex items-center justify-center rounded-full border border-border hover:bg-pennie-beige disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
               >
                 <ChevronRight className="w-4 h-4" aria-hidden="true" />
               </button>
@@ -336,7 +339,7 @@ export function AlertReviewDrawer({
                 onClick={onClose}
                 aria-label="Close (Esc)"
                 title="Close (Esc)"
-                className="hidden sm:inline-flex min-h-[40px] min-w-[40px] items-center justify-center rounded-full border border-border hover:bg-pennie-beige transition-colors ml-1"
+                className="hidden sm:inline-flex min-h-[44px] min-w-[44px] items-center justify-center rounded-full border border-border hover:bg-pennie-beige transition-colors ml-1"
               >
                 <X className="w-4 h-4" aria-hidden="true" />
               </button>
@@ -477,6 +480,8 @@ export function AlertReviewDrawer({
             onDraftChange={setDraftBody}
             onPost={handlePostMessage}
             posting={posting}
+            requireAck={requireAck}
+            onSetRequireAck={setRequireAck}
           />
         </div>
 
@@ -572,7 +577,7 @@ export function AlertReviewDrawer({
                 onChange={e => setComment(e.target.value)}
                 placeholder="Add context for the model team…"
                 rows={2}
-                className="w-full px-3 py-2 rounded-2xl border border-border bg-pennie-white text-sm font-medium resize-none focus:outline-none focus:ring-2 focus:ring-pennie-blue-dark/40 focus:border-pennie-blue-dark"
+                className="w-full px-3 py-2 rounded-2xl border border-border bg-pennie-white text-base sm:text-sm font-medium resize-none focus:outline-none focus:ring-2 focus:ring-pennie-blue-dark/40 focus:border-pennie-blue-dark"
               />
             </div>
           )}
@@ -648,7 +653,7 @@ function Chip({
       role="radio"
       aria-checked={active}
       onClick={onClick}
-      className={`min-h-[36px] px-3.5 py-1.5 rounded-full text-xs font-semibold border transition-all duration-200 ${
+      className={`min-h-[44px] sm:min-h-[36px] px-4 sm:px-3.5 py-2 sm:py-1.5 rounded-full text-sm sm:text-xs font-semibold border transition-all duration-200 ${
         active
           ? 'bg-pennie-blue-dark text-pennie-white border-pennie-blue-dark'
           : 'bg-pennie-white border-border text-pennie-graphite hover:bg-pennie-blue-light hover:border-pennie-blue-light'
@@ -699,7 +704,7 @@ function AckSection({
         onClick={onToggle}
         disabled={pending || !currentUserEmail}
         aria-pressed={ackedByMe}
-        className={`min-h-[36px] inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-xs font-semibold border transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
+        className={`min-h-[44px] sm:min-h-[36px] inline-flex items-center gap-1.5 px-4 sm:px-3.5 py-2 sm:py-1.5 rounded-full text-sm sm:text-xs font-semibold border transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
           ackedByMe
             ? 'bg-pennie-green-dark border-pennie-green-dark text-pennie-white hover:bg-pennie-green-dark/90'
             : 'bg-pennie-white border-border text-pennie-graphite hover:bg-pennie-green-light hover:border-pennie-green-light'
@@ -731,6 +736,8 @@ function ThreadSection({
   onDraftChange,
   onPost,
   posting,
+  requireAck,
+  onSetRequireAck,
 }: {
   messages: AlertMessage[]
   currentUserEmail: string | null | undefined
@@ -744,13 +751,35 @@ function ThreadSection({
   onDraftChange: (s: string) => void
   onPost: () => void
   posting: boolean
+  requireAck: boolean
+  onSetRequireAck: (v: boolean) => void
 }) {
   const composeId = useId()
+  const requireAckId = useId()
   const messageById = useMemo(() => {
     const m = new Map<number, AlertMessage>()
     for (const msg of messages) m.set(msg.id, msg)
     return m
   }, [messages])
+
+  // A `requires_acknowledgment` message is "acknowledged" the moment any
+  // non-author replies in-thread (parent_message_id = source.id). Renders
+  // as a small green stamp on the source so the asker can see at a glance.
+  const ackedSourceIds = useMemo(() => {
+    const acked = new Set<number>()
+    for (const msg of messages) {
+      if (msg.deleted_at || !msg.parent_message_id) continue
+      const parent = messageById.get(msg.parent_message_id)
+      if (
+        parent &&
+        parent.requires_acknowledgment &&
+        msg.author_email.toLowerCase() !== parent.author_email.toLowerCase()
+      ) {
+        acked.add(parent.id)
+      }
+    }
+    return acked
+  }, [messages, messageById])
 
   return (
     <section>
@@ -785,6 +814,7 @@ function ThreadSection({
               onSaveEdit={body => onEdit(msg.id, body)}
               onDelete={() => onDelete(msg.id)}
               onReply={() => onSetReplyTo(msg)}
+              acknowledged={ackedSourceIds.has(msg.id)}
             />
           ))
         )}
@@ -804,7 +834,7 @@ function ThreadSection({
               type="button"
               onClick={() => onSetReplyTo(null)}
               aria-label="Cancel reply"
-              className="ml-auto text-pennie-graphite/60 hover:text-pennie-navy"
+              className="ml-auto min-h-[36px] min-w-[36px] inline-flex items-center justify-center text-pennie-graphite/60 hover:text-pennie-navy"
             >
               <X className="w-3 h-3" aria-hidden="true" />
             </button>
@@ -831,7 +861,7 @@ function ThreadSection({
                 onPost()
               }
             }}
-            className="flex-1 px-3 py-2 rounded-2xl border border-border bg-pennie-white text-sm font-medium resize-none focus:outline-none focus:ring-2 focus:ring-pennie-blue-dark/40 focus:border-pennie-blue-dark disabled:opacity-50"
+            className="flex-1 px-3 py-2 rounded-2xl border border-border bg-pennie-white text-base sm:text-sm font-medium resize-none focus:outline-none focus:ring-2 focus:ring-pennie-blue-dark/40 focus:border-pennie-blue-dark disabled:opacity-50"
           />
           <button
             type="button"
@@ -843,6 +873,25 @@ function ThreadSection({
             <Send className="w-4 h-4" aria-hidden="true" />
           </button>
         </div>
+        <label
+          htmlFor={requireAckId}
+          className="mt-2 inline-flex items-center gap-2 text-xs text-pennie-graphite cursor-pointer select-none"
+        >
+          <input
+            id={requireAckId}
+            type="checkbox"
+            checked={requireAck}
+            onChange={e => onSetRequireAck(e.target.checked)}
+            disabled={!currentUserEmail || posting}
+            className="w-4 h-4 rounded border-border text-pennie-blue-dark focus:ring-pennie-blue-dark/40"
+          />
+          <span>
+            Require acknowledgment
+            <span className="ml-1.5 text-pennie-graphite/60">
+              — recipients see an "Acknowledge" prompt and are nudged to reply.
+            </span>
+          </span>
+        </label>
       </div>
     </section>
   )
@@ -858,6 +907,7 @@ function MessageItem({
   onSaveEdit,
   onDelete,
   onReply,
+  acknowledged,
 }: {
   message: AlertMessage
   parent: AlertMessage | null
@@ -868,6 +918,7 @@ function MessageItem({
   onSaveEdit: (body: string) => Promise<boolean>
   onDelete: () => void
   onReply: () => void
+  acknowledged: boolean
 }) {
   const [draft, setDraft] = useState(message.body)
   const [saving, setSaving] = useState(false)
@@ -905,8 +956,19 @@ function MessageItem({
         </div>
       )}
       <header className="flex items-baseline justify-between gap-2 mb-1">
-        <span className="text-sm font-semibold text-pennie-navy">
+        <span className="inline-flex items-baseline gap-1.5 text-sm font-semibold text-pennie-navy">
           {emailLabel(message.author_email)}
+          {message.requires_acknowledgment && (
+            <span
+              className={`text-[10px] uppercase tracking-wider px-1.5 py-0.5 rounded-full font-bold ${
+                acknowledged
+                  ? 'bg-pennie-green-light text-pennie-green-dark'
+                  : 'bg-pennie-peach-light text-pennie-peach-dark'
+              }`}
+            >
+              {acknowledged ? 'Acknowledged' : 'Needs ack'}
+            </span>
+          )}
         </span>
         <span className="text-[11px] text-muted-foreground tabular-nums">
           {formatDateTime(message.posted_at)}
@@ -919,14 +981,14 @@ function MessageItem({
             value={draft}
             onChange={e => setDraft(e.target.value)}
             rows={3}
-            className="w-full px-3 py-2 rounded-xl border border-border bg-pennie-white text-sm font-medium resize-none focus:outline-none focus:ring-2 focus:ring-pennie-blue-dark/40 focus:border-pennie-blue-dark"
+            className="w-full px-3 py-2 rounded-xl border border-border bg-pennie-white text-base sm:text-sm font-medium resize-none focus:outline-none focus:ring-2 focus:ring-pennie-blue-dark/40 focus:border-pennie-blue-dark"
           />
           <div className="flex justify-end gap-2 mt-2">
             <button
               type="button"
               onClick={onCancelEdit}
               disabled={saving}
-              className="min-h-[32px] px-3 py-1 text-xs font-semibold text-pennie-graphite hover:text-pennie-navy"
+              className="min-h-[44px] sm:min-h-[32px] px-4 sm:px-3 py-2 sm:py-1 text-sm sm:text-xs font-semibold text-pennie-graphite hover:text-pennie-navy"
             >
               Cancel
             </button>
@@ -940,7 +1002,7 @@ function MessageItem({
                 if (!ok) return
               }}
               disabled={saving || !draft.trim() || draft.trim() === message.body}
-              className="min-h-[32px] px-3 py-1 rounded-full bg-pennie-navy text-pennie-white text-xs font-semibold disabled:opacity-40"
+              className="min-h-[44px] sm:min-h-[32px] px-4 sm:px-3 py-2 sm:py-1 rounded-full bg-pennie-navy text-pennie-white text-sm sm:text-xs font-semibold disabled:opacity-40"
             >
               {saving ? 'Saving…' : 'Save'}
             </button>
@@ -951,11 +1013,20 @@ function MessageItem({
           <p className="text-sm text-pennie-graphite leading-relaxed whitespace-pre-wrap">
             {message.body}
           </p>
-          <footer className="mt-2 flex items-center gap-3 text-[11px]">
+          <footer className="mt-2 -mx-1 flex items-center gap-1 sm:gap-3 text-xs sm:text-[11px]">
+            {message.requires_acknowledgment && !isMine && !acknowledged && (
+              <button
+                type="button"
+                onClick={onReply}
+                className="min-h-[40px] sm:min-h-[28px] px-3 py-1.5 rounded-full bg-pennie-peach-dark text-pennie-white font-semibold hover:bg-pennie-peach-dark/90"
+              >
+                Acknowledge
+              </button>
+            )}
             <button
               type="button"
               onClick={onReply}
-              className="font-semibold text-pennie-graphite/70 hover:text-pennie-navy"
+              className="min-h-[40px] sm:min-h-0 px-2 sm:px-0 py-2 sm:py-0 font-semibold text-pennie-graphite/70 hover:text-pennie-navy"
             >
               Reply
             </button>
@@ -965,7 +1036,7 @@ function MessageItem({
                   type="button"
                   onClick={onStartEdit}
                   aria-label="Edit message"
-                  className="inline-flex items-center gap-1 font-semibold text-pennie-graphite/70 hover:text-pennie-navy"
+                  className="min-h-[40px] sm:min-h-0 px-2 sm:px-0 py-2 sm:py-0 inline-flex items-center gap-1 font-semibold text-pennie-graphite/70 hover:text-pennie-navy"
                 >
                   <Pencil className="w-3 h-3" aria-hidden="true" />
                   Edit
@@ -976,7 +1047,7 @@ function MessageItem({
                     if (confirm('Delete this message?')) onDelete()
                   }}
                   aria-label="Delete message"
-                  className="inline-flex items-center gap-1 font-semibold text-pennie-graphite/70 hover:text-pennie-peach-dark"
+                  className="min-h-[40px] sm:min-h-0 px-2 sm:px-0 py-2 sm:py-0 inline-flex items-center gap-1 font-semibold text-pennie-graphite/70 hover:text-pennie-peach-dark"
                 >
                   <Trash2 className="w-3 h-3" aria-hidden="true" />
                   Delete

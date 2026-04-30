@@ -16,7 +16,7 @@ import {
   useTeamRollup,
   useAlertBreakdown,
   useTeamCoachingThemes,
-  useAgentManagerMapping,
+  useAgentManagerMappingAt,
   useManagerNames,
 } from '../hooks/use-queries'
 import { DateRangePicker } from '../components/dashboard/DateRangePicker'
@@ -24,7 +24,21 @@ import { TeamHeaderStats } from '../components/team/TeamHeaderStats'
 import { TeamLeaderboard } from '../components/team/TeamLeaderboard'
 import { TeamTrendSection } from '../components/team/TeamTrendSection'
 import { TeamCoachingThemes } from '../components/team/TeamCoachingThemes'
-import { TeamBreakdownByManager } from '../components/team/TeamBreakdownByManager'
+import {
+  TeamBreakdownByManager,
+  type ManagerSortKey,
+} from '../components/team/TeamBreakdownByManager'
+
+const MANAGER_SORT_KEYS: readonly ManagerSortKey[] = [
+  'call_count',
+  'qa_count',
+  'compliance_pass_rate',
+  'escalation_rate',
+  'csat_high_rate',
+  'unreviewed_alerts_count',
+  'total_alerts_count',
+  'agent_count',
+]
 import { AlertHeatmap } from '../components/alerts/AlertHeatmap'
 
 type QuickFilter = 'all' | 'attention' | 'top' | 'alerts'
@@ -119,6 +133,16 @@ export default function TeamPage() {
     null,
   )
 
+  const [breakdownSortKey, setBreakdownSortKey] = useState<ManagerSortKey>(() => {
+    const raw = searchParams.get('sort')
+    return (MANAGER_SORT_KEYS as readonly string[]).includes(raw ?? '')
+      ? (raw as ManagerSortKey)
+      : 'call_count'
+  })
+  const [breakdownSortDesc, setBreakdownSortDesc] = useState<boolean>(
+    () => searchParams.get('dir') !== 'asc',
+  )
+
   const { data: scope } = useUserScope(user?.email)
 
   const { data: rollupData, isPending: rollupPending } = useTeamRollup(
@@ -138,8 +162,13 @@ export default function TeamPage() {
   const breakdownLoading = breakdownPending && !breakdownData
 
   // Manager mapping is only relevant for god-mode users — regular managers
-  // already see only their own team via scope.managedAgents.
-  const { data: managerMappingData } = useAgentManagerMapping(!!scope?.isGodMode)
+  // already see only their own team via scope.managedAgents. Resolved as of
+  // the window's end date (issue #15) so historical date ranges attribute
+  // agents to whoever managed them then, not whoever manages them now.
+  const { data: managerMappingData } = useAgentManagerMappingAt(
+    endDate,
+    !!scope?.isGodMode,
+  )
   const managerMapping = useMemo(
     () => managerMappingData ?? [],
     [managerMappingData],
@@ -184,6 +213,8 @@ export default function TeamPage() {
     if (search.trim()) params.set('search', search.trim())
     if (quickFilter !== 'all') params.set('qf', quickFilter)
     if (selectedManager) params.set('mgr', selectedManager.manager_email)
+    if (breakdownSortKey !== 'call_count') params.set('sort', breakdownSortKey)
+    if (!breakdownSortDesc) params.set('dir', 'asc')
     setSearchParams(params, { replace: true })
   }, [
     startDate,
@@ -191,6 +222,8 @@ export default function TeamPage() {
     search,
     quickFilter,
     selectedManager,
+    breakdownSortKey,
+    breakdownSortDesc,
     setSearchParams,
   ])
 
@@ -297,7 +330,10 @@ export default function TeamPage() {
   }
 
   const goToAlerts = () => {
-    navigate('/dashboard/alerts')
+    const params = new URLSearchParams()
+    params.set('start', formatDateParam(startDate))
+    params.set('end', formatDateParam(endDate))
+    navigate(`/dashboard/alerts?${params.toString()}`)
   }
 
   const noAgents = !loading && scope && !scope.isGodMode && scope.managedAgents.length === 0
@@ -343,6 +379,12 @@ export default function TeamPage() {
                 })
               })
             }
+          }}
+          sortKey={breakdownSortKey}
+          sortDesc={breakdownSortDesc}
+          onSortChange={(key, desc) => {
+            setBreakdownSortKey(key)
+            setBreakdownSortDesc(desc)
           }}
         />
       )}

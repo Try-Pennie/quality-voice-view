@@ -214,6 +214,7 @@ export async function postAlertMessage(input: {
   author_email: string
   body: string
   parent_message_id?: number | null
+  requires_acknowledgment?: boolean
 }): Promise<{ ok: boolean; message?: AlertMessage; error?: string }> {
   const { data, error } = await sb
     .from('eavesly_alert_messages')
@@ -223,6 +224,7 @@ export async function postAlertMessage(input: {
       author_email: input.author_email,
       body: input.body.trim(),
       parent_message_id: input.parent_message_id ?? null,
+      requires_acknowledgment: input.requires_acknowledgment ?? false,
     })
     .select()
     .single()

@@ -30,8 +30,9 @@ export function TeamHeaderStats({
         <p className="pennie-label mb-2">Team</p>
         <h1 className="font-display text-[clamp(2.25rem,5vw,3.5rem)] leading-[1.05] tracking-[-0.02em] text-pennie-navy">
           {loading ? '—' : metrics.agentCount.toLocaleString()}{' '}
-          <span className="text-pennie-graphite/70 font-normal text-[0.6em] align-baseline">
+          <span className="text-pennie-graphite/70 font-normal text-[0.6em] align-baseline inline-flex items-baseline gap-1.5">
             {metrics.agentCount === 1 ? 'agent reporting' : 'agents reporting'}
+            <HelpHint id="metric.team_agents_reporting" />
           </span>
         </h1>
         <p className="mt-3 text-pennie-graphite/70">

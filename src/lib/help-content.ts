@@ -65,6 +65,12 @@ const ENTRIES = {
   },
 
   // -------- Metrics (Team page) --------
+  'metric.team_agents_reporting': {
+    category: 'Metrics',
+    title: 'Agents reporting',
+    body:
+      'Distinct agents with at least one call OR alert in the date window — the people who showed up in the data, not just the ones who got flagged. The Alerts page "Agents flagged" stat is narrower (alerts only) and will usually be smaller.',
+  },
   'metric.team_compliance': {
     category: 'Metrics',
     title: 'Average compliance',
@@ -222,7 +228,7 @@ const ENTRIES = {
     category: 'Metrics',
     title: 'Agents flagged',
     body:
-      'Distinct agents who triggered at least one alert in the current view. Use the heatmap above to see who is hottest.',
+      'Distinct agents who triggered at least one alert in the current view. Narrower than the Team page "Agents reporting" stat — that one counts everyone with calls OR alerts in the window, so this number will usually be smaller.',
   },
 
   // -------- Filters (Dashboard) --------

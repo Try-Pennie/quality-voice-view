@@ -184,6 +184,25 @@ export type AlertMessage = {
   posted_at: string
   edited_at: string | null
   deleted_at: string | null
+  requires_acknowledgment: boolean
+}
+
+export type NotificationKind =
+  | 'alert_message'
+  | 'alert_ack_required'
+  | 'alert_ack'
+
+export type EavlNotification = {
+  id: number
+  recipient_email: string
+  kind: NotificationKind
+  call_id: string
+  module_name: string
+  source_actor_email: string
+  source_message_id: number | null
+  payload_json: { snippet?: string; parent_message_id?: number | null; acknowledged_at?: string } | null
+  read_at: string | null
+  created_at: string
 }
 
 export type AlertAck = {
