@@ -294,19 +294,34 @@ export async function fetchTeamRollup(
 ): Promise<AgentRollup[]> {
   if (!scope.isGodMode && scope.managedAgents.length === 0) return []
 
-  const { data, error } = await sb.rpc('team_daily_metrics', {
-    p_start: toDateParam(startDate),
-    p_end: toDateParam(endDate),
-  })
-  if (error) {
-    console.error('Error calling team_daily_metrics:', error)
-    return []
+  // PostgREST silently truncates RPC responses at the project's max-rows
+  // setting (default 1000). The MV emits ~one row per (agent, bucket_day),
+  // so even a 30-day team query exceeds the cap. Pull with explicit
+  // pagination to be sure we get every row.
+  const rows: any[] = []
+  const PAGE_SIZE = 1000
+  let from = 0
+  while (true) {
+    const { data, error } = await sb
+      .rpc('team_daily_metrics', {
+        p_start: toDateParam(startDate),
+        p_end: toDateParam(endDate),
+      })
+      .range(from, from + PAGE_SIZE - 1)
+    if (error) {
+      console.error('Error calling team_daily_metrics:', error)
+      return []
+    }
+    const chunk = (data || []) as any[]
+    rows.push(...chunk)
+    if (chunk.length < PAGE_SIZE) break
+    from += PAGE_SIZE
   }
 
-  const rows = ((data || []) as any[]).map(normalizeDailyRow)
+  const normalized = rows.map(normalizeDailyRow)
   const byAgent = new Map<string, DailyMetricRow[]>()
   const nameByAgent = new Map<string, string | null>()
-  for (const r of rows) {
+  for (const r of normalized) {
     if (!r.agent_email) continue
     const arr = byAgent.get(r.agent_email) || []
     arr.push(r)
