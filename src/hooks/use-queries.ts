@@ -14,7 +14,6 @@ import {
   fetchTeamCoachingThemes,
   fetchAgentManagerMapping,
   fetchManagerNames,
-  fetchRealManagers,
 } from '../lib/team-queries'
 import {
   fetchDashboardData,
@@ -129,15 +128,6 @@ export function useAgentManagerMapping(enabled: boolean) {
     queryFn: fetchAgentManagerMapping,
     enabled,
     // Mapping changes only when ops edits agent_manager_mapping.
-    staleTime: 5 * 60_000,
-  })
-}
-
-export function useRealManagers(enabled: boolean) {
-  return useQuery({
-    queryKey: ['realManagers'],
-    queryFn: fetchRealManagers,
-    enabled,
     staleTime: 5 * 60_000,
   })
 }

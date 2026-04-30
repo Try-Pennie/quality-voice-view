@@ -18,7 +18,6 @@ import {
   useTeamCoachingThemes,
   useAgentManagerMapping,
   useManagerNames,
-  useRealManagers,
 } from '../hooks/use-queries'
 import { DateRangePicker } from '../components/dashboard/DateRangePicker'
 import { TeamHeaderStats } from '../components/team/TeamHeaderStats'
@@ -156,21 +155,10 @@ export default function TeamPage() {
     [managerNamesData],
   )
 
-  const { data: realManagersData } = useRealManagers(!!scope?.isGodMode)
-  const realManagers = useMemo(
-    () => realManagersData ?? new Set<string>(),
-    [realManagersData],
-  )
-
   const managerRollups = useMemo(() => {
     if (!scope?.isGodMode) return []
-    return aggregateManagerRollups(
-      rollup,
-      managerMapping,
-      managerNames,
-      realManagers,
-    )
-  }, [scope, rollup, managerMapping, managerNames, realManagers])
+    return aggregateManagerRollups(rollup, managerMapping, managerNames)
+  }, [scope, rollup, managerMapping, managerNames])
 
   // Hydrate selectedManager from URL once the manager rollups exist. Tracked
   // by a ref so we only attempt hydration on the first qualifying render.

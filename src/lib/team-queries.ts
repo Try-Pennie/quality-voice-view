@@ -537,43 +537,28 @@ export async function fetchAgentManagerMapping(): Promise<
   }))
 }
 
-// Canonical manager list. Anything that doesn't appear here is a sentinel
-// or stale row in agent_manager_mapping (e.g. "No longer at Pennie",
-// "Excluded", "AI Agent") and should not surface as its own team.
-export async function fetchRealManagers(): Promise<Set<string>> {
-  const { data, error } = await sb
-    .from('manager_coaching_prompts')
-    .select('manager_email')
-  if (error) {
-    console.error('Error fetching manager_coaching_prompts:', error)
-    return new Set()
-  }
-  return new Set(
-    ((data || []) as any[])
-      .map(r => (r.manager_email ?? '').toLowerCase())
-      .filter(Boolean),
-  )
+// agent_manager_mapping.manager_email holds literal sentinel strings for
+// housekeeping ("No longer at Pennie", "Excluded", "AI Agent"). None of
+// them contain '@', so a looks-like-email check separates real managers
+// from sentinels — without needing to read manager_coaching_prompts,
+// which RLS scopes to the caller's own row and would hide every other
+// manager from god-mode users.
+function isRealManagerEmail(email: string | null | undefined): boolean {
+  return !!email && email.includes('@')
 }
 
 // Group agent rollups by manager and recompute aggregates correctly
 // (volume-weighted, not averaged across agents). Sentinel manager_email
-// values in agent_manager_mapping (e.g. "No longer at Pennie", "Excluded")
-// are filtered out via realManagers; affected agents fall through to the
-// __unassigned__ bucket so they still surface in god-mode views.
+// values in agent_manager_mapping are skipped; affected agents fall
+// through to the __unassigned__ bucket so god-mode users still see them.
 export function aggregateManagerRollups(
   rollups: AgentRollup[],
   mapping: { manager_email: string; agent_email: string }[],
   managerNames: Map<string, string> = new Map(),
-  realManagers?: Set<string>,
 ): ManagerRollup[] {
   const managerByAgent = new Map<string, string>()
   for (const m of mapping) {
-    if (
-      realManagers &&
-      !realManagers.has((m.manager_email ?? '').toLowerCase())
-    ) {
-      continue
-    }
+    if (!isRealManagerEmail(m.manager_email)) continue
     managerByAgent.set(m.agent_email, m.manager_email)
   }
 
