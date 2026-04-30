@@ -336,11 +336,53 @@ export async function fetchTeamRollup(
   const allAgents = new Set<string>(byAgent.keys())
   if (!scope.isGodMode) for (const e of scope.managedAgents) allAgents.add(e)
 
+  // Backfill names for agents with no rows in the window — otherwise they
+  // render as "Unknown" on narrow date ranges even though we know them from
+  // earlier activity. Sources from eavesly_calls (the same table fetchManagerNames
+  // uses) which carries names for every agent who has ever taken a call.
+  const missingNames = Array.from(allAgents).filter(e => !nameByAgent.get(e))
+  if (missingNames.length > 0) {
+    const backfill = await fetchAgentDisplayNames(missingNames)
+    for (const [email, name] of backfill) {
+      nameByAgent.set(email, name)
+    }
+  }
+
   return Array.from(allAgents).map(email => {
     const agentRows = byAgent.get(email) || []
     const trend = trendPointsFromDailyRows(agentRows, startDate, endDate)
     return rollupFromDailyRows(email, nameByAgent.get(email) ?? null, agentRows, trend)
   })
+}
+
+// Look up display names for a set of agent emails by checking eavesly_calls
+// for the most recent agent_full_name. Used to keep zero-activity agents
+// from rendering as "Unknown" on narrow date windows.
+async function fetchAgentDisplayNames(
+  emails: string[],
+): Promise<Map<string, string>> {
+  const result = new Map<string, string>()
+  if (emails.length === 0) return result
+  const CHUNK = 100
+  for (let i = 0; i < emails.length; i += CHUNK) {
+    const chunk = emails.slice(i, i + CHUNK)
+    const { data, error } = await sb
+      .from('eavesly_calls')
+      .select('agent_email, agent_full_name')
+      .in('agent_email', chunk)
+      .not('agent_full_name', 'is', null)
+      .limit(2000)
+    if (error) {
+      console.error('Error fetching agent display names:', error)
+      continue
+    }
+    for (const row of (data || []) as any[]) {
+      if (!result.has(row.agent_email) && row.agent_full_name) {
+        result.set(row.agent_email, row.agent_full_name)
+      }
+    }
+  }
+  return result
 }
 
 export async function fetchAgentAlertCounts(
