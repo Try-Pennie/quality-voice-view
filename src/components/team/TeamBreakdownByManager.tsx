@@ -1,6 +1,8 @@
 import { useState, useMemo } from 'react'
 import { X } from 'lucide-react'
 import type { ManagerRollup } from '../../lib/team-queries'
+import { HelpHint } from '../ui/help-hint'
+import type { HelpId } from '../../lib/help-content'
 
 type SortKey =
   | 'call_count'
@@ -87,48 +89,56 @@ export function TeamBreakdownByManager({
                   active={sortKey === 'agent_count'}
                   desc={sortDesc}
                   onClick={() => toggleSort('agent_count')}
+                  helpId="metric.manager_agent_count"
                 />
                 <SortHeader
                   label="Calls"
                   active={sortKey === 'call_count'}
                   desc={sortDesc}
                   onClick={() => toggleSort('call_count')}
+                  helpId="metric.manager_call_count"
                 />
                 <SortHeader
                   label="Reviewed"
                   active={sortKey === 'qa_count'}
                   desc={sortDesc}
                   onClick={() => toggleSort('qa_count')}
+                  helpId="metric.manager_qa_count"
                 />
                 <SortHeader
                   label="Compliance"
                   active={sortKey === 'compliance_pass_rate'}
                   desc={sortDesc}
                   onClick={() => toggleSort('compliance_pass_rate')}
+                  helpId="metric.team_compliance"
                 />
                 <SortHeader
                   label="CSAT high"
                   active={sortKey === 'csat_high_rate'}
                   desc={sortDesc}
                   onClick={() => toggleSort('csat_high_rate')}
+                  helpId="metric.high_csat"
                 />
                 <SortHeader
                   label="Escalation"
                   active={sortKey === 'escalation_rate'}
                   desc={sortDesc}
                   onClick={() => toggleSort('escalation_rate')}
+                  helpId="metric.team_escalation"
                 />
                 <SortHeader
                   label="Open alerts"
                   active={sortKey === 'unreviewed_alerts_count'}
                   desc={sortDesc}
                   onClick={() => toggleSort('unreviewed_alerts_count')}
+                  helpId="metric.team_open_alerts"
                 />
                 <SortHeader
                   label="Total alerts"
                   active={sortKey === 'total_alerts_count'}
                   desc={sortDesc}
                   onClick={() => toggleSort('total_alerts_count')}
+                  helpId="metric.manager_total_alerts"
                 />
               </tr>
             </thead>
@@ -228,24 +238,29 @@ function SortHeader({
   active,
   desc,
   onClick,
+  helpId,
 }: {
   label: string
   active: boolean
   desc: boolean
   onClick: () => void
+  helpId?: HelpId
 }) {
   return (
     <th className="py-2 pr-4 font-semibold">
-      <button
-        type="button"
-        onClick={onClick}
-        className={`inline-flex items-center gap-1 hover:text-pennie-navy ${
-          active ? 'text-pennie-navy' : ''
-        }`}
-      >
-        {label}
-        {active && <span aria-hidden>{desc ? '▾' : '▴'}</span>}
-      </button>
+      <span className="inline-flex items-center gap-1">
+        <button
+          type="button"
+          onClick={onClick}
+          className={`inline-flex items-center gap-1 hover:text-pennie-navy ${
+            active ? 'text-pennie-navy' : ''
+          }`}
+        >
+          {label}
+          {active && <span aria-hidden>{desc ? '▾' : '▴'}</span>}
+        </button>
+        {helpId && <HelpHint id={helpId} size={3} />}
+      </span>
     </th>
   )
 }

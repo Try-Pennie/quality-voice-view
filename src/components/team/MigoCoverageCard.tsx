@@ -1,4 +1,6 @@
 import type { MigoCoverage } from '../../lib/migo-queries'
+import { HelpHint } from '../ui/help-hint'
+import type { HelpId } from '../../lib/help-content'
 
 export function MigoCoverageCard({
   coverage,
@@ -43,6 +45,7 @@ export function MigoCoverageCard({
           label="Briefing coverage"
           value={`${coveragePct}%`}
           hint={`${coverage.briefed_calls.toLocaleString()} of ${total.toLocaleString()} calls had a Migo briefing`}
+          helpId="metric.migo_briefing_coverage"
         />
         <Stat
           label="Compliance lift"
@@ -57,6 +60,7 @@ export function MigoCoverageCard({
               : `${formatRate(coverage.briefed_compliance_rate)} briefed vs ${formatRate(coverage.unbriefed_compliance_rate)} unbriefed`
           }
           tone={compLift === null ? 'neutral' : compLift > 0 ? 'positive' : compLift < 0 ? 'negative' : 'neutral'}
+          helpId="metric.migo_compliance_lift"
         />
         <Stat
           label="Escalation lift"
@@ -72,6 +76,7 @@ export function MigoCoverageCard({
           }
           // For escalations, lower is better — flip the tone
           tone={escLift === null ? 'neutral' : escLift < 0 ? 'positive' : escLift > 0 ? 'negative' : 'neutral'}
+          helpId="metric.migo_escalation_lift"
         />
       </div>
     </section>
@@ -95,11 +100,13 @@ function Stat({
   value,
   hint,
   tone = 'neutral',
+  helpId,
 }: {
   label: string
   value: string
   hint: string
   tone?: 'neutral' | 'positive' | 'negative'
+  helpId?: HelpId
 }) {
   const valueClass =
     tone === 'positive'
@@ -109,7 +116,10 @@ function Stat({
         : 'text-pennie-navy'
   return (
     <div>
-      <dt className="pennie-label">{label}</dt>
+      <dt className="pennie-label inline-flex items-center gap-1">
+        {label}
+        {helpId && <HelpHint id={helpId} />}
+      </dt>
       <dd className={`mt-1 text-3xl font-semibold tabular-nums ${valueClass}`}>
         {value}
       </dd>

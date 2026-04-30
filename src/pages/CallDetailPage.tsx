@@ -1,6 +1,7 @@
 import { useParams, useNavigate } from 'react-router-dom'
 import { useCallDetail, useAlertsForCall } from '../hooks/use-queries'
 import { formatDateTime, formatDuration, formatPhoneNumber, getScoreBadgeColor } from '../lib/utils'
+import { HelpHint } from '../components/ui/help-hint'
 import { AudioPlayer } from '../components/call-detail/AudioPlayer'
 import { ComplianceScorecard } from '../components/call-detail/ComplianceScorecard'
 import { SalesProcessScorecard } from '../components/call-detail/SalesProcessScorecard'
@@ -136,19 +137,31 @@ export default function CallDetailPage() {
         </h2>
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
           <div>
-            <div className="text-sm text-muted-foreground">Talk Time</div>
+            <div className="text-sm text-muted-foreground inline-flex items-center gap-1">
+              Talk Time
+              <HelpHint id="metric.call_talk_time" />
+            </div>
             <div className="text-xl font-bold text-foreground">{formatDuration(call.talk_time)}</div>
           </div>
           <div>
-            <div className="text-sm text-muted-foreground">Handle Time</div>
+            <div className="text-sm text-muted-foreground inline-flex items-center gap-1">
+              Handle Time
+              <HelpHint id="metric.call_handle_time" />
+            </div>
             <div className="text-xl font-bold text-foreground">{formatDuration(call.handle_time)}</div>
           </div>
           <div>
-            <div className="text-sm text-muted-foreground">Wrapup Time</div>
+            <div className="text-sm text-muted-foreground inline-flex items-center gap-1">
+              Wrapup Time
+              <HelpHint id="metric.call_wrapup_time" />
+            </div>
             <div className="text-xl font-bold text-foreground">{formatDuration(call.wrapup_time)}</div>
           </div>
           <div>
-            <div className="text-sm text-muted-foreground">Conversation</div>
+            <div className="text-sm text-muted-foreground inline-flex items-center gap-1">
+              Conversation
+              <HelpHint id="metric.call_conversation_happened" />
+            </div>
             <div className="text-xl font-bold text-foreground">{call.conversation_happened ? 'Yes' : 'No'}</div>
           </div>
         </div>
@@ -156,19 +169,28 @@ export default function CallDetailPage() {
         {call.qa && (
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-4 pt-4 border-t border-border">
             <div>
-              <div className="text-sm text-muted-foreground mb-1">Overall Score</div>
+              <div className="text-sm text-muted-foreground mb-1 inline-flex items-center gap-1">
+                Overall Score
+                <HelpHint id="metric.call_overall_score" />
+              </div>
               <span className={`inline-flex px-3 py-1 rounded-full text-sm font-semibold ${getScoreBadgeColor(call.qa.overall_score)}`}>
                 {call.qa.overall_score || 'N/A'}
               </span>
             </div>
             <div>
-              <div className="text-sm text-muted-foreground mb-1">Compliance</div>
+              <div className="text-sm text-muted-foreground mb-1 inline-flex items-center gap-1">
+                Compliance
+                <HelpHint id="metric.call_compliance" />
+              </div>
               <span className={`inline-flex px-3 py-1 rounded-full text-sm font-semibold ${getScoreBadgeColor(call.qa.compliance_rating)}`}>
                 {call.qa.compliance_rating || 'N/A'}
               </span>
             </div>
             <div>
-              <div className="text-sm text-muted-foreground mb-1">Customer Satisfaction</div>
+              <div className="text-sm text-muted-foreground mb-1 inline-flex items-center gap-1">
+                Customer Satisfaction
+                <HelpHint id="metric.call_csat" />
+              </div>
               <span className={`inline-flex px-3 py-1 rounded-full text-sm font-semibold ${getScoreBadgeColor(call.qa.customer_satisfaction_likely)}`}>
                 {call.qa.customer_satisfaction_likely || 'N/A'}
               </span>
