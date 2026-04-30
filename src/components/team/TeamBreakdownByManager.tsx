@@ -60,7 +60,7 @@ export function TeamBreakdownByManager({
           <button
             type="button"
             onClick={() => onSelect(null)}
-            className="inline-flex items-center gap-1 text-xs font-semibold text-pennie-blue-dark hover:underline"
+            className="inline-flex items-center gap-1 text-xs font-semibold text-pennie-blue-deeper hover:underline"
           >
             Clear team filter
             <X className="w-3 h-3" />
@@ -169,7 +169,7 @@ export function TeamBreakdownByManager({
                         </span>
                         {r.needs_attention && (
                           <span
-                            className="text-[10px] uppercase tracking-wider px-1.5 py-0.5 rounded-full bg-pennie-peach-dark/15 text-pennie-peach-dark font-semibold"
+                            className="text-[10px] uppercase tracking-wider px-1.5 py-0.5 rounded-full bg-pennie-peach-dark/15 text-pennie-peach-deeper font-semibold"
                             title="At least one team metric is below target"
                           >
                             Attention
@@ -285,6 +285,6 @@ function Bar({
   positiveAbove: boolean
 }) {
   const isGood = positiveAbove ? value >= target : value < target
-  const tone = isGood ? 'text-pennie-green-dark' : 'text-pennie-peach-dark'
+  const tone = isGood ? 'text-pennie-green-dark' : 'text-pennie-peach-deeper'
   return <span className={`font-semibold ${tone}`}>{value}%</span>
 }

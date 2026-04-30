@@ -68,18 +68,33 @@ export function AlertHeatmap({
 
   const totalAgentsInData = totalsByAgent.size
 
+  // Mobile flattens the 2D matrix to a sorted "hottest cells" list. Rotated
+  // labels and 12-wide columns are unusable on a 390px viewport; the list
+  // surfaces the same drill-in interactions in a single column. Computed
+  // unconditionally so hook order stays stable across loading/empty states.
+  const hotCells = useMemo(() => {
+    const sorted = [...cells].sort((a, b) => b.total - a.total)
+    return sorted.filter(c => c.total > 0).slice(0, 8)
+  }, [cells])
+
+  const nameByEmail = useMemo(() => {
+    const m = new Map<string, string | null>()
+    for (const r of rollups) m.set(r.agent_email, r.agent_full_name)
+    return m
+  }, [rollups])
+
   if (loading) {
     return (
-      <section className="bg-pennie-white rounded-3xl shadow-resting p-6">
+      <section className="bg-pennie-white rounded-3xl shadow-resting p-4 sm:p-6">
         <Header compact={compact} />
-        <div className="h-48 rounded-2xl bg-pennie-beige/60 animate-pulse" />
+        <div className="h-48 rounded-2xl bg-pennie-beige/60 animate-pulse mt-4" />
       </section>
     )
   }
 
   if (cells.length === 0) {
     return (
-      <section className="bg-pennie-white rounded-3xl shadow-resting p-6">
+      <section className="bg-pennie-white rounded-3xl shadow-resting p-4 sm:p-6">
         <Header compact={compact} />
         <div className="py-8 text-center text-sm text-pennie-graphite/50">
           No violations in this window.
@@ -122,9 +137,68 @@ export function AlertHeatmap({
   }
 
   return (
-    <section className="bg-pennie-white rounded-3xl shadow-resting p-6">
+    <section className="bg-pennie-white rounded-3xl shadow-resting p-4 sm:p-6">
       <Header compact={compact} hiddenAgents={Math.max(0, totalAgentsInData - agents.length)} />
-      <div className="overflow-x-auto overflow-y-visible -mx-2 px-2 pt-4 pr-12">
+
+      {/* Mobile — list of the hottest (module × agent) pairs. */}
+      <ul className="sm:hidden mt-4 divide-y divide-border/60">
+        {hotCells.length === 0 ? (
+          <li className="py-8 text-center text-sm text-pennie-graphite/50">
+            No violations in this window.
+          </li>
+        ) : (
+          hotCells.map(cell => {
+            const name = nameByEmail.get(cell.agent_email) || cell.agent_email
+            const fpRate =
+              cell.reviewed > 0 ? cell.false_positives / cell.reviewed : 0
+            const flagFP = cell.reviewed >= 3 && fpRate >= 0.5
+            return (
+              <li key={`${cell.module}::${cell.agent_email}`}>
+                <button
+                  type="button"
+                  onClick={() => onCellClick(cell.module, cell.agent_email)}
+                  className="pennie-focus-ring-inset w-full text-left flex items-center gap-3 px-1 py-3 hover:bg-pennie-beige/40 active:bg-pennie-beige/60 transition-colors"
+                >
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-semibold text-pennie-navy truncate">
+                      {MODULE_LABELS[cell.module] ?? cell.module}
+                    </p>
+                    <p className="text-xs text-pennie-graphite/70 truncate">
+                      {shortenName(
+                        nameByEmail.get(cell.agent_email) ?? null,
+                        cell.agent_email,
+                      )}
+                      {cell.unreviewed > 0 && (
+                        <span className="ml-2 text-pennie-peach-deeper font-semibold">
+                          {cell.unreviewed} unreviewed
+                        </span>
+                      )}
+                    </p>
+                  </div>
+                  <span
+                    className={`min-w-[44px] h-9 px-2.5 rounded-full inline-flex items-center justify-center text-sm font-semibold tabular-nums ${
+                      flagFP
+                        ? 'bg-pennie-yellow-light text-pennie-yellow-dark ring-1 ring-pennie-yellow-dark'
+                        : 'bg-pennie-peach-light text-pennie-peach-deeper'
+                    }`}
+                    title={
+                      flagFP
+                        ? `${Math.round(fpRate * 100)}% flagged in error`
+                        : `${cell.total} violations`
+                    }
+                  >
+                    {cell.total}
+                  </span>
+                  <span className="sr-only">View alerts for {name}</span>
+                </button>
+              </li>
+            )
+          })
+        )}
+      </ul>
+
+      {/* Desktop / tablet — full matrix. */}
+      <div className="hidden sm:block overflow-x-auto overflow-y-visible -mx-2 px-2 pt-4 pr-12">
         <table className="min-w-full text-sm border-separate border-spacing-1">
           <thead>
             <tr>
@@ -189,7 +263,11 @@ export function AlertHeatmap({
           </tbody>
         </table>
       </div>
-      <Legend />
+      {/* Legend explains the matrix intensity buckets — only relevant when the
+          matrix itself is visible. */}
+      <div className="hidden sm:block">
+        <Legend />
+      </div>
     </section>
   )
 }
@@ -203,7 +281,7 @@ function Header({
 }) {
   return (
     <header className="mb-5">
-      <p className="pennie-label">{compact ? 'By module × agent' : 'Alert breakdown'}</p>
+      <p className="pennie-label">{compact ? 'By alert type × agent' : 'Alert breakdown'}</p>
       {!compact && (
         <p className="text-xs text-pennie-graphite/60 mt-1">
           Rows lit up signal a systemic issue (training or product); columns lit
@@ -260,7 +338,7 @@ function HeatCell({
         cell
           ? `${total} violation${total === 1 ? '' : 's'}, ${cell.unreviewed} unreviewed${
               cell.reviewed > 0
-                ? `, ${Math.round(fpRate * 100)}% flagged as false positive`
+                ? `, ${Math.round(fpRate * 100)}% flagged in error`
                 : ''
             }`
           : 'No violations'
@@ -287,7 +365,7 @@ function Legend() {
       </div>
       <div className="flex items-center gap-1.5">
         <span className="w-3 h-3 rounded bg-pennie-beige/40 ring-2 ring-pennie-yellow-dark" />
-        <span>≥50% flagged false positive (≥3 reviewed)</span>
+        <span>≥50% flagged in error (≥3 reviewed)</span>
       </div>
     </div>
   )

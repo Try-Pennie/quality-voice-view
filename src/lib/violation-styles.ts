@@ -20,11 +20,14 @@ const PILL_BG_BY_ACCENT: Record<AccentFamily, string> = {
   navy: 'bg-pennie-beige',
 }
 
+// Pill text uses the "deeper" variant where it exists so labels pass WCAG
+// AA on the corresponding light background. blue-dark / peach-dark fail the
+// 4.5:1 contrast ratio for normal text — see tailwind.config.ts notes.
 const PILL_TEXT_BY_ACCENT: Record<AccentFamily, string> = {
-  blue: 'text-pennie-blue-dark',
+  blue: 'text-pennie-blue-deeper',
   green: 'text-pennie-green-dark',
   yellow: 'text-pennie-yellow-dark',
-  peach: 'text-pennie-peach-dark',
+  peach: 'text-pennie-peach-deeper',
   indigo: 'text-pennie-indigo-dark',
   navy: 'text-pennie-navy',
 }

@@ -17,7 +17,7 @@ import type { EavlNotification, NotificationKind } from '../types/database'
 
 const KIND_LABEL: Record<NotificationKind, string> = {
   alert_message: 'replied on an alert',
-  alert_ack_required: 'is asking you to acknowledge',
+  alert_ack_required: 'wants you to reply',
   alert_ack: 'marked an alert reviewed',
 }
 
@@ -97,7 +97,7 @@ export function NotificationBell() {
               ? `Notifications, ${unreadCount} unread`
               : 'Notifications'
           }
-          className="relative min-h-[36px] min-w-[36px] inline-flex items-center justify-center rounded-full text-pennie-graphite/70 hover:text-pennie-navy hover:bg-pennie-beige focus:outline-none focus:ring-2 focus:ring-pennie-blue-dark/70 transition-colors"
+          className="pennie-focus-ring relative min-h-[36px] min-w-[36px] inline-flex items-center justify-center rounded-full text-pennie-graphite/70 hover:text-pennie-navy hover:bg-pennie-beige transition-colors"
         >
           <Bell className="w-4 h-4" aria-hidden="true" />
           {unreadCount > 0 && (
@@ -117,7 +117,7 @@ export function NotificationBell() {
             <button
               type="button"
               onClick={onClearAll}
-              className="text-xs font-semibold text-pennie-blue-dark hover:underline underline-offset-4"
+              className="text-xs font-semibold text-pennie-blue-deeper hover:underline underline-offset-4"
             >
               Mark all read
             </button>

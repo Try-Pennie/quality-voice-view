@@ -7,10 +7,10 @@ export const HELP_CATEGORIES = [
   'Metrics',
   'Filters',
   'Columns',
-  'Modules',
+  'Alert types',
   'Violations',
   'Review actions',
-  'False-positive reasons',
+  'Wrong-flag reasons',
   'Settings',
 ] as const
 
@@ -219,7 +219,7 @@ const ENTRIES = {
   },
   'metric.fp_rate': {
     category: 'Metrics',
-    title: 'False-positive rate',
+    title: 'Flagged-in-error rate',
     body:
       'Share of reviewed alerts that managers marked as "Not accurate". A rising rate means the model is over-firing — flag it to the model team.',
     formula: 'inaccurate ÷ reviewed × 100',
@@ -289,9 +289,9 @@ const ENTRIES = {
   },
   'filter.alerts.module': {
     category: 'Filters',
-    title: 'Module filter',
+    title: 'Alert-type filter',
     body:
-      'Each module is one analyzer Eavesly runs against the call. Pick one or more to focus your queue (e.g. show only warm-transfer alerts on a busy day).',
+      'Each alert type is one analyzer Eavesly runs against the call. Pick one or more to focus your queue (e.g. show only warm-transfer alerts on a busy day).',
   },
 
   // -------- Columns (Dashboard table) --------
@@ -328,31 +328,31 @@ const ENTRIES = {
 
   // -------- Modules --------
   'module.full_qa': {
-    category: 'Modules',
+    category: 'Alert types',
     title: 'Full QA',
     body:
       'The complete scorecard analyzer: compliance + sales process + customer experience for the entire call. Most general-purpose alerts come from here.',
   },
   'module.budget_inputs': {
-    category: 'Modules',
+    category: 'Alert types',
     title: 'Budget inputs',
     body:
       'Verifies the agent collected and disclosed budget figures correctly (income, expenses, debt totals) per program rules.',
   },
   'module.warm_transfer': {
-    category: 'Modules',
+    category: 'Alert types',
     title: 'Warm transfer',
     body:
       'Checks whether the agent properly introduced the customer to the receiving party before disconnecting. Cold or silent transfers fail this check.',
   },
   'module.litigation_check': {
-    category: 'Modules',
+    category: 'Alert types',
     title: 'Litigation check',
     body:
       'Detects mentions of pending lawsuits, garnishments, or attorneys. Agents must confirm or escalate per legal policy when these surface.',
   },
   'module.program_expectations': {
-    category: 'Modules',
+    category: 'Alert types',
     title: 'Program expectations',
     body:
       'Verifies the agent set accurate expectations about timeline, fees, credit impact, and deliverables of the program before close.',
@@ -418,37 +418,37 @@ const ENTRIES = {
 
   // -------- False-positive reasons (alert drawer "What was wrong?") --------
   'inaccuracy.soft_inquiry_misclassified': {
-    category: 'False-positive reasons',
+    category: 'Wrong-flag reasons',
     title: 'Soft inquiry misclassified',
     body:
       'The model treated a soft inquiry (information-only, no commitment) as a violation. Use when the customer was just asking, not buying.',
   },
   'inaccuracy.wrong_context': {
-    category: 'False-positive reasons',
+    category: 'Wrong-flag reasons',
     title: 'Wrong context',
     body:
       'The model misread the conversational context (e.g. agent was role-playing, joking, or quoting the customer back).',
   },
   'inaccuracy.evidence_misquoted': {
-    category: 'False-positive reasons',
+    category: 'Wrong-flag reasons',
     title: 'Evidence misquoted',
     body:
       'The quoted snippet does not match the recording or transcript. Almost always a transcription error to flag to the model team.',
   },
   'inaccuracy.policy_does_not_apply': {
-    category: 'False-positive reasons',
+    category: 'Wrong-flag reasons',
     title: 'Policy does not apply',
     body:
       'The rule the model invoked does not apply to this customer or program (e.g. state-specific disclosure not required here).',
   },
   'inaccuracy.addressed_off_call': {
-    category: 'False-positive reasons',
+    category: 'Wrong-flag reasons',
     title: 'Already addressed off-call',
     body:
       'The "missing" disclosure or step happened in another channel (email, prior call, e-sign) the model could not see.',
   },
   'inaccuracy.other': {
-    category: 'False-positive reasons',
+    category: 'Wrong-flag reasons',
     title: 'Other',
     body:
       'Use when none of the canned reasons fit. Always pair with a comment so the model team can understand.',

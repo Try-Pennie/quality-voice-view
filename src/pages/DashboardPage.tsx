@@ -23,7 +23,7 @@ import { ThresholdSettingsSheet } from '../components/settings/ThresholdSettings
 import { ThresholdSettings, DEFAULT_THRESHOLDS } from '../types/settings'
 import { Settings, Download, Loader2, ChevronRight } from 'lucide-react'
 import { HelpHint } from '../components/ui/help-hint'
-import type { HelpId } from '../lib/help-content'
+import { PageHero, SupportingStat } from '../components/PageHero'
 
 type QuickFilter = 'all' | 'escalations' | 'compliance' | 'threshold'
 
@@ -189,61 +189,70 @@ export default function DashboardPage() {
   }
 
   return (
-    <div className="space-y-8 animate-pennie-rise">
-      {/* Headline + supporting stats (asymmetric) */}
-      <header className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-end">
-        <div className="lg:col-span-7">
-          <p className="pennie-label mb-2">Calls</p>
-          <h1 className="font-display text-[clamp(2.25rem,5vw,3.5rem)] leading-[1.05] tracking-[-0.02em] text-pennie-navy">
-            {metrics.totalCalls.toLocaleString()}{' '}
-            <span className="text-pennie-graphite/70 font-normal text-[0.6em] align-baseline">
+    <div className="space-y-6 sm:space-y-8 animate-pennie-rise">
+      <PageHero
+        label="Calls"
+        statsCols="grid-cols-2 sm:grid-cols-4"
+        headline={
+          <>
+            <span className="tabular-nums">
+              {metrics.totalCalls.toLocaleString()}
+            </span>{' '}
+            <span className="text-pennie-graphite/70 font-medium">
               {isFiltered
                 ? `of ${windowMetrics.totalCalls.toLocaleString()} in window`
                 : metrics.totalCalls === 1
                   ? 'call in window'
                   : 'calls in window'}
             </span>
-          </h1>
-          <p className="mt-3 text-pennie-graphite/70">
-            {metrics.callsRequiringAttention.toLocaleString()} need attention.{' '}
+          </>
+        }
+        description={
+          <>
+            <span className="tabular-nums">
+              {metrics.callsRequiringAttention.toLocaleString()}
+            </span>{' '}
+            need attention.{' '}
             {quickFilter !== 'threshold' && (
               <button
                 type="button"
                 onClick={() => setQuickFilter('threshold')}
-                className="text-pennie-blue-dark font-semibold hover:underline underline-offset-4"
+                className="text-pennie-blue-deeper font-semibold hover:underline underline-offset-4"
               >
                 Show me →
               </button>
             )}
-          </p>
-        </div>
-        <dl className="lg:col-span-5 grid grid-cols-2 sm:grid-cols-4 gap-3">
-          <SupportingStat
-            label="Avg talk"
-            value={formatDuration(metrics.avgTalkTime)}
-            helpId="metric.avg_talk"
-          />
-          <SupportingStat
-            label="Avg handle"
-            value={formatDuration(metrics.avgHandleTime)}
-            helpId="metric.avg_handle"
-          />
-          <SupportingStat
-            label="Compliance"
-            value={`${metrics.compliancePassRate}%`}
-            helpId="metric.compliance_rate"
-          />
-          <SupportingStat
-            label="High CSAT"
-            value={`${metrics.highSatRate}%`}
-            helpId="metric.high_csat"
-          />
-        </dl>
-      </header>
+          </>
+        }
+        stats={
+          <>
+            <SupportingStat
+              label="Avg talk"
+              value={formatDuration(metrics.avgTalkTime)}
+              helpId="metric.avg_talk"
+            />
+            <SupportingStat
+              label="Avg handle"
+              value={formatDuration(metrics.avgHandleTime)}
+              helpId="metric.avg_handle"
+            />
+            <SupportingStat
+              label="Compliance"
+              value={`${metrics.compliancePassRate}%`}
+              helpId="metric.compliance_rate"
+            />
+            <SupportingStat
+              label="High CSAT"
+              value={`${metrics.highSatRate}%`}
+              helpId="metric.high_csat"
+            />
+          </>
+        }
+      />
 
       {/* Header actions */}
       <div className="flex flex-wrap items-center justify-between gap-4">
-        <div className="flex flex-wrap gap-5 items-end">
+        <div className="flex flex-wrap gap-3 sm:gap-5 items-end">
           <DateRangePicker
             startDate={startDate}
             endDate={endDate}
@@ -316,9 +325,86 @@ export default function DashboardPage() {
         ))}
       </div>
 
-      {/* Calls table */}
+      {/* Calls list — desktop renders the wide table, mobile renders a stacked
+          card list with the most-scannable fields. Both views drive the same
+          navigation handler so keyboard / click semantics match. */}
       <section className="bg-pennie-white rounded-3xl shadow-resting overflow-hidden">
-        <div className="overflow-x-auto">
+        {/* Mobile card list */}
+        <ul className="md:hidden divide-y divide-border/60">
+          {loading
+            ? Array.from({ length: 6 }).map((_, i) => (
+                <li key={`sk-mob-${i}`} className="px-4 py-4">
+                  <span
+                    className="block h-3 rounded-full bg-pennie-beige animate-pulse"
+                    style={{ width: `${45 + (i % 5) * 8}%` }}
+                  />
+                  <span
+                    className="mt-2 block h-2.5 rounded-full bg-pennie-beige animate-pulse"
+                    style={{ width: `${30 + (i % 4) * 10}%` }}
+                  />
+                </li>
+              ))
+            : paginatedCalls.map(call => {
+                const isEscalation = call.qa?.manager_escalation
+                const isComplianceFail =
+                  call.qa?.compliance_rating === 'fail'
+                const stripeBg = isEscalation
+                  ? 'bg-pennie-peach-dark'
+                  : isComplianceFail
+                    ? 'bg-pennie-yellow-dark'
+                    : 'bg-transparent'
+                const goToCall = () =>
+                  navigate(`/dashboard/calls/${call.call_id}`)
+                return (
+                  <li key={`mob-${call.id}`}>
+                    <button
+                      type="button"
+                      onClick={goToCall}
+                      className="pennie-focus-ring-inset relative w-full text-left px-4 py-4 flex gap-3 items-start hover:bg-pennie-beige/40 active:bg-pennie-beige/60 transition-colors"
+                    >
+                      <span
+                        className={`mt-1 w-1 self-stretch rounded-full ${stripeBg}`}
+                        aria-hidden="true"
+                      />
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-baseline justify-between gap-3">
+                          <p className="text-sm font-semibold text-pennie-navy truncate">
+                            {call.agent_full_name || 'Unknown'}
+                          </p>
+                          <span className="text-[11px] text-muted-foreground tabular-nums whitespace-nowrap">
+                            {formatDateTime(call.started_at)}
+                          </span>
+                        </div>
+                        <p className="mt-0.5 text-xs text-muted-foreground tabular-nums">
+                          {formatPhoneNumber(call.contact_phone)} ·{' '}
+                          {formatDuration(call.talk_time)}
+                        </p>
+                        {call.disposition && (
+                          <p className="mt-1 text-xs text-pennie-graphite/70 truncate">
+                            <DispositionCell value={call.disposition} />
+                          </p>
+                        )}
+                        <div className="mt-2 flex flex-wrap gap-1.5">
+                          <ScorePill score={call.qa?.overall_score} />
+                          <ScorePill score={call.qa?.compliance_rating} />
+                          <ScorePill
+                            score={call.qa?.customer_satisfaction_likely}
+                          />
+                        </div>
+                      </div>
+                      <ChevronRight
+                        aria-hidden="true"
+                        className="self-center w-4 h-4 text-pennie-graphite/40 flex-none"
+                      />
+                      <span className="sr-only">View call details</span>
+                    </button>
+                  </li>
+                )
+              })}
+        </ul>
+
+        {/* Desktop / tablet table */}
+        <div className="hidden md:block overflow-x-auto">
           <table className="min-w-full">
             <thead className="bg-pennie-beige/60">
               <tr>
@@ -388,7 +474,7 @@ export default function DashboardPage() {
                         goToCall()
                       }
                     }}
-                    className={`group cursor-pointer transition-colors duration-150 hover:bg-pennie-beige/40 focus:outline-none focus:bg-pennie-beige/40 focus-visible:ring-2 focus-visible:ring-pennie-blue-dark/40 focus-visible:ring-inset ${
+                    className={`pennie-focus-ring-inset group cursor-pointer transition-colors duration-150 hover:bg-pennie-beige/40 ${
                       i !== 0 ? 'border-t border-border/60' : ''
                     }`}
                   >
@@ -428,7 +514,7 @@ export default function DashboardPage() {
                     <td className="pl-2 pr-5 py-4 w-10 text-right">
                       <ChevronRight
                         aria-hidden="true"
-                        className="inline-block w-4 h-4 text-pennie-graphite/35 transition-all duration-150 group-hover:text-pennie-blue-dark group-hover:translate-x-0.5"
+                        className="inline-block w-4 h-4 text-pennie-graphite/35 transition-all duration-150 group-hover:text-pennie-blue-deeper group-hover:translate-x-0.5"
                       />
                       <span className="sr-only">View call details</span>
                     </td>
@@ -441,7 +527,7 @@ export default function DashboardPage() {
 
         {/* Pagination */}
         {!loading && (
-        <div className="bg-pennie-beige/40 px-6 py-4 flex items-center justify-between border-t border-border">
+        <div className="bg-pennie-beige/40 px-4 sm:px-6 py-3 sm:py-4 flex flex-wrap items-center justify-between gap-3 border-t border-border">
           <p className="text-sm text-muted-foreground tabular-nums">
             Showing {filteredCalls.length === 0 ? 0 : startIndex + 1}–
             {Math.min(endIndex, filteredCalls.length)} of {filteredCalls.length}
@@ -503,7 +589,7 @@ export default function DashboardPage() {
               setSelectedAgents([])
               setSelectedDispositions([])
             }}
-            className="mt-3 text-sm font-semibold text-pennie-blue-dark hover:underline underline-offset-4"
+            className="mt-3 text-sm font-semibold text-pennie-blue-deeper hover:underline underline-offset-4"
           >
             Clear filters
           </button>
@@ -515,28 +601,6 @@ export default function DashboardPage() {
         onClose={() => setShowSettings(false)}
         onSave={handleSaveThresholds}
       />
-    </div>
-  )
-}
-
-function SupportingStat({
-  label,
-  value,
-  helpId,
-}: {
-  label: string
-  value: string | number
-  helpId?: HelpId
-}) {
-  return (
-    <div>
-      <dt className="pennie-label inline-flex items-center gap-1">
-        {label}
-        {helpId && <HelpHint id={helpId} />}
-      </dt>
-      <dd className="mt-1 text-2xl font-semibold text-pennie-navy tabular-nums">
-        {value}
-      </dd>
     </div>
   )
 }

@@ -49,14 +49,14 @@ export function getScoreBadgeColor(score: string | null): string {
       return 'pennie-pill bg-pennie-green-light text-pennie-green-dark'
     case 'good':
     case 'medium':
-      return 'pennie-pill bg-pennie-blue-light text-pennie-blue-dark'
+      return 'pennie-pill bg-pennie-blue-light text-pennie-blue-deeper'
     case 'needs_improvement':
     case 'fair':
     case 'low':
       return 'pennie-pill bg-pennie-yellow-light text-pennie-yellow-dark'
     case 'poor':
     case 'fail':
-      return 'pennie-pill bg-pennie-peach-light text-pennie-peach-dark'
+      return 'pennie-pill bg-pennie-peach-light text-pennie-peach-deeper'
     default:
       return 'pennie-pill bg-pennie-beige text-pennie-navy'
   }

@@ -78,7 +78,7 @@ export function AgentRecentCalls({
                     </div>
                   </div>
                   <span
-                    className="text-pennie-blue-dark text-sm font-semibold shrink-0"
+                    className="text-pennie-blue-deeper text-sm font-semibold shrink-0"
                     aria-hidden="true"
                   >
                     →

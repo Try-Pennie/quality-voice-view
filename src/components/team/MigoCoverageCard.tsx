@@ -112,7 +112,7 @@ function Stat({
     tone === 'positive'
       ? 'text-pennie-green-dark'
       : tone === 'negative'
-        ? 'text-pennie-peach-dark'
+        ? 'text-pennie-peach-deeper'
         : 'text-pennie-navy'
   return (
     <div>

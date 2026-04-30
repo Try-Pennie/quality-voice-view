@@ -7,6 +7,17 @@ import {
   SheetHeader,
   SheetTitle,
 } from '@/components/ui/sheet'
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from '@/components/ui/alert-dialog'
 import { AudioPlayer } from '@/components/call-detail/AudioPlayer'
 import {
   ACTION_TAKEN_LABELS,
@@ -388,7 +399,7 @@ export function AlertReviewDrawer({
                   href={alert.transcript_url}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="inline-flex items-center gap-1 text-pennie-blue-dark font-semibold hover:underline underline-offset-4"
+                  className="inline-flex items-center gap-1 text-pennie-blue-deeper font-semibold hover:underline underline-offset-4"
                 >
                   Transcript <ExternalLink className="w-3 h-3" aria-hidden="true" />
                 </a>
@@ -398,7 +409,7 @@ export function AlertReviewDrawer({
                   href={alert.recording_link}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="inline-flex items-center gap-1 text-pennie-blue-dark font-semibold hover:underline underline-offset-4"
+                  className="inline-flex items-center gap-1 text-pennie-blue-deeper font-semibold hover:underline underline-offset-4"
                 >
                   Open recording <ExternalLink className="w-3 h-3" aria-hidden="true" />
                 </a>
@@ -408,7 +419,7 @@ export function AlertReviewDrawer({
                   href={`https://trypennie.lightning.force.com/lightning/r/Lead/${alert.sfdc_lead_id}/view`}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="inline-flex items-center gap-1 text-pennie-blue-dark font-semibold hover:underline underline-offset-4"
+                  className="inline-flex items-center gap-1 text-pennie-blue-deeper font-semibold hover:underline underline-offset-4"
                 >
                   SFDC: {alert.sfdc_lead_id} <ExternalLink className="w-3 h-3" aria-hidden="true" />
                 </a>
@@ -549,7 +560,7 @@ export function AlertReviewDrawer({
               <div
                 className="flex flex-wrap gap-1.5"
                 role="radiogroup"
-                aria-label="Inaccuracy reason"
+                aria-label="Why was it wrong?"
               >
                 {INACCURACY_OPTIONS.map((opt, i) => (
                   <Chip
@@ -577,7 +588,7 @@ export function AlertReviewDrawer({
                 onChange={e => setComment(e.target.value)}
                 placeholder="Add context for the model team…"
                 rows={2}
-                className="w-full px-3 py-2 rounded-2xl border border-border bg-pennie-white text-base sm:text-sm font-medium resize-none focus:outline-none focus:ring-2 focus:ring-pennie-blue-dark/40 focus:border-pennie-blue-dark"
+                className="w-full px-3 py-2 rounded-2xl border border-border bg-pennie-white text-base sm:text-sm font-medium resize-none focus:outline-none focus:ring-2 focus:ring-pennie-blue-deeper/40 focus:border-pennie-blue-deeper"
               />
             </div>
           )}
@@ -861,7 +872,7 @@ function ThreadSection({
                 onPost()
               }
             }}
-            className="flex-1 px-3 py-2 rounded-2xl border border-border bg-pennie-white text-base sm:text-sm font-medium resize-none focus:outline-none focus:ring-2 focus:ring-pennie-blue-dark/40 focus:border-pennie-blue-dark disabled:opacity-50"
+            className="flex-1 px-3 py-2 rounded-2xl border border-border bg-pennie-white text-base sm:text-sm font-medium resize-none focus:outline-none focus:ring-2 focus:ring-pennie-blue-deeper/40 focus:border-pennie-blue-deeper disabled:opacity-50"
           />
           <button
             type="button"
@@ -883,12 +894,12 @@ function ThreadSection({
             checked={requireAck}
             onChange={e => onSetRequireAck(e.target.checked)}
             disabled={!currentUserEmail || posting}
-            className="w-4 h-4 rounded border-border text-pennie-blue-dark focus:ring-pennie-blue-dark/40"
+            className="w-4 h-4 rounded border-border text-pennie-blue-deeper focus:ring-pennie-blue-deeper/40"
           />
           <span>
-            Require acknowledgment
+            Require a reply
             <span className="ml-1.5 text-pennie-graphite/60">
-              — recipients see an "Acknowledge" prompt and are nudged to reply.
+              — recipients see a "Reply" prompt so you know they saw it.
             </span>
           </span>
         </label>
@@ -963,10 +974,10 @@ function MessageItem({
               className={`text-[10px] uppercase tracking-wider px-1.5 py-0.5 rounded-full font-bold ${
                 acknowledged
                   ? 'bg-pennie-green-light text-pennie-green-dark'
-                  : 'bg-pennie-peach-light text-pennie-peach-dark'
+                  : 'bg-pennie-peach-light text-pennie-peach-deeper'
               }`}
             >
-              {acknowledged ? 'Acknowledged' : 'Needs ack'}
+              {acknowledged ? 'Got reply' : 'Needs reply'}
             </span>
           )}
         </span>
@@ -981,7 +992,7 @@ function MessageItem({
             value={draft}
             onChange={e => setDraft(e.target.value)}
             rows={3}
-            className="w-full px-3 py-2 rounded-xl border border-border bg-pennie-white text-base sm:text-sm font-medium resize-none focus:outline-none focus:ring-2 focus:ring-pennie-blue-dark/40 focus:border-pennie-blue-dark"
+            className="w-full px-3 py-2 rounded-xl border border-border bg-pennie-white text-base sm:text-sm font-medium resize-none focus:outline-none focus:ring-2 focus:ring-pennie-blue-deeper/40 focus:border-pennie-blue-deeper"
           />
           <div className="flex justify-end gap-2 mt-2">
             <button
@@ -1020,7 +1031,7 @@ function MessageItem({
                 onClick={onReply}
                 className="min-h-[40px] sm:min-h-[28px] px-3 py-1.5 rounded-full bg-pennie-peach-dark text-pennie-white font-semibold hover:bg-pennie-peach-dark/90"
               >
-                Acknowledge
+                Reply now
               </button>
             )}
             <button
@@ -1041,17 +1052,40 @@ function MessageItem({
                   <Pencil className="w-3 h-3" aria-hidden="true" />
                   Edit
                 </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    if (confirm('Delete this message?')) onDelete()
-                  }}
-                  aria-label="Delete message"
-                  className="min-h-[40px] sm:min-h-0 px-2 sm:px-0 py-2 sm:py-0 inline-flex items-center gap-1 font-semibold text-pennie-graphite/70 hover:text-pennie-peach-dark"
-                >
-                  <Trash2 className="w-3 h-3" aria-hidden="true" />
-                  Delete
-                </button>
+                <AlertDialog>
+                  <AlertDialogTrigger asChild>
+                    <button
+                      type="button"
+                      aria-label="Delete message"
+                      className="min-h-[40px] sm:min-h-0 px-2 sm:px-0 py-2 sm:py-0 inline-flex items-center gap-1 font-semibold text-pennie-graphite/70 hover:text-pennie-peach-deeper"
+                    >
+                      <Trash2 className="w-3 h-3" aria-hidden="true" />
+                      Delete
+                    </button>
+                  </AlertDialogTrigger>
+                  <AlertDialogContent className="rounded-3xl bg-pennie-white border-border">
+                    <AlertDialogHeader>
+                      <AlertDialogTitle className="text-pennie-navy">
+                        Delete this message?
+                      </AlertDialogTitle>
+                      <AlertDialogDescription className="text-pennie-graphite">
+                        It'll be removed from the discussion. You can't undo
+                        this.
+                      </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                      <AlertDialogCancel className="rounded-full">
+                        Keep it
+                      </AlertDialogCancel>
+                      <AlertDialogAction
+                        onClick={onDelete}
+                        className="rounded-full bg-pennie-peach-dark text-pennie-white hover:bg-pennie-peach-dark/90"
+                      >
+                        Delete
+                      </AlertDialogAction>
+                    </AlertDialogFooter>
+                  </AlertDialogContent>
+                </AlertDialog>
               </>
             )}
           </footer>

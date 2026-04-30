@@ -26,9 +26,9 @@ import { DateRangePicker } from '../components/dashboard/DateRangePicker'
 import { AlertReviewDrawer } from '../components/alerts/AlertReviewDrawer'
 import { formatDateParam, parseDateParam } from '../lib/url-filters'
 import { ymdInBusinessTZ } from '../lib/time-zone'
-import { CheckCheck, Inbox, MessageSquare, Search } from 'lucide-react'
+import { CheckCheck, ChevronDown, ChevronRight, Inbox, MessageSquare, Search } from 'lucide-react'
 import { HelpHint } from '../components/ui/help-hint'
-import type { HelpId } from '../lib/help-content'
+import { PageHero, SupportingStat } from '../components/PageHero'
 
 const MODULE_OPTIONS = [
   { value: 'full_qa', label: MODULE_LABELS.full_qa },
@@ -83,6 +83,9 @@ export default function AlertsPage() {
     return m ? m.split(',').filter(Boolean) : []
   })
   const [search, setSearch] = useState(() => searchParams.get('search') || '')
+  // Mobile-only collapse state for the alert-type chip row. Open by default
+  // on `sm+` (the disclosure trigger is hidden); state ignored there.
+  const [alertTypeOpen, setAlertTypeOpen] = useState(false)
 
   // Only date + module hit the server; status, accuracy, and search are
   // applied client-side against the in-memory result set.
@@ -367,46 +370,48 @@ export default function AlertsPage() {
         : 'in window'
 
   return (
-    <div className="space-y-8 animate-pennie-rise">
-      {/* Headline + supporting trio (asymmetric, type-driven) */}
-      <header className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-end">
-        <div className="lg:col-span-7">
-          <p className="pennie-label mb-2">Alert review queue</p>
-          <h1 className="font-display text-[clamp(2.25rem,5vw,3.5rem)] leading-[1.05] tracking-[-0.02em] text-pennie-navy">
+    <div className="space-y-6 sm:space-y-8 animate-pennie-rise">
+      <PageHero
+        label="Alert review queue"
+        display
+        headline={
+          <>
             {headlineNumber.toLocaleString()}{' '}
             <span className="text-pennie-graphite/70 font-normal text-[0.6em] align-baseline">
               {headlineLabel}
             </span>
-          </h1>
-          <p className="mt-3 text-pennie-graphite/70 max-w-prose">
-            {scope.isGodMode
-              ? 'God-mode view: every manager’s alerts are visible.'
-              : `Alerts for ${scope.managedAgents.length} agent${scope.managedAgents.length === 1 ? '' : 's'} on your team.`}
-          </p>
-        </div>
-        <dl className="lg:col-span-5 grid grid-cols-3 gap-3">
-          <SupportingStat
-            label="Reviewed"
-            value={`${stats.reviewed} / ${stats.total}`}
-            helpId="metric.alert_reviewed"
-          />
-          <SupportingStat
-            label="False-positive rate"
-            value={stats.fpRate === null ? '—' : `${stats.fpRate}%`}
-            hint={
-              stats.reviewed > 0
-                ? `${stats.inaccurate} of ${stats.reviewed}`
-                : 'No feedback yet'
-            }
-            helpId="metric.fp_rate"
-          />
-          <SupportingStat
-            label="Agents flagged"
-            value={stats.flaggedAgents}
-            helpId="metric.agents_flagged"
-          />
-        </dl>
-      </header>
+          </>
+        }
+        description={
+          scope.isGodMode
+            ? 'God-mode view: every manager’s alerts are visible.'
+            : `Alerts for ${scope.managedAgents.length} agent${scope.managedAgents.length === 1 ? '' : 's'} on your team.`
+        }
+        stats={
+          <>
+            <SupportingStat
+              label="Reviewed"
+              value={`${stats.reviewed} / ${stats.total}`}
+              helpId="metric.alert_reviewed"
+            />
+            <SupportingStat
+              label="Flagged in error"
+              value={stats.fpRate === null ? '—' : `${stats.fpRate}%`}
+              hint={
+                stats.reviewed > 0
+                  ? `${stats.inaccurate} of ${stats.reviewed}`
+                  : 'No feedback yet'
+              }
+              helpId="metric.fp_rate"
+            />
+            <SupportingStat
+              label="Agents flagged"
+              value={stats.flaggedAgents}
+              helpId="metric.agents_flagged"
+            />
+          </>
+        }
+      />
 
       <div className="space-y-2">
         <AlertHeatmap
@@ -419,14 +424,14 @@ export default function AlertsPage() {
         />
         {moduleFilter.length > 0 && (
           <p className="text-xs text-pennie-graphite/60 px-2">
-            Heatmap shows all modules — module filter applies to the alert list below.
+            Heatmap shows all alert types — your filter applies to the list below.
           </p>
         )}
       </div>
 
       {/* Filters */}
       <section className="pennie-card-tight space-y-4">
-        <div className="flex flex-wrap gap-5 items-end">
+        <div className="flex flex-wrap gap-3 sm:gap-5 items-end">
           <DateRangePicker
             startDate={startDate}
             endDate={endDate}
@@ -471,21 +476,51 @@ export default function AlertsPage() {
                 value={search}
                 onChange={e => setSearch(e.target.value)}
                 placeholder="Call id, phone, lead, or agent…"
-                className="w-full min-h-[44px] sm:min-h-[40px] pl-9 pr-3 py-2 rounded-full border border-border bg-pennie-white text-base sm:text-sm font-medium placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-pennie-blue-dark/40 focus:border-pennie-blue-dark"
+                className="w-full min-h-[44px] sm:min-h-[40px] pl-9 pr-3 py-2 rounded-full border border-border bg-pennie-white text-base sm:text-sm font-medium placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-pennie-blue-deeper/40 focus:border-pennie-blue-deeper"
               />
             </div>
           </div>
         </div>
 
         <div>
-          <p className="pennie-label mb-2 inline-flex items-center gap-1">
-            Filter by module
+          {/* Desktop label — kept inline with the chips on `sm+`. Mobile uses
+              the disclosure trigger below as both label and toggle. */}
+          <p className="pennie-label mb-2 hidden sm:inline-flex items-center gap-1">
+            Filter by alert type
             <HelpHint id="filter.alerts.module" />
           </p>
+
+          {/* Mobile-only disclosure trigger. Collapses the 5 chips on phones
+              (where they triple-wrap and dominate the viewport) without
+              touching the desktop layout. */}
+          <button
+            type="button"
+            onClick={() => setAlertTypeOpen(o => !o)}
+            aria-expanded={alertTypeOpen}
+            aria-controls="alert-type-filter-list"
+            className="pennie-focus-ring sm:hidden flex items-center justify-between w-full min-h-[44px] px-4 mb-2 rounded-full border border-border bg-pennie-white text-sm font-semibold text-pennie-graphite"
+          >
+            <span className="inline-flex items-center gap-2">
+              Filter by alert type
+              {moduleFilter.length > 0 && (
+                <span className="inline-flex items-center justify-center min-w-[20px] h-5 px-1.5 rounded-full bg-pennie-blue-deeper text-pennie-white text-[11px] font-bold tabular-nums">
+                  {moduleFilter.length}
+                </span>
+              )}
+            </span>
+            <ChevronDown
+              aria-hidden="true"
+              className={`w-4 h-4 transition-transform ${
+                alertTypeOpen ? 'rotate-180' : ''
+              }`}
+            />
+          </button>
+
           <div
-            className="flex flex-wrap gap-2"
+            id="alert-type-filter-list"
+            className={`${alertTypeOpen ? 'flex' : 'hidden'} sm:flex flex-wrap gap-2`}
             role="group"
-            aria-label="Filter by module"
+            aria-label="Filter by alert type"
           >
             {MODULE_OPTIONS.map(m => {
               const active = moduleFilter.includes(m.value)
@@ -547,7 +582,7 @@ export default function AlertsPage() {
                   <Th>Violation</Th>
                   <Th>Summary</Th>
                   <Th>Status</Th>
-                  <Th>Action</Th>
+                  <th aria-hidden="true" className="w-10" />
                 </tr>
               </thead>
               <tbody>
@@ -557,7 +592,7 @@ export default function AlertsPage() {
                     role="button"
                     tabIndex={0}
                     aria-label={`Review ${VIOLATION_TYPE_LABELS[a.violation_type] ?? a.violation_type} alert for ${a.contact_name ?? 'unknown contact'}`}
-                    className={`group cursor-pointer transition-colors duration-150 focus:outline-none focus:bg-pennie-blue-light hover:bg-pennie-blue-light/40 ${
+                    className={`pennie-focus-ring-inset group cursor-pointer transition-colors duration-150 hover:bg-pennie-blue-light/40 ${
                       i !== 0 ? 'border-t border-border/60' : ''
                     }`}
                     onClick={() => openDrawer(a)}
@@ -595,11 +630,13 @@ export default function AlertsPage() {
                         <ActivityBadges alert={a} />
                       </div>
                     </Td>
-                    <Td>
-                      <span className="text-sm font-semibold text-pennie-blue-dark group-hover:underline underline-offset-4">
-                        Review
-                      </span>
-                    </Td>
+                    <td className="pl-2 pr-5 py-3 sm:py-4 w-10 align-middle text-right">
+                      <ChevronRight
+                        aria-hidden="true"
+                        className="inline-block w-4 h-4 text-pennie-graphite/35 transition-all duration-150 group-hover:text-pennie-blue-deeper group-hover:translate-x-0.5"
+                      />
+                      <span className="sr-only">Review alert</span>
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -650,7 +687,7 @@ function SkeletonAlertsTable() {
             <Th>Violation</Th>
             <Th>Summary</Th>
             <Th>Status</Th>
-            <Th>Action</Th>
+            <th aria-hidden="true" className="w-10" />
           </tr>
         </thead>
         <tbody>
@@ -659,7 +696,7 @@ function SkeletonAlertsTable() {
               key={i}
               className={i !== 0 ? 'border-t border-border/60' : ''}
             >
-              {Array.from({ length: 7 }).map((__, j) => (
+              {Array.from({ length: 6 }).map((__, j) => (
                 <td key={j} className="px-6 py-4 align-top">
                   <span
                     className="block h-3 rounded-full bg-pennie-beige animate-pulse"
@@ -667,37 +704,11 @@ function SkeletonAlertsTable() {
                   />
                 </td>
               ))}
+              <td className="w-10" aria-hidden="true" />
             </tr>
           ))}
         </tbody>
       </table>
-    </div>
-  )
-}
-
-function SupportingStat({
-  label,
-  value,
-  hint,
-  helpId,
-}: {
-  label: string
-  value: string | number
-  hint?: string
-  helpId?: HelpId
-}) {
-  return (
-    <div>
-      <dt className="pennie-label inline-flex items-center gap-1">
-        {label}
-        {helpId && <HelpHint id={helpId} />}
-      </dt>
-      <dd className="mt-1 text-2xl font-semibold text-pennie-navy tabular-nums">
-        {value}
-      </dd>
-      {hint && (
-        <dd className="text-[11px] text-muted-foreground mt-0.5">{hint}</dd>
-      )}
     </div>
   )
 }
@@ -727,7 +738,7 @@ function ActivityBadges({ alert }: { alert: AlertWithFeedback }) {
     <div className="flex items-center gap-1.5">
       {messageCount > 0 && (
         <span
-          className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-pennie-blue-light/60 text-pennie-blue-dark text-[11px] font-semibold tabular-nums"
+          className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-pennie-blue-light/60 text-pennie-blue-deeper text-[11px] font-semibold tabular-nums"
           title={`${messageCount} message${messageCount === 1 ? '' : 's'}`}
         >
           <MessageSquare className="w-3 h-3" aria-hidden="true" />
@@ -761,7 +772,7 @@ function StatusPill({ alert }: { alert: AlertWithFeedback }) {
   if (alert.accurate === false) {
     return (
       <span className={pillClasses(accentForReviewStatus('false_positive'))}>
-        False positive
+        Not accurate
       </span>
     )
   }

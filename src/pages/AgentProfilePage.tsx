@@ -50,7 +50,7 @@ export default function AgentProfilePage() {
         <button
           type="button"
           onClick={() => navigate('/dashboard/team')}
-          className="inline-flex items-center gap-1 text-sm font-semibold text-pennie-blue-dark hover:underline underline-offset-4"
+          className="inline-flex items-center gap-1 text-sm font-semibold text-pennie-blue-deeper hover:underline underline-offset-4"
         >
           <ChevronLeft className="w-4 h-4" aria-hidden="true" />
           Back to team
@@ -65,11 +65,11 @@ export default function AgentProfilePage() {
   }
 
   return (
-    <div className="space-y-8 animate-pennie-rise">
+    <div className="space-y-6 sm:space-y-8 animate-pennie-rise">
       <button
         type="button"
         onClick={() => navigate('/dashboard/team')}
-        className="inline-flex items-center gap-1 text-sm font-semibold text-pennie-blue-dark hover:underline underline-offset-4"
+        className="inline-flex items-center gap-1 text-sm font-semibold text-pennie-blue-deeper hover:underline underline-offset-4"
       >
         <ChevronLeft className="w-4 h-4" aria-hidden="true" />
         Back to team

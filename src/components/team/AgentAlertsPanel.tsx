@@ -87,7 +87,7 @@ export function AgentAlertsPanel({
                     </p>
                   </div>
                   <span
-                    className="shrink-0 text-pennie-blue-dark text-sm font-semibold"
+                    className="shrink-0 text-pennie-blue-deeper text-sm font-semibold"
                     aria-hidden="true"
                   >
                     →

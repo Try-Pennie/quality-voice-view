@@ -85,7 +85,131 @@ export function TeamLeaderboard({
 
   return (
     <section className="bg-pennie-white rounded-3xl shadow-resting overflow-hidden">
-      <div className="overflow-x-auto">
+      {/* Mobile sort control — the desktop table sorts via column headers,
+          which collapse on phone, so expose a single dropdown instead. */}
+      <div className="md:hidden border-b border-border bg-pennie-beige/40 px-4 py-3 flex items-center justify-between gap-2">
+        <label
+          htmlFor="team-leaderboard-mobile-sort"
+          className="pennie-label flex-none"
+        >
+          Sort
+        </label>
+        <select
+          id="team-leaderboard-mobile-sort"
+          value={`${sortKey}:${sortDir}`}
+          onChange={e => {
+            const [k, d] = e.target.value.split(':') as [SortKey, 'asc' | 'desc']
+            setSortKey(k)
+            setSortDir(d)
+          }}
+          className="pennie-focus-ring flex-1 min-h-[40px] rounded-full border border-border bg-pennie-white px-3 text-sm font-semibold text-pennie-navy"
+        >
+          <option value="attention:desc">Needs attention first</option>
+          <option value="name:asc">Agent name (A → Z)</option>
+          <option value="calls:desc">Calls (high → low)</option>
+          <option value="compliance:asc">Compliance (low → high)</option>
+          <option value="csat:asc">CSAT high (low → high)</option>
+          <option value="escalation:desc">Escalation (high → low)</option>
+          <option value="alerts:desc">Open alerts (high → low)</option>
+          <option value="total_alerts:desc">Total alerts (high → low)</option>
+        </select>
+      </div>
+
+      {/* Mobile card list */}
+      <ul className="md:hidden divide-y divide-border/60">
+        {loading ? (
+          Array.from({ length: 5 }).map((_, i) => (
+            <li key={`sk-mob-${i}`} className="px-4 py-4">
+              <span
+                className="block h-3 rounded-full bg-pennie-beige animate-pulse"
+                style={{ width: `${45 + (i % 5) * 8}%` }}
+              />
+              <span
+                className="mt-2 block h-2.5 rounded-full bg-pennie-beige animate-pulse"
+                style={{ width: `${30 + (i % 4) * 10}%` }}
+              />
+            </li>
+          ))
+        ) : sorted.length === 0 ? (
+          <li className="px-6 py-10 text-center text-pennie-graphite/70">
+            No agents match your filters.
+          </li>
+        ) : (
+          sorted.map(agent => {
+            const stripeBg = agent.needs_attention
+              ? agent.unreviewed_alerts_count > 0
+                ? 'bg-pennie-peach-dark'
+                : 'bg-pennie-yellow-dark'
+              : 'bg-transparent'
+            return (
+              <li key={`mob-${agent.agent_email}`}>
+                <button
+                  type="button"
+                  onClick={() => onSelect(agent)}
+                  className="pennie-focus-ring-inset relative w-full text-left px-4 py-4 flex gap-3 items-start hover:bg-pennie-beige/40 active:bg-pennie-beige/60 transition-colors"
+                >
+                  <span
+                    className={`mt-1 w-1 self-stretch rounded-full ${stripeBg}`}
+                    aria-hidden="true"
+                  />
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-semibold text-pennie-navy truncate">
+                      {agent.agent_full_name || 'Unknown'}
+                    </p>
+                    <p className="mt-0.5 text-xs text-pennie-graphite/60 truncate">
+                      {agent.agent_email}
+                    </p>
+                    <dl className="mt-2 grid grid-cols-3 gap-x-3 gap-y-1 text-xs">
+                      <div>
+                        <dt className="text-[10px] uppercase tracking-wider text-pennie-graphite/50 font-bold">
+                          Compliance
+                        </dt>
+                        <dd className="mt-0.5">
+                          <PercentCell
+                            value={agent.compliance_pass_rate}
+                            zero={agent.qa_count === 0}
+                            threshold={80}
+                            warnBelow
+                          />
+                        </dd>
+                      </div>
+                      <div>
+                        <dt className="text-[10px] uppercase tracking-wider text-pennie-graphite/50 font-bold">
+                          Calls
+                        </dt>
+                        <dd className="mt-0.5 text-sm font-semibold text-pennie-navy tabular-nums">
+                          {agent.call_count}
+                        </dd>
+                      </div>
+                      <div>
+                        <dt className="text-[10px] uppercase tracking-wider text-pennie-graphite/50 font-bold">
+                          Alerts
+                        </dt>
+                        <dd className="mt-0.5">
+                          <AlertCountPill
+                            unreviewed={agent.unreviewed_alerts_count}
+                            total={agent.open_alerts_count}
+                          />
+                        </dd>
+                      </div>
+                    </dl>
+                  </div>
+                  <span
+                    aria-hidden="true"
+                    className="self-center text-pennie-graphite/40 flex-none text-lg leading-none"
+                  >
+                    ›
+                  </span>
+                  <span className="sr-only">View {agent.agent_full_name || agent.agent_email}'s profile</span>
+                </button>
+              </li>
+            )
+          })
+        )}
+      </ul>
+
+      {/* Desktop / tablet table */}
+      <div className="hidden md:block overflow-x-auto">
         <table className="min-w-full">
           <thead className="bg-pennie-beige/60">
             <tr>
@@ -269,7 +393,7 @@ export function TeamLeaderboard({
                       <AgentSparkline points={agent.trend_points} />
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
-                      <span className="text-pennie-blue-dark font-semibold text-sm">
+                      <span className="text-pennie-blue-deeper font-semibold text-sm">
                         View profile →
                       </span>
                     </td>
@@ -305,7 +429,7 @@ function PercentCell({
   return (
     <span
       className={`text-sm font-semibold tabular-nums ${
-        isWarn ? 'text-pennie-peach-dark' : 'text-pennie-navy'
+        isWarn ? 'text-pennie-peach-deeper' : 'text-pennie-navy'
       }`}
     >
       {value}%
@@ -325,7 +449,7 @@ function AlertCountPill({
   }
   const tone =
     unreviewed > 0
-      ? 'bg-pennie-peach-light text-pennie-peach-dark'
+      ? 'bg-pennie-peach-light text-pennie-peach-deeper'
       : 'bg-pennie-beige text-pennie-navy'
   return (
     <span

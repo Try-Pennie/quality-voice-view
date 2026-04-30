@@ -62,7 +62,7 @@ export default function HelpPage() {
   )
 
   return (
-    <div className="space-y-8 animate-pennie-rise">
+    <div className="space-y-6 sm:space-y-8 animate-pennie-rise">
       {/* Quieter reference-style header — this is a glossary, not a hero. */}
       <header className="flex flex-wrap items-end justify-between gap-6 pb-2 border-b border-border/60">
         <div>
@@ -90,7 +90,7 @@ export default function HelpPage() {
               value={query}
               onChange={e => setQuery(e.target.value)}
               placeholder="Search definitions…"
-              className="w-full min-h-[40px] pl-9 pr-3 py-2 rounded-full border border-border bg-pennie-white text-sm font-medium placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-pennie-blue-dark/70 focus:border-pennie-blue-dark"
+              className="w-full min-h-[40px] pl-9 pr-3 py-2 rounded-full border border-border bg-pennie-white text-sm font-medium placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-pennie-blue-deeper/40 focus:border-pennie-blue-deeper"
             />
           </div>
           {query.trim() && (

@@ -59,6 +59,9 @@ export default {
           "blue-light": "#ECF8FF",
           "blue-main": "#82D0FF",
           "blue-dark": "#439FE1",
+          // Use for text/links on light surfaces — passes WCAG AA (≥4.5:1)
+          // where blue-dark fails (3.16:1). Reserve blue-dark for fills/icons.
+          "blue-deeper": "#1A6CA3",
           "green-light": "#F0F9F1",
           "green-main": "#86E7B3",
           "green-dark": "#55CF90",
@@ -68,6 +71,9 @@ export default {
           "peach-light": "#FFF5F2",
           "peach-main": "#FF966F",
           "peach-dark": "#E7704C",
+          // Use for warning text on light surfaces — passes WCAG AA where
+          // peach-dark fails (3.83:1). Reserve peach-dark for fills/icons.
+          "peach-deeper": "#B8401C",
           "indigo-main": "#73A2FF",
           "indigo-dark": "#486CCA",
         },

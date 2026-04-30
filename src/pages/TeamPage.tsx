@@ -339,7 +339,7 @@ export default function TeamPage() {
   const noAgents = !loading && scope && !scope.isGodMode && scope.managedAgents.length === 0
 
   return (
-    <div className="space-y-8 animate-pennie-rise">
+    <div className="space-y-6 sm:space-y-8 animate-pennie-rise">
       <div className="flex flex-wrap items-end justify-between gap-4">
         <DateRangePicker
           startDate={startDate}
@@ -390,7 +390,7 @@ export default function TeamPage() {
       )}
 
       <div className="flex flex-wrap items-center justify-between gap-4">
-        <div className="flex flex-wrap gap-5 items-end">
+        <div className="flex flex-wrap gap-3 sm:gap-5 items-end">
           <div className="flex flex-col">
             <label htmlFor="agent-search" className="pennie-label mb-2">
               Search
@@ -401,7 +401,7 @@ export default function TeamPage() {
               value={search}
               onChange={e => setSearch(e.target.value)}
               placeholder="Filter by name or email"
-              className="min-h-[40px] px-4 py-2 rounded-full bg-pennie-white border border-border text-sm text-pennie-graphite placeholder:text-pennie-graphite/40 focus:outline-none focus:border-pennie-blue-dark transition-colors w-64"
+              className="min-h-[40px] px-4 py-2 rounded-full bg-pennie-white border border-border text-sm text-pennie-graphite placeholder:text-pennie-graphite/40 focus:outline-none focus:ring-2 focus:ring-pennie-blue-deeper/40 focus:border-pennie-blue-deeper transition-colors w-64"
             />
           </div>
         </div>

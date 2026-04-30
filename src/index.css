@@ -49,14 +49,14 @@
     --muted-foreground: 0 0% 38%;
 
     --accent: 204 100% 96%;            /* Pennie Blue Light */
-    --accent-foreground: 204 73% 35%;  /* Blue Dark, deepened for contrast on light bg */
+    --accent-foreground: 204 73% 37%;  /* Blue Deeper — readable on light bg */
 
     --destructive: 13 76% 60%;         /* Pennie Peach Dark */
     --destructive-foreground: 0 0% 100%;
 
     --border: 40 30% 88%;
     --input: 40 30% 88%;
-    --ring: 204 73% 57%;               /* Blue Dark */
+    --ring: 204 73% 37%;               /* Blue Deeper — visible focus on beige */
 
     --radius: 1.5rem;                  /* 24px — Pennie card radius */
 
@@ -69,6 +69,7 @@
     --pennie-blue-light: #ECF8FF;
     --pennie-blue-main: #82D0FF;
     --pennie-blue-dark: #439FE1;
+    --pennie-blue-deeper: #1A6CA3;
 
     --pennie-green-light: #F0F9F1;
     --pennie-green-main: #86E7B3;
@@ -81,6 +82,7 @@
     --pennie-peach-light: #FFF5F2;
     --pennie-peach-main: #FF966F;
     --pennie-peach-dark: #E7704C;
+    --pennie-peach-deeper: #B8401C;
 
     --pennie-indigo-main: #73A2FF;
     --pennie-indigo-dark: #486CCA;
@@ -166,5 +168,41 @@
   .pennie-card-tight {
     @apply rounded-3xl bg-card p-6;
     box-shadow: var(--shadow-resting);
+  }
+
+  /* Standard keyboard focus ring. Use on buttons, links, and clickable
+     surfaces. Inputs/textareas keep their own `focus:` ring tied to border
+     color. Visible only for keyboard focus (`focus-visible`) so mouse users
+     don't see a ring after every click. */
+  .pennie-focus-ring {
+    @apply focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-pennie-blue-deeper/60 focus-visible:ring-offset-2 focus-visible:ring-offset-pennie-beige;
+  }
+
+  /* Inset variant — for table rows / cells where an offset ring would clip
+     against the row above. */
+  .pennie-focus-ring-inset {
+    @apply focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-pennie-blue-deeper/60 focus-visible:ring-inset;
+  }
+}
+
+/* Honor reduced-motion preferences. The Pennie entry animation and the
+   chevron-slide hover both add perceived latency for managers clearing the
+   queue on a slow connection or with motion-sensitivity preferences set.
+   Drawer/dialog open transitions are short enough to keep — Radix primitives
+   already gate them appropriately. */
+@media (prefers-reduced-motion: reduce) {
+  .animate-pennie-rise,
+  .animate-accordion-down,
+  .animate-accordion-up {
+    animation: none !important;
+  }
+  .group:hover .group-hover\:translate-x-0\.5 {
+    transform: none !important;
+  }
+  *,
+  *::before,
+  *::after {
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
   }
 }

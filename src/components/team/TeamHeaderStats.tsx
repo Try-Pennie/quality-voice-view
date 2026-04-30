@@ -96,7 +96,7 @@ function SupportingStat({
           type="button"
           onClick={onClick}
           aria-label={actionLabel ? `${label}: ${value}. ${actionLabel}` : undefined}
-          className="text-left rounded-2xl -m-2 p-2 pr-7 transition-colors hover:bg-pennie-beige/60 focus:outline-none focus:ring-2 focus:ring-pennie-blue-dark/40 group w-full"
+          className="pennie-focus-ring text-left rounded-2xl -m-2 p-2 pr-7 transition-colors hover:bg-pennie-beige/60 group w-full"
         >
           <dt className="pennie-label group-hover:text-pennie-navy transition-colors">{label}</dt>
           <dd className="mt-1 text-2xl font-semibold text-pennie-navy tabular-nums">

@@ -93,7 +93,7 @@ function SupportingStat({
       </dt>
       <dd
         className={`mt-1 text-2xl font-semibold tabular-nums ${
-          warn ? 'text-pennie-peach-dark' : 'text-pennie-navy'
+          warn ? 'text-pennie-peach-deeper' : 'text-pennie-navy'
         }`}
       >
         {value}

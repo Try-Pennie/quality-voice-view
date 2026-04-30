@@ -44,7 +44,7 @@ export function CallAlertsSection({
           <h2 className="text-lg font-semibold text-foreground">Alerts</h2>
           <p className="text-sm text-muted-foreground">
             {violations.length} violation{violations.length === 1 ? '' : 's'},{' '}
-            {passes.length} module{passes.length === 1 ? '' : 's'} passed
+            {passes.length} check{passes.length === 1 ? '' : 's'} passed
           </p>
         </div>
       </header>
@@ -60,7 +60,7 @@ export function CallAlertsSection({
       {passes.length > 0 && (
         <details className="mt-4">
           <summary className="cursor-pointer text-sm text-muted-foreground hover:text-foreground">
-            Show {passes.length} module{passes.length === 1 ? '' : 's'} that
+            Show {passes.length} check{passes.length === 1 ? '' : 's'} that
             passed
           </summary>
           <ul className="mt-3 space-y-2">
@@ -120,8 +120,8 @@ function AlertCard({ alert }: { alert: AlertWithFeedback }) {
           <>
             <span className="font-semibold text-foreground">Reviewed</span>
             {alert.accurate === false ? (
-              <span className="text-pennie-peach-dark font-semibold">
-                Marked false positive
+              <span className="text-pennie-peach-deeper font-semibold">
+                Marked not accurate
               </span>
             ) : alert.accurate === true ? (
               <span className="text-pennie-green-dark font-semibold">
@@ -133,13 +133,13 @@ function AlertCard({ alert }: { alert: AlertWithFeedback }) {
             )}
           </>
         ) : (
-          <span className="text-pennie-peach-dark font-semibold">
+          <span className="text-pennie-peach-deeper font-semibold">
             Not yet reviewed
           </span>
         )}
         <Link
           to={`/dashboard/alerts/${encodeURIComponent(alert.call_id)}/${encodeURIComponent(alert.module_name)}`}
-          className="ml-auto text-pennie-blue-dark font-semibold hover:underline"
+          className="ml-auto text-pennie-blue-deeper font-semibold hover:underline"
         >
           Review in alerts inbox →
         </Link>
