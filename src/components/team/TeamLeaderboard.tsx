@@ -124,9 +124,10 @@ export function TeamLeaderboard({
                 align="right"
               />
               <Th>Trend</Th>
-              <Th>
-                <span className="sr-only">View</span>
-              </Th>
+              <th
+                className="text-left text-[11px] font-bold text-pennie-graphite/70 uppercase tracking-[0.06em] px-6 py-3"
+                aria-label="View"
+              />
             </tr>
           </thead>
           <tbody>
@@ -157,7 +158,7 @@ export function TeamLeaderboard({
               </tr>
             ) : (
               sorted.map((agent, i) => {
-                const stripe = agent.needs_attention
+                const stripeColor = agent.needs_attention
                   ? agent.unreviewed_alerts_count > 0
                     ? 'before:bg-pennie-peach-dark'
                     : 'before:bg-pennie-yellow-dark'
@@ -165,13 +166,13 @@ export function TeamLeaderboard({
                 return (
                   <tr
                     key={agent.agent_email}
-                    className={`relative cursor-pointer transition-colors duration-150 hover:bg-pennie-beige/40 ${
+                    className={`cursor-pointer transition-colors duration-150 hover:bg-pennie-beige/40 ${
                       i !== 0 ? 'border-t border-border/60' : ''
-                    } before:absolute before:left-0 before:top-0 before:bottom-0 before:w-1 ${stripe}`}
+                    }`}
                     onClick={() => onSelect(agent)}
                   >
                     <td
-                      className="px-3 py-4 whitespace-nowrap text-center"
+                      className={`px-3 py-4 whitespace-nowrap text-center relative before:absolute before:left-0 before:top-0 before:bottom-0 before:w-1 ${stripeColor}`}
                       aria-hidden="true"
                     >
                       {agent.needs_attention ? (
@@ -308,7 +309,14 @@ function Th({
   srOnly?: boolean
 }) {
   if (srOnly) {
-    return <th className="px-3 py-3" aria-label={typeof children === 'string' ? children : undefined} />
+    // Empty <th> would auto-collapse and de-sync column widths between
+    // thead and tbody — force a concrete width that matches the matching <td>.
+    return (
+      <th
+        className="px-3 py-3 w-8"
+        aria-label={typeof children === 'string' ? children : undefined}
+      />
+    )
   }
   return (
     <th className="text-left text-[11px] font-bold text-pennie-graphite/70 uppercase tracking-[0.06em] px-6 py-3">
