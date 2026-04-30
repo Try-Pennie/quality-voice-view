@@ -29,6 +29,49 @@ import { AlertHeatmap } from '../components/alerts/AlertHeatmap'
 
 type QuickFilter = 'all' | 'attention' | 'top' | 'alerts'
 
+const WIDE_RANGE_DAYS = 60
+
+function WideRangeLoadingHint({
+  loading,
+  startDate,
+  endDate,
+}: {
+  loading: boolean
+  startDate: Date
+  endDate: Date
+}) {
+  const days = Math.round(
+    (endDate.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24),
+  )
+  const [elapsed, setElapsed] = useState(0)
+  useEffect(() => {
+    if (!loading) {
+      setElapsed(0)
+      return
+    }
+    const start = Date.now()
+    const id = setInterval(() => {
+      setElapsed(Math.floor((Date.now() - start) / 1000))
+    }, 1000)
+    return () => clearInterval(id)
+  }, [loading, startDate, endDate])
+
+  if (!loading || days < WIDE_RANGE_DAYS) return null
+  return (
+    <span
+      className="inline-flex items-center gap-2 text-xs font-medium text-pennie-graphite/70 px-3 py-1.5 rounded-full bg-pennie-beige/80"
+      role="status"
+      aria-live="polite"
+    >
+      <span
+        className="block w-2 h-2 rounded-full bg-pennie-blue-dark animate-pulse"
+        aria-hidden="true"
+      />
+      Loading {days} days{elapsed > 0 ? ` · ${elapsed}s` : '…'}
+    </span>
+  )
+}
+
 export default function TeamPage() {
   const navigate = useNavigate()
   const { user } = useAuth()
@@ -267,7 +310,11 @@ export default function TeamPage() {
           endDate={endDate}
           onStartDateChange={setStartDate}
           onEndDateChange={setEndDate}
-          maxRangeDays={30}
+        />
+        <WideRangeLoadingHint
+          loading={loading}
+          startDate={startDate}
+          endDate={endDate}
         />
       </div>
 
