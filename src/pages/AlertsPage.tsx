@@ -435,8 +435,10 @@ export default function AlertsPage() {
           <DateRangePicker
             startDate={startDate}
             endDate={endDate}
-            onStartDateChange={setStartDate}
-            onEndDateChange={setEndDate}
+            onRangeChange={(start, end) => {
+              setStartDate(start)
+              setEndDate(end)
+            }}
           />
 
           <fieldset className="flex flex-col gap-1.5">
