@@ -4,6 +4,12 @@ import { formatDuration } from '../../lib/utils'
 import { AgentSparkline } from './AgentSparkline'
 import { ArrowUp, ArrowDown, ArrowUpDown } from 'lucide-react'
 
+// Confirmed false alarms shouldn't inflate an agent's headline alert
+// count — managers rank/triage off this number. Issue #21.
+function alertsExFP(r: AgentRollup): number {
+  return Math.max(0, r.total_alerts_count - r.false_positive_count)
+}
+
 type SortKey =
   | 'attention'
   | 'name'
@@ -65,7 +71,7 @@ export function TeamLeaderboard({
           cmp = a.unreviewed_alerts_count - b.unreviewed_alerts_count
           break
         case 'total_alerts':
-          cmp = a.total_alerts_count - b.total_alerts_count
+          cmp = alertsExFP(a) - alertsExFP(b)
           break
       }
       return sortDir === 'asc' ? cmp : -cmp
@@ -383,11 +389,7 @@ export function TeamLeaderboard({
                       />
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-pennie-graphite tabular-nums text-right">
-                      {agent.total_alerts_count > 0 ? (
-                        agent.total_alerts_count
-                      ) : (
-                        <span className="text-pennie-graphite/40">0</span>
-                      )}
+                      <TotalAlertsCell agent={agent} />
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
                       <AgentSparkline points={agent.trend_points} />
@@ -433,6 +435,28 @@ function PercentCell({
       }`}
     >
       {value}%
+    </span>
+  )
+}
+
+function TotalAlertsCell({ agent }: { agent: AgentRollup }) {
+  const adjusted = alertsExFP(agent)
+  if (agent.total_alerts_count === 0) {
+    return <span className="text-pennie-graphite/40">0</span>
+  }
+  const fp = agent.false_positive_count
+  const tooltip =
+    fp > 0
+      ? `${adjusted} after excluding ${fp} confirmed false alarm${fp === 1 ? '' : 's'} (${agent.total_alerts_count} fired)`
+      : `${adjusted} alerts fired`
+  return (
+    <span title={tooltip}>
+      {adjusted}
+      {fp > 0 && (
+        <span className="ml-1 text-[11px] text-pennie-graphite/50 tabular-nums">
+          (−{fp})
+        </span>
+      )}
     </span>
   )
 }

@@ -43,6 +43,9 @@ export type AgentRollup = {
   total_alerts_count: number
   open_alerts_count: number
   unreviewed_alerts_count: number
+  // Confirmed false alarms (is_reviewed AND accurate = false). Used to
+  // display a workload total that excludes adjudicated noise. Issue #21.
+  false_positive_count: number
   trend_points: TrendPoint[]
   needs_attention: boolean
 }
@@ -77,6 +80,7 @@ type DailyMetricRow = {
   total_alerts: number
   open_alerts: number
   unreviewed_alerts: number
+  false_positive_count: number
 }
 
 // ---------- Helpers ----------
@@ -183,6 +187,7 @@ function normalizeDailyRow(r: any): DailyMetricRow {
     total_alerts: toNum(r.total_alerts_count),
     open_alerts: toNum(r.open_alerts),
     unreviewed_alerts: toNum(r.unreviewed_alerts),
+    false_positive_count: toNum(r.false_positive_count),
   }
 }
 
@@ -260,6 +265,10 @@ function rollupFromDailyRows(
   const totalAlerts = rows.reduce((s, r) => s + r.total_alerts, 0)
   const openAlerts = rows.reduce((s, r) => s + r.open_alerts, 0)
   const unreviewedAlerts = rows.reduce((s, r) => s + r.unreviewed_alerts, 0)
+  const falsePositiveCount = rows.reduce(
+    (s, r) => s + r.false_positive_count,
+    0,
+  )
 
   const needsAttention =
     callCount > 0 &&
@@ -280,6 +289,7 @@ function rollupFromDailyRows(
     total_alerts_count: totalAlerts,
     open_alerts_count: openAlerts,
     unreviewed_alerts_count: unreviewedAlerts,
+    false_positive_count: falsePositiveCount,
     trend_points: trend,
     needs_attention: needsAttention,
   }
@@ -542,6 +552,7 @@ export type ManagerRollup = {
   total_alerts_count: number
   open_alerts_count: number
   unreviewed_alerts_count: number
+  false_positive_count: number
   top_agent: AgentRollup | null
   needs_attention: boolean
 }
@@ -691,6 +702,10 @@ export function aggregateManagerRollups(
       (s, a) => s + a.unreviewed_alerts_count,
       0,
     )
+    const false_positive_count = agents.reduce(
+      (s, a) => s + a.false_positive_count,
+      0,
+    )
     const topAgent = agents
       .filter(a => a.call_count > 0)
       .sort((x, y) => y.compliance_pass_rate - x.compliance_pass_rate)[0]
@@ -713,6 +728,7 @@ export function aggregateManagerRollups(
       total_alerts_count,
       open_alerts_count,
       unreviewed_alerts_count,
+      false_positive_count,
       top_agent: topAgent || null,
       needs_attention,
     })

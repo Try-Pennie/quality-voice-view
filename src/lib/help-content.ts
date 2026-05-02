@@ -140,7 +140,7 @@ const ENTRIES = {
     category: 'Metrics',
     title: 'Total alerts',
     body:
-      'Every alert fired on this team in the window — reviewed and unreviewed combined. Compare with "Open alerts" to gauge review backlog.',
+      'Alerts fired in this window, minus any a manager has confirmed as a false alarm. Open and unreviewed alerts still count — only adjudicated false positives drop out. The (−N) suffix shows how many were excluded.',
   },
 
   // -------- Metrics (Migo coverage) --------
