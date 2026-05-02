@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useCallback, useId, type KeyboardEvent } from 'react'
-import { useParams, useNavigate, useSearchParams } from 'react-router-dom'
+import { useParams, useNavigate, useSearchParams, useLocation } from 'react-router-dom'
 import { useQueryClient } from '@tanstack/react-query'
 import { useAuth } from '../hooks/useAuth'
 import {
@@ -43,6 +43,7 @@ type StatusView = 'all' | 'new' | 'reviewed'
 export default function AlertsPage() {
   const { user } = useAuth()
   const navigate = useNavigate()
+  const location = useLocation()
   const queryClient = useQueryClient()
   const { callId: routeCallId, moduleName: routeModuleName } = useParams()
   const [searchParams, setSearchParams] = useSearchParams()
@@ -140,10 +141,32 @@ export default function AlertsPage() {
     setSearchParams,
   ])
 
+  // For god-mode reviewers (Kris) the alert isn't "closed" until *they* sign
+  // off — either by being the structured reviewer (`feedback_by`) or by
+  // having acked the manager's review. Non-god-mode managers fall back to
+  // the simpler `is_reviewed` semantic so their queue behaviour is unchanged.
+  const lowerEmail = user?.email?.toLowerCase() || null
+  const closedForMe = useCallback(
+    (a: AlertWithFeedback) => {
+      if (!a.is_reviewed) return false
+      if (!lowerEmail) return true
+      if (a.feedback_by?.toLowerCase() === lowerEmail) return true
+      return (a.acker_emails ?? []).some(e => e.toLowerCase() === lowerEmail)
+    },
+    [lowerEmail],
+  )
+
   const alerts = useMemo(() => {
     let rows = allAlerts
-    if (statusView === 'new') rows = rows.filter(a => !a.is_reviewed)
-    else if (statusView === 'reviewed') rows = rows.filter(a => a.is_reviewed)
+    if (statusView === 'new') {
+      rows = scope?.isGodMode
+        ? rows.filter(a => !closedForMe(a))
+        : rows.filter(a => !a.is_reviewed)
+    } else if (statusView === 'reviewed') {
+      rows = scope?.isGodMode
+        ? rows.filter(a => closedForMe(a))
+        : rows.filter(a => a.is_reviewed)
+    }
 
     const q = search.trim().toLowerCase()
     if (q) {
@@ -162,7 +185,7 @@ export default function AlertsPage() {
       })
     }
     return rows
-  }, [allAlerts, statusView, search])
+  }, [allAlerts, statusView, search, scope?.isGodMode, closedForMe])
 
   // Deep-link: open drawer if URL has /:callId/:moduleName.
   useEffect(() => {
@@ -183,8 +206,12 @@ export default function AlertsPage() {
     (alert: AlertWithFeedback) => {
       // Instant: render with the slim list row…
       setDrawerAlert(alert)
+      // Preserve any returnTo so j/k navigation between alerts doesn't strip
+      // the originating-page context.
+      const state = location.state as { returnTo?: string } | null
       navigate(`/dashboard/alerts/${alert.call_id}/${alert.module_name}`, {
         replace: false,
+        state: state?.returnTo ? { returnTo: state.returnTo } : undefined,
       })
       // …then enrich with heavy fields (result_json, recording_link, etc.)
       // if they aren't already present. Skip if we already have a result_json.
@@ -204,13 +231,23 @@ export default function AlertsPage() {
         })
       }
     },
-    [navigate],
+    [navigate, location.state],
   )
 
   const closeDrawer = useCallback(() => {
     setDrawerAlert(null)
-    if (routeCallId) navigate('/dashboard/alerts', { replace: true })
-  }, [navigate, routeCallId])
+    if (!routeCallId) return
+    // If we got here from a deep-link with a returnTo (e.g. an agent profile
+    // page sent the user into the drawer), bounce back there instead of
+    // dropping them on the top-level alerts list.
+    const state = location.state as { returnTo?: string } | null
+    const returnTo = state?.returnTo
+    if (returnTo && returnTo.startsWith('/')) {
+      navigate(returnTo, { replace: true })
+      return
+    }
+    navigate('/dashboard/alerts', { replace: true })
+  }, [navigate, routeCallId, location.state])
 
   const advance = useCallback(
     (delta: 1 | -1) => {
@@ -251,9 +288,12 @@ export default function AlertsPage() {
       // server-side, so refetch once the row's feedback row is in.
       queryClient.invalidateQueries({ queryKey: ['alertBreakdown'] })
       if (statusView === 'new') {
+        const stillOpen = scope?.isGodMode
+          ? (a: AlertWithFeedback) => !closedForMe(a)
+          : (a: AlertWithFeedback) => !a.is_reviewed
         const remaining = allAlerts.filter(
           a =>
-            !a.is_reviewed &&
+            stillOpen(a) &&
             !(a.call_id === merged.call_id && a.module_name === merged.module_name),
         )
         if (remaining.length === 0) {
@@ -265,7 +305,16 @@ export default function AlertsPage() {
         setDrawerAlert(merged)
       }
     },
-    [allAlerts, drawerAlert, openDrawer, closeDrawer, statusView, queryClient],
+    [
+      allAlerts,
+      drawerAlert,
+      openDrawer,
+      closeDrawer,
+      statusView,
+      queryClient,
+      scope?.isGodMode,
+      closedForMe,
+    ],
   )
 
   const stats = useMemo(() => {
@@ -355,18 +404,16 @@ export default function AlertsPage() {
     )
   }
 
-  // Decide the headline metric based on status view.
-  const headlineNumber =
-    statusView === 'new' ? stats.queued : statusView === 'reviewed' ? stats.reviewed : stats.total
+  // Headline reflects the count in the current filtered view. For god-mode
+  // this includes manager-reviewed-but-not-acked-by-me alerts under "new".
+  const headlineNumber = alerts.length
   const headlineLabel =
     statusView === 'new'
-      ? stats.queued === 1
+      ? headlineNumber === 1
         ? 'alert to review'
         : 'alerts to review'
       : statusView === 'reviewed'
-        ? stats.reviewed === 1
-          ? 'reviewed'
-          : 'reviewed'
+        ? 'reviewed'
         : 'in window'
 
   return (
@@ -628,7 +675,12 @@ export default function AlertsPage() {
                     </Td>
                     <Td>
                       <div className="flex flex-col gap-1.5">
-                        <StatusPill alert={a} />
+                        <StatusPill
+                          alert={a}
+                          needsMyAck={
+                            !!scope?.isGodMode && a.is_reviewed && !closedForMe(a)
+                          }
+                        />
                         <ActivityBadges alert={a} />
                       </div>
                     </Td>
@@ -760,9 +812,22 @@ function ActivityBadges({ alert }: { alert: AlertWithFeedback }) {
   )
 }
 
-function StatusPill({ alert }: { alert: AlertWithFeedback }) {
+function StatusPill({
+  alert,
+  needsMyAck = false,
+}: {
+  alert: AlertWithFeedback
+  needsMyAck?: boolean
+}) {
   if (!alert.is_reviewed) {
     return <span className={pillClasses(accentForReviewStatus('new'))}>New</span>
+  }
+  if (needsMyAck) {
+    return (
+      <span className={pillClasses(accentForReviewStatus('new'))}>
+        Needs your ✓
+      </span>
+    )
   }
   if (alert.accurate === true) {
     return (

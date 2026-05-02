@@ -1,4 +1,4 @@
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useLocation } from 'react-router-dom'
 import type { AlertWithFeedback } from '../../types/database'
 import { VIOLATION_TYPE_LABELS } from '../../lib/alert-queries'
 import { accentForViolation, pillClasses } from '../../lib/violation-styles'
@@ -12,6 +12,7 @@ export function AgentAlertsPanel({
   loading: boolean
 }) {
   const navigate = useNavigate()
+  const location = useLocation()
 
   // Show only "real" alerts (has_violation = true) and prioritize unreviewed
   const visible = [...alerts]
@@ -64,6 +65,11 @@ export function AgentAlertsPanel({
                   onClick={() =>
                     navigate(
                       `/dashboard/alerts/${encodeURIComponent(alert.call_id)}/${encodeURIComponent(alert.module_name)}`,
+                      {
+                        state: {
+                          returnTo: `${location.pathname}${location.search}`,
+                        },
+                      },
                     )
                   }
                   className="w-full text-left flex items-start justify-between gap-4 p-3 rounded-2xl hover:bg-pennie-beige/40 transition-colors"
