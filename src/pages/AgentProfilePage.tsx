@@ -13,6 +13,7 @@ import { AgentRecentCalls } from '../components/team/AgentRecentCalls'
 import { ChevronLeft } from 'lucide-react'
 import { formatDateParam, parseDateParam } from '../lib/url-filters'
 import { ymdInBusinessTZ } from '../lib/time-zone'
+import { RefreshingHint } from '../components/ui/refreshing-hint'
 
 export default function AgentProfilePage() {
   const { agentEmail: rawEmail } = useParams<{ agentEmail: string }>()
@@ -59,7 +60,7 @@ export default function AgentProfilePage() {
     scope &&
     (scope.isGodMode || scope.managedAgents.includes(agentEmail))
 
-  const { data: profileData, isPending } = useAgentProfile(
+  const { data: profileData, isPending, isFetching } = useAgentProfile(
     agentEmail,
     startDate,
     endDate,
@@ -67,6 +68,7 @@ export default function AgentProfilePage() {
   )
   const profile = profileData ?? null
   const loading = isPending && !profileData
+  const refreshing = isFetching && !loading
 
   if (scope && !allowed) {
     return (
@@ -116,6 +118,7 @@ export default function AgentProfilePage() {
             setEndDate(end)
           }}
         />
+        <RefreshingHint active={refreshing} />
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">

@@ -19,6 +19,7 @@ import type { CallWithQA } from '../types/database'
 import { DateRangePicker } from '../components/dashboard/DateRangePicker'
 import { AgentFilter } from '../components/dashboard/AgentFilter'
 import { DispositionFilter, prettify as prettifyDisposition } from '../components/dashboard/DispositionFilter'
+import { RefreshingHint } from '../components/ui/refreshing-hint'
 import { ThresholdSettingsSheet } from '../components/settings/ThresholdSettings'
 import { ThresholdSettings, DEFAULT_THRESHOLDS } from '../types/settings'
 import { Settings, Download, Loader2, ChevronRight } from 'lucide-react'
@@ -74,13 +75,14 @@ export default function DashboardPage() {
       : 'all'
   })
 
-  const { data: callsData, isPending } = useDashboardData(
+  const { data: callsData, isPending, isFetching } = useDashboardData(
     startDate,
     endDate,
     selectedAgents,
   )
   const calls = useMemo(() => callsData ?? [], [callsData])
   const loading = isPending && !callsData
+  const refreshing = isFetching && !loading
 
   const [showSettings, setShowSettings] = useState(false)
   const [, setThresholds] = useState<ThresholdSettings>(DEFAULT_THRESHOLDS)
@@ -271,6 +273,9 @@ export default function DashboardPage() {
             selected={selectedDispositions}
             onSelectionChange={setSelectedDispositions}
           />
+          <div className="flex items-end h-10">
+            <RefreshingHint active={refreshing} />
+          </div>
         </div>
         <div className="flex items-center gap-2">
           <button
