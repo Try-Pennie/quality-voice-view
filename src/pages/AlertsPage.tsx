@@ -23,6 +23,7 @@ import {
 import { formatDateTime, formatPhoneNumber } from '../lib/utils'
 import type { AlertWithFeedback } from '../types/database'
 import { DateRangePicker } from '../components/dashboard/DateRangePicker'
+import { RefreshingHint } from '../components/ui/refreshing-hint'
 import { AlertReviewDrawer } from '../components/alerts/AlertReviewDrawer'
 import { formatDateParam, parseDateParam } from '../lib/url-filters'
 import { ymdInBusinessTZ } from '../lib/time-zone'
@@ -100,23 +101,27 @@ export default function AlertsPage() {
     [startDate, endDate, moduleFilter],
   )
 
-  const { data: allAlertsData, isPending: alertsPending } = useAlerts(
-    serverFilters,
-    scope,
-  )
+  const {
+    data: allAlertsData,
+    isPending: alertsPending,
+    isFetching: alertsFetching,
+  } = useAlerts(serverFilters, scope)
   const allAlerts = useMemo(() => allAlertsData ?? [], [allAlertsData])
   const loading = alertsPending && !allAlertsData
 
-  const { data: breakdownData, isPending: breakdownPending } = useAlertBreakdown(
-    scope,
-    startDate,
-    endDate,
-  )
+  const {
+    data: breakdownData,
+    isPending: breakdownPending,
+    isFetching: breakdownFetching,
+  } = useAlertBreakdown(scope, startDate, endDate)
   const breakdown = useMemo(() => breakdownData ?? [], [breakdownData])
   const breakdownLoading = breakdownPending && !breakdownData
 
   const { data: rollupsData } = useTeamRollup(scope, startDate, endDate)
   const rollups = useMemo(() => rollupsData ?? [], [rollupsData])
+
+  const refreshing =
+    (alertsFetching || breakdownFetching) && !loading && !breakdownLoading
 
   // Write filter state back to URL so the current view is shareable (and
   // survives reloads). Skipped while a deep-link drawer route is active so
@@ -528,6 +533,10 @@ export default function AlertsPage() {
                 className="w-full min-h-[44px] sm:min-h-[40px] pl-9 pr-3 py-2 rounded-full border border-border bg-pennie-white text-base sm:text-sm font-medium placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-pennie-blue-deeper/40 focus:border-pennie-blue-deeper"
               />
             </div>
+          </div>
+
+          <div className="flex items-end h-10">
+            <RefreshingHint active={refreshing} />
           </div>
         </div>
 

@@ -20,6 +20,7 @@ import {
   useManagerNames,
 } from '../hooks/use-queries'
 import { DateRangePicker } from '../components/dashboard/DateRangePicker'
+import { RefreshingHint } from '../components/ui/refreshing-hint'
 import { TeamHeaderStats } from '../components/team/TeamHeaderStats'
 import { TeamLeaderboard } from '../components/team/TeamLeaderboard'
 import { TeamTrendSection } from '../components/team/TeamTrendSection'
@@ -145,19 +146,19 @@ export default function TeamPage() {
 
   const { data: scope } = useUserScope(user?.email)
 
-  const { data: rollupData, isPending: rollupPending } = useTeamRollup(
-    scope,
-    startDate,
-    endDate,
-  )
+  const {
+    data: rollupData,
+    isPending: rollupPending,
+    isFetching: rollupFetching,
+  } = useTeamRollup(scope, startDate, endDate)
   const rollup = useMemo(() => rollupData ?? [], [rollupData])
   const loading = rollupPending && !rollupData
 
-  const { data: breakdownData, isPending: breakdownPending } = useAlertBreakdown(
-    scope,
-    startDate,
-    endDate,
-  )
+  const {
+    data: breakdownData,
+    isPending: breakdownPending,
+    isFetching: breakdownFetching,
+  } = useAlertBreakdown(scope, startDate, endDate)
   const breakdown = useMemo(() => breakdownData ?? [], [breakdownData])
   const breakdownLoading = breakdownPending && !breakdownData
 
@@ -314,10 +315,22 @@ export default function TeamPage() {
         }
       : scope
   }, [scope, selectedManager])
-  const { data: teamThemesData, isPending: themesPending } =
-    useTeamCoachingThemes(themesScope, startDate, endDate)
+  const {
+    data: teamThemesData,
+    isPending: themesPending,
+    isFetching: themesFetching,
+  } = useTeamCoachingThemes(themesScope, startDate, endDate)
   const teamThemes = teamThemesData ?? null
   const themesLoading = themesPending && !teamThemesData
+
+  // Background refetch (filter change with cached data) — distinct from the
+  // initial-load `loading` skeleton path. WideRangeLoadingHint already covers
+  // cold loads on wide ranges, so this only fires for warm refreshes.
+  const refreshing =
+    (rollupFetching || breakdownFetching || themesFetching) &&
+    !loading &&
+    !breakdownLoading &&
+    !themesLoading
 
   const leaderboardRef = useRef<HTMLDivElement>(null)
 
@@ -349,11 +362,14 @@ export default function TeamPage() {
             setEndDate(end)
           }}
         />
-        <WideRangeLoadingHint
-          loading={loading}
-          startDate={startDate}
-          endDate={endDate}
-        />
+        <div className="flex items-center gap-2">
+          <RefreshingHint active={refreshing} />
+          <WideRangeLoadingHint
+            loading={loading}
+            startDate={startDate}
+            endDate={endDate}
+          />
+        </div>
       </div>
 
       <TeamHeaderStats
