@@ -1,5 +1,5 @@
-import { useState } from 'react'
-import { useParams, useNavigate } from 'react-router-dom'
+import { useState, useEffect } from 'react'
+import { useParams, useNavigate, useSearchParams } from 'react-router-dom'
 import { useAuth } from '../hooks/useAuth'
 import { useUserScope, useAgentProfile } from '../hooks/use-queries'
 import { DateRangePicker } from '../components/dashboard/DateRangePicker'
@@ -11,24 +11,48 @@ import { CoachingThemesPanel } from '../components/team/CoachingThemesPanel'
 import { AgentAlertsPanel } from '../components/team/AgentAlertsPanel'
 import { AgentRecentCalls } from '../components/team/AgentRecentCalls'
 import { ChevronLeft } from 'lucide-react'
+import { formatDateParam, parseDateParam } from '../lib/url-filters'
+import { ymdInBusinessTZ } from '../lib/time-zone'
 
 export default function AgentProfilePage() {
   const { agentEmail: rawEmail } = useParams<{ agentEmail: string }>()
   const agentEmail = rawEmail ? decodeURIComponent(rawEmail) : ''
   const navigate = useNavigate()
   const { user } = useAuth()
+  const [searchParams, setSearchParams] = useSearchParams()
 
-  const [startDate, setStartDate] = useState<Date>(() => {
-    const date = new Date()
-    date.setDate(date.getDate() - 7)
-    date.setHours(0, 0, 0, 0)
-    return date
-  })
-  const [endDate, setEndDate] = useState<Date>(() => {
-    const date = new Date()
-    date.setHours(23, 59, 59, 999)
-    return date
-  })
+  // Lazy-init from URL so drilldowns from /dashboard or /dashboard/team carry
+  // the picked window through to the profile (and back out via the link).
+  // Defaults scoped to Eastern time — see TeamPage for the picker convention.
+  const [startDate, setStartDate] = useState<Date>(() =>
+    parseDateParam(searchParams.get('start'), (() => {
+      const [y, m, d] = ymdInBusinessTZ(new Date()).split('-').map(Number)
+      const local = new Date(y, m - 1, d)
+      local.setDate(local.getDate() - 6)
+      local.setHours(0, 0, 0, 0)
+      return local
+    })()),
+  )
+  const [endDate, setEndDate] = useState<Date>(() =>
+    parseDateParam(
+      searchParams.get('end'),
+      (() => {
+        const [y, m, d] = ymdInBusinessTZ(new Date()).split('-').map(Number)
+        const local = new Date(y, m - 1, d)
+        local.setHours(23, 59, 59, 999)
+        return local
+      })(),
+      true,
+    ),
+  )
+
+  useEffect(() => {
+    const params = new URLSearchParams(searchParams)
+    params.set('start', formatDateParam(startDate))
+    params.set('end', formatDateParam(endDate))
+    setSearchParams(params, { replace: true })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [startDate, endDate])
 
   const { data: scope } = useUserScope(user?.email)
   const allowed =
@@ -87,8 +111,10 @@ export default function AgentProfilePage() {
         <DateRangePicker
           startDate={startDate}
           endDate={endDate}
-          onStartDateChange={setStartDate}
-          onEndDateChange={setEndDate}
+          onRangeChange={(start, end) => {
+            setStartDate(start)
+            setEndDate(end)
+          }}
         />
       </div>
 

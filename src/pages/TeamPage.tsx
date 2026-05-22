@@ -448,7 +448,14 @@ export default function TeamPage() {
           <TeamLeaderboard
             rows={filtered}
             loading={loading}
-            onSelect={agent => navigate(`/dashboard/team/${encodeURIComponent(agent.agent_email)}`)}
+            onSelect={agent => {
+              const params = new URLSearchParams()
+              params.set('start', formatDateParam(startDate))
+              params.set('end', formatDateParam(endDate))
+              navigate(
+                `/dashboard/team/${encodeURIComponent(agent.agent_email)}?${params.toString()}`,
+              )
+            }}
           />
         )}
       </div>
