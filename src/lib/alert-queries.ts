@@ -391,7 +391,9 @@ export const INACCURACY_REASON_LABELS: Record<string, string> = {
   wrong_context: 'Wrong context',
   evidence_misquoted: 'Evidence misquoted',
   policy_does_not_apply: "Policy doesn't apply",
-  addressed_off_call: 'Already addressed off-call',
+  addressed_off_call: 'Covered on a prior call',
+  covered_not_verbatim: 'Covered, not read verbatim',
+  call_dropped_incomplete: 'Call dropped / enrollment incomplete',
   other: 'Other',
 }
 

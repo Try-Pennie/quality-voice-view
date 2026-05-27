@@ -72,14 +72,22 @@ const ACTION_OPTIONS: AlertActionTaken[] = [
   'no_action_needed',
 ]
 
+// Ordered most-common-first so the fastest hotkeys hit the frequent reasons.
+// "Covered on a prior call" leads — it was ~57% of what used to be logged as "other".
 const INACCURACY_OPTIONS: AlertInaccuracyReason[] = [
-  'soft_inquiry_misclassified',
-  'wrong_context',
-  'evidence_misquoted',
-  'policy_does_not_apply',
   'addressed_off_call',
+  'evidence_misquoted',
+  'wrong_context',
+  'covered_not_verbatim',
+  'call_dropped_incomplete',
+  'policy_does_not_apply',
+  'soft_inquiry_misclassified',
   'other',
 ]
+
+// A short explanation is required when the manager falls back to "Other",
+// so the catch-all bucket stays analyzable instead of opaque.
+const OTHER_NOTES_MIN = 10
 
 interface Props {
   alert: AlertWithFeedback | null
@@ -278,6 +286,10 @@ export function AlertReviewDrawer({
       toast.error('Pick why this was a false alarm.')
       return
     }
+    if (accurate === false && reason === 'other' && comment.trim().length < OTHER_NOTES_MIN) {
+      toast.error('Add a quick note explaining why (required for "Other").')
+      return
+    }
     if (accurate === true && comment.trim().length < 30) {
       toast.error('Add a few sentences on what happened and how you addressed it.')
       return
@@ -341,11 +353,14 @@ export function AlertReviewDrawer({
       ? 'Your review'
       : 'Was this a real issue?'
 
-  // Detailed notes are only required when the manager confirms a real issue.
-  // False alarms already capture structured signal via inaccuracy_reason.
+  // Detailed notes are required when the manager confirms a real issue, and a
+  // shorter note is required for the "Other" false-alarm reason (otherwise that
+  // catch-all swallows signal). Other structured false-alarm reasons stay optional.
   const NOTES_MIN = 30
+  const otherNoteRequired = accurate === false && reason === 'other'
   const notesTooShort =
-    accurate === true && comment.trim().length < NOTES_MIN
+    (accurate === true && comment.trim().length < NOTES_MIN) ||
+    (otherNoteRequired && comment.trim().length < OTHER_NOTES_MIN)
   const saveDisabled =
     submitting ||
     accurate === null ||
@@ -711,20 +726,20 @@ export function AlertReviewDrawer({
                   >
                     <span>
                       {accurate ? 'What happened and how you addressed it' : 'Notes'}
-                      {accurate === true && (
+                      {(accurate === true || otherNoteRequired) && (
                         <span className="text-pennie-peach-deeper ml-1" aria-hidden="true">*</span>
                       )}
-                      {accurate === false && (
+                      {accurate === false && !otherNoteRequired && (
                         <span className="text-pennie-graphite/60 ml-1 font-normal">(optional)</span>
                       )}
                     </span>
-                    {accurate === true && (
+                    {(accurate === true || otherNoteRequired) && (
                       <span
                         className={`text-[11px] font-normal tabular-nums ${
                           notesTooShort ? 'text-pennie-peach-deeper' : 'text-pennie-graphite/60'
                         }`}
                       >
-                        {comment.trim().length}/{NOTES_MIN}
+                        {comment.trim().length}/{accurate === true ? NOTES_MIN : OTHER_NOTES_MIN}
                       </span>
                     )}
                   </label>
@@ -735,7 +750,9 @@ export function AlertReviewDrawer({
                     placeholder={
                       accurate
                         ? 'Spoke with agent about tone — they acknowledged and committed to next 1:1…'
-                        : 'Anything you want to flag…'
+                        : otherNoteRequired
+                          ? 'Briefly explain why this was a false alarm…'
+                          : 'Anything you want to flag…'
                     }
                     rows={3}
                     className="w-full px-3 py-2 rounded-2xl border border-border bg-pennie-white text-base sm:text-sm font-medium resize-none focus:outline-none focus:ring-2 focus:ring-pennie-blue-deeper/40 focus:border-pennie-blue-deeper"
