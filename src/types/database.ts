@@ -140,6 +140,8 @@ export type AlertInaccuracyReason =
   | 'evidence_misquoted'
   | 'policy_does_not_apply'
   | 'addressed_off_call'
+  | 'covered_not_verbatim'
+  | 'call_dropped_incomplete'
   | 'other'
 
 export type AlertWithFeedback = {
