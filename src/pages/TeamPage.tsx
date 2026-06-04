@@ -387,7 +387,7 @@ export default function TeamPage() {
         />
       ) : rollupError && !loading && !noAgents ? (
         <ErrorState
-          title="Couldn’t load team metrics"
+          title="Couldn't load team metrics"
           message="We hit an error building the team rollup. Retry to reload."
           onRetry={() => refetchRollup()}
         />
@@ -500,7 +500,7 @@ export default function TeamPage() {
       )}
 
       {!noAgents && breakdownError && !breakdownLoading ? (
-        <ErrorState compact message="Couldn’t load the alert heatmap." onRetry={() => refetchBreakdown()} />
+        <ErrorState compact message="Couldn't load the alert heatmap." onRetry={() => refetchBreakdown()} />
       ) : !noAgents ? (
         <AlertHeatmap
           cells={scopedBreakdown}
@@ -512,7 +512,7 @@ export default function TeamPage() {
       ) : null}
 
       {!noAgents && themesError && !themesLoading ? (
-        <ErrorState compact message="Couldn’t load coaching themes." onRetry={() => refetchThemes()} />
+        <ErrorState compact message="Couldn't load coaching themes." onRetry={() => refetchThemes()} />
       ) : !noAgents ? (
         <TeamCoachingThemes
           themes={teamThemes}
