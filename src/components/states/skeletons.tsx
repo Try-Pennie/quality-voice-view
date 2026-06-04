@@ -16,7 +16,7 @@ function Bar({ widthPct }: { widthPct: number }) {
 /** Body-row shimmer. Caller supplies the surrounding <table>/<thead>. */
 export function TableSkeleton({ rows = 6, cols = 5 }: { rows?: number; cols?: number }) {
   return (
-    <tbody>
+    <tbody role="status" aria-live="polite">
       {Array.from({ length: rows }).map((_, i) => (
         <tr key={i} className={i !== 0 ? 'border-t border-border/60' : ''}>
           {Array.from({ length: cols }).map((__, j) => (
@@ -32,7 +32,7 @@ export function TableSkeleton({ rows = 6, cols = 5 }: { rows?: number; cols?: nu
 
 export function CardSkeleton({ lines = 3 }: { lines?: number }) {
   return (
-    <div className="bg-pennie-white rounded-3xl shadow-resting p-6 space-y-3">
+    <div role="status" aria-live="polite" className="bg-pennie-white rounded-3xl shadow-resting p-6 space-y-3">
       {Array.from({ length: lines }).map((_, i) => (
         <Bar key={i} widthPct={i === 0 ? 40 : 70 + (i % 3) * 8} />
       ))}
@@ -42,7 +42,7 @@ export function CardSkeleton({ lines = 3 }: { lines?: number }) {
 
 export function ChartSkeleton() {
   return (
-    <div className="bg-pennie-white rounded-3xl shadow-resting p-6">
+    <div role="status" aria-live="polite" className="bg-pennie-white rounded-3xl shadow-resting p-6">
       <Bar widthPct={30} />
       <div className="mt-6 h-40 rounded-2xl bg-pennie-beige animate-pulse" />
     </div>

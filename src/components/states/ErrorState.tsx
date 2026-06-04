@@ -17,7 +17,7 @@ export function ErrorState({
 }) {
   if (compact) {
     return (
-      <div className="flex items-center gap-3 rounded-2xl bg-pennie-beige px-4 py-3">
+      <div role="alert" className="flex items-center gap-3 rounded-2xl bg-pennie-beige px-4 py-3">
         <AlertTriangle
           className="w-4 h-4 text-pennie-peach-dark flex-none"
           aria-hidden="true"
@@ -36,7 +36,7 @@ export function ErrorState({
     )
   }
   return (
-    <div className="p-16 text-center">
+    <div role="alert" className="p-16 text-center">
       <div className="pennie-icon-chip mx-auto mb-4 bg-pennie-beige">
         <AlertTriangle className="w-6 h-6 text-pennie-peach-dark" aria-hidden="true" />
       </div>
