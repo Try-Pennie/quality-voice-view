@@ -8,7 +8,7 @@ import {
   PopoverTrigger,
 } from '@/components/ui/popover'
 import { useAuth } from '../hooks/useAuth'
-import { useNotifications } from '../hooks/use-queries'
+import { useNotifications, useNotificationsRealtime } from '../hooks/use-queries'
 import {
   markNotificationsRead,
   markAllNotificationsRead,
@@ -48,7 +48,8 @@ export function NotificationBell() {
   const { user } = useAuth()
   const navigate = useNavigate()
   const queryClient = useQueryClient()
-  const { data } = useNotifications(user?.email)
+  const { data, isError } = useNotifications(user?.email)
+  useNotificationsRealtime(user?.email)
   const notifications = useMemo<EavlNotification[]>(() => data ?? [], [data])
   const unreadCount = useMemo(
     () => notifications.filter(n => n.read_at === null).length,
@@ -124,7 +125,11 @@ export function NotificationBell() {
           )}
         </header>
         <div className="flex-1 overflow-y-auto">
-          {notifications.length === 0 ? (
+          {isError ? (
+            <p className="px-4 py-8 text-sm text-pennie-peach-dark text-center">
+              Couldn't load notifications. They'll refresh automatically.
+            </p>
+          ) : notifications.length === 0 ? (
             <p className="px-4 py-8 text-sm text-pennie-graphite/60 text-center">
               You're all caught up.
             </p>
