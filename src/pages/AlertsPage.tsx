@@ -202,9 +202,11 @@ export default function AlertsPage() {
       setDrawerAlert(inList)
       return
     }
-    fetchAlertOne(routeCallId, routeModuleName).then(a => {
-      if (a) setDrawerAlert(a)
-    })
+    fetchAlertOne(routeCallId, routeModuleName)
+      .then(a => {
+        if (a) setDrawerAlert(a)
+      })
+      .catch(err => console.error('Failed to load alert for deep link:', err))
   }, [routeCallId, routeModuleName, allAlerts])
 
   const openDrawer = useCallback(
@@ -233,7 +235,7 @@ export default function AlertsPage() {
             }
             return { ...curr, ...full }
           })
-        })
+        }).catch(err => console.error('Failed to enrich alert:', err))
       }
     },
     [navigate, location.state],
