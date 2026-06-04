@@ -14,6 +14,7 @@ import { ChevronLeft } from 'lucide-react'
 import { formatDateParam, parseDateParam } from '../lib/url-filters'
 import { ymdInBusinessTZ } from '../lib/time-zone'
 import { RefreshingHint } from '../components/ui/refreshing-hint'
+import { ErrorState } from '@/components/states/ErrorState'
 
 export default function AgentProfilePage() {
   const { agentEmail: rawEmail } = useParams<{ agentEmail: string }>()
@@ -60,7 +61,7 @@ export default function AgentProfilePage() {
     scope &&
     (scope.isGodMode || scope.managedAgents.includes(agentEmail))
 
-  const { data: profileData, isPending, isFetching } = useAgentProfile(
+  const { data: profileData, isPending, isFetching, isError, refetch } = useAgentProfile(
     agentEmail,
     startDate,
     endDate,
@@ -101,42 +102,52 @@ export default function AgentProfilePage() {
         Back to team
       </button>
 
-      <AgentProfileHeader
-        agentEmail={agentEmail}
-        profile={profile}
-        loading={loading}
-        startDate={startDate}
-        endDate={endDate}
-      />
-
-      <div className="flex flex-wrap items-center justify-between gap-4">
-        <DateRangePicker
-          startDate={startDate}
-          endDate={endDate}
-          onRangeChange={(start, end) => {
-            setStartDate(start)
-            setEndDate(end)
-          }}
+      {isError && !loading ? (
+        <ErrorState
+          title="Couldn't load this agent"
+          message="We hit an error loading this profile. Retry to reload."
+          onRetry={() => refetch()}
         />
-        <RefreshingHint active={refreshing} />
-      </div>
+      ) : (
+        <>
+          <AgentProfileHeader
+            agentEmail={agentEmail}
+            profile={profile}
+            loading={loading}
+            startDate={startDate}
+            endDate={endDate}
+          />
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <ScoreTrendChart points={profile?.trend ?? []} loading={loading} />
-        <CSATDistributionChart points={profile?.trend ?? []} loading={loading} />
-        <CallVolumeChart points={profile?.trend ?? []} loading={loading} />
-      </div>
+          <div className="flex flex-wrap items-center justify-between gap-4">
+            <DateRangePicker
+              startDate={startDate}
+              endDate={endDate}
+              onRangeChange={(start, end) => {
+                setStartDate(start)
+                setEndDate(end)
+              }}
+            />
+            <RefreshingHint active={refreshing} />
+          </div>
 
-      <CoachingThemesPanel themes={profile?.coaching_themes ?? null} loading={loading} />
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            <ScoreTrendChart points={profile?.trend ?? []} loading={loading} />
+            <CSATDistributionChart points={profile?.trend ?? []} loading={loading} />
+            <CallVolumeChart points={profile?.trend ?? []} loading={loading} />
+          </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <AgentAlertsPanel alerts={profile?.alerts ?? []} loading={loading} />
-        <AgentRecentCalls
-          calls={profile?.recent_calls ?? []}
-          loading={loading}
-          onSelect={callId => navigate(`/dashboard/calls/${callId}`)}
-        />
-      </div>
+          <CoachingThemesPanel themes={profile?.coaching_themes ?? null} loading={loading} />
+
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <AgentAlertsPanel alerts={profile?.alerts ?? []} loading={loading} />
+            <AgentRecentCalls
+              calls={profile?.recent_calls ?? []}
+              loading={loading}
+              onSelect={callId => navigate(`/dashboard/calls/${callId}`)}
+            />
+          </div>
+        </>
+      )}
     </div>
   )
 }
