@@ -145,7 +145,7 @@ export default function TeamPage() {
     () => searchParams.get('dir') !== 'asc',
   )
 
-  const { data: scope } = useUserScope(user?.email)
+  const { data: scope, isError: scopeError, refetch: refetchScope } = useUserScope(user?.email)
 
   const {
     data: rollupData,
@@ -379,7 +379,13 @@ export default function TeamPage() {
         </div>
       </div>
 
-      {rollupError && !loading && !noAgents ? (
+      {scopeError ? (
+        <ErrorState
+          title="Couldn't load your access"
+          message="We couldn't determine which agents you manage. Retry to reload."
+          onRetry={() => refetchScope()}
+        />
+      ) : rollupError && !loading && !noAgents ? (
         <ErrorState
           title="Couldn’t load team metrics"
           message="We hit an error building the team rollup. Retry to reload."

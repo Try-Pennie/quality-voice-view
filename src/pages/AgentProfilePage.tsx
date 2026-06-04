@@ -56,7 +56,7 @@ export default function AgentProfilePage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [startDate, endDate])
 
-  const { data: scope } = useUserScope(user?.email)
+  const { data: scope, isError: scopeError, refetch: refetchScope } = useUserScope(user?.email)
   const allowed =
     scope &&
     (scope.isGodMode || scope.managedAgents.includes(agentEmail))
@@ -70,6 +70,18 @@ export default function AgentProfilePage() {
   const profile = profileData ?? null
   const loading = isPending && !profileData
   const refreshing = isFetching && !loading
+
+  if (scopeError) {
+    return (
+      <div className="space-y-6 animate-pennie-rise">
+        <ErrorState
+          title="Couldn't load your access"
+          message="We couldn't determine which agents you manage. Retry to reload."
+          onRetry={() => refetchScope()}
+        />
+      </div>
+    )
+  }
 
   if (scope && !allowed) {
     return (

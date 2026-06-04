@@ -52,7 +52,7 @@ export default function AlertsPage() {
   const [searchParams, setSearchParams] = useSearchParams()
   const searchInputId = useId()
 
-  const { data: scope } = useUserScope(user?.email)
+  const { data: scope, isError: scopeError, refetch: refetchScope } = useUserScope(user?.email)
   const [drawerAlert, setDrawerAlert] = useState<AlertWithFeedback | null>(null)
 
   // Default to today only — interpreted as Eastern time so all viewers see
@@ -387,6 +387,18 @@ export default function AlertsPage() {
       e.preventDefault()
       openDrawer(alert)
     }
+  }
+
+  if (scopeError) {
+    return (
+      <div className="animate-pennie-rise">
+        <ErrorState
+          title="Couldn't load your access"
+          message="We couldn't determine which agents you manage. Retry to reload."
+          onRetry={() => refetchScope()}
+        />
+      </div>
+    )
   }
 
   if (!scope) {

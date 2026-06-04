@@ -33,6 +33,15 @@ export async function fetchUserScope(email: string): Promise<UserScope> {
       .maybeSingle(),
   ])
 
+  if (agentsRes.error) {
+    console.error('Error fetching agent_manager_mapping for scope:', agentsRes.error)
+    throw agentsRes.error
+  }
+  if (promptRes.error) {
+    console.error('Error fetching manager_coaching_prompts for scope:', promptRes.error)
+    throw promptRes.error
+  }
+
   return {
     email,
     isGodMode: !!promptRes?.data?.is_god_mode,
