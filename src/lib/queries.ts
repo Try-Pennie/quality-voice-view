@@ -22,7 +22,7 @@ async function fetchQASummaries(callIds: string[]) {
     
     if (error) {
       console.error('Error fetching QA batch:', error)
-      return []
+      throw error
     }
     
     return data || []
@@ -149,7 +149,7 @@ export async function fetchCallDetail(callId: string) {
 
   if (callError) {
     console.error('Error fetching call detail (call):', callError)
-    return null
+    throw callError
   }
   if (!call) return null
 
@@ -162,6 +162,7 @@ export async function fetchCallDetail(callId: string) {
 
   if (qaError) {
     console.error('Error fetching call detail (qa):', qaError)
+    throw qaError
   }
 
   return {

@@ -19,7 +19,7 @@ export async function fetchRecentNotifications(
     .limit(limit)
   if (error) {
     console.error('Error fetching notifications:', error)
-    return []
+    throw error
   }
   return (data || []) as EavlNotification[]
 }

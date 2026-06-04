@@ -18,7 +18,7 @@ export async function fetchAllPaginated<T>(
     const { data, error } = await build(from, from + pageSize - 1)
     if (error) {
       console.error('Paginated fetch error:', error)
-      return all
+      throw error
     }
     const rows = (data || []) as T[]
     all.push(...rows)

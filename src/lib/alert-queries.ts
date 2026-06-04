@@ -108,7 +108,7 @@ export async function fetchAlerts(
   const { data, error } = await q
   if (error) {
     console.error('Error fetching alerts:', error)
-    return []
+    throw error
   }
   return (data || []) as AlertWithFeedback[]
 }
@@ -126,7 +126,7 @@ export async function fetchAlertsForCall(
     .order('alert_created_at', { ascending: true })
   if (error) {
     console.error('Error fetching alerts for call:', error)
-    return []
+    throw error
   }
   return (data || []) as AlertWithFeedback[]
 }
@@ -143,7 +143,7 @@ export async function fetchAlertOne(
     .maybeSingle()
   if (error) {
     console.error('Error fetching alert:', error)
-    return null
+    throw error
   }
   return (data as AlertWithFeedback) ?? null
 }
@@ -198,9 +198,11 @@ export async function fetchAlertThread(
   ])
   if (messagesRes.error) {
     console.error('Error fetching alert messages:', messagesRes.error)
+    throw messagesRes.error
   }
   if (acksRes.error) {
     console.error('Error fetching alert acks:', acksRes.error)
+    throw acksRes.error
   }
   return {
     messages: (messagesRes.data || []) as AlertMessage[],
