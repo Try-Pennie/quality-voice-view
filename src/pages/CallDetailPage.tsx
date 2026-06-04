@@ -8,6 +8,7 @@ import { SalesProcessScorecard } from '../components/call-detail/SalesProcessSco
 import { CustomerExperienceScorecard } from '../components/call-detail/CustomerExperienceScorecard'
 import { CoachingRecommendations } from '../components/call-detail/CoachingRecommendations'
 import { CallAlertsSection } from '../components/call-detail/CallAlertsSection'
+import { ErrorState } from '@/components/states/ErrorState'
 import {
   AlertTriangle,
   ArrowLeft,
@@ -26,9 +27,19 @@ import { toast } from 'sonner'
 export default function CallDetailPage() {
   const { callId } = useParams()
   const navigate = useNavigate()
-  const { data: call, isPending: callPending } = useCallDetail(callId)
+  const {
+    data: call,
+    isPending: callPending,
+    isError: callError,
+    refetch: refetchCall,
+  } = useCallDetail(callId)
   const loading = callPending
-  const { data: alertsData, isPending: alertsPending } = useAlertsForCall(callId)
+  const {
+    data: alertsData,
+    isPending: alertsPending,
+    isError: alertsError,
+    refetch: refetchAlerts,
+  } = useAlertsForCall(callId)
   const alerts = alertsData ?? []
   const alertsLoading = alertsPending && !alertsData
 
@@ -37,6 +48,16 @@ export default function CallDetailPage() {
       <div className="flex items-center justify-center h-96">
         <div className="text-lg text-muted-foreground">Loading call details...</div>
       </div>
+    )
+  }
+
+  if (callError) {
+    return (
+      <ErrorState
+        title="Couldn't load this call"
+        message="We hit an error loading the call. Retry to reload."
+        onRetry={() => refetchCall()}
+      />
     )
   }
 
@@ -118,7 +139,11 @@ export default function CallDetailPage() {
       </div>
 
       {/* SECTION 1.5: Alerts fired for this call */}
-      <CallAlertsSection alerts={alerts} loading={alertsLoading} />
+      {alertsError ? (
+        <ErrorState compact message="Couldn't load alerts for this call." onRetry={() => refetchAlerts()} />
+      ) : (
+        <CallAlertsSection alerts={alerts} loading={alertsLoading} />
+      )}
 
       {/* SECTION 2: Audio Player */}
       <div className="bg-card rounded-lg shadow p-6 border border-border">
