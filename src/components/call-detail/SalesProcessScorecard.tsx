@@ -6,7 +6,6 @@ import {
   ChevronDown,
   ChevronRight,
   Circle,
-  Star,
   XCircle,
 } from 'lucide-react'
 
@@ -14,20 +13,21 @@ export function SalesProcessScorecard({ data }: { data: any }) {
   const [isExpanded, setIsExpanded] = useState(false)
 
   const steps = [
-    { label: 'Step 1: Agenda Setting', value: data.step1_agenda_setting, timestamp: data.step1_timestamp },
-    { label: 'Step 2: Credit Review', value: data.step2_credit_review, timestamp: data.step2_timestamp },
-    { label: 'Step 3: Agent Inputs', value: data.step3_agent_inputs, timestamp: data.step3_timestamp },
-    { label: 'Step 4: Paydown Projections', value: data.step4_paydown_projections, timestamp: data.step4_timestamp },
-    { label: 'Step 5: Offers Review', value: data.step5_offers_review, timestamp: data.step5_timestamp },
-    { label: 'Step 6: Debt Resolution', value: data.step6_debt_resolution, timestamp: data.step6_timestamp },
+    { label: 'Step 1: Agenda Setting', value: data.step1_agenda_setting, location: data.step1_location },
+    { label: 'Step 2: Credit Review', value: data.step2_credit_review, location: data.step2_location },
+    { label: 'Step 3: Agent Inputs', value: data.step3_agent_inputs, location: data.step3_location },
+    { label: 'Step 4: Paydown Projections', value: data.step4_paydown_projections, location: data.step4_location },
+    { label: 'Step 5: Offers Review', value: data.step5_offers_review, location: data.step5_location },
+    { label: 'Step 6: Debt Resolution', value: data.step6_debt_resolution, location: data.step6_location },
   ]
 
+  // Per-step values use the vocabulary complete | partial | missing | not_applicable
+  // (distinct from overall_process_adherence, which is excellent/good/fair/poor).
   const renderIcon = (value: string) => {
     const className = 'w-5 h-5 shrink-0'
-    if (value === 'excellent') return <Star className={`${className} text-yellow-500 fill-yellow-500`} />
-    if (value === 'good') return <CheckCircle2 className={`${className} text-green-600`} />
-    if (value === 'fair' || value === 'needs_improvement') return <AlertTriangle className={`${className} text-yellow-600`} />
-    if (value === 'poor') return <XCircle className={`${className} text-red-600`} />
+    if (value === 'complete') return <CheckCircle2 className={`${className} text-green-600`} />
+    if (value === 'partial') return <AlertTriangle className={`${className} text-yellow-600`} />
+    if (value === 'missing') return <XCircle className={`${className} text-red-600`} />
     return <Circle className={`${className} text-muted-foreground`} />
   }
 
@@ -62,9 +62,9 @@ export function SalesProcessScorecard({ data }: { data: any }) {
                 <span className="mt-0.5">{renderIcon(step.value)}</span>
                 <div className="flex-1">
                   <div className="font-medium text-foreground">{step.label}</div>
-                  <div className="text-sm text-muted-foreground mt-1 capitalize">{step.value || 'N/A'}</div>
-                  {step.timestamp && (
-                    <div className="text-xs text-muted-foreground mt-1">Timestamp: {step.timestamp}</div>
+                  <div className="text-sm text-muted-foreground mt-1 capitalize">{(step.value || 'N/A').replace(/_/g, ' ')}</div>
+                  {step.location && (
+                    <div className="text-xs text-muted-foreground mt-1">{step.location}</div>
                   )}
                 </div>
               </div>
