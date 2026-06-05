@@ -320,7 +320,7 @@ export async function fetchTeamRollup(
       .range(from, from + PAGE_SIZE - 1)
     if (error) {
       console.error('Error calling team_daily_metrics:', error)
-      return []
+      throw error
     }
     const chunk = (data || []) as any[]
     rows.push(...chunk)
@@ -384,7 +384,7 @@ async function fetchAgentDisplayNames(
       .limit(2000)
     if (error) {
       console.error('Error fetching agent display names:', error)
-      continue
+      throw error
     }
     for (const row of (data || []) as any[]) {
       if (!result.has(row.agent_email) && row.agent_full_name) {
@@ -411,7 +411,7 @@ export async function fetchAgentAlertCounts(
       .limit(2000)
     if (error) {
       console.error('Error fetching agent alerts batch:', error)
-      return []
+      throw error
     }
     return (data || []) as AlertWithFeedback[]
   })
@@ -448,7 +448,7 @@ export async function fetchAgentProfile(
 
   if (metricsRes.error) {
     console.error('Error calling agent_daily_metrics:', metricsRes.error)
-    return null
+    throw metricsRes.error
   }
   const dailyRows = ((metricsRes.data || []) as any[]).map(normalizeDailyRow)
   const sampleCalls = ((sampleCallsRes.data || []) as any[])
@@ -477,7 +477,7 @@ export async function fetchAgentProfile(
               .in('call_id', batch)
             if (error) {
               console.error('Error fetching agent qa_json batch:', error)
-              return []
+              throw error
             }
             return (data || []) as any[]
           },
@@ -576,7 +576,7 @@ export async function fetchManagerNames(
       .limit(2000)
     if (error) {
       console.error('Error fetching manager names:', error)
-      continue
+      throw error
     }
     for (const row of (data || []) as any[]) {
       if (!result.has(row.agent_email) && row.agent_full_name) {
@@ -597,7 +597,7 @@ export async function fetchAgentManagerMapping(): Promise<
     .select('manager_email, agent_email')
   if (error) {
     console.error('Error fetching agent_manager_mapping:', error)
-    return []
+    throw error
   }
   return ((data || []) as any[]).map(r => ({
     manager_email: r.manager_email,
@@ -624,7 +624,7 @@ export async function fetchAgentManagerMappingAt(
       return fetchAgentManagerMapping()
     }
     console.error('Error calling agent_manager_mapping_at:', error)
-    return []
+    throw error
   }
   return ((data || []) as any[]).map(r => ({
     manager_email: r.manager_email,
@@ -764,7 +764,7 @@ export async function fetchTeamCoachingThemes(
           .limit(2000)
         if (error) {
           console.error('Error fetching godmode agents for themes:', error)
-          return []
+          throw error
         }
         return Array.from(
           new Set(((data || []) as any[]).map(r => r.agent_email)),
@@ -787,7 +787,7 @@ export async function fetchTeamCoachingThemes(
         .limit(perAgentSample)
       if (error) {
         console.error(`Error fetching recent calls for ${email}:`, error)
-        return { email, callIds: [] as string[] }
+        throw error
       }
       const callIds = ((data || []) as any[])
         .map(c => c.call_id)
@@ -818,7 +818,7 @@ export async function fetchTeamCoachingThemes(
         .in('call_id', batch)
       if (error) {
         console.error('Error fetching team qa_json batch:', error)
-        return []
+        throw error
       }
       return (data || []) as any[]
     },

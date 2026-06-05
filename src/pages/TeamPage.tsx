@@ -25,6 +25,7 @@ import { TeamHeaderStats } from '../components/team/TeamHeaderStats'
 import { TeamLeaderboard } from '../components/team/TeamLeaderboard'
 import { TeamTrendSection } from '../components/team/TeamTrendSection'
 import { TeamCoachingThemes } from '../components/team/TeamCoachingThemes'
+import { ErrorState } from '@/components/states/ErrorState'
 import {
   TeamBreakdownByManager,
   type ManagerSortKey,
@@ -144,12 +145,14 @@ export default function TeamPage() {
     () => searchParams.get('dir') !== 'asc',
   )
 
-  const { data: scope } = useUserScope(user?.email)
+  const { data: scope, isError: scopeError, refetch: refetchScope } = useUserScope(user?.email)
 
   const {
     data: rollupData,
     isPending: rollupPending,
     isFetching: rollupFetching,
+    isError: rollupError,
+    refetch: refetchRollup,
   } = useTeamRollup(scope, startDate, endDate)
   const rollup = useMemo(() => rollupData ?? [], [rollupData])
   const loading = rollupPending && !rollupData
@@ -158,6 +161,8 @@ export default function TeamPage() {
     data: breakdownData,
     isPending: breakdownPending,
     isFetching: breakdownFetching,
+    isError: breakdownError,
+    refetch: refetchBreakdown,
   } = useAlertBreakdown(scope, startDate, endDate)
   const breakdown = useMemo(() => breakdownData ?? [], [breakdownData])
   const breakdownLoading = breakdownPending && !breakdownData
@@ -319,6 +324,8 @@ export default function TeamPage() {
     data: teamThemesData,
     isPending: themesPending,
     isFetching: themesFetching,
+    isError: themesError,
+    refetch: refetchThemes,
   } = useTeamCoachingThemes(themesScope, startDate, endDate)
   const teamThemes = teamThemesData ?? null
   const themesLoading = themesPending && !teamThemesData
@@ -372,15 +379,29 @@ export default function TeamPage() {
         </div>
       </div>
 
-      <TeamHeaderStats
-        metrics={teamMetrics}
-        loading={loading}
-        onComplianceClick={focusAttentionList}
-        onEscalationClick={focusAttentionList}
-        onAlertsClick={goToAlerts}
-      />
+      {scopeError ? (
+        <ErrorState
+          title="Couldn't load your access"
+          message="We couldn't determine which agents you manage. Retry to reload."
+          onRetry={() => refetchScope()}
+        />
+      ) : rollupError && !loading && !noAgents ? (
+        <ErrorState
+          title="Couldn't load team metrics"
+          message="We hit an error building the team rollup. Retry to reload."
+          onRetry={() => refetchRollup()}
+        />
+      ) : (
+        <>
+          <TeamHeaderStats
+            metrics={teamMetrics}
+            loading={loading}
+            onComplianceClick={focusAttentionList}
+            onEscalationClick={focusAttentionList}
+            onAlertsClick={goToAlerts}
+          />
 
-      <TeamTrendSection points={teamTrend} loading={loading} />
+          <TeamTrendSection points={teamTrend} loading={loading} />
 
       {scope?.isGodMode && (
         <TeamBreakdownByManager
@@ -475,8 +496,12 @@ export default function TeamPage() {
           />
         )}
       </div>
+        </>
+      )}
 
-      {!noAgents && (
+      {!noAgents && breakdownError && !breakdownLoading ? (
+        <ErrorState compact message="Couldn't load the alert heatmap." onRetry={() => refetchBreakdown()} />
+      ) : !noAgents ? (
         <AlertHeatmap
           cells={scopedBreakdown}
           rollups={scopedRollup}
@@ -484,15 +509,17 @@ export default function TeamPage() {
           startDate={startDate}
           endDate={endDate}
         />
-      )}
+      ) : null}
 
-      {!noAgents && (
+      {!noAgents && themesError && !themesLoading ? (
+        <ErrorState compact message="Couldn't load coaching themes." onRetry={() => refetchThemes()} />
+      ) : !noAgents ? (
         <TeamCoachingThemes
           themes={teamThemes}
           loading={themesLoading}
           totalAgents={teamMetrics.agentCount}
         />
-      )}
+      ) : null}
     </div>
   )
 }

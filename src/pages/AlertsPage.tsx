@@ -30,6 +30,8 @@ import { ymdInBusinessTZ } from '../lib/time-zone'
 import { CheckCheck, ChevronDown, ChevronRight, Inbox, MessageSquare, Search } from 'lucide-react'
 import { HelpHint } from '../components/ui/help-hint'
 import { PageHero, SupportingStat } from '../components/PageHero'
+import { ErrorState } from '@/components/states/ErrorState'
+import { EmptyState } from '@/components/states/EmptyState'
 
 const MODULE_OPTIONS = [
   { value: 'full_qa', label: MODULE_LABELS.full_qa },
@@ -50,7 +52,7 @@ export default function AlertsPage() {
   const [searchParams, setSearchParams] = useSearchParams()
   const searchInputId = useId()
 
-  const { data: scope } = useUserScope(user?.email)
+  const { data: scope, isError: scopeError, refetch: refetchScope } = useUserScope(user?.email)
   const [drawerAlert, setDrawerAlert] = useState<AlertWithFeedback | null>(null)
 
   // Default to today only — interpreted as Eastern time so all viewers see
@@ -105,6 +107,8 @@ export default function AlertsPage() {
     data: allAlertsData,
     isPending: alertsPending,
     isFetching: alertsFetching,
+    isError: alertsError,
+    refetch: refetchAlerts,
   } = useAlerts(serverFilters, scope)
   const allAlerts = useMemo(() => allAlertsData ?? [], [allAlertsData])
   const loading = alertsPending && !allAlertsData
@@ -202,9 +206,11 @@ export default function AlertsPage() {
       setDrawerAlert(inList)
       return
     }
-    fetchAlertOne(routeCallId, routeModuleName).then(a => {
-      if (a) setDrawerAlert(a)
-    })
+    fetchAlertOne(routeCallId, routeModuleName)
+      .then(a => {
+        if (a) setDrawerAlert(a)
+      })
+      .catch(err => console.error('Failed to load alert for deep link:', err))
   }, [routeCallId, routeModuleName, allAlerts])
 
   const openDrawer = useCallback(
@@ -233,7 +239,7 @@ export default function AlertsPage() {
             }
             return { ...curr, ...full }
           })
-        })
+        }).catch(err => console.error('Failed to enrich alert:', err))
       }
     },
     [navigate, location.state],
@@ -381,6 +387,18 @@ export default function AlertsPage() {
       e.preventDefault()
       openDrawer(alert)
     }
+  }
+
+  if (scopeError) {
+    return (
+      <div className="animate-pennie-rise">
+        <ErrorState
+          title="Couldn't load your access"
+          message="We couldn't determine which agents you manage. Retry to reload."
+          onRetry={() => refetchScope()}
+        />
+      </div>
+    )
   }
 
   if (!scope) {
@@ -615,20 +633,21 @@ export default function AlertsPage() {
       <section className="bg-pennie-white rounded-3xl shadow-resting overflow-hidden">
         {loading ? (
           <SkeletonAlertsTable />
+        ) : alertsError ? (
+          <ErrorState
+            title="Couldn't load alerts"
+            message="We hit an error fetching this queue. Your place is saved — just retry."
+            onRetry={() => refetchAlerts()}
+          />
         ) : alerts.length === 0 ? (
-          <div className="p-16 text-center">
-            <div className="pennie-icon-chip mx-auto mb-4 bg-pennie-beige">
-              <Inbox className="w-6 h-6 text-pennie-navy" />
-            </div>
-            <p className="text-pennie-navy font-semibold text-lg">
-              {statusView === 'new' ? 'Inbox zero — nothing to review.' : 'No alerts match.'}
-            </p>
-            <p className="text-sm text-muted-foreground mt-1">
-              {statusView === 'new'
+          <EmptyState
+            title={statusView === 'new' ? 'Inbox zero — nothing to review.' : 'No alerts match.'}
+            message={
+              statusView === 'new'
                 ? 'New alerts will land here as Eavesly flags them.'
-                : 'Try widening the date range or clearing filters.'}
-            </p>
-          </div>
+                : 'Try widening the date range or clearing filters.'
+            }
+          />
         ) : (
           <div className="overflow-x-auto">
             <table className="min-w-full">

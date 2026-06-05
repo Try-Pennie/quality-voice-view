@@ -1,7 +1,12 @@
 import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import {
+  QueryClient,
+  QueryClientProvider,
+  QueryCache,
+} from "@tanstack/react-query";
+import { toast } from "sonner";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { AuthProvider } from "./hooks/useAuth";
 import { ProtectedRoute } from "./components/ProtectedRoute";
@@ -15,7 +20,21 @@ import AgentProfilePage from "./pages/AgentProfilePage";
 import HelpPage from "./pages/HelpPage";
 import NotFound from "./pages/NotFound";
 
+// Backstop so no read failure is ever fully silent, even on a surface we
+// don't individually wire. Inline <ErrorState> remains the primary
+// treatment; this dedupes bursts to one toast per few seconds.
+let lastErrorToastAt = 0;
+const queryCache = new QueryCache({
+  onError: () => {
+    const now = Date.now();
+    if (now - lastErrorToastAt < 4000) return;
+    lastErrorToastAt = now;
+    toast.error("Something went wrong loading data. Try again in a moment.");
+  },
+});
+
 const queryClient = new QueryClient({
+  queryCache,
   defaultOptions: {
     queries: {
       // Cross-page navigation hits the cache without refetching for a minute.

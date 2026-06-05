@@ -25,6 +25,7 @@ import { ThresholdSettings, DEFAULT_THRESHOLDS } from '../types/settings'
 import { Settings, Download, Loader2, ChevronRight } from 'lucide-react'
 import { HelpHint } from '../components/ui/help-hint'
 import { PageHero, SupportingStat } from '../components/PageHero'
+import { ErrorState } from '@/components/states/ErrorState'
 
 type QuickFilter = 'all' | 'escalations' | 'compliance' | 'threshold'
 
@@ -75,7 +76,7 @@ export default function DashboardPage() {
       : 'all'
   })
 
-  const { data: callsData, isPending, isFetching } = useDashboardData(
+  const { data: callsData, isPending, isFetching, isError, refetch } = useDashboardData(
     startDate,
     endDate,
     selectedAgents,
@@ -584,7 +585,15 @@ export default function DashboardPage() {
         )}
       </section>
 
-      {!loading && filteredCalls.length === 0 && (
+      {!loading && isError && (
+        <ErrorState
+          title="Couldn't load calls"
+          message="We hit an error fetching the call list. Retry to reload."
+          onRetry={() => refetch()}
+        />
+      )}
+
+      {!loading && !isError && filteredCalls.length === 0 && (
         <div className="text-center py-12 bg-pennie-white rounded-3xl shadow-resting">
           <p className="text-pennie-graphite font-medium">
             No calls match your filters.

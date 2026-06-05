@@ -1,4 +1,6 @@
-import { useQuery, keepPreviousData } from '@tanstack/react-query'
+import { useQuery, keepPreviousData, useQueryClient } from '@tanstack/react-query'
+import { useEffect } from 'react'
+import { supabase } from '../integrations/supabase/client'
 import {
   fetchUserScope,
   fetchAlerts,
@@ -228,14 +230,43 @@ export function useAlertThread(
   })
 }
 
-// Bell dropdown feed. Polled because we don't have realtime wired up yet —
-// 60s is responsive enough for the coaching-loop SLA without hammering RLS.
+// Bell dropdown feed. Realtime (useNotificationsRealtime) drives freshness;
+// this slow poll is just a safety net for any socket events we miss.
 export function useNotifications(email: string | null | undefined) {
   return useQuery({
     queryKey: ['notifications', email],
     queryFn: () => fetchRecentNotifications(email!),
     enabled: !!email,
-    refetchInterval: 60_000,
-    refetchOnWindowFocus: true,
+    refetchInterval: 300_000,
+    refetchOnWindowFocus: false,
   })
+}
+
+// Live-updates the bell: a postgres_changes subscription on the caller's
+// own notification rows invalidates the cached fetch. RLS scopes delivery
+// to recipient_email; the client filter narrows the channel further.
+export function useNotificationsRealtime(email: string | null | undefined) {
+  const queryClient = useQueryClient()
+  useEffect(() => {
+    if (!email) return
+    const lower = email.toLowerCase()
+    const channel = supabase
+      .channel(`notifications:${lower}`)
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'eavesly_notifications',
+          filter: `recipient_email=eq.${lower}`,
+        },
+        () => {
+          queryClient.invalidateQueries({ queryKey: ['notifications', email] })
+        },
+      )
+      .subscribe()
+    return () => {
+      supabase.removeChannel(channel)
+    }
+  }, [email, queryClient])
 }
