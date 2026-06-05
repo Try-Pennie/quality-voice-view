@@ -22,3 +22,6 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Use npm (package-lock.json) — a stale bun.lockb breaks Cloudflare Pages builds
+bun.lockb
