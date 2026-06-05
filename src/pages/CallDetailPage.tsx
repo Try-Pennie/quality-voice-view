@@ -5,6 +5,7 @@ import { HelpHint } from '../components/ui/help-hint'
 import { AudioPlayer } from '../components/call-detail/AudioPlayer'
 import { ComplianceScorecard } from '../components/call-detail/ComplianceScorecard'
 import { SalesProcessScorecard } from '../components/call-detail/SalesProcessScorecard'
+import { ProgramExpectationsScorecard } from '../components/call-detail/ProgramExpectationsScorecard'
 import { CustomerExperienceScorecard } from '../components/call-detail/CustomerExperienceScorecard'
 import { CoachingRecommendations } from '../components/call-detail/CoachingRecommendations'
 import { CallAlertsSection } from '../components/call-detail/CallAlertsSection'
@@ -268,6 +269,13 @@ export default function CallDetailPage() {
       {/* SECTION 6: Sales Process Scorecard */}
       {qaData?.sales_process_scorecard && (
         <SalesProcessScorecard data={qaData.sales_process_scorecard} />
+      )}
+
+      {/* SECTION 6.5: Program Expectations — only shown when the call actually
+          reached enrollment (not_applicable on ~94% of calls would be noise). */}
+      {qaData?.program_expectations_scorecard &&
+        qaData.program_expectations_scorecard.section_status !== 'not_applicable' && (
+        <ProgramExpectationsScorecard data={qaData.program_expectations_scorecard} />
       )}
 
       {/* SECTION 7: Customer Experience Scorecard */}

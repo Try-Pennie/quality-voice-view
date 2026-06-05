@@ -67,21 +67,49 @@ export type QAJson = {
   }
 
   sales_process_scorecard?: {
-    overall_process_adherence: string
+    // per-step values: complete | partial | missing | not_applicable
+    overall_process_adherence: string // excellent | good | fair | poor
     step1_agenda_setting: string
-    step1_timestamp: string | null
+    step1_location: string | null
     step2_credit_review: string
-    step2_timestamp: string | null
+    step2_location: string | null
     step3_agent_inputs: string
-    step3_timestamp: string | null
+    step3_location: string | null
     step4_paydown_projections: string
-    step4_timestamp: string | null
+    step4_location: string | null
     step5_offers_review: string
-    step5_timestamp: string | null
+    step5_location: string | null
     step6_debt_resolution: string
-    step6_timestamp: string | null
+    step6_location: string | null
+    expected_sections: number[]
+    sections_attempted: number[]
+    sections_completed: number[]
+    key_process_moments: string[]
+    section_gap_reasons: { section: number; reason: string }[]
     missed_opportunities: string[]
     process_notes: string
+  }
+
+  program_expectations_scorecard?: {
+    section_status: string // pass | fail | not_applicable
+    section_summary: string
+    enrollment_completed: boolean
+    enrollment_evidence_quote: string
+    missing_elements: string[]
+    phase_stabilization_covered: boolean
+    phase_stabilization_evidence: string
+    phase_recovery_covered: boolean
+    phase_recovery_evidence: string
+    phase_rebuild_covered: boolean
+    phase_rebuild_evidence: string
+    phase_impact_covered: boolean
+    phase_impact_evidence: string
+    payments_point_covered: boolean
+    payments_point_evidence: string
+    creditor_calls_point_covered: boolean
+    creditor_calls_point_evidence: string
+    legal_action_point_covered: boolean
+    legal_action_point_evidence: string
   }
 
   coaching_recommendations?: {
