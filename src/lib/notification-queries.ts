@@ -1,5 +1,6 @@
 import { supabase } from '@/integrations/supabase/client'
 import type { EavlNotification } from '@/types/database'
+import { SUPPRESSED_ALERT_MODULES } from './suppressed-alerts'
 
 const sb = supabase as any
 
@@ -11,12 +12,20 @@ export async function fetchRecentNotifications(
   limit = 30,
 ): Promise<EavlNotification[]> {
   if (!email) return []
-  const { data, error } = await sb
+  let q = sb
     .from('eavesly_notifications')
     .select('*')
     .eq('recipient_email', email.toLowerCase())
     .order('created_at', { ascending: false })
     .limit(limit)
+
+  // Keep production-test disposition-review notifications out of the manager
+  // bell feed until the alert type is ready for review.
+  for (const moduleName of SUPPRESSED_ALERT_MODULES) {
+    q = q.neq('module_name', moduleName)
+  }
+
+  const { data, error } = await q
   if (error) {
     console.error('Error fetching notifications:', error)
     throw error

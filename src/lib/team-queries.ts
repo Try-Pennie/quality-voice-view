@@ -11,6 +11,7 @@ import {
   type CoachingThemes,
   type TeamCoachingThemes,
 } from './coaching-aggregation'
+import { SUPPRESSED_ALERT_MODULES } from './suppressed-alerts'
 
 const sb = supabase as any
 
@@ -402,13 +403,21 @@ export async function fetchAgentAlertCounts(
 ): Promise<AlertWithFeedback[]> {
   if (agentEmails.length === 0) return []
   return fetchInBatches<AlertWithFeedback>(agentEmails, 100, async batch => {
-    const { data, error } = await sb
+    let q = sb
       .from('eavesly_alerts_with_feedback')
       .select(ALERT_COUNT_COLUMNS)
       .in('agent_email', batch)
       .gte('alert_created_at', startDate.toISOString())
       .lte('alert_created_at', endDate.toISOString())
       .limit(2000)
+
+    // Keep production-test modules out of the manager-facing agent profile
+    // alerts panel too; rows remain in Supabase for internal review.
+    for (const moduleName of SUPPRESSED_ALERT_MODULES) {
+      q = q.neq('module_name', moduleName)
+    }
+
+    const { data, error } = await q
     if (error) {
       console.error('Error fetching agent alerts batch:', error)
       throw error
