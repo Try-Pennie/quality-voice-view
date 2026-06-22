@@ -24,6 +24,12 @@ import {
   fetchCallDetail,
 } from '../lib/queries'
 import { fetchRecentNotifications } from '../lib/notification-queries'
+import {
+  fetchInsightsReport,
+  priorWeekOf,
+  baselineFor,
+  type InsightsWindow,
+} from '../lib/insights-queries'
 import { filterSuppressedAlertRows, isSuppressedAlertModule } from '../lib/suppressed-alerts'
 
 // React Query hashes queryKeys via stable JSON serialization, so primitives are
@@ -175,6 +181,28 @@ export function useAgentProfile(
     ],
     queryFn: () => fetchAgentProfile(agentEmail!, startDate, endDate),
     enabled: enabled && !!agentEmail,
+    placeholderData: keepPreviousData,
+  })
+}
+
+// Weekly management-insights report. Derives the prior week + trailing-month
+// baseline from the selected week, then fetches all aggregate-safe windows in
+// one query so the page has a single loading/error surface.
+export function useInsightsReport(
+  scope: UserScope | null | undefined,
+  week: InsightsWindow,
+) {
+  const prior = priorWeekOf(week)
+  const baseline = baselineFor(week)
+  return useQuery({
+    queryKey: [
+      'insightsReport',
+      scopeKey(scope),
+      dateKey(week.start),
+      dateKey(week.end),
+    ],
+    queryFn: () => fetchInsightsReport(scope!, week, prior, baseline),
+    enabled: !!scope,
     placeholderData: keepPreviousData,
   })
 }
