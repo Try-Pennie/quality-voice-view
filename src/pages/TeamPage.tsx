@@ -9,6 +9,7 @@ import { ymdInBusinessTZ } from '../lib/time-zone'
 import {
   aggregateTeamTrend,
   aggregateManagerRollups,
+  type AgentRollup,
   type ManagerRollup,
 } from '../lib/team-queries'
 import {
@@ -190,10 +191,48 @@ export default function TeamPage() {
     [managerNamesData],
   )
 
+  const rollupWithVisibleAlertCounts = useMemo(() => {
+    const countsByAgent = new Map<
+      string,
+      { total: number; unreviewed: number; falsePositive: number }
+    >()
+    for (const cell of breakdown) {
+      const current = countsByAgent.get(cell.agent_email) ?? {
+        total: 0,
+        unreviewed: 0,
+        falsePositive: 0,
+      }
+      current.total += cell.total
+      current.unreviewed += cell.unreviewed
+      current.falsePositive += cell.false_positives
+      countsByAgent.set(cell.agent_email, current)
+    }
+
+    return rollup.map(agent => {
+      const counts = countsByAgent.get(agent.agent_email)
+      const total = counts?.total ?? 0
+      const unreviewed = counts?.unreviewed ?? 0
+      const falsePositive = counts?.falsePositive ?? 0
+      return {
+        ...agent,
+        total_alerts_count: total,
+        open_alerts_count: total,
+        unreviewed_alerts_count: unreviewed,
+        false_positive_count: falsePositive,
+        needs_attention:
+          agent.call_count > 0 &&
+          (agent.compliance_pass_rate < 80 ||
+            agent.escalation_rate >= 10 ||
+            agent.csat_high_rate < 50 ||
+            unreviewed > 0),
+      }
+    })
+  }, [rollup, breakdown])
+
   const managerRollups = useMemo(() => {
     if (!scope?.isGodMode) return []
-    return aggregateManagerRollups(rollup, managerMapping, managerNames)
-  }, [scope, rollup, managerMapping, managerNames])
+    return aggregateManagerRollups(rollupWithVisibleAlertCounts, managerMapping, managerNames)
+  }, [scope, rollupWithVisibleAlertCounts, managerMapping, managerNames])
 
   // Hydrate selectedManager from URL once the manager rollups exist. Tracked
   // by a ref so we only attempt hydration on the first qualifying render.
@@ -237,10 +276,10 @@ export default function TeamPage() {
   // heatmap, themes, leaderboard). search + quickFilter further narrow only
   // the leaderboard — they're inspection tools, not data filters.
   const scopedRollup = useMemo(() => {
-    if (!selectedManager) return rollup
+    if (!selectedManager) return rollupWithVisibleAlertCounts
     const agentSet = new Set(selectedManager.agent_emails)
-    return rollup.filter(r => agentSet.has(r.agent_email))
-  }, [rollup, selectedManager])
+    return rollupWithVisibleAlertCounts.filter(r => agentSet.has(r.agent_email))
+  }, [rollupWithVisibleAlertCounts, selectedManager])
 
   const filtered = useMemo(() => {
     let rows = scopedRollup
