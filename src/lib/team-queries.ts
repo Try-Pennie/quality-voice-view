@@ -461,6 +461,13 @@ export async function fetchAgentProfile(
   }
   const dailyRows = ((metricsRes.data || []) as any[]).map(normalizeDailyRow)
   const sampleCalls = ((sampleCallsRes.data || []) as any[])
+  const visibleAlertTotal = alerts.filter(a => a.has_violation).length
+  const visibleUnreviewedAlerts = alerts.filter(
+    a => a.has_violation && !a.is_reviewed,
+  ).length
+  const visibleFalsePositiveAlerts = alerts.filter(
+    a => a.has_violation && a.accurate === false,
+  ).length
   const agentFullName =
     dailyRows.find(r => r.agent_full_name)?.agent_full_name ??
     sampleCalls.find(c => c.agent_full_name)?.agent_full_name ??
@@ -534,7 +541,16 @@ export async function fetchAgentProfile(
 
   const trend = trendPointsFromDailyRows(dailyRows, startDate, endDate)
   const rollup = rollupFromDailyRows(agentEmail, agentFullName, dailyRows, trend)
-
+  rollup.total_alerts_count = visibleAlertTotal
+  rollup.open_alerts_count = visibleAlertTotal
+  rollup.unreviewed_alerts_count = visibleUnreviewedAlerts
+  rollup.false_positive_count = visibleFalsePositiveAlerts
+  rollup.needs_attention =
+    rollup.call_count > 0 &&
+    (rollup.compliance_pass_rate < 80 ||
+      rollup.escalation_rate >= 10 ||
+      rollup.csat_high_rate < 50 ||
+      visibleUnreviewedAlerts > 0)
   return {
     agent_email: agentEmail,
     agent_full_name: agentFullName,
