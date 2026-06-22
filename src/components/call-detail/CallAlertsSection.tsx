@@ -6,6 +6,7 @@ import {
   extractReason,
 } from '../../lib/alert-queries'
 import { accentForViolation, pillClasses } from '../../lib/violation-styles'
+import { filterSuppressedAlertRows } from '../../lib/suppressed-alerts'
 import { formatDateTime } from '../../lib/utils'
 import type { AlertWithFeedback } from '../../types/database'
 
@@ -16,6 +17,7 @@ export function CallAlertsSection({
   alerts: AlertWithFeedback[]
   loading: boolean
 }) {
+  const visibleAlerts = filterSuppressedAlertRows(alerts)
   if (loading) {
     return (
       <div className="bg-card rounded-lg shadow p-6 border border-border">
@@ -24,7 +26,7 @@ export function CallAlertsSection({
       </div>
     )
   }
-  if (alerts.length === 0) {
+  if (visibleAlerts.length === 0) {
     return (
       <div className="bg-card rounded-lg shadow p-6 border border-border">
         <h2 className="text-lg font-semibold text-foreground mb-2">Alerts</h2>
@@ -34,8 +36,8 @@ export function CallAlertsSection({
       </div>
     )
   }
-  const violations = alerts.filter(a => a.has_violation)
-  const passes = alerts.filter(a => !a.has_violation)
+  const violations = visibleAlerts.filter(a => a.has_violation)
+  const passes = visibleAlerts.filter(a => !a.has_violation)
 
   return (
     <div className="bg-card rounded-lg shadow p-6 border border-border">

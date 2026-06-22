@@ -27,6 +27,7 @@ import { RefreshingHint } from '../components/ui/refreshing-hint'
 import { AlertReviewDrawer } from '../components/alerts/AlertReviewDrawer'
 import { formatDateParam, parseDateParam } from '../lib/url-filters'
 import { ymdInBusinessTZ } from '../lib/time-zone'
+import { filterSuppressedAlertRows, isSuppressedAlertModule } from '../lib/suppressed-alerts'
 import { CheckCheck, ChevronDown, ChevronRight, Inbox, MessageSquare, Search } from 'lucide-react'
 import { HelpHint } from '../components/ui/help-hint'
 import { PageHero, SupportingStat } from '../components/PageHero'
@@ -110,7 +111,10 @@ export default function AlertsPage() {
     isError: alertsError,
     refetch: refetchAlerts,
   } = useAlerts(serverFilters, scope)
-  const allAlerts = useMemo(() => allAlertsData ?? [], [allAlertsData])
+  const allAlerts = useMemo(
+    () => filterSuppressedAlertRows(allAlertsData),
+    [allAlertsData],
+  )
   const loading = alertsPending && !allAlertsData
 
   const {
@@ -199,6 +203,11 @@ export default function AlertsPage() {
   // Deep-link: open drawer if URL has /:callId/:moduleName.
   useEffect(() => {
     if (!routeCallId || !routeModuleName) return
+    if (isSuppressedAlertModule(routeModuleName)) {
+      setDrawerAlert(null)
+      navigate('/dashboard/alerts', { replace: true })
+      return
+    }
     const inList = allAlerts.find(
       a => a.call_id === routeCallId && a.module_name === routeModuleName,
     )
@@ -211,7 +220,7 @@ export default function AlertsPage() {
         if (a) setDrawerAlert(a)
       })
       .catch(err => console.error('Failed to load alert for deep link:', err))
-  }, [routeCallId, routeModuleName, allAlerts])
+  }, [routeCallId, routeModuleName, allAlerts, navigate])
 
   const openDrawer = useCallback(
     (alert: AlertWithFeedback) => {
