@@ -40,8 +40,16 @@ aggregate-safe sources, called across the three windows in
 `fetchInsightsReport`:
 
 - `fetchTeamRollup` — per-agent rollups + daily-metric trend buckets from the
-  `team_daily_metrics` MV (paginated; scoped to `scope.managedAgents` unless
-  god-mode).
+  `team_daily_metrics` MV (paginated). **A regular manager sees only their
+  mapped direct reports**; god-mode / super-admin users see all teams. In
+  addition to the existing server/RLS scoping expectations for the RPC, the app
+  now applies a defensive client-side filter (`filterDailyRowsToScope`) that
+  drops any row outside `scope.managedAgents` for non-god users before
+  aggregation — so KPIs, the watchlist, and top performers cannot include
+  agents from another team if a broader row set reaches the client.
+  Zero-activity direct reports are still surfaced (added back from
+  `scope.managedAgents`), and display-name backfill is limited to in-scope
+  agents.
 - `fetchAlertBreakdown` — per-module/agent violation counts (paginated,
   suppressed modules excluded). For this report, manager-reviewed inaccurate
   alerts (`accurate=false`) are also excluded so overturned alerts do not keep
