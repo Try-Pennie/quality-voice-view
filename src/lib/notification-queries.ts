@@ -1,6 +1,6 @@
 import { supabase } from '@/integrations/supabase/client'
 import type { EavlNotification } from '@/types/database'
-import { SUPPRESSED_ALERT_MODULES } from './suppressed-alerts'
+import { SUPPRESSED_ALERT_MODULES, filterSuppressedAlertRows } from './suppressed-alerts'
 
 const sb = supabase as any
 
@@ -30,7 +30,7 @@ export async function fetchRecentNotifications(
     console.error('Error fetching notifications:', error)
     throw error
   }
-  return (data || []) as EavlNotification[]
+  return filterSuppressedAlertRows(data as EavlNotification[])
 }
 
 export async function markNotificationsRead(

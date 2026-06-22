@@ -1,6 +1,7 @@
 import { useNavigate, useLocation } from 'react-router-dom'
 import type { AlertWithFeedback } from '../../types/database'
 import { VIOLATION_TYPE_LABELS } from '../../lib/alert-queries'
+import { isSuppressedAlertModule } from '../../lib/suppressed-alerts'
 import { accentForViolation, pillClasses } from '../../lib/violation-styles'
 import { formatDateTime } from '../../lib/utils'
 
@@ -16,7 +17,7 @@ export function AgentAlertsPanel({
 
   // Show only "real" alerts (has_violation = true) and prioritize unreviewed
   const visible = [...alerts]
-    .filter(a => a.has_violation)
+    .filter(a => a.has_violation && !isSuppressedAlertModule(a.module_name))
     .sort((a, b) => {
       if (a.is_reviewed !== b.is_reviewed) return a.is_reviewed ? 1 : -1
       return (
@@ -26,7 +27,9 @@ export function AgentAlertsPanel({
     })
     .slice(0, 8)
 
-  const unreviewedCount = alerts.filter(a => a.has_violation && !a.is_reviewed).length
+  const unreviewedCount = alerts.filter(
+    a => a.has_violation && !a.is_reviewed && !isSuppressedAlertModule(a.module_name),
+  ).length
 
   return (
     <section className="bg-pennie-white rounded-3xl shadow-resting p-6 flex flex-col">

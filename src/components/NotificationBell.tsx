@@ -13,6 +13,7 @@ import {
   markNotificationsRead,
   markAllNotificationsRead,
 } from '../lib/notification-queries'
+import { filterSuppressedAlertRows, isSuppressedAlertModule } from '../lib/suppressed-alerts'
 import type { EavlNotification, NotificationKind } from '../types/database'
 
 const KIND_LABEL: Record<NotificationKind, string> = {
@@ -50,13 +51,18 @@ export function NotificationBell() {
   const queryClient = useQueryClient()
   const { data, isError } = useNotifications(user?.email)
   useNotificationsRealtime(user?.email)
-  const notifications = useMemo<EavlNotification[]>(() => data ?? [], [data])
+  const notifications = useMemo<EavlNotification[]>(
+    () => filterSuppressedAlertRows(data),
+    [data],
+  )
   const unreadCount = useMemo(
     () => notifications.filter(n => n.read_at === null).length,
     [notifications],
   )
 
   const onClickRow = async (n: EavlNotification) => {
+    if (isSuppressedAlertModule(n.module_name)) return
+
     // Optimistic local mark-read so the badge drops immediately.
     queryClient.setQueryData<EavlNotification[]>(
       ['notifications', user?.email],

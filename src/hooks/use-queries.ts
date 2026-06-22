@@ -24,6 +24,7 @@ import {
   fetchCallDetail,
 } from '../lib/queries'
 import { fetchRecentNotifications } from '../lib/notification-queries'
+import { filterSuppressedAlertRows, isSuppressedAlertModule } from '../lib/suppressed-alerts'
 
 // React Query hashes queryKeys via stable JSON serialization, so primitives are
 // preferable to live Date / UserScope references — both are reconstructed on
@@ -69,6 +70,7 @@ export function useAlerts(
     queryFn: () => fetchAlerts(filters, scope!),
     enabled: !!scope,
     placeholderData: keepPreviousData,
+    select: filterSuppressedAlertRows,
   })
 }
 
@@ -216,6 +218,7 @@ export function useAlertsForCall(callId: string | null | undefined) {
     queryKey: ['alertsForCall', callId],
     queryFn: () => fetchAlertsForCall(callId!),
     enabled: !!callId,
+    select: filterSuppressedAlertRows,
   })
 }
 
@@ -226,7 +229,7 @@ export function useAlertThread(
   return useQuery({
     queryKey: ['alertThread', callId, moduleName],
     queryFn: () => fetchAlertThread(callId!, moduleName!),
-    enabled: !!callId && !!moduleName,
+    enabled: !!callId && !!moduleName && !isSuppressedAlertModule(moduleName),
   })
 }
 
@@ -237,6 +240,7 @@ export function useNotifications(email: string | null | undefined) {
     queryKey: ['notifications', email],
     queryFn: () => fetchRecentNotifications(email!),
     enabled: !!email,
+    select: filterSuppressedAlertRows,
     refetchInterval: 300_000,
     refetchOnWindowFocus: false,
   })
@@ -260,7 +264,9 @@ export function useNotificationsRealtime(email: string | null | undefined) {
           table: 'eavesly_notifications',
           filter: `recipient_email=eq.${lower}`,
         },
-        () => {
+        payload => {
+          const row = (payload.new ?? payload.old) as { module_name?: string | null } | null
+          if (isSuppressedAlertModule(row?.module_name)) return
           queryClient.invalidateQueries({ queryKey: ['notifications', email] })
         },
       )

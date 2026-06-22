@@ -11,7 +11,7 @@ import {
   type CoachingThemes,
   type TeamCoachingThemes,
 } from './coaching-aggregation'
-import { SUPPRESSED_ALERT_MODULES } from './suppressed-alerts'
+import { SUPPRESSED_ALERT_MODULES, filterSuppressedAlertRows } from './suppressed-alerts'
 
 const sb = supabase as any
 
@@ -422,7 +422,7 @@ export async function fetchAgentAlertCounts(
       console.error('Error fetching agent alerts batch:', error)
       throw error
     }
-    return (data || []) as AlertWithFeedback[]
+    return filterSuppressedAlertRows(data as AlertWithFeedback[])
   })
 }
 
