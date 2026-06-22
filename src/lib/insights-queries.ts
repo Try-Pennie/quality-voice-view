@@ -508,8 +508,8 @@ export async function fetchInsightsReport(
       fetchTeamRollup(scope, current.start, current.end),
       fetchTeamRollup(scope, prior.start, prior.end),
       fetchTeamRollup(scope, baseline.start, baseline.end),
-      fetchAlertBreakdown(scope, current.start, current.end),
-      fetchAlertBreakdown(scope, baseline.start, baseline.end),
+      fetchAlertBreakdown(scope, current.start, current.end, { excludeInaccurate: true }),
+      fetchAlertBreakdown(scope, baseline.start, baseline.end, { excludeInaccurate: true }),
     ])
   return assembleReport({
     current,
