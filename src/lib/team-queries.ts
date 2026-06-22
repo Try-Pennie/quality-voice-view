@@ -170,6 +170,21 @@ function toNum(v: unknown): number {
   return 0
 }
 
+// Defense in depth for the manager-facing rollup. Regardless of the RPC's
+// server-side scoping, regular managers should never see agents outside their
+// mapped direct reports if a broader row set reaches the client. Keep every row
+// for god-mode; for a regular manager keep only rows for agents in
+// scope.managedAgents. Pure + cheap (Set membership) so it's easy to reason
+// about and safe to apply before any aggregation.
+export function filterDailyRowsToScope<T extends { agent_email: string }>(
+  rows: T[],
+  scope: UserScope,
+): T[] {
+  if (scope.isGodMode) return rows
+  const allowed = new Set(scope.managedAgents)
+  return rows.filter(r => allowed.has(r.agent_email))
+}
+
 function normalizeDailyRow(r: any): DailyMetricRow {
   return {
     agent_email: r.agent_email,
@@ -329,7 +344,10 @@ export async function fetchTeamRollup(
     from += PAGE_SIZE
   }
 
-  const normalized = rows.map(normalizeDailyRow)
+  // Drop any out-of-scope rows before aggregating so a non-god manager's KPIs,
+  // watchlist, and top performers can only ever include their direct reports,
+  // even if team_daily_metrics returns more than RLS should allow.
+  const normalized = filterDailyRowsToScope(rows.map(normalizeDailyRow), scope)
   const byAgent = new Map<string, DailyMetricRow[]>()
   const nameByAgent = new Map<string, string | null>()
   for (const r of normalized) {
