@@ -57,7 +57,7 @@ function DashboardChrome({ children }: { children: React.ReactNode }) {
 
   return (
     <div className="min-h-screen bg-background">
-      <header className="border-b border-border bg-pennie-white sticky top-0 z-30">
+      <header className="border-b border-border bg-pennie-white sticky top-0 z-30 print:hidden">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between items-center gap-3 sm:gap-4 py-3 sm:py-4">
             <div className="flex items-center gap-4 sm:gap-8 min-w-0">
@@ -76,6 +76,7 @@ function DashboardChrome({ children }: { children: React.ReactNode }) {
                 </DashNavLink>
                 <DashNavLink to="/dashboard/team">Team</DashNavLink>
                 <DashNavLink to="/dashboard/alerts">Alerts</DashNavLink>
+                <DashNavLink to="/dashboard/insights">Insights</DashNavLink>
               </nav>
             </div>
 
@@ -157,6 +158,9 @@ function DashboardChrome({ children }: { children: React.ReactNode }) {
                     <MobileNavLink to="/dashboard/team">Team</MobileNavLink>
                     <MobileNavLink to="/dashboard/alerts">
                       Alerts
+                    </MobileNavLink>
+                    <MobileNavLink to="/dashboard/insights">
+                      Insights
                     </MobileNavLink>
                     <MobileNavLink to="/dashboard/help" carryDates={false}>
                       Glossary

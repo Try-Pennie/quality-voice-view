@@ -16,6 +16,7 @@ import DashboardPage from "./pages/DashboardPage";
 import CallDetailPage from "./pages/CallDetailPage";
 import AlertsPage from "./pages/AlertsPage";
 import TeamPage from "./pages/TeamPage";
+import SalesFloorInsightsPage from "./pages/SalesFloorInsightsPage";
 import AgentProfilePage from "./pages/AgentProfilePage";
 import HelpPage from "./pages/HelpPage";
 import NotFound from "./pages/NotFound";
@@ -100,6 +101,17 @@ const App = () => (
                 <ProtectedRoute>
                   <DashboardLayout>
                     <CallDetailPage />
+                  </DashboardLayout>
+                </ProtectedRoute>
+              }
+            />
+
+            <Route
+              path="/dashboard/insights"
+              element={
+                <ProtectedRoute>
+                  <DashboardLayout>
+                    <SalesFloorInsightsPage />
                   </DashboardLayout>
                 </ProtectedRoute>
               }
