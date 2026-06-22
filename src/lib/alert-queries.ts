@@ -352,10 +352,18 @@ export type AlertBreakdownCell = {
   reviewed: number // any feedback submitted
 }
 
+export type AlertBreakdownOptions = {
+  // Exclude alerts managers already reviewed as inaccurate/false positive from
+  // aggregate pressure counts. This is useful for management trend reports,
+  // where overturned alerts should not keep driving coaching urgency.
+  excludeInaccurate?: boolean
+}
+
 export async function fetchAlertBreakdown(
   scope: UserScope,
   startDate: Date,
   endDate: Date,
+  options: AlertBreakdownOptions = {},
 ): Promise<AlertBreakdownCell[]> {
   if (!scope.isGodMode && scope.managedAgents.length === 0) return []
 
@@ -381,6 +389,7 @@ export async function fetchAlertBreakdown(
     for (const moduleName of SUPPRESSED_ALERT_MODULES) {
       q = q.neq('module_name', moduleName)
     }
+    if (options.excludeInaccurate) q = q.or('accurate.is.null,accurate.eq.true')
     if (!scope.isGodMode) q = q.in('agent_email', scope.managedAgents)
     return q
   })

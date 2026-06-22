@@ -43,7 +43,9 @@ aggregate-safe sources, called across the three windows in
   `team_daily_metrics` MV (paginated; scoped to `scope.managedAgents` unless
   god-mode).
 - `fetchAlertBreakdown` — per-module/agent violation counts (paginated,
-  suppressed modules excluded).
+  suppressed modules excluded). For this report, manager-reviewed inaccurate
+  alerts (`accurate=false`) are also excluded so overturned alerts do not keep
+  driving coaching/module-pressure trends.
 
 It does **not** read or render transcripts, customer names/phones, recordings,
 transcript links, call summaries, or verbatim evidence. Agent/manager emails
