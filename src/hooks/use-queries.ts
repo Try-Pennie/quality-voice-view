@@ -17,6 +17,7 @@ import {
   fetchAgentManagerMapping,
   fetchAgentManagerMappingAt,
   fetchManagerNames,
+  fetchPitchRiskCounts,
 } from '../lib/team-queries'
 import {
   fetchDashboardData,
@@ -77,6 +78,24 @@ export function useAlerts(
     enabled: !!scope,
     placeholderData: keepPreviousData,
     select: filterSuppressedAlertRows,
+  })
+}
+
+export function usePitchRiskCounts(
+  scope: UserScope | null | undefined,
+  startDate: Date,
+  endDate: Date,
+) {
+  return useQuery({
+    queryKey: [
+      'pitchRiskCounts',
+      scopeKey(scope),
+      dateKey(startDate),
+      dateKey(endDate),
+    ],
+    queryFn: () => fetchPitchRiskCounts(scope!, startDate, endDate),
+    enabled: !!scope,
+    placeholderData: keepPreviousData,
   })
 }
 

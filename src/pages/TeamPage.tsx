@@ -15,6 +15,7 @@ import {
 import {
   useUserScope,
   useTeamRollup,
+  usePitchRiskCounts,
   useAlertBreakdown,
   useTeamCoachingThemes,
   useAgentManagerMappingAt,
@@ -168,6 +169,12 @@ export default function TeamPage() {
   const breakdown = useMemo(() => breakdownData ?? [], [breakdownData])
   const breakdownLoading = breakdownPending && !breakdownData
 
+  const { data: pitchRiskData } = usePitchRiskCounts(scope, startDate, endDate)
+  const pitchRisk = useMemo(
+    () => pitchRiskData ?? new Map(),
+    [pitchRiskData],
+  )
+
   // Manager mapping is only relevant for god-mode users — regular managers
   // already see only their own team via scope.managedAgents. Resolved as of
   // the window's end date (issue #15) so historical date ranges attribute
@@ -213,12 +220,15 @@ export default function TeamPage() {
       const total = counts?.total ?? 0
       const unreviewed = counts?.unreviewed ?? 0
       const falsePositive = counts?.falsePositive ?? 0
+      const pitch = pitchRisk.get(agent.agent_email)
       return {
         ...agent,
         total_alerts_count: total,
         open_alerts_count: total,
         unreviewed_alerts_count: unreviewed,
         false_positive_count: falsePositive,
+        pitch_call_count: pitch?.pitch_call_count ?? 0,
+        rushed_pitch_count: pitch?.rushed_pitch_count ?? 0,
         needs_attention:
           agent.call_count > 0 &&
           (agent.compliance_pass_rate < 80 ||
@@ -227,7 +237,7 @@ export default function TeamPage() {
             unreviewed > 0),
       }
     })
-  }, [rollup, breakdown])
+  }, [rollup, breakdown, pitchRisk])
 
   const managerRollups = useMemo(() => {
     if (!scope?.isGodMode) return []
