@@ -32,10 +32,10 @@ async function fetchQASummaries(callIds: string[]) {
   return results.flat()
 }
 
-// Columns rendered on the dashboard list, plus `disposition` which is needed
-// for the disposition filter.
+// Columns rendered on the dashboard list, plus `disposition` (disposition
+// filter) and `campaign_name` (pitch-call risk band detection, PSAI-178).
 const CALL_LIST_COLUMNS =
-  'id, call_id, agent_email, agent_full_name, started_at, contact_phone, talk_time, handle_time, disposition'
+  'id, call_id, agent_email, agent_full_name, started_at, contact_phone, talk_time, handle_time, disposition, campaign_name'
 
 export async function fetchDashboardData(
   startDate: Date,

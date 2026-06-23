@@ -20,6 +20,7 @@ type SortKey =
   | 'escalation'
   | 'alerts'
   | 'total_alerts'
+  | 'rushed'
 
 export function TeamLeaderboard({
   rows,
@@ -73,6 +74,9 @@ export function TeamLeaderboard({
         case 'total_alerts':
           cmp = alertsExFP(a) - alertsExFP(b)
           break
+        case 'rushed':
+          cmp = a.rushed_pitch_count - b.rushed_pitch_count
+          break
       }
       return sortDir === 'asc' ? cmp : -cmp
     })
@@ -118,6 +122,7 @@ export function TeamLeaderboard({
           <option value="escalation:desc">Escalation (high → low)</option>
           <option value="alerts:desc">Open alerts (high → low)</option>
           <option value="total_alerts:desc">Total alerts (high → low)</option>
+          <option value="rushed:desc">Rushed pitch (high → low)</option>
         </select>
       </div>
 
@@ -198,6 +203,14 @@ export function TeamLeaderboard({
                           />
                         </dd>
                       </div>
+                      <div>
+                        <dt className="text-[10px] uppercase tracking-wider text-pennie-graphite/50 font-bold">
+                          Rushed pitch
+                        </dt>
+                        <dd className="mt-0.5">
+                          <RushedPitchCell agent={agent} />
+                        </dd>
+                      </div>
                     </dl>
                   </div>
                   <span
@@ -275,6 +288,13 @@ export function TeamLeaderboard({
                 onClick={() => handleSort('total_alerts')}
                 align="right"
               />
+              <SortableTh
+                label="Rushed pitch"
+                active={sortKey === 'rushed'}
+                dir={sortDir}
+                onClick={() => handleSort('rushed')}
+                align="right"
+              />
               <Th>Trend</Th>
               <th
                 className="text-left text-[11px] font-bold text-pennie-graphite/70 uppercase tracking-[0.06em] px-6 py-3"
@@ -292,7 +312,7 @@ export function TeamLeaderboard({
                   <td className="px-3 py-4" aria-hidden="true">
                     <span className="block w-2 h-2 rounded-full bg-pennie-beige animate-pulse" />
                   </td>
-                  {Array.from({ length: 10 }).map((__, j) => (
+                  {Array.from({ length: 11 }).map((__, j) => (
                     <td key={j} className="px-6 py-4 align-top">
                       <span
                         className="block h-3 rounded-full bg-pennie-beige animate-pulse"
@@ -304,7 +324,7 @@ export function TeamLeaderboard({
               ))
             ) : sorted.length === 0 ? (
               <tr>
-                <td colSpan={11} className="px-6 py-12 text-center text-pennie-graphite/70">
+                <td colSpan={12} className="px-6 py-12 text-center text-pennie-graphite/70">
                   No agents match your filters.
                 </td>
               </tr>
@@ -391,6 +411,9 @@ export function TeamLeaderboard({
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-pennie-graphite tabular-nums text-right">
                       <TotalAlertsCell agent={agent} />
                     </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-right">
+                      <RushedPitchCell agent={agent} />
+                    </td>
                     <td className="px-6 py-4 whitespace-nowrap">
                       <AgentSparkline points={agent.trend_points} />
                     </td>
@@ -457,6 +480,33 @@ function TotalAlertsCell({ agent }: { agent: AgentRollup }) {
           (−{fp})
         </span>
       )}
+    </span>
+  )
+}
+
+// Rushed pitch-call count + rate (PSAI-178). Rate is rushed ÷ eligible pitch
+// calls; dash when the agent took no pitch calls in the window.
+function RushedPitchCell({ agent }: { agent: AgentRollup }) {
+  const pitch = agent.pitch_call_count
+  const rushed = agent.rushed_pitch_count
+  if (pitch === 0) {
+    return <span className="text-sm text-pennie-graphite/40 tabular-nums">—</span>
+  }
+  const rate = Math.round((rushed / pitch) * 100)
+  return (
+    <span
+      title={`${rushed} rushed of ${pitch} pitch call${pitch === 1 ? '' : 's'} (${rate}%)`}
+    >
+      <span
+        className={`text-sm font-semibold tabular-nums ${
+          rushed > 0 ? 'text-pennie-peach-deeper' : 'text-pennie-navy'
+        }`}
+      >
+        {rushed}
+      </span>
+      <span className="ml-1 text-[11px] text-pennie-graphite/50 tabular-nums">
+        ({rate}%)
+      </span>
     </span>
   )
 }

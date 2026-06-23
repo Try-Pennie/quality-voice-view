@@ -2,6 +2,8 @@ import { useParams, useNavigate } from 'react-router-dom'
 import { useCallDetail, useAlertsForCall } from '../hooks/use-queries'
 import { formatDateTime, formatDuration, formatPhoneNumber, getScoreBadgeColor } from '../lib/utils'
 import { HelpHint } from '../components/ui/help-hint'
+import { pitchCallRisk, explainPitchRisk, BAND_LABEL } from '../lib/pitch-call-risk'
+import { accentForBand, pillClasses } from '../lib/violation-styles'
 import { AudioPlayer } from '../components/call-detail/AudioPlayer'
 import { ComplianceScorecard } from '../components/call-detail/ComplianceScorecard'
 import { SalesProcessScorecard } from '../components/call-detail/SalesProcessScorecard'
@@ -78,6 +80,7 @@ export default function CallDetailPage() {
   }
 
   const qaData = call.qa?.qa_json as any
+  const pitch = pitchCallRisk(call)
 
   const copyTranscript = () => {
     if (call.qa?.original_transcript) {
@@ -191,6 +194,23 @@ export default function CallDetailPage() {
             <div className="text-xl font-bold text-foreground">{call.conversation_happened ? 'Yes' : 'No'}</div>
           </div>
         </div>
+
+        {/* Pitch-call talk-time risk band (PSAI-178). Only shown for eligible
+            pitch cohorts; non-pitch calls keep the generic threshold behavior. */}
+        {pitch.isPitch && (
+          <div className="mt-4 pt-4 border-t border-border flex flex-wrap items-center gap-3">
+            <span className={pillClasses(accentForBand(pitch.band))}>
+              {BAND_LABEL[pitch.band]}
+            </span>
+            <p className="text-sm text-muted-foreground">
+              {explainPitchRisk(call)}{' '}
+              <span className="text-foreground/70">
+                Pitch bands: under 30 min rushed · 30–40 min watch · 40 min+ on
+                target.
+              </span>
+            </p>
+          </div>
+        )}
 
         {call.qa && (
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-4 pt-4 border-t border-border">

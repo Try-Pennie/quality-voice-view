@@ -86,6 +86,25 @@ export function accentForReviewStatus(status: ReviewStatus): AccentFamily {
 }
 
 /**
+ * Map a pitch-call talk-time risk band to an accent family (PSAI-178).
+ * high (rushed) → peach, watch → yellow, target → green, unknown → navy.
+ */
+export function accentForBand(
+  band: 'high' | 'watch' | 'target' | 'unknown',
+): AccentFamily {
+  switch (band) {
+    case 'high':
+      return 'peach'
+    case 'watch':
+      return 'yellow'
+    case 'target':
+      return 'green'
+    default:
+      return 'navy'
+  }
+}
+
+/**
  * Map a generic QA score / rating string to an accent family.
  * Used by the legacy DashboardPage chips (excellent / pass / good / fail / etc.)
  */

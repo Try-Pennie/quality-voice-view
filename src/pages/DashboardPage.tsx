@@ -14,7 +14,8 @@ import {
   formatDateTime,
   requiresAttention,
 } from '../lib/utils'
-import { accentForScore, pillClasses } from '../lib/violation-styles'
+import { accentForScore, accentForBand, pillClasses } from '../lib/violation-styles'
+import { pitchCallRisk, BAND_LABEL } from '../lib/pitch-call-risk'
 import type { CallWithQA } from '../types/database'
 import { DateRangePicker } from '../components/dashboard/DateRangePicker'
 import { AgentFilter } from '../components/dashboard/AgentFilter'
@@ -27,7 +28,7 @@ import { HelpHint } from '../components/ui/help-hint'
 import { PageHero, SupportingStat } from '../components/PageHero'
 import { ErrorState } from '@/components/states/ErrorState'
 
-type QuickFilter = 'all' | 'escalations' | 'compliance' | 'threshold'
+type QuickFilter = 'all' | 'escalations' | 'compliance' | 'threshold' | 'rushed'
 
 export default function DashboardPage() {
   const navigate = useNavigate()
@@ -71,6 +72,7 @@ export default function DashboardPage() {
     return q === 'escalations' ||
       q === 'compliance' ||
       q === 'threshold' ||
+      q === 'rushed' ||
       q === 'all'
       ? q
       : 'all'
@@ -141,6 +143,7 @@ export default function DashboardPage() {
     if (quickFilter === 'compliance')
       return rows.filter(c => c.qa?.compliance_rating === 'fail')
     if (quickFilter === 'threshold') return rows.filter(c => requiresAttention(c.qa))
+    if (quickFilter === 'rushed') return rows.filter(c => pitchCallRisk(c).rushed)
     return rows
   }, [calls, quickFilter, selectedDispositions])
 
@@ -315,6 +318,7 @@ export default function DashboardPage() {
             { value: 'escalations', label: 'Manager escalations' },
             { value: 'compliance', label: 'Compliance failures' },
             { value: 'threshold', label: 'Below threshold' },
+            { value: 'rushed', label: 'Rushed pitch' },
           ] as { value: QuickFilter; label: string }[]
         ).map(f => (
           <button
@@ -386,6 +390,7 @@ export default function DashboardPage() {
                         <p className="mt-0.5 text-xs text-muted-foreground tabular-nums">
                           {formatPhoneNumber(call.contact_phone)} ·{' '}
                           {formatDuration(call.talk_time)}
+                          <RiskBandPill call={call} />
                         </p>
                         {call.disposition && (
                           <p className="mt-1 text-xs text-pennie-graphite/70 truncate">
@@ -502,6 +507,7 @@ export default function DashboardPage() {
                     </td>
                     <td className="px-4 py-4 whitespace-nowrap text-sm text-pennie-graphite tabular-nums">
                       {formatDuration(call.talk_time)}
+                      <RiskBandPill call={call} />
                     </td>
                     <td className="px-4 py-4 text-sm">
                       {call.disposition ? (
@@ -626,6 +632,21 @@ function Th({ children }: { children: React.ReactNode }) {
     <th className="text-left text-[11px] font-bold text-pennie-graphite/70 uppercase tracking-[0.06em] px-4 py-3 first:pl-5">
       {children}
     </th>
+  )
+}
+
+// Compact talk-time risk band for pitch calls only (PSAI-178). Non-pitch calls
+// and pitch calls with no talk time render nothing, keeping the list quiet.
+function RiskBandPill({ call }: { call: CallWithQA }) {
+  const { isPitch, band } = pitchCallRisk(call)
+  if (!isPitch || band === 'unknown') return null
+  return (
+    <span
+      className={`${pillClasses(accentForBand(band))} ml-2 align-middle`}
+      title={`Pitch call · ${BAND_LABEL[band]} talk-time band`}
+    >
+      {BAND_LABEL[band]}
+    </span>
   )
 }
 

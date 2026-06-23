@@ -12,6 +12,9 @@ import {
   type TeamCoachingThemes,
 } from './coaching-aggregation'
 import { SUPPRESSED_ALERT_MODULES, filterSuppressedAlertRows } from './suppressed-alerts'
+import { fetchAllPaginated } from './supabase-helpers'
+import { startOfBusinessDay, endOfBusinessDay } from './time-zone'
+import { isPitchCall, pitchCallRisk } from './pitch-call-risk'
 
 const sb = supabase as any
 
@@ -47,6 +50,11 @@ export type AgentRollup = {
   // Confirmed false alarms (is_reviewed AND accurate = false). Used to
   // display a workload total that excludes adjudicated noise. Issue #21.
   false_positive_count: number
+  // Pitch-call talk-time risk (PSAI-178). Populated by a supplementary fetch
+  // (fetchPitchRiskCounts) and merged in; 0 until then. pitch_call_count is the
+  // denominator for the rushed rate. Non-pitch calls never count here.
+  pitch_call_count: number
+  rushed_pitch_count: number
   trend_points: TrendPoint[]
   needs_attention: boolean
 }
@@ -306,9 +314,76 @@ function rollupFromDailyRows(
     open_alerts_count: openAlerts,
     unreviewed_alerts_count: unreviewedAlerts,
     false_positive_count: falsePositiveCount,
+    pitch_call_count: 0,
+    rushed_pitch_count: 0,
     trend_points: trend,
     needs_attention: needsAttention,
   }
+}
+
+// Per-agent pitch-call risk counts (PSAI-178). The daily-metrics MV has no
+// campaign/talk-time bands, so pull the few columns we need straight from
+// eavesly_calls — date-bounded and scoped to the caller's agents (batched
+// `.in()` for regular managers). God-mode falls back to a date-only scan of the
+// same window; broad but still bounded by the date range, never a full table
+// scan. If that gets slow, move the rollup into the daily-metrics MV with
+// pitch columns.
+export type PitchRiskCounts = { pitch_call_count: number; rushed_pitch_count: number }
+
+const PITCH_RISK_COLUMNS = 'agent_email, campaign_name, disposition, talk_time'
+
+export async function fetchPitchRiskCounts(
+  scope: UserScope,
+  startDate: Date,
+  endDate: Date,
+): Promise<Map<string, PitchRiskCounts>> {
+  const result = new Map<string, PitchRiskCounts>()
+  if (!scope.isGodMode && scope.managedAgents.length === 0) return result
+
+  type Row = {
+    agent_email: string | null
+    campaign_name: string | null
+    disposition: string | null
+    talk_time: number | null
+  }
+
+  const tally = (rows: Row[]) => {
+    for (const r of rows) {
+      if (!r.agent_email || !isPitchCall(r)) continue
+      const cur = result.get(r.agent_email) ?? {
+        pitch_call_count: 0,
+        rushed_pitch_count: 0,
+      }
+      cur.pitch_call_count += 1
+      if (pitchCallRisk(r).rushed) cur.rushed_pitch_count += 1
+      result.set(r.agent_email, cur)
+    }
+  }
+
+  const baseQuery = (from: number, to: number, agents?: string[]) => {
+    let q = sb
+      .from('eavesly_calls')
+      .select(PITCH_RISK_COLUMNS)
+      .gte('started_at', startOfBusinessDay(startDate).toISOString())
+      .lte('started_at', endOfBusinessDay(endDate).toISOString())
+      .order('started_at', { ascending: false })
+      .range(from, to)
+    if (agents) q = q.in('agent_email', agents)
+    return q
+  }
+
+  if (scope.isGodMode) {
+    tally(await fetchAllPaginated<Row>((from, to) => baseQuery(from, to)))
+    return result
+  }
+
+  // Chunk managed agents so the .in() list stays small, paginate each chunk.
+  const CHUNK = 100
+  for (let i = 0; i < scope.managedAgents.length; i += CHUNK) {
+    const chunk = scope.managedAgents.slice(i, i + CHUNK)
+    tally(await fetchAllPaginated<Row>((from, to) => baseQuery(from, to, chunk)))
+  }
+  return result
 }
 
 // ---------- Public queries ----------
@@ -466,8 +541,8 @@ export async function fetchAgentProfile(
       .from('eavesly_calls')
       .select('call_id, agent_email, agent_full_name, talk_time, started_at')
       .eq('agent_email', agentEmail)
-      .gte('started_at', startDate.toISOString())
-      .lte('started_at', endDate.toISOString())
+      .gte('started_at', startOfBusinessDay(startDate).toISOString())
+      .lte('started_at', endOfBusinessDay(endDate).toISOString())
       .order('started_at', { ascending: false })
       .limit(sampleSize),
     fetchAgentAlertCounts([agentEmail], startDate, endDate),
