@@ -14,6 +14,7 @@ import {
   fetchTeamRollup,
   fetchAgentProfile,
   fetchTeamCoachingThemes,
+  fetchCohortCoachingThemes,
   fetchAgentManagerMapping,
   fetchAgentManagerMappingAt,
   fetchManagerNames,
@@ -149,6 +150,30 @@ export function useTeamCoachingThemes(
     ],
     queryFn: () => fetchTeamCoachingThemes(scope!, startDate, endDate),
     enabled: !!scope,
+    placeholderData: keepPreviousData,
+  })
+}
+
+// Top/bottom cohort coaching-theme comparison (PSAI-177). Cohort membership is
+// computed client-side from the already-scoped team rollup, so the email lists
+// themselves carry scope — both lists form the cache key.
+export function useCohortCoachingThemes(
+  topAgents: string[],
+  bottomAgents: string[],
+  startDate: Date,
+  endDate: Date,
+) {
+  return useQuery({
+    queryKey: [
+      'cohortCoachingThemes',
+      [...topAgents].sort(),
+      [...bottomAgents].sort(),
+      dateKey(startDate),
+      dateKey(endDate),
+    ],
+    queryFn: () =>
+      fetchCohortCoachingThemes(topAgents, bottomAgents, startDate, endDate),
+    enabled: topAgents.length > 0 && bottomAgents.length > 0,
     placeholderData: keepPreviousData,
   })
 }

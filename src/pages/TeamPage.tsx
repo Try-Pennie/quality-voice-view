@@ -9,6 +9,7 @@ import { ymdInBusinessTZ } from '../lib/time-zone'
 import {
   aggregateTeamTrend,
   aggregateManagerRollups,
+  splitAgentCohorts,
   type AgentRollup,
   type ManagerRollup,
 } from '../lib/team-queries'
@@ -18,6 +19,7 @@ import {
   usePitchRiskCounts,
   useAlertBreakdown,
   useTeamCoachingThemes,
+  useCohortCoachingThemes,
   useAgentManagerMappingAt,
   useManagerNames,
 } from '../hooks/use-queries'
@@ -27,6 +29,7 @@ import { TeamHeaderStats } from '../components/team/TeamHeaderStats'
 import { TeamLeaderboard } from '../components/team/TeamLeaderboard'
 import { TeamTrendSection } from '../components/team/TeamTrendSection'
 import { TeamCoachingThemes } from '../components/team/TeamCoachingThemes'
+import { TeamCohortComparison } from '../components/team/TeamCohortComparison'
 import { ErrorState } from '@/components/states/ErrorState'
 import {
   TeamBreakdownByManager,
@@ -379,14 +382,40 @@ export default function TeamPage() {
   const teamThemes = teamThemesData ?? null
   const themesLoading = themesPending && !teamThemesData
 
+  // Top vs bottom cohorts split by compliance (PSAI-177). Derived from the
+  // already-scoped rollup so the comparison respects selectedManager + scope
+  // without any extra row-cap risk. null when the team is too small to split.
+  const cohorts = useMemo(() => splitAgentCohorts(scopedRollup), [scopedRollup])
+  const topCohortEmails = useMemo(
+    () => (cohorts ? cohorts.top.map(a => a.agent_email) : []),
+    [cohorts],
+  )
+  const bottomCohortEmails = useMemo(
+    () => (cohorts ? cohorts.bottom.map(a => a.agent_email) : []),
+    [cohorts],
+  )
+  const {
+    data: cohortThemesData,
+    isPending: cohortPending,
+    isFetching: cohortFetching,
+  } = useCohortCoachingThemes(
+    topCohortEmails,
+    bottomCohortEmails,
+    startDate,
+    endDate,
+  )
+  const cohortThemes = cohortThemesData ?? null
+  const cohortLoading = !!cohorts && cohortPending && !cohortThemesData
+
   // Background refetch (filter change with cached data) — distinct from the
   // initial-load `loading` skeleton path. WideRangeLoadingHint already covers
   // cold loads on wide ranges, so this only fires for warm refreshes.
   const refreshing =
-    (rollupFetching || breakdownFetching || themesFetching) &&
+    (rollupFetching || breakdownFetching || themesFetching || cohortFetching) &&
     !loading &&
     !breakdownLoading &&
-    !themesLoading
+    !themesLoading &&
+    !cohortLoading
 
   const leaderboardRef = useRef<HTMLDivElement>(null)
 
@@ -396,6 +425,15 @@ export default function TeamPage() {
     requestAnimationFrame(() => {
       leaderboardRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
     })
+  }
+
+  const goToAgent = (agent: AgentRollup) => {
+    const params = new URLSearchParams()
+    params.set('start', formatDateParam(startDate))
+    params.set('end', formatDateParam(endDate))
+    navigate(
+      `/dashboard/team/${encodeURIComponent(agent.agent_email)}?${params.toString()}`,
+    )
   }
 
   const goToAlerts = () => {
@@ -534,14 +572,7 @@ export default function TeamPage() {
           <TeamLeaderboard
             rows={filtered}
             loading={loading}
-            onSelect={agent => {
-              const params = new URLSearchParams()
-              params.set('start', formatDateParam(startDate))
-              params.set('end', formatDateParam(endDate))
-              navigate(
-                `/dashboard/team/${encodeURIComponent(agent.agent_email)}?${params.toString()}`,
-              )
-            }}
+            onSelect={goToAgent}
           />
         )}
       </div>
@@ -567,6 +598,17 @@ export default function TeamPage() {
           themes={teamThemes}
           loading={themesLoading}
           totalAgents={teamMetrics.agentCount}
+        />
+      ) : null}
+
+      {!noAgents && cohorts ? (
+        <TeamCohortComparison
+          comparison={cohortThemes}
+          topAgents={cohorts.top}
+          bottomAgents={cohorts.bottom}
+          cohortSize={cohorts.cohortSize}
+          loading={cohortLoading}
+          onSelectAgent={goToAgent}
         />
       ) : null}
     </div>
