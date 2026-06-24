@@ -854,43 +854,18 @@ export function aggregateManagerRollups(
   return results.sort((a, b) => b.call_count - a.call_count)
 }
 
-// Fetch coaching themes aggregated across the manager's team.
-// Samples the most recent N calls per agent so high-volume agents don't
-// dominate the theme ranking and so the qa_json fetch stays bounded.
-export async function fetchTeamCoachingThemes(
-  scope: UserScope,
+// Sample the most recent N calls per agent and return their qa_json grouped by
+// agent. Sampling keeps high-volume agents from dominating and bounds the
+// qa_json fetch (per-agent cap × agent count) so we never hit the PostgREST
+// row cap. Scope is enforced by the caller passing an already-scoped agent list.
+async function fetchQaJsonByAgent(
+  agentEmails: string[],
   startDate: Date,
   endDate: Date,
-  perAgentSample = 30,
-): Promise<TeamCoachingThemes> {
-  const empty: TeamCoachingThemes = {
-    strengths: [],
-    improvements: [],
-    coachingPoints: [],
-    trainingRecs: [],
-  }
-  if (!scope.isGodMode && scope.managedAgents.length === 0) return empty
-
-  const agentEmails: string[] = scope.isGodMode
-    ? await (async () => {
-        const { data, error } = await sb
-          .from('eavesly_calls')
-          .select('agent_email')
-          .gte('started_at', startDate.toISOString())
-          .lte('started_at', endDate.toISOString())
-          .not('agent_email', 'is', null)
-          .limit(2000)
-        if (error) {
-          console.error('Error fetching godmode agents for themes:', error)
-          throw error
-        }
-        return Array.from(
-          new Set(((data || []) as any[]).map(r => r.agent_email)),
-        )
-      })()
-    : scope.managedAgents
-
-  if (agentEmails.length === 0) return empty
+  perAgentSample: number,
+): Promise<Map<string, QAJson[]>> {
+  const byAgent = new Map<string, QAJson[]>()
+  if (agentEmails.length === 0) return byAgent
 
   // Fetch per-agent most-recent call_ids in parallel.
   const callsPerAgent = await Promise.all(
@@ -923,7 +898,7 @@ export async function fetchTeamCoachingThemes(
     }
   }
 
-  if (allCallIds.length === 0) return empty
+  if (allCallIds.length === 0) return byAgent
 
   // Batch fetch qa_json across the sampled call_ids.
   const qaJsonRows = await fetchInBatches<{ call_id: string; qa_json: QAJson | null }>(
@@ -942,7 +917,6 @@ export async function fetchTeamCoachingThemes(
     },
   )
 
-  const byAgent = new Map<string, QAJson[]>()
   for (const r of qaJsonRows) {
     if (!r.qa_json) continue
     const email = callIdToAgent.get(r.call_id)
@@ -951,6 +925,59 @@ export async function fetchTeamCoachingThemes(
     arr.push(r.qa_json)
     byAgent.set(email, arr)
   }
+  return byAgent
+}
+
+// Resolve the in-scope agent list used for theme aggregation. Regular managers
+// use their mapped reports directly; god-mode falls back to a date-bounded
+// distinct scan of eavesly_calls (bounded by the 2000-row limit).
+async function resolveThemeAgents(
+  scope: UserScope,
+  startDate: Date,
+  endDate: Date,
+): Promise<string[]> {
+  if (!scope.isGodMode) return scope.managedAgents
+  const { data, error } = await sb
+    .from('eavesly_calls')
+    .select('agent_email')
+    .gte('started_at', startDate.toISOString())
+    .lte('started_at', endDate.toISOString())
+    .not('agent_email', 'is', null)
+    .limit(2000)
+  if (error) {
+    console.error('Error fetching godmode agents for themes:', error)
+    throw error
+  }
+  return Array.from(new Set(((data || []) as any[]).map(r => r.agent_email)))
+}
+
+// Fetch coaching themes aggregated across the manager's team.
+// Samples the most recent N calls per agent so high-volume agents don't
+// dominate the theme ranking and so the qa_json fetch stays bounded.
+export async function fetchTeamCoachingThemes(
+  scope: UserScope,
+  startDate: Date,
+  endDate: Date,
+  perAgentSample = 30,
+): Promise<TeamCoachingThemes> {
+  const empty: TeamCoachingThemes = {
+    strengths: [],
+    improvements: [],
+    coachingPoints: [],
+    trainingRecs: [],
+  }
+  if (!scope.isGodMode && scope.managedAgents.length === 0) return empty
+
+  const agentEmails = await resolveThemeAgents(scope, startDate, endDate)
+  if (agentEmails.length === 0) return empty
+
+  const byAgent = await fetchQaJsonByAgent(
+    agentEmails,
+    startDate,
+    endDate,
+    perAgentSample,
+  )
+  if (byAgent.size === 0) return empty
 
   return aggregateTeamCoachingThemes(
     Array.from(byAgent.entries()).map(([agent_email, qaJson]) => ({
@@ -958,6 +985,109 @@ export async function fetchTeamCoachingThemes(
       qaJson,
     })),
   )
+}
+
+// ---- Top/bottom cohort comparison (PSAI-177) ----
+
+export type CohortThemes = {
+  strengths: TeamCoachingThemes['strengths']
+  improvements: TeamCoachingThemes['improvements']
+  coachingPoints: TeamCoachingThemes['coachingPoints']
+}
+
+export type CohortComparison = {
+  top: CohortThemes
+  bottom: CohortThemes
+}
+
+const emptyCohortThemes = (): CohortThemes => ({
+  strengths: [],
+  improvements: [],
+  coachingPoints: [],
+})
+
+// Aggregate coaching themes for two pre-computed, already-scoped cohorts in a
+// single qa_json fetch (union of both agent lists), then split the aggregation.
+// Cohort membership is decided client-side from AgentRollup metrics
+// (see splitAgentCohorts) so this never re-scans the whole team.
+export async function fetchCohortCoachingThemes(
+  topAgents: string[],
+  bottomAgents: string[],
+  startDate: Date,
+  endDate: Date,
+  perAgentSample = 30,
+): Promise<CohortComparison> {
+  const topSet = new Set(topAgents)
+  const bottomSet = new Set(bottomAgents)
+  const union = Array.from(new Set([...topAgents, ...bottomAgents]))
+  if (union.length === 0) {
+    return { top: emptyCohortThemes(), bottom: emptyCohortThemes() }
+  }
+
+  const byAgent = await fetchQaJsonByAgent(
+    union,
+    startDate,
+    endDate,
+    perAgentSample,
+  )
+
+  const forCohort = (members: Set<string>): CohortThemes => {
+    const themes = aggregateTeamCoachingThemes(
+      Array.from(byAgent.entries())
+        .filter(([email]) => members.has(email))
+        .map(([agent_email, qaJson]) => ({ agent_email, qaJson })),
+    )
+    return {
+      strengths: themes.strengths,
+      improvements: themes.improvements,
+      coachingPoints: themes.coachingPoints,
+    }
+  }
+
+  return { top: forCohort(topSet), bottom: forCohort(bottomSet) }
+}
+
+// Split agents into top/bottom cohorts by compliance pass rate. Only agents
+// with graded calls (qa_count > 0) are eligible — compliance is meaningless
+// otherwise. Cohorts are ~the top/bottom third (capped) with the middle band
+// excluded so the comparison contrasts clear performers, not adjacent agents.
+// Returns null when there aren't enough eligible agents to form a meaningful
+// comparison.
+export type AgentCohorts = {
+  top: AgentRollup[]
+  bottom: AgentRollup[]
+  cohortSize: number
+  metricLabel: string
+}
+
+export const COHORT_MIN_AGENTS = 4
+const COHORT_MAX_SIZE = 8
+
+export function splitAgentCohorts(rollups: AgentRollup[]): AgentCohorts | null {
+  const eligible = rollups.filter(r => r.call_count > 0 && r.qa_count > 0)
+  if (eligible.length < COHORT_MIN_AGENTS) return null
+
+  // Tie-break by qa_count desc then email so the split is deterministic.
+  const sorted = [...eligible].sort((a, b) => {
+    const d = b.compliance_pass_rate - a.compliance_pass_rate
+    if (d !== 0) return d
+    const q = b.qa_count - a.qa_count
+    if (q !== 0) return q
+    return a.agent_email.localeCompare(b.agent_email)
+  })
+
+  const cohortSize = Math.min(
+    COHORT_MAX_SIZE,
+    Math.floor(sorted.length / 3),
+  )
+  if (cohortSize < 1) return null
+
+  return {
+    top: sorted.slice(0, cohortSize),
+    bottom: sorted.slice(sorted.length - cohortSize),
+    cohortSize,
+    metricLabel: 'compliance pass rate',
+  }
 }
 
 // Aggregate per-agent trend points into a single team-level series.
