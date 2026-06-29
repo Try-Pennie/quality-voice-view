@@ -8,7 +8,8 @@ import type {
 import { fetchAllPaginated } from './supabase-helpers'
 import { startOfBusinessDay, endOfBusinessDay } from './time-zone'
 import {
-  SUPPRESSED_ALERT_MODULES,
+  ALWAYS_SUPPRESSED_ALERT_MODULES,
+  SUPER_ADMIN_ONLY_ALERT_MODULES,
   filterSuppressedAlertRows,
   isSuppressedAlertModule,
 } from './suppressed-alerts'
@@ -108,8 +109,13 @@ export async function fetchAlerts(
 
   // Disposition review is being tested in production. Keep its rows out of the
   // manager-facing alert queue until ops is ready to expose them.
-  for (const moduleName of SUPPRESSED_ALERT_MODULES) {
+  for (const moduleName of ALWAYS_SUPPRESSED_ALERT_MODULES) {
     q = q.neq('module_name', moduleName)
+  }
+  if (!scope.isGodMode) {
+    for (const moduleName of SUPER_ADMIN_ONLY_ALERT_MODULES) {
+      q = q.neq('module_name', moduleName)
+    }
   }
 
   if (!scope.isGodMode) {
@@ -130,7 +136,7 @@ export async function fetchAlerts(
     console.error('Error fetching alerts:', error)
     throw error
   }
-  return filterSuppressedAlertRows(data as AlertWithFeedback[])
+  return filterSuppressedAlertRows(data as AlertWithFeedback[], scope)
 }
 
 // All alerts (any status, includes false-positives + non-violations) for a
@@ -138,6 +144,7 @@ export async function fetchAlerts(
 // fired anything for this call.
 export async function fetchAlertsForCall(
   callId: string,
+  scope?: UserScope | null,
 ): Promise<AlertWithFeedback[]> {
   let q = sb
     .from('eavesly_alerts_with_feedback')
@@ -145,8 +152,13 @@ export async function fetchAlertsForCall(
     .eq('call_id', callId)
     .order('alert_created_at', { ascending: true })
 
-  for (const moduleName of SUPPRESSED_ALERT_MODULES) {
+  for (const moduleName of ALWAYS_SUPPRESSED_ALERT_MODULES) {
     q = q.neq('module_name', moduleName)
+  }
+  if (!scope?.isGodMode) {
+    for (const moduleName of SUPER_ADMIN_ONLY_ALERT_MODULES) {
+      q = q.neq('module_name', moduleName)
+    }
   }
 
   const { data, error } = await q
@@ -154,14 +166,15 @@ export async function fetchAlertsForCall(
     console.error('Error fetching alerts for call:', error)
     throw error
   }
-  return filterSuppressedAlertRows(data as AlertWithFeedback[])
+  return filterSuppressedAlertRows(data as AlertWithFeedback[], scope)
 }
 
 export async function fetchAlertOne(
   callId: string,
   moduleName: string,
+  scope?: UserScope | null,
 ): Promise<AlertWithFeedback | null> {
-  if (isSuppressedAlertModule(moduleName)) return null
+  if (isSuppressedAlertModule(moduleName, scope)) return null
 
   const { data, error } = await sb
     .from('eavesly_alerts_with_feedback')
@@ -178,8 +191,9 @@ export async function fetchAlertOne(
 
 export async function submitAlertFeedback(
   input: AlertFeedbackInput,
+  scope?: UserScope | null,
 ): Promise<{ ok: boolean; error?: string }> {
-  if (isSuppressedAlertModule(input.module_name)) {
+  if (isSuppressedAlertModule(input.module_name, scope)) {
     return { ok: false, error: 'This alert type is hidden while it is in testing.' }
   }
 
@@ -213,8 +227,9 @@ export type AlertThread = {
 export async function fetchAlertThread(
   callId: string,
   moduleName: string,
+  scope?: UserScope | null,
 ): Promise<AlertThread> {
-  if (isSuppressedAlertModule(moduleName)) return { messages: [], acks: [] }
+  if (isSuppressedAlertModule(moduleName, scope)) return { messages: [], acks: [] }
 
   const [messagesRes, acksRes] = await Promise.all([
     sb
@@ -386,8 +401,13 @@ export async function fetchAlertBreakdown(
       .lte('alert_created_at', endOfBusinessDay(endDate).toISOString())
       .order('alert_created_at', { ascending: false })
       .range(from, to)
-    for (const moduleName of SUPPRESSED_ALERT_MODULES) {
+    for (const moduleName of ALWAYS_SUPPRESSED_ALERT_MODULES) {
       q = q.neq('module_name', moduleName)
+    }
+    if (!scope.isGodMode) {
+      for (const moduleName of SUPER_ADMIN_ONLY_ALERT_MODULES) {
+        q = q.neq('module_name', moduleName)
+      }
     }
     if (options.excludeInaccurate) q = q.or('accurate.is.null,accurate.eq.true')
     if (!scope.isGodMode) q = q.in('agent_email', scope.managedAgents)
@@ -425,6 +445,7 @@ export const VIOLATION_TYPE_LABELS: Record<string, string> = {
   warm_transfer: 'Warm transfer',
   litigation_check: 'Litigation check',
   program_expectations: 'Program expectations',
+  achieve_welcome_call: 'Achieve welcome call',
 }
 
 export const MODULE_LABELS: Record<string, string> = {
@@ -433,6 +454,7 @@ export const MODULE_LABELS: Record<string, string> = {
   warm_transfer: 'Warm transfer',
   litigation_check: 'Litigation check',
   program_expectations: 'Program expectations',
+  achieve_welcome_call_qa: 'Achieve Welcome Call QA',
 }
 
 export const ACTION_TAKEN_LABELS: Record<string, string> = {

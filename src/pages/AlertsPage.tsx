@@ -112,8 +112,8 @@ export default function AlertsPage() {
     refetch: refetchAlerts,
   } = useAlerts(serverFilters, scope)
   const allAlerts = useMemo(
-    () => filterSuppressedAlertRows(allAlertsData),
-    [allAlertsData],
+    () => filterSuppressedAlertRows(allAlertsData, scope),
+    [allAlertsData, scope],
   )
   const loading = alertsPending && !allAlertsData
 
@@ -203,7 +203,7 @@ export default function AlertsPage() {
   // Deep-link: open drawer if URL has /:callId/:moduleName.
   useEffect(() => {
     if (!routeCallId || !routeModuleName) return
-    if (isSuppressedAlertModule(routeModuleName)) {
+    if (isSuppressedAlertModule(routeModuleName, scope)) {
       setDrawerAlert(null)
       navigate('/dashboard/alerts', { replace: true })
       return
@@ -215,12 +215,12 @@ export default function AlertsPage() {
       setDrawerAlert(inList)
       return
     }
-    fetchAlertOne(routeCallId, routeModuleName)
+    fetchAlertOne(routeCallId, routeModuleName, scope)
       .then(a => {
         if (a) setDrawerAlert(a)
       })
       .catch(err => console.error('Failed to load alert for deep link:', err))
-  }, [routeCallId, routeModuleName, allAlerts, navigate])
+  }, [routeCallId, routeModuleName, allAlerts, navigate, scope])
 
   const openDrawer = useCallback(
     (alert: AlertWithFeedback) => {
@@ -236,7 +236,7 @@ export default function AlertsPage() {
       // …then enrich with heavy fields (result_json, recording_link, etc.)
       // if they aren't already present. Skip if we already have a result_json.
       if (!alert.result_json) {
-        fetchAlertOne(alert.call_id, alert.module_name).then(full => {
+        fetchAlertOne(alert.call_id, alert.module_name, scope).then(full => {
           if (!full) return
           setDrawerAlert(curr => {
             if (!curr) return curr
@@ -251,7 +251,7 @@ export default function AlertsPage() {
         }).catch(err => console.error('Failed to enrich alert:', err))
       }
     },
-    [navigate, location.state],
+    [navigate, location.state, scope],
   )
 
   const closeDrawer = useCallback(() => {
