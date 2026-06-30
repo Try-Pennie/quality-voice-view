@@ -7,6 +7,7 @@ import { formatDateTime } from '@/lib/utils'
 import { ErrorState } from '@/components/states/ErrorState'
 import { PageHero, SupportingStat } from '@/components/PageHero'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet'
 
 const SESSION_KEY = 'achieve_portal_unlocked'
 const configuredPassword = import.meta.env.VITE_ACHIEVE_PORTAL_PASSWORD as string | undefined
@@ -178,19 +179,13 @@ function AchieveRowsState({
   emptyMessage: string
   onRetry: () => void
 }) {
-  const [selectedKey, setSelectedKey] = useState<string | null>(null)
+  const [selected, setSelected] = useState<AlertWithFeedback | null>(null)
 
   useEffect(() => {
-    if (rows.length === 0) {
-      setSelectedKey(null)
-      return
+    if (selected && !rows.some(row => rowKey(row) === rowKey(selected))) {
+      setSelected(null)
     }
-    if (!selectedKey || !rows.some(row => rowKey(row) === selectedKey)) {
-      setSelectedKey(rowKey(rows[0]))
-    }
-  }, [rows, selectedKey])
-
-  const selected = rows.find(row => rowKey(row) === selectedKey) ?? rows[0]
+  }, [rows, selected])
 
   if (isError) {
     return <ErrorState title="Could not load Achieve QA rows" message="Retry after confirming Supabase/RLS access for this scaffold." onRetry={onRetry} />
@@ -204,12 +199,12 @@ function AchieveRowsState({
 
   const title = mode === 'review' ? 'Needs review' : 'All scored calls'
   const description = mode === 'review'
-    ? 'Only failed checks appear here. Select a row to review the reason and supporting evidence.'
+    ? 'Only failed checks appear here. Open a row to review the reason and supporting evidence.'
     : 'Passed and failed calls are listed for audit/history. Passed calls do not require human review.'
 
   return (
-    <div className="grid gap-4 lg:grid-cols-[minmax(0,0.95fr)_minmax(0,1.05fr)]">
-      <section className="self-start overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+    <>
+      <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
         <div className="border-b border-slate-200 px-4 py-3">
           <h2 className="text-sm font-semibold text-slate-950">{title}</h2>
           <p className="mt-1 text-xs leading-5 text-slate-500">{description}</p>
@@ -220,23 +215,33 @@ function AchieveRowsState({
               key={rowKey(row)}
               row={row}
               mode={mode}
-              selected={rowKey(row) === rowKey(selected)}
-              onSelect={() => setSelectedKey(rowKey(row))}
+              onSelect={() => setSelected(row)}
             />
           ))}
         </div>
       </section>
 
-      {selected && (
-        <div className="lg:sticky lg:top-6 self-start">
-          <AchieveAlertDetails alert={selected} mode={mode} />
-        </div>
-      )}
-    </div>
+      <Sheet open={!!selected} onOpenChange={open => !open && setSelected(null)}>
+        <SheetContent side="right" className="w-full overflow-y-auto bg-slate-50 p-0 sm:max-w-2xl lg:max-w-3xl">
+          {selected && (
+            <>
+              <SheetHeader className="border-b border-slate-200 bg-white px-6 py-5 text-left">
+                <SheetTitle className="break-all font-mono text-base leading-6 text-slate-950">
+                  {selected.call_id || '—'}
+                </SheetTitle>
+              </SheetHeader>
+              <div className="p-6">
+                <AchieveAlertDetails alert={selected} mode={mode} />
+              </div>
+            </>
+          )}
+        </SheetContent>
+      </Sheet>
+    </>
   )
 }
 
-function AchieveQueueRow({ row, mode, selected, onSelect }: { row: AlertWithFeedback; mode: 'review' | 'history'; selected: boolean; onSelect: () => void }) {
+function AchieveQueueRow({ row, mode, onSelect }: { row: AlertWithFeedback; mode: 'review' | 'history'; onSelect: () => void }) {
   const result = row.result_json ?? {}
   const adherence = result.script_adherence ?? {}
   const confidence = result.assessment_confidence ?? {}
@@ -247,11 +252,10 @@ function AchieveQueueRow({ row, mode, selected, onSelect }: { row: AlertWithFeed
     <button
       type="button"
       onClick={onSelect}
-      className={`w-full px-4 py-3 text-left transition-colors focus:outline-none focus:ring-2 focus:ring-inset focus:ring-blue-500 ${selected ? 'bg-blue-50' : 'hover:bg-slate-50'}`}
-      aria-pressed={selected}
+      className="group w-full px-4 py-3 text-left transition-colors hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-inset focus:ring-blue-500"
     >
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0 flex-1 space-y-2">
+      <div className="grid gap-3 md:grid-cols-[minmax(0,1.7fr)_minmax(0,0.85fr)_minmax(0,0.75fr)_2rem] md:items-center">
+        <div className="min-w-0 space-y-1">
           <div className="flex flex-wrap items-center gap-2">
             <span className="break-all font-mono text-sm font-semibold leading-5 text-slate-950">{row.call_id || '—'}</span>
             <ResultPill alert={row} />
@@ -260,15 +264,19 @@ function AchieveQueueRow({ row, mode, selected, onSelect }: { row: AlertWithFeed
           <div className="text-xs leading-5 text-slate-500">
             {formatDateTime(row.alert_created_at)} · Agent {redactEmail(row.agent_email)}
           </div>
-          <div className="flex flex-wrap items-center gap-2 text-xs text-slate-600">
-            <span>{confidenceSummary(confidence)}</span>
-            <span aria-hidden="true">•</span>
-            <span>{adherence.overall_script_adherence ?? 'Unknown adherence'}</span>
-            <span aria-hidden="true">•</span>
+        </div>
+        <div className="text-sm text-slate-700">
+          <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">Confidence</div>
+          <div>{confidenceSummary(confidence)}</div>
+        </div>
+        <div className="text-sm text-slate-700">
+          <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">Result</div>
+          <div className="flex flex-wrap gap-2">
+            <span>{adherence.overall_script_adherence ?? 'Unknown'}</span>
             <span className={row.has_violation ? 'font-semibold text-red-700' : 'text-slate-500'}>{gapLabel}</span>
           </div>
         </div>
-        <ChevronRight className={`mt-1 h-4 w-4 flex-none text-slate-400 transition-transform ${selected ? 'translate-x-0.5 text-blue-700' : ''}`} />
+        <ChevronRight className="hidden h-4 w-4 justify-self-end text-slate-400 transition-transform group-hover:translate-x-0.5 group-hover:text-blue-700 md:block" />
       </div>
     </button>
   )
@@ -326,7 +334,7 @@ function AchieveAlertDetails({ alert, mode }: { alert: AlertWithFeedback; mode: 
   const hasConfidence = !!(confidence.level || confidencePct || confidence.rationale || limitations.length)
 
   return (
-    <article className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+    <article className="space-y-4">
       <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
         <div>
           <div className="flex flex-wrap items-center gap-2">
