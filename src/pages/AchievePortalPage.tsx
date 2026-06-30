@@ -1,6 +1,6 @@
-import { FormEvent, useMemo, useState } from 'react'
+import { FormEvent, useEffect, useMemo, useState, type KeyboardEvent, type ReactNode } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { ExternalLink, Lock, RefreshCcw, ShieldAlert } from 'lucide-react'
+import { ChevronRight, ExternalLink, Lock, RefreshCcw, ShieldAlert } from 'lucide-react'
 import { fetchAchieveAlerts, fetchAchieveAllCalls } from '@/lib/achieve-queries'
 import type { AlertWithFeedback } from '@/types/database'
 import { formatDateTime } from '@/lib/utils'
@@ -181,19 +181,133 @@ function AchieveRowsState({
   emptyMessage: string
   onRetry: () => void
 }) {
+  const [selectedKey, setSelectedKey] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (rows.length === 0) {
+      setSelectedKey(null)
+      return
+    }
+    if (!selectedKey || !rows.some(row => rowKey(row) === selectedKey)) {
+      setSelectedKey(rowKey(rows[0]))
+    }
+  }, [rows, selectedKey])
+
+  const selected = rows.find(row => rowKey(row) === selectedKey) ?? rows[0]
+
   if (isError) {
     return <ErrorState title="Could not load Achieve QA rows" message="Retry after confirming Supabase/RLS access for this scaffold." onRetry={onRetry} />
   }
   if (isPending) {
-    return <div className="rounded-xl border border-slate-200 bg-white p-8 text-center text-slate-500">Loading Achieve QA rows…</div>
+    return <AchieveRowsSkeleton />
   }
   if (rows.length === 0) {
     return <div className="rounded-xl border border-slate-200 bg-white p-8 text-center text-slate-500">{emptyMessage}</div>
   }
+
+  const onRowKeyDown = (event: KeyboardEvent<HTMLTableRowElement>, row: AlertWithFeedback) => {
+    if (event.key === 'Enter' || event.key === ' ') {
+      event.preventDefault()
+      setSelectedKey(rowKey(row))
+    }
+  }
+
   return (
-    <div className="grid gap-4">
-      {rows.map(row => <AchieveAlertCard key={`${row.module_result_id}:${row.call_id}:${row.module_name}`} alert={row} />)}
+    <div className="space-y-4">
+      <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+        <div className="border-b border-slate-200 px-4 py-3">
+          <h2 className="text-sm font-semibold text-slate-950">Review queue</h2>
+          <p className="mt-1 text-xs text-slate-500">Select a row to view script evidence, confidence, and transcript segment details.</p>
+        </div>
+        <div className="overflow-x-auto">
+          <table className="min-w-full">
+            <thead className="bg-slate-50">
+              <tr>
+                <Th>Call</Th>
+                <Th>Time</Th>
+                <Th>Agent</Th>
+                <Th>Result</Th>
+                <Th>Confidence</Th>
+                <Th>Adherence</Th>
+                <Th>Missing</Th>
+                <Th>Review</Th>
+                <th aria-hidden="true" className="w-10" />
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map(row => {
+                const result = row.result_json ?? {}
+                const adherence = result.script_adherence ?? {}
+                const confidence = result.assessment_confidence ?? {}
+                const missing = Array.isArray(adherence.missing_elements) ? adherence.missing_elements : []
+                const selectedRow = rowKey(row) === rowKey(selected)
+                return (
+                  <tr
+                    key={rowKey(row)}
+                    role="button"
+                    tabIndex={0}
+                    aria-label={`View details for call ${row.call_id}`}
+                    data-state={selectedRow ? 'selected' : undefined}
+                    className={`group cursor-pointer border-t border-slate-100 transition-colors hover:bg-blue-50/60 focus:outline-none focus:ring-2 focus:ring-inset focus:ring-blue-500 ${selectedRow ? 'bg-blue-50/80' : ''}`}
+                    onClick={() => setSelectedKey(rowKey(row))}
+                    onKeyDown={event => onRowKeyDown(event, row)}
+                  >
+                    <Td>
+                      <span className="font-mono text-sm font-semibold text-slate-950">{redactId(row.call_id)}</span>
+                    </Td>
+                    <Td>
+                      <span className="text-sm text-slate-600 tabular-nums">{formatDateTime(row.alert_created_at)}</span>
+                    </Td>
+                    <Td>
+                      <span className="text-sm text-slate-700">{redactEmail(row.agent_email)}</span>
+                    </Td>
+                    <Td>
+                      <ResultPill alert={row} />
+                    </Td>
+                    <Td>
+                      <span className="text-sm text-slate-700">{confidenceSummary(confidence)}</span>
+                    </Td>
+                    <Td>
+                      <span className="text-sm font-medium text-slate-800">{adherence.overall_script_adherence ?? '—'}</span>
+                    </Td>
+                    <Td>
+                      <span className="block max-w-xs truncate text-sm text-slate-600" title={missing.join(', ')}>
+                        {missing.length ? missing.join(', ') : 'None'}
+                      </span>
+                    </Td>
+                    <Td>
+                      <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${row.is_reviewed ? 'bg-slate-100 text-slate-700' : 'bg-amber-100 text-amber-800'}`}>
+                        {row.is_reviewed ? 'Reviewed' : 'New'}
+                      </span>
+                    </Td>
+                    <td className="py-3 pl-2 pr-4 text-right align-middle">
+                      <ChevronRight className={`inline-block h-4 w-4 text-slate-400 transition-transform group-hover:translate-x-0.5 group-hover:text-blue-700 ${selectedRow ? 'text-blue-700' : ''}`} />
+                    </td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      {selected && <AchieveAlertDetails alert={selected} />}
     </div>
+  )
+}
+
+function AchieveRowsSkeleton() {
+  return (
+    <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+      <div className="border-b border-slate-200 px-4 py-3">
+        <div className="h-4 w-28 animate-pulse rounded bg-slate-200" />
+      </div>
+      <div className="p-4 space-y-3">
+        {Array.from({ length: 5 }).map((_, index) => (
+          <div key={index} className="h-10 animate-pulse rounded bg-slate-100" />
+        ))}
+      </div>
+    </section>
   )
 }
 
@@ -207,7 +321,37 @@ function Stat({ label, value, tone = 'slate' }: { label: string; value: number; 
   )
 }
 
-function AchieveAlertCard({ alert }: { alert: AlertWithFeedback }) {
+function Th({ children }: { children: ReactNode }) {
+  return (
+    <th className="px-4 py-3 text-left text-[11px] font-bold uppercase tracking-[0.06em] text-slate-500">
+      {children}
+    </th>
+  )
+}
+
+function Td({ children }: { children: ReactNode }) {
+  return <td className="px-4 py-3 align-middle">{children}</td>
+}
+
+function ResultPill({ alert }: { alert: AlertWithFeedback }) {
+  return (
+    <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${alert.has_violation ? 'bg-red-100 text-red-800' : 'bg-emerald-100 text-emerald-800'}`}>
+      {alert.has_violation ? 'Flagged' : 'Passed'}
+    </span>
+  )
+}
+
+function confidenceSummary(confidence: { level?: string; score?: number }) {
+  const pct = typeof confidence.score === 'number' ? `${Math.round(confidence.score * 100)}%` : null
+  if (confidence.level && pct) return `${confidence.level} · ${pct}`
+  return confidence.level ?? pct ?? '—'
+}
+
+function rowKey(row: AlertWithFeedback) {
+  return `${row.module_result_id}:${row.call_id}:${row.module_name}`
+}
+
+function AchieveAlertDetails({ alert }: { alert: AlertWithFeedback }) {
   const result = alert.result_json ?? {}
   const adherence = result.script_adherence ?? {}
   const quotes = Array.isArray(adherence.key_evidence_quotes) ? adherence.key_evidence_quotes.slice(0, 3) : []
