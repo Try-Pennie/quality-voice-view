@@ -1,10 +1,11 @@
 import { FormEvent, useEffect, useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { ChevronRight, ExternalLink, Lock, RefreshCcw, ShieldAlert } from 'lucide-react'
+import { ChevronRight, ExternalLink, Lock, RefreshCcw } from 'lucide-react'
 import { fetchAchieveAlerts, fetchAchieveAllCalls } from '@/lib/achieve-queries'
 import type { AlertWithFeedback } from '@/types/database'
 import { formatDateTime } from '@/lib/utils'
 import { ErrorState } from '@/components/states/ErrorState'
+import { PageHero, SupportingStat } from '@/components/PageHero'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 
 const SESSION_KEY = 'achieve_portal_unlocked'
@@ -93,8 +94,7 @@ function AchieveReviewQueue() {
 
   const alerts = useMemo(() => alertsQuery.data ?? [], [alertsQuery.data])
   const allCalls = useMemo(() => allCallsQuery.data ?? [], [allCallsQuery.data])
-  const activeRows = activeTab === 'alerts' ? alerts : allCalls
-  const stats = useMemo(() => summarize(activeRows), [activeRows])
+  const allStats = useMemo(() => summarize(allCalls), [allCalls])
   const isFetching = alertsQuery.isFetching || allCallsQuery.isFetching
 
   const refresh = () => {
@@ -104,59 +104,56 @@ function AchieveReviewQueue() {
 
   return (
     <main className="min-h-screen bg-slate-50 px-6 py-8 text-slate-950">
-      <div className="mx-auto max-w-7xl space-y-6">
-        <header className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-          <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
-            <div>
-              <p className="text-sm font-semibold uppercase tracking-wide text-blue-700">Achieve / FDR</p>
-              <h1 className="mt-2 text-3xl font-semibold tracking-tight">Welcome-call QA review</h1>
-              <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">
-                Review Achieve welcome calls. <strong>Alerts</strong> need a closer look; <strong>All calls</strong> shows every scored call.
-              </p>
-            </div>
-            <button
-              type="button"
-              onClick={refresh}
-              className="inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium hover:bg-slate-50"
-            >
-              <RefreshCcw className={`h-4 w-4 ${isFetching ? 'animate-spin' : ''}`} />
-              Refresh
-            </button>
-          </div>
-          <div className="mt-6 grid gap-3 sm:grid-cols-3">
-            <Stat label={activeTab === 'alerts' ? 'Alerts' : 'Calls'} value={stats.total} />
-            <Stat label="Needs review" value={stats.flagged} tone="red" />
-            <Stat label="Reviewed" value={stats.reviewed} tone="green" />
-          </div>
-        </header>
-
-        <div className="rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-950">
-          <div className="flex gap-3">
-            <ShieldAlert className="mt-0.5 h-4 w-4 flex-none" />
-            <p>These results are scoped to Achieve welcome-call QA and are separate from Pennie’s internal manager dashboards.</p>
-          </div>
+      <div className="mx-auto max-w-7xl space-y-6 sm:space-y-8">
+        <div className="flex items-start justify-between gap-4">
+          <PageHero
+            label="Achieve / FDR"
+            headline="Welcome-call QA review"
+            description={
+              <>
+                Failed checks appear in <strong>Needs review</strong>. Passed calls are kept in <strong>All calls</strong> for audit/history.
+              </>
+            }
+            stats={
+              <>
+                <SupportingStat label="Scored calls" value={allStats.total} />
+                <SupportingStat label="Failed checks" value={allStats.flagged} />
+                <SupportingStat label="Pass rate" value={allStats.total === 0 ? '—' : `${Math.round(((allStats.total - allStats.flagged) / allStats.total) * 100)}%`} />
+              </>
+            }
+          />
+          <button
+            type="button"
+            onClick={refresh}
+            className="inline-flex min-h-[40px] shrink-0 items-center gap-2 rounded-full border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-800 shadow-sm hover:bg-slate-50"
+          >
+            <RefreshCcw className={`h-4 w-4 ${isFetching ? 'animate-spin' : ''}`} />
+            Refresh
+          </button>
         </div>
 
         <Tabs value={activeTab} onValueChange={value => setActiveTab(value as 'alerts' | 'all-calls')}>
           <TabsList className="bg-white shadow-sm">
-            <TabsTrigger value="alerts">Alerts ({alerts.length})</TabsTrigger>
+            <TabsTrigger value="alerts">Needs review ({alerts.length})</TabsTrigger>
             <TabsTrigger value="all-calls">All calls ({allCalls.length})</TabsTrigger>
           </TabsList>
           <TabsContent value="alerts" className="mt-4">
             <AchieveRowsState
               rows={alerts}
+              mode="review"
               isError={alertsQuery.isError}
               isPending={alertsQuery.isPending}
-              emptyMessage="No flagged Achieve alerts yet. Passed/non-alert calls are available under All calls."
+              emptyMessage="No failed Achieve checks need human review. Passed calls are available under All calls."
               onRetry={() => alertsQuery.refetch()}
             />
           </TabsContent>
           <TabsContent value="all-calls" className="mt-4">
             <AchieveRowsState
               rows={allCalls}
+              mode="history"
               isError={allCallsQuery.isError}
               isPending={allCallsQuery.isPending}
-              emptyMessage="No Achieve QA calls yet."
+              emptyMessage="No scored Achieve calls yet."
               onRetry={() => allCallsQuery.refetch()}
             />
           </TabsContent>
@@ -168,12 +165,14 @@ function AchieveReviewQueue() {
 
 function AchieveRowsState({
   rows,
+  mode,
   isError,
   isPending,
   emptyMessage,
   onRetry,
 }: {
   rows: AlertWithFeedback[]
+  mode: 'review' | 'history'
   isError: boolean
   isPending: boolean
   emptyMessage: string
@@ -200,21 +199,27 @@ function AchieveRowsState({
     return <AchieveRowsSkeleton />
   }
   if (rows.length === 0) {
-    return <div className="rounded-xl border border-slate-200 bg-white p-8 text-center text-slate-500">{emptyMessage}</div>
+    return <div className="rounded-2xl border border-slate-200 bg-white p-8 text-center text-slate-600 shadow-sm">{emptyMessage}</div>
   }
 
+  const title = mode === 'review' ? 'Needs review' : 'All scored calls'
+  const description = mode === 'review'
+    ? 'Only failed checks appear here. Select a row to review the reason and supporting evidence.'
+    : 'Passed and failed calls are listed for audit/history. Passed calls do not require human review.'
+
   return (
-    <div className="grid gap-4 lg:grid-cols-[minmax(0,0.82fr)_minmax(0,1.18fr)]">
+    <div className="grid gap-4 lg:grid-cols-[minmax(0,0.95fr)_minmax(0,1.05fr)]">
       <section className="self-start overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
         <div className="border-b border-slate-200 px-4 py-3">
-          <h2 className="text-sm font-semibold text-slate-950">Review queue</h2>
-          <p className="mt-1 text-xs text-slate-500">Select a call to see what was covered, the supporting quotes, and scoring confidence.</p>
+          <h2 className="text-sm font-semibold text-slate-950">{title}</h2>
+          <p className="mt-1 text-xs leading-5 text-slate-500">{description}</p>
         </div>
         <div className="divide-y divide-slate-100">
           {rows.map(row => (
             <AchieveQueueRow
               key={rowKey(row)}
               row={row}
+              mode={mode}
               selected={rowKey(row) === rowKey(selected)}
               onSelect={() => setSelectedKey(rowKey(row))}
             />
@@ -224,19 +229,19 @@ function AchieveRowsState({
 
       {selected && (
         <div className="lg:sticky lg:top-6 self-start">
-          <AchieveAlertDetails alert={selected} />
+          <AchieveAlertDetails alert={selected} mode={mode} />
         </div>
       )}
     </div>
   )
 }
 
-function AchieveQueueRow({ row, selected, onSelect }: { row: AlertWithFeedback; selected: boolean; onSelect: () => void }) {
+function AchieveQueueRow({ row, mode, selected, onSelect }: { row: AlertWithFeedback; mode: 'review' | 'history'; selected: boolean; onSelect: () => void }) {
   const result = row.result_json ?? {}
   const adherence = result.script_adherence ?? {}
   const confidence = result.assessment_confidence ?? {}
   const missing = Array.isArray(adherence.missing_elements) ? adherence.missing_elements : []
-  const gapLabel = missing.length === 0 ? 'No gaps' : `${missing.length} gap${missing.length === 1 ? '' : 's'}`
+  const gapLabel = missing.length === 0 ? 'No gaps noted' : `${missing.length} gap${missing.length === 1 ? '' : 's'} noted`
 
   return (
     <button
@@ -246,11 +251,11 @@ function AchieveQueueRow({ row, selected, onSelect }: { row: AlertWithFeedback; 
       aria-pressed={selected}
     >
       <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0 space-y-1">
+        <div className="min-w-0 flex-1 space-y-2">
           <div className="flex flex-wrap items-center gap-2">
-            <span className="font-mono text-sm font-semibold text-slate-950">{redactId(row.call_id)}</span>
+            <span className="break-all font-mono text-sm font-semibold leading-5 text-slate-950">{row.call_id || '—'}</span>
             <ResultPill alert={row} />
-            <ReviewPill reviewed={row.is_reviewed} />
+            {mode === 'review' && <AlertStatusPill reviewed={row.is_reviewed} />}
           </div>
           <div className="text-xs leading-5 text-slate-500">
             {formatDateTime(row.alert_created_at)} · Agent {redactEmail(row.agent_email)}
@@ -260,7 +265,7 @@ function AchieveQueueRow({ row, selected, onSelect }: { row: AlertWithFeedback; 
             <span aria-hidden="true">•</span>
             <span>{adherence.overall_script_adherence ?? 'Unknown adherence'}</span>
             <span aria-hidden="true">•</span>
-            <span className={missing.length ? 'font-semibold text-amber-800' : 'text-slate-500'}>{gapLabel}</span>
+            <span className={row.has_violation ? 'font-semibold text-red-700' : 'text-slate-500'}>{gapLabel}</span>
           </div>
         </div>
         <ChevronRight className={`mt-1 h-4 w-4 flex-none text-slate-400 transition-transform ${selected ? 'translate-x-0.5 text-blue-700' : ''}`} />
@@ -284,35 +289,17 @@ function AchieveRowsSkeleton() {
   )
 }
 
-function Stat({ label, value, tone = 'slate' }: { label: string; value: number; tone?: 'slate' | 'red' | 'green' }) {
-  const color = tone === 'red' ? 'text-red-700' : tone === 'green' ? 'text-emerald-700' : 'text-slate-950'
-  return (
-    <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
-      <div className="text-xs font-medium uppercase tracking-wide text-slate-500">{label}</div>
-      <div className={`mt-1 text-2xl font-semibold ${color}`}>{value}</div>
-    </div>
-  )
-}
-
 function ResultPill({ alert }: { alert: AlertWithFeedback }) {
-  const result = alert.result_json ?? {}
-  const adherence = result.script_adherence ?? {}
-  const missing = Array.isArray(adherence.missing_elements) ? adherence.missing_elements : []
-  const isPassWithGaps = !alert.has_violation && missing.length > 0
-  const classes = alert.has_violation
-    ? 'bg-red-100 text-red-800'
-    : isPassWithGaps
-      ? 'bg-amber-100 text-amber-800'
-      : 'bg-emerald-100 text-emerald-800'
-  const label = alert.has_violation ? 'Violation' : isPassWithGaps ? 'Pass with gaps' : 'Pass'
+  const classes = alert.has_violation ? 'bg-red-100 text-red-800' : 'bg-emerald-100 text-emerald-800'
+  const label = alert.has_violation ? 'Failed check' : 'Pass'
 
   return <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${classes}`}>{label}</span>
 }
 
-function ReviewPill({ reviewed }: { reviewed: boolean }) {
+function AlertStatusPill({ reviewed }: { reviewed: boolean }) {
   return (
-    <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${reviewed ? 'bg-slate-100 text-slate-700' : 'bg-amber-50 text-amber-800'}`}>
-      {reviewed ? 'Reviewed' : 'Unreviewed'}
+    <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${reviewed ? 'bg-slate-100 text-slate-700' : 'bg-amber-100 text-amber-800'}`}>
+      {reviewed ? 'Reviewed' : 'Needs review'}
     </span>
   )
 }
@@ -327,7 +314,7 @@ function rowKey(row: AlertWithFeedback) {
   return `${row.module_result_id}:${row.call_id}:${row.module_name}`
 }
 
-function AchieveAlertDetails({ alert }: { alert: AlertWithFeedback }) {
+function AchieveAlertDetails({ alert, mode }: { alert: AlertWithFeedback; mode: 'review' | 'history' }) {
   const result = alert.result_json ?? {}
   const adherence = result.script_adherence ?? {}
   const quotes = Array.isArray(adherence.key_evidence_quotes) ? adherence.key_evidence_quotes.slice(0, 3) : []
@@ -344,14 +331,14 @@ function AchieveAlertDetails({ alert }: { alert: AlertWithFeedback }) {
         <div>
           <div className="flex flex-wrap items-center gap-2">
             <ResultPill alert={alert} />
-            <ReviewPill reviewed={alert.is_reviewed} />
+            {mode === 'review' && <AlertStatusPill reviewed={alert.is_reviewed} />}
             {confidence.level && (
               <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${confidenceTone(confidence.level)}`}>
                 Confidence {confidence.level}{confidencePct ? ` · ${confidencePct}` : ''}
               </span>
             )}
           </div>
-          <h2 className="mt-3 text-lg font-semibold">Call {redactId(alert.call_id)}</h2>
+          <h2 className="mt-3 break-all font-mono text-base font-semibold leading-6 text-slate-950">{alert.call_id || '—'}</h2>
           <p className="mt-1 text-sm text-slate-600">{formatDateTime(alert.alert_created_at)} · Agent {redactEmail(alert.agent_email)}</p>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -437,11 +424,6 @@ function summarize(alerts: AlertWithFeedback[]) {
   }
 }
 
-function redactId(id: string) {
-  if (!id) return '—'
-  if (id.length <= 10) return id
-  return `${id.slice(0, 4)}…${id.slice(-4)}`
-}
 
 function redactEmail(email: string | null) {
   if (!email) return '—'
