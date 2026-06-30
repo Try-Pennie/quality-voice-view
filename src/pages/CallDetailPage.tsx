@@ -1,5 +1,6 @@
 import { useParams, useNavigate } from 'react-router-dom'
-import { useCallDetail, useAlertsForCall } from '../hooks/use-queries'
+import { useCallDetail, useAlertsForCall, useUserScope } from '../hooks/use-queries'
+import { useAuth } from '../hooks/useAuth'
 import { formatDateTime, formatDuration, formatPhoneNumber, getScoreBadgeColor } from '../lib/utils'
 import { HelpHint } from '../components/ui/help-hint'
 import { pitchCallRisk, explainPitchRisk, BAND_LABEL } from '../lib/pitch-call-risk'
@@ -30,6 +31,8 @@ import { toast } from 'sonner'
 export default function CallDetailPage() {
   const { callId } = useParams()
   const navigate = useNavigate()
+  const { user } = useAuth()
+  const { data: scope } = useUserScope(user?.email)
   const {
     data: call,
     isPending: callPending,
@@ -42,7 +45,7 @@ export default function CallDetailPage() {
     isPending: alertsPending,
     isError: alertsError,
     refetch: refetchAlerts,
-  } = useAlertsForCall(callId)
+  } = useAlertsForCall(callId, scope)
   const alerts = alertsData ?? []
   const alertsLoading = alertsPending && !alertsData
 

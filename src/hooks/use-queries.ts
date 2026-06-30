@@ -78,7 +78,7 @@ export function useAlerts(
     queryFn: () => fetchAlerts(filters, scope!),
     enabled: !!scope,
     placeholderData: keepPreviousData,
-    select: filterSuppressedAlertRows,
+    select: rows => filterSuppressedAlertRows(rows, scope),
   })
 }
 
@@ -285,23 +285,27 @@ export function useCallDetail(callId: string | null | undefined) {
   })
 }
 
-export function useAlertsForCall(callId: string | null | undefined) {
+export function useAlertsForCall(
+  callId: string | null | undefined,
+  scope?: UserScope | null,
+) {
   return useQuery({
-    queryKey: ['alertsForCall', callId],
-    queryFn: () => fetchAlertsForCall(callId!),
+    queryKey: ['alertsForCall', callId, scopeKey(scope)],
+    queryFn: () => fetchAlertsForCall(callId!, scope),
     enabled: !!callId,
-    select: filterSuppressedAlertRows,
+    select: rows => filterSuppressedAlertRows(rows, scope),
   })
 }
 
 export function useAlertThread(
   callId: string | null | undefined,
   moduleName: string | null | undefined,
+  scope?: UserScope | null,
 ) {
   return useQuery({
-    queryKey: ['alertThread', callId, moduleName],
-    queryFn: () => fetchAlertThread(callId!, moduleName!),
-    enabled: !!callId && !!moduleName && !isSuppressedAlertModule(moduleName),
+    queryKey: ['alertThread', callId, moduleName, scopeKey(scope)],
+    queryFn: () => fetchAlertThread(callId!, moduleName!, scope),
+    enabled: !!callId && !!moduleName && !isSuppressedAlertModule(moduleName, scope),
   })
 }
 

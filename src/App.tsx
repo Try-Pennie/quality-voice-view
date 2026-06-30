@@ -19,6 +19,7 @@ import TeamPage from "./pages/TeamPage";
 import SalesFloorInsightsPage from "./pages/SalesFloorInsightsPage";
 import AgentProfilePage from "./pages/AgentProfilePage";
 import HelpPage from "./pages/HelpPage";
+import AchievePortalPage from "./pages/AchievePortalPage";
 import NotFound from "./pages/NotFound";
 
 // Backstop so no read failure is ever fully silent, even on a surface we
@@ -61,6 +62,7 @@ const App = () => (
         <BrowserRouter>
           <Routes>
             <Route path="/login" element={<LoginPage />} />
+            <Route path="/achieve" element={<AchievePortalPage />} />
             
             <Route
               path="/dashboard"

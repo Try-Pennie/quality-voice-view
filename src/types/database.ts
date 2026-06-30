@@ -148,6 +148,7 @@ export type AlertViolationType =
   | 'warm_transfer'
   | 'litigation_check'
   | 'program_expectations'
+  | 'achieve_welcome_call'
 
 export type AlertModuleName =
   | 'full_qa'
@@ -155,6 +156,7 @@ export type AlertModuleName =
   | 'warm_transfer'
   | 'litigation_check'
   | 'program_expectations'
+  | 'achieve_welcome_call_qa'
 
 export type AlertActionTaken =
   | 'coached'
