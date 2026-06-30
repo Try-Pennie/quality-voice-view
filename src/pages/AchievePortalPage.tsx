@@ -155,6 +155,13 @@ function AchieveAlertCard({ alert }: { alert: AlertWithFeedback }) {
   const quotes = Array.isArray(adherence.key_evidence_quotes) ? adherence.key_evidence_quotes.slice(0, 3) : []
   const missing = Array.isArray(adherence.missing_elements) ? adherence.missing_elements : []
 
+  const confidence = result.assessment_confidence ?? {}
+  const limitations = Array.isArray(confidence.limitations) ? confidence.limitations : []
+  const confidencePct = typeof confidence.score === 'number' ? `${Math.round(confidence.score * 100)}%` : null
+  const hasConfidence = !!(confidence.level || confidencePct || confidence.rationale || limitations.length)
+
+  const segment = result.transcript_segment
+
   return (
     <article className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
       <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
@@ -164,6 +171,11 @@ function AchieveAlertCard({ alert }: { alert: AlertWithFeedback }) {
               {alert.has_violation ? 'Flagged' : 'Passed'}
             </span>
             {alert.is_reviewed && <span className="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-semibold text-slate-700">Reviewed</span>}
+            {confidence.level && (
+              <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${confidenceTone(confidence.level)}`}>
+                Confidence {confidence.level}{confidencePct ? ` · ${confidencePct}` : ''}
+              </span>
+            )}
           </div>
           <h2 className="mt-3 text-lg font-semibold">Call {redactId(alert.call_id)}</h2>
           <p className="mt-1 text-sm text-slate-600">{formatDateTime(alert.alert_created_at)} · Agent {redactEmail(alert.agent_email)}</p>
@@ -196,8 +208,72 @@ function AchieveAlertCard({ alert }: { alert: AlertWithFeedback }) {
           )}
         </section>
       </div>
+
+      {(hasConfidence || segment) && (
+        <div className="mt-4 grid gap-4 md:grid-cols-2">
+          {hasConfidence && (
+            <section className="rounded-xl bg-slate-50 p-4">
+              <h3 className="text-sm font-semibold">Assessment confidence</h3>
+              <dl className="mt-3 space-y-2 text-sm">
+                <Row label="Level" value={confidence.level ?? '—'} />
+                <Row label="Score" value={confidencePct ?? '—'} />
+                <Row label="Rationale" value={confidence.rationale ?? '—'} />
+              </dl>
+              {limitations.length > 0 && (
+                <>
+                  <p className="mt-3 text-xs font-medium uppercase tracking-wide text-slate-500">Limitations</p>
+                  <ul className="mt-1 list-disc space-y-1 pl-5 text-sm text-slate-700">
+                    {limitations.map((item, index) => <li key={index}>{item}</li>)}
+                  </ul>
+                </>
+              )}
+            </section>
+          )}
+          {segment && (
+            <section className="rounded-xl bg-slate-50 p-4">
+              <h3 className="text-sm font-semibold">Transcript segment</h3>
+              <dl className="mt-3 space-y-2 text-sm">
+                <Row label="Type" value={segment.segment_type ?? '—'} />
+                <Row label="Start" value={startLabel(segment)} />
+                <Row label="Marker" value={segment.marker ?? '—'} />
+                <Row
+                  label="Confidence"
+                  value={segmentConfidenceLabel(segment)}
+                />
+              </dl>
+              {segment.used_full_transcript_fallback && (
+                <p className="mt-3 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+                  Segmentation failed — scored against the full transcript (fallback).
+                </p>
+              )}
+            </section>
+          )}
+        </div>
+      )}
     </article>
   )
+}
+
+function confidenceTone(level: string) {
+  const l = level.toLowerCase()
+  if (l === 'high') return 'bg-emerald-100 text-emerald-800'
+  if (l === 'low') return 'bg-red-100 text-red-800'
+  return 'bg-amber-100 text-amber-800'
+}
+
+// ponytail: support both start_line and start for older local demo bundles.
+function startLabel(segment: { start_line?: number; start?: number }) {
+  const start = segment.start_line ?? segment.start
+  return typeof start === 'number' ? `Line ${start}` : '—'
+}
+
+function segmentConfidenceLabel(segment: { segmentation_confidence?: string; segmentation_score?: number; confidence?: number | string }) {
+  if (segment.segmentation_confidence) {
+    const score = typeof segment.segmentation_score === 'number' ? ` · ${Math.round(segment.segmentation_score * 100)}%` : ''
+    return `${segment.segmentation_confidence}${score}`
+  }
+  if (typeof segment.confidence === 'number') return `${Math.round(segment.confidence * 100)}%`
+  return segment.confidence ?? '—'
 }
 
 function Row({ label, value }: { label: string; value: string }) {

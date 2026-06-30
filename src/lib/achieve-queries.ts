@@ -6,6 +6,7 @@ import type { AlertWithFeedback } from '@/types/database'
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const sb = supabase as any
 export const ACHIEVE_MODULE_NAME = 'achieve_welcome_call_qa'
+const showDemoData = import.meta.env.VITE_ACHIEVE_DEMO_DATA === 'true'
 
 export async function fetchAchieveAlerts(limit = 100): Promise<AlertWithFeedback[]> {
   const { data, error } = await sb
@@ -17,7 +18,79 @@ export async function fetchAchieveAlerts(limit = 100): Promise<AlertWithFeedback
 
   if (error) {
     console.error('Error fetching Achieve QA alerts:', error)
+    if (showDemoData) return [achieveDemoAlert]
     throw error
   }
-  return (data ?? []) as AlertWithFeedback[]
+
+  const alerts = (data ?? []) as AlertWithFeedback[]
+  if (alerts.length === 0 && showDemoData) return [achieveDemoAlert]
+  return alerts
+}
+
+const achieveDemoAlert: AlertWithFeedback = {
+  module_result_id: -1,
+  alert_created_at: '2026-06-29T18:00:00.000Z',
+  alert_sent_at: null,
+  call_id: 'WT8ace5e457629417521644859dcb187ca',
+  module_name: ACHIEVE_MODULE_NAME,
+  violation_type: 'script_adherence',
+  has_violation: false,
+  alert_sent: false,
+  agent_email: 'demo-achieve@example.invalid',
+  contact_name: 'Demo client',
+  contact_phone: null,
+  recording_link: null,
+  transcript_url: null,
+  call_summary: 'DEMO DATA: Client completed FDR enrollment handoff and welcome call; app/dashboard setup was completed, program basics were reviewed, and customer service contact information was provided.',
+  sfdc_lead_id: null,
+  processing_time_ms: null,
+  result_json: {
+    demo_data: true,
+    script_version: 'fdr_wholesale_db_pilot_v0',
+    script_adherence: {
+      welcome_greeting_completed: true,
+      program_overview_covered: true,
+      timeline_expectations_covered: true,
+      payment_process_explained: true,
+      client_communication_process_covered: true,
+      next_steps_provided: true,
+      overall_script_adherence: 'full',
+      missing_elements: [],
+      key_evidence_quotes: [
+        'My name again is Max. I am a client success advocate, and I\'m excited to get to help you get started with your program today.',
+        'Starting today, instead of making monthly payments to your enrolled creditors, you\'ll be making automatic deposits into your dedicated account.',
+        'Before I let you go, I do have the Freedom Debt Relief customer service number in case you\'d like to write that down. Call at any time you have questions in the future.',
+      ],
+      violation: false,
+      violation_reason: 'Demo output for UI validation. No violation: the welcome-call coordinator covered welcome, dashboard setup, payment process, program overview, client communication guidance, and next steps.',
+    },
+    assessment_confidence: {
+      score: 0.86,
+      level: 'high',
+      rationale: 'DEMO DATA: Transcript clearly captured all required welcome-call elements with verbatim agent quotes; audio quality and segmentation were clean.',
+      limitations: [
+        'DEMO DATA: Client side of the call was partially inaudible during the payment-process explanation.',
+      ],
+    },
+    transcript_segment: {
+      segment_type: 'fdr_welcome_call_coordinator',
+      start_line: 42,
+      marker: 'My name again is Max. I am a client success advocate',
+      segmentation_confidence: 'high',
+      segmentation_score: 0.91,
+      used_full_transcript_fallback: false,
+    },
+  },
+  assigned_manager_email: null,
+  feedback_id: null,
+  feedback_by: null,
+  accurate: null,
+  action_taken: null,
+  inaccuracy_reason: null,
+  feedback_comment: null,
+  reviewed_at: null,
+  is_reviewed: false,
+  message_count: 0,
+  last_message_at: null,
+  acker_emails: [],
 }
