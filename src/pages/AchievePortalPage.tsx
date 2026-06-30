@@ -1,6 +1,6 @@
 import { FormEvent, useEffect, useMemo, useState, type ReactNode } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { ChevronRight, ExternalLink, Lock, RefreshCcw } from 'lucide-react'
+import { ChevronRight, ExternalLink, RefreshCcw } from 'lucide-react'
 import { fetchAchieveAlerts, fetchAchieveAllCalls, submitAchieveReviewFeedback } from '@/lib/achieve-queries'
 import type { AlertActionTaken, AlertInaccuracyReason, AlertWithFeedback } from '@/types/database'
 import { formatDateTime } from '@/lib/utils'
@@ -51,7 +51,7 @@ function AchievePasswordGate({ onUnlock }: { onUnlock: () => void }) {
   const submit = (event: FormEvent) => {
     event.preventDefault()
     if (!isConfigured) {
-      setError('Portal password is not configured. Set VITE_ACHIEVE_PORTAL_PASSWORD for this scaffold.')
+      setError('Portal access is not available yet. Contact your administrator.')
       return
     }
     if (password !== configuredPassword) {
@@ -63,39 +63,41 @@ function AchievePasswordGate({ onUnlock }: { onUnlock: () => void }) {
   }
 
   return (
-    <main className="min-h-screen bg-slate-950 text-slate-100 flex items-center justify-center px-6">
-      <section className="w-full max-w-md rounded-2xl border border-slate-800 bg-slate-900/80 p-8 shadow-2xl">
-        <div className="mb-6 flex h-12 w-12 items-center justify-center rounded-xl bg-blue-500/10 text-blue-300">
-          <Lock className="h-6 w-6" />
-        </div>
-        <h1 className="text-2xl font-semibold tracking-tight">Achieve QA review</h1>
-        <p className="mt-3 text-sm leading-6 text-slate-300">
-          Password-gated scaffold for Achieve/FDR welcome-call QA review. This route intentionally does not use Pennie Google OAuth.
+    <main className="min-h-screen bg-slate-50 text-slate-900 flex items-center justify-center px-4 py-12">
+      <section className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-7 shadow-sm sm:p-8">
+        <p className="text-xs font-semibold uppercase tracking-wide text-blue-600">Achieve / FDR</p>
+        <h1 className="mt-2 text-2xl font-semibold tracking-tight text-slate-900">Achieve QA review</h1>
+        <p className="mt-2 text-sm leading-6 text-slate-600">
+          Review welcome-call QA results and transcript evidence. Enter the portal password to continue.
         </p>
-        <div className="mt-4 rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-xs leading-5 text-amber-100">
-          Temporary gate: this Vite client-side password is for internal/demo validation only. External production access needs a server/API boundary before data access.
-        </div>
         <form onSubmit={submit} className="mt-6 space-y-4">
-          <label className="block text-sm font-medium text-slate-200" htmlFor="achieve-password">
-            Portal password
-          </label>
-          <input
-            id="achieve-password"
-            type="password"
-            value={password}
-            onChange={event => setPassword(event.target.value)}
-            className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-slate-100 outline-none ring-blue-500/40 focus:ring-2"
-            autoComplete="current-password"
-          />
-          {error && <p className="text-sm text-red-300">{error}</p>}
+          <div>
+            <label className="block text-sm font-medium text-slate-700" htmlFor="achieve-password">
+              Portal password
+            </label>
+            <input
+              id="achieve-password"
+              type="password"
+              value={password}
+              onChange={event => setPassword(event.target.value)}
+              className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-slate-900 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/30"
+              autoComplete="current-password"
+            />
+          </div>
+          {error && <p className="text-sm text-red-600">{error}</p>}
           <button
             type="submit"
-            className="w-full rounded-lg bg-blue-500 px-4 py-2 font-semibold text-white hover:bg-blue-400 disabled:cursor-not-allowed disabled:opacity-60"
+            className="w-full rounded-lg bg-blue-600 px-4 py-2 font-semibold text-white transition-colors hover:bg-blue-500 disabled:cursor-not-allowed disabled:bg-slate-300 disabled:text-slate-600"
             disabled={!isConfigured}
           >
-            Enter portal
+            Continue
           </button>
         </form>
+        {!isConfigured && (
+          <p className="mt-4 text-xs leading-5 text-slate-400">
+            Admin setup: set <code className="font-mono">VITE_ACHIEVE_PORTAL_PASSWORD</code> to enable access.
+          </p>
+        )}
       </section>
     </main>
   )
