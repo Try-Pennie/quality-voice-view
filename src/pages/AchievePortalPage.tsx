@@ -182,7 +182,6 @@ function AchieveAlertCard({ alert }: { alert: AlertWithFeedback }) {
         </div>
         <div className="flex flex-wrap gap-2">
           {alert.recording_link && <ExternalLinkButton href={alert.recording_link} label="Recording" />}
-          {alert.transcript_url && <ExternalLinkButton href={alert.transcript_url} label="Transcript" />}
         </div>
       </div>
 
