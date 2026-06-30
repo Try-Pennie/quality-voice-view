@@ -73,7 +73,7 @@ const achieveDemoAlert: AlertWithFeedback = {
       ],
     },
     transcript_segment: {
-      segment_type: 'fdr_welcome_call_coordinator',
+      segment_type: 'fdr_disclosure_and_welcome_call',
       start_line: 42,
       marker: 'My name again is Max. I am a client success advocate',
       segmentation_confidence: 'high',
