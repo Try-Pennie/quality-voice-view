@@ -283,7 +283,7 @@ function AchieveQueueRow({ row, mode, onSelect }: { row: AchieveRow; mode: 'revi
             {mode === 'review' && <AlertStatusPill reviewed={row.is_reviewed} />}
           </div>
           <div className="text-xs leading-5 text-slate-500">
-            {formatDateTime(row.alert_created_at)} · Agent {redactEmail(row.agent_email)}
+            {formatDateTime(row.alert_created_at)} · {achieveNumberLabel(row)}
           </div>
         </div>
         <div className="text-sm text-slate-700">
@@ -374,7 +374,7 @@ function AchieveAlertDetails({
           )}
         </div>
         <h2 className="mt-3 break-all font-mono text-base font-semibold leading-6 text-slate-950">{alert.call_id || '—'}</h2>
-        <p className="mt-1 text-sm text-slate-600">{formatDateTime(alert.alert_created_at)} · Agent {redactEmail(alert.agent_email)}</p>
+        <p className="mt-1 text-sm text-slate-600">{formatDateTime(alert.alert_created_at)} · {achieveNumberLabel(alert)}</p>
         {alert.call_summary && <p className="mt-4 text-sm leading-6 text-slate-700">{alert.call_summary}</p>}
         <div className="mt-4 flex flex-wrap gap-2">
           {alert.recording_link && <ExternalLinkButton href={alert.recording_link} label="Recording" />}
@@ -605,8 +605,6 @@ function summarize(alerts: AlertWithFeedback[]) {
 }
 
 
-function redactEmail(email: string | null) {
-  if (!email) return '—'
-  const [local, domain] = email.split('@')
-  return `${local.slice(0, 2)}…@${domain ?? 'unknown'}`
+function achieveNumberLabel(row: Pick<AchieveRow, 'contact_phone'>) {
+  return row.contact_phone ? `Achieve number ${row.contact_phone}` : 'Achieve number unavailable'
 }
