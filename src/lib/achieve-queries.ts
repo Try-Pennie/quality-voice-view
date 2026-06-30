@@ -8,6 +8,26 @@ const sb = supabase as any
 export const ACHIEVE_MODULE_NAME = 'achieve_welcome_call_qa'
 const showDemoData = import.meta.env.VITE_ACHIEVE_DEMO_DATA === 'true'
 
+type AchieveModuleResultRow = {
+  id: number
+  created_at: string | null
+  call_id: string
+  module_name: string
+  violation_type: string | null
+  has_violation: boolean | null
+  alert_sent: boolean | null
+  alert_sent_at: string | null
+  agent_email: string | null
+  contact_name: string | null
+  contact_phone: string | null
+  recording_link: string | null
+  transcript_url: string | null
+  call_summary: string | null
+  sfdc_lead_id: string | null
+  processing_time_ms: number | null
+  result_json: any
+}
+
 export async function fetchAchieveAlerts(limit = 100): Promise<AlertWithFeedback[]> {
   const { data, error } = await sb
     .from('eavesly_alerts_with_feedback')
@@ -25,6 +45,59 @@ export async function fetchAchieveAlerts(limit = 100): Promise<AlertWithFeedback
   const alerts = (data ?? []) as AlertWithFeedback[]
   if (alerts.length === 0 && showDemoData) return [achieveDemoAlert]
   return alerts
+}
+
+export async function fetchAchieveAllCalls(limit = 100): Promise<AlertWithFeedback[]> {
+  const { data, error } = await sb
+    .from('eavesly_module_results')
+    .select('*')
+    .eq('module_name', ACHIEVE_MODULE_NAME)
+    .order('created_at', { ascending: false })
+    .limit(limit)
+
+  if (error) {
+    console.error('Error fetching Achieve QA calls:', error)
+    if (showDemoData) return [achieveDemoAlert]
+    throw error
+  }
+
+  const rows = ((data ?? []) as AchieveModuleResultRow[]).map(moduleResultToAlertRow)
+  if (rows.length === 0 && showDemoData) return [achieveDemoAlert]
+  return rows
+}
+
+function moduleResultToAlertRow(row: AchieveModuleResultRow): AlertWithFeedback {
+  return {
+    module_result_id: row.id,
+    alert_created_at: row.created_at ?? new Date(0).toISOString(),
+    alert_sent_at: row.alert_sent_at,
+    call_id: row.call_id,
+    module_name: row.module_name,
+    violation_type: row.violation_type ?? 'achieve_welcome_call',
+    has_violation: row.has_violation ?? false,
+    alert_sent: row.alert_sent ?? false,
+    agent_email: row.agent_email,
+    contact_name: row.contact_name,
+    contact_phone: row.contact_phone,
+    recording_link: row.recording_link,
+    transcript_url: row.transcript_url,
+    call_summary: row.call_summary,
+    sfdc_lead_id: row.sfdc_lead_id,
+    processing_time_ms: row.processing_time_ms,
+    result_json: row.result_json,
+    assigned_manager_email: null,
+    feedback_id: null,
+    feedback_by: null,
+    accurate: null,
+    action_taken: null,
+    inaccuracy_reason: null,
+    feedback_comment: null,
+    reviewed_at: null,
+    is_reviewed: false,
+    message_count: 0,
+    last_message_at: null,
+    acker_emails: [],
+  }
 }
 
 const achieveDemoAlert: AlertWithFeedback = {

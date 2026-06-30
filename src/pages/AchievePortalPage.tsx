@@ -1,10 +1,11 @@
 import { FormEvent, useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { ExternalLink, Lock, RefreshCcw, ShieldAlert } from 'lucide-react'
-import { fetchAchieveAlerts } from '@/lib/achieve-queries'
+import { fetchAchieveAlerts, fetchAchieveAllCalls } from '@/lib/achieve-queries'
 import type { AlertWithFeedback } from '@/types/database'
 import { formatDateTime } from '@/lib/utils'
 import { ErrorState } from '@/components/states/ErrorState'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 
 const SESSION_KEY = 'achieve_portal_unlocked'
 const configuredPassword = import.meta.env.VITE_ACHIEVE_PORTAL_PASSWORD as string | undefined
@@ -78,13 +79,28 @@ function AchievePasswordGate({ onUnlock }: { onUnlock: () => void }) {
 }
 
 function AchieveReviewQueue() {
-  const { data, isPending, isError, refetch, isFetching } = useQuery({
+  const [activeTab, setActiveTab] = useState<'alerts' | 'all-calls'>('alerts')
+  const alertsQuery = useQuery({
     queryKey: ['achieve-alerts'],
     queryFn: () => fetchAchieveAlerts(),
     staleTime: 60_000,
   })
-  const alerts = useMemo(() => data ?? [], [data])
-  const stats = useMemo(() => summarize(alerts), [alerts])
+  const allCallsQuery = useQuery({
+    queryKey: ['achieve-all-calls'],
+    queryFn: () => fetchAchieveAllCalls(),
+    staleTime: 60_000,
+  })
+
+  const alerts = useMemo(() => alertsQuery.data ?? [], [alertsQuery.data])
+  const allCalls = useMemo(() => allCallsQuery.data ?? [], [allCallsQuery.data])
+  const activeRows = activeTab === 'alerts' ? alerts : allCalls
+  const stats = useMemo(() => summarize(activeRows), [activeRows])
+  const isFetching = alertsQuery.isFetching || allCallsQuery.isFetching
+
+  const refresh = () => {
+    void alertsQuery.refetch()
+    void allCallsQuery.refetch()
+  }
 
   return (
     <main className="min-h-screen bg-slate-50 px-6 py-8 text-slate-950">
@@ -95,12 +111,12 @@ function AchieveReviewQueue() {
               <p className="text-sm font-semibold uppercase tracking-wide text-blue-700">Achieve / FDR</p>
               <h1 className="mt-2 text-3xl font-semibold tracking-tight">Welcome-call QA review</h1>
               <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">
-                Partner-scoped scaffold for reviewing <code>achieve_welcome_call_qa</code> results. Upstream owns selecting the correct calls; this page only reads Achieve module rows.
+                Partner-scoped scaffold for reviewing <code>achieve_welcome_call_qa</code> results. Use Alerts for flagged calls that need review, or All calls for every scored Achieve module result.
               </p>
             </div>
             <button
               type="button"
-              onClick={() => refetch()}
+              onClick={refresh}
               className="inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium hover:bg-slate-50"
             >
               <RefreshCcw className={`h-4 w-4 ${isFetching ? 'animate-spin' : ''}`} />
@@ -108,7 +124,7 @@ function AchieveReviewQueue() {
             </button>
           </div>
           <div className="mt-6 grid gap-3 sm:grid-cols-3">
-            <Stat label="Rows" value={stats.total} />
+            <Stat label={activeTab === 'alerts' ? 'Alerts' : 'Calls'} value={stats.total} />
             <Stat label="Flagged" value={stats.flagged} tone="red" />
             <Stat label="Reviewed" value={stats.reviewed} tone="green" />
           </div>
@@ -123,19 +139,61 @@ function AchieveReviewQueue() {
           </div>
         </div>
 
-        {isError ? (
-          <ErrorState title="Could not load Achieve QA rows" message="Retry after confirming Supabase/RLS access for this scaffold." onRetry={() => refetch()} />
-        ) : isPending ? (
-          <div className="rounded-xl border border-slate-200 bg-white p-8 text-center text-slate-500">Loading Achieve QA rows…</div>
-        ) : alerts.length === 0 ? (
-          <div className="rounded-xl border border-slate-200 bg-white p-8 text-center text-slate-500">No Achieve QA rows yet.</div>
-        ) : (
-          <div className="grid gap-4">
-            {alerts.map(alert => <AchieveAlertCard key={`${alert.call_id}:${alert.module_name}`} alert={alert} />)}
-          </div>
-        )}
+        <Tabs value={activeTab} onValueChange={value => setActiveTab(value as 'alerts' | 'all-calls')}>
+          <TabsList className="bg-white shadow-sm">
+            <TabsTrigger value="alerts">Alerts ({alerts.length})</TabsTrigger>
+            <TabsTrigger value="all-calls">All calls ({allCalls.length})</TabsTrigger>
+          </TabsList>
+          <TabsContent value="alerts" className="mt-4">
+            <AchieveRowsState
+              rows={alerts}
+              isError={alertsQuery.isError}
+              isPending={alertsQuery.isPending}
+              emptyMessage="No flagged Achieve alerts yet. Passed/non-alert calls are available under All calls."
+              onRetry={() => alertsQuery.refetch()}
+            />
+          </TabsContent>
+          <TabsContent value="all-calls" className="mt-4">
+            <AchieveRowsState
+              rows={allCalls}
+              isError={allCallsQuery.isError}
+              isPending={allCallsQuery.isPending}
+              emptyMessage="No Achieve QA calls yet."
+              onRetry={() => allCallsQuery.refetch()}
+            />
+          </TabsContent>
+        </Tabs>
       </div>
     </main>
+  )
+}
+
+function AchieveRowsState({
+  rows,
+  isError,
+  isPending,
+  emptyMessage,
+  onRetry,
+}: {
+  rows: AlertWithFeedback[]
+  isError: boolean
+  isPending: boolean
+  emptyMessage: string
+  onRetry: () => void
+}) {
+  if (isError) {
+    return <ErrorState title="Could not load Achieve QA rows" message="Retry after confirming Supabase/RLS access for this scaffold." onRetry={onRetry} />
+  }
+  if (isPending) {
+    return <div className="rounded-xl border border-slate-200 bg-white p-8 text-center text-slate-500">Loading Achieve QA rows…</div>
+  }
+  if (rows.length === 0) {
+    return <div className="rounded-xl border border-slate-200 bg-white p-8 text-center text-slate-500">{emptyMessage}</div>
+  }
+  return (
+    <div className="grid gap-4">
+      {rows.map(row => <AchieveAlertCard key={`${row.module_result_id}:${row.call_id}:${row.module_name}`} alert={row} />)}
+    </div>
   )
 }
 
