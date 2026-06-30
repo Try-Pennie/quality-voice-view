@@ -357,9 +357,8 @@ function AchieveAlertDetails({
   const quotes = Array.isArray(adherence.key_evidence_quotes) ? adherence.key_evidence_quotes.slice(0, 5) : []
   const missing = Array.isArray(adherence.missing_elements) ? adherence.missing_elements : []
   const confidence = result.assessment_confidence ?? {}
-  const limitations = Array.isArray(confidence.limitations) ? confidence.limitations : []
   const confidencePct = typeof confidence.score === 'number' ? `${Math.round(confidence.score * 100)}%` : null
-  const hasConfidence = !!(confidence.level || confidencePct || confidence.rationale || limitations.length)
+  const hasConfidence = !!(confidence.level || confidencePct || confidence.rationale)
   const transcript = trimmedTranscript(alert)
 
   return (
@@ -379,7 +378,6 @@ function AchieveAlertDetails({
         {alert.call_summary && <p className="mt-4 text-sm leading-6 text-slate-700">{alert.call_summary}</p>}
         <div className="mt-4 flex flex-wrap gap-2">
           {alert.recording_link && <ExternalLinkButton href={alert.recording_link} label="Recording" />}
-          {alert.transcript_url && <ExternalLinkButton href={alert.transcript_url} label="Source transcript" />}
         </div>
       </DrawerSection>
 
@@ -408,14 +406,6 @@ function AchieveAlertDetails({
             <Row label="Score" value={confidencePct ?? '—'} />
             <Row label="Rationale" value={confidence.rationale ?? '—'} />
           </dl>
-          {limitations.length > 0 && (
-            <div className="mt-4 rounded-lg border border-amber-200 bg-amber-50 p-3">
-              <p className="text-xs font-semibold uppercase tracking-wide text-amber-800">Limitations</p>
-              <ul className="mt-2 list-disc space-y-1 pl-5 text-sm leading-6 text-amber-950">
-                {limitations.map((item, index) => <li key={index}>{item}</li>)}
-              </ul>
-            </div>
-          )}
         </DrawerSection>
       )}
 
