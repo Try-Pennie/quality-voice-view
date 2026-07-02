@@ -114,12 +114,15 @@ export default function DispositionAuditPage() {
 
   const idx = drawerRow ? rows.findIndex(r => r.call_id === drawerRow.call_id) : -1
 
+  const headlineLabel =
+    statusView === 'new' ? 'to review' : statusView === 'reviewed' ? 'reviewed' : 'in window'
+
   return (
     <div className="space-y-6 sm:space-y-8 animate-pennie-rise">
       <PageHero
         label="Disposition audit"
         display
-        headline={<>{rows.length.toLocaleString()} <span className="text-pennie-graphite/70 font-normal text-[0.6em] align-baseline">to review</span></>}
+        headline={<>{rows.length.toLocaleString()} <span className="text-pennie-graphite/70 font-normal text-[0.6em] align-baseline">{headlineLabel}</span></>}
         description="Calls where an agent's disposition may have hurt the customer's journey — reviewed by the model against the transcript."
       />
 

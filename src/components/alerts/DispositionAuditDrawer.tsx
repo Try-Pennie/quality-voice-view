@@ -82,6 +82,7 @@ export function DispositionAuditDrawer({
     (otherNoteRequired && comment.trim().length < OTHER_NOTES_MIN)
   const saveDisabled =
     submitting ||
+    !currentUserEmail ||
     accurate === null ||
     (accurate === true && !action) ||
     (accurate === false && !reason) ||
