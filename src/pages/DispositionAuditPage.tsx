@@ -20,7 +20,10 @@ import { ErrorState } from '@/components/states/ErrorState'
 import { EmptyState } from '@/components/states/EmptyState'
 import { ChevronRight, Inbox } from 'lucide-react'
 
-const TABS: (AuditCategory | 'all')[] = ['all', 'ended_live_lead', 'phantom_conversation']
+// 'phantom_conversation' is held (see migration 20260702160000): its correct
+// disposition is AI/dialer-only, so there's no human-applicable target to suggest
+// yet. Re-add it here when the CRM gains a human no-contact/voicemail disposition.
+const TABS: (AuditCategory | 'all')[] = ['all', 'ended_live_lead']
 type StatusView = 'all' | 'new' | 'reviewed'
 
 function todayStart() {
@@ -42,7 +45,7 @@ export default function DispositionAuditPage() {
   const [endDate, setEndDate] = useState<Date>(() => parseDateParam(searchParams.get('end'), todayEnd(), true))
   const [tab, setTab] = useState<AuditCategory | 'all'>(() => {
     const t = searchParams.get('tab')
-    return t === 'ended_live_lead' || t === 'phantom_conversation' ? t : 'all'
+    return t === 'ended_live_lead' ? t : 'all'
   })
   const [statusView, setStatusView] = useState<StatusView>('new')
   const [drawerRow, setDrawerRow] = useState<DispositionAuditRow | null>(null)
