@@ -19,6 +19,7 @@ import TeamPage from "./pages/TeamPage";
 import SalesFloorInsightsPage from "./pages/SalesFloorInsightsPage";
 import AgentProfilePage from "./pages/AgentProfilePage";
 import HelpPage from "./pages/HelpPage";
+import AdminPage from "./pages/AdminPage";
 import AchievePortalPage from "./pages/AchievePortalPage";
 import NotFound from "./pages/NotFound";
 
@@ -147,6 +148,17 @@ const App = () => (
                 <ProtectedRoute>
                   <DashboardLayout>
                     <HelpPage />
+                  </DashboardLayout>
+                </ProtectedRoute>
+              }
+            />
+
+            <Route
+              path="/dashboard/admin"
+              element={
+                <ProtectedRoute>
+                  <DashboardLayout>
+                    <AdminPage />
                   </DashboardLayout>
                 </ProtectedRoute>
               }
