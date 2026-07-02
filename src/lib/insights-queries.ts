@@ -11,6 +11,8 @@
 // the convention in time-zone.ts / url-filters.ts — the fetch layer
 // (toDateParam, startOfBusinessDay) converts to absolute moments.
 
+import { buildActionQueue, type ManagerAction } from './insights-action-queue'
+export type { ManagerAction } from './insights-action-queue'
 import type { UserScope } from './alert-queries'
 import { fetchAlertBreakdown, MODULE_LABELS, type AlertBreakdownCell } from './alert-queries'
 import { fetchTeamRollup, type AgentRollup } from './team-queries'
@@ -440,6 +442,7 @@ export type InsightsReport = {
   topAgents: TopAgent[]
   modulePressure: ModulePressure[]
   insights: Insight[]
+  actionQueue: ManagerAction[]
 }
 
 export function assembleReport(input: {
@@ -473,16 +476,19 @@ export function assembleReport(input: {
     input.baselineAlerts,
     baselineWeeks,
   )
+  const topAgents = buildTopAgents(input.currentRollups)
+  const unreviewedAlerts = input.currentAlerts.reduce((s, c) => s + c.unreviewed, 0)
+  const totalAlerts = input.currentAlerts.reduce((s, c) => s + c.total, 0)
 
   return {
     current: input.current,
     prior: input.prior,
     baseline: input.baseline,
     team: { current: teamCurrent, prior: teamPrior, baseline: teamBaseline },
-    unreviewedAlerts: input.currentAlerts.reduce((s, c) => s + c.unreviewed, 0),
-    totalAlerts: input.currentAlerts.reduce((s, c) => s + c.total, 0),
+    unreviewedAlerts,
+    totalAlerts,
     watchlist,
-    topAgents: buildTopAgents(input.currentRollups),
+    topAgents,
     modulePressure,
     insights: buildInsights(
       teamCurrent,
@@ -491,6 +497,14 @@ export function assembleReport(input: {
       watchlist,
       modulePressure,
     ),
+    actionQueue: buildActionQueue({
+      team: teamCurrent,
+      unreviewedAlerts,
+      totalAlerts,
+      watchlist,
+      topAgents,
+      modulePressure,
+    }),
   }
 }
 

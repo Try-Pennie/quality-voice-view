@@ -15,6 +15,7 @@ import {
   type TopAgent,
   type ModulePressure,
   type Insight,
+  type ManagerAction,
 } from '../lib/insights-queries'
 import { PageHero, SupportingStat } from '../components/PageHero'
 import { ErrorState } from '@/components/states/ErrorState'
@@ -64,6 +65,67 @@ function DeltaPill({
       {val}
       {unit === 'pts' ? ' pts' : '%'} WoW
     </span>
+  )
+}
+
+const PRIORITY_STYLE: Record<ManagerAction['priority'], string> = {
+  high: 'text-pennie-peach-dark bg-pennie-peach-dark/10',
+  medium: 'text-pennie-blue-deeper bg-pennie-blue-dark/10',
+  low: 'text-pennie-graphite/70 bg-pennie-beige',
+}
+
+function ActionQueue({
+  actions,
+  onNavigate,
+}: {
+  actions: ManagerAction[]
+  onNavigate: (to: string) => void
+}) {
+  return (
+    <section className={CARD}>
+      <h2 className="text-lg font-semibold text-pennie-navy">Weekly action queue</h2>
+      <p className="mt-1 text-sm text-pennie-graphite/70">
+        What to do this week, highest priority first. Generated from this week’s
+        aggregate metrics — AI/QA signals are directional, so validate before coaching.
+      </p>
+      <ol className="mt-4 space-y-3">
+        {actions.map(a => (
+          <li
+            key={a.id}
+            className="border-t border-border/60 pt-3 first:border-t-0 first:pt-0 break-inside-avoid"
+          >
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <div className="flex items-center gap-2">
+                  <span
+                    className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${PRIORITY_STYLE[a.priority]}`}
+                  >
+                    {a.priority}
+                  </span>
+                  <span className="text-[11px] font-medium uppercase tracking-wide text-pennie-graphite/50">
+                    {a.category}
+                  </span>
+                </div>
+                <h3 className="mt-1.5 text-sm font-semibold text-pennie-navy">{a.title}</h3>
+                <p className="mt-1 text-sm text-pennie-graphite/80">{a.detail}</p>
+                <p className="mt-1 text-sm text-pennie-graphite">
+                  <span className="font-semibold">Do:</span> {a.action}
+                </p>
+              </div>
+              {a.link && (
+                <button
+                  type="button"
+                  onClick={() => onNavigate(a.link!.to)}
+                  className="pennie-focus-ring flex-none rounded-full border border-border px-3 py-1 text-xs font-semibold text-pennie-blue-deeper hover:bg-pennie-beige transition-colors no-print print:hidden"
+                >
+                  {a.link.label}
+                </button>
+              )}
+            </div>
+          </li>
+        ))}
+      </ol>
+    </section>
   )
 }
 
@@ -417,6 +479,8 @@ export default function SalesFloorInsightsPage() {
             </div>
           ) : (
             <>
+              <ActionQueue actions={report.actionQueue} onNavigate={navigate} />
+
               <section>
                 <h2 className="pennie-label mb-3">Action insights</h2>
                 <div className="grid gap-4 sm:grid-cols-2">
