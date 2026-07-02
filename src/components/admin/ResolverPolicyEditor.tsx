@@ -277,11 +277,12 @@ function PolicyForm({
       setConfirmOpen(false)
       setRestoreTarget(null)
       onSaved()
-    } catch (err: any) {
+    } catch (err: unknown) {
+      const e = (err ?? {}) as { message?: string; code?: string }
       const message =
-        err?.message?.includes('row-level security') || err?.code === '42501'
+        e.message?.includes('row-level security') || e.code === '42501'
           ? "You don't have permission to change the resolver policy."
-          : err?.message ||
+          : e.message ||
             'Could not save the policy. The resolver policy table may not exist yet.'
       toast.error(message)
     } finally {

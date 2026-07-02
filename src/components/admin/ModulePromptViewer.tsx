@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
 import { FileText, Lock } from 'lucide-react'
 import { useModulePrompts } from '@/hooks/use-queries'
 import { MODULE_LABELS } from '@/lib/alert-queries'
@@ -35,14 +35,10 @@ export function ModulePromptViewer() {
   const prompts = data ?? []
   const [selected, setSelected] = useState<string | null>(null)
 
-  // Default the selection to the first prompt once they load.
-  useEffect(() => {
-    if (!selected && prompts.length > 0) {
-      setSelected(prompts[0].moduleName)
-    }
-  }, [prompts, selected])
-
-  const active = prompts.find(p => p.moduleName === selected) ?? null
+  // Selection falls back to the first prompt until the user picks one — no
+  // effect needed, which keeps the render pure.
+  const active =
+    prompts.find(p => p.moduleName === selected) ?? prompts[0] ?? null
 
   return (
     <section className="space-y-4">
@@ -102,7 +98,7 @@ export function ModulePromptViewer() {
               className="flex flex-row md:flex-col gap-1 overflow-x-auto md:overflow-visible"
             >
               {prompts.map(p => {
-                const isActive = p.moduleName === selected
+                const isActive = p.moduleName === active?.moduleName
                 return (
                   <button
                     key={p.moduleName}
