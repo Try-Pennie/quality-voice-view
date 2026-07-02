@@ -105,3 +105,30 @@ export function deriveChecklist(adherence: Adherence | null | undefined): Checkl
 
   return { rows, coveredCount: rows.filter(r => r.isCovered).length, total: rows.length }
 }
+
+// The checker's overall_script_adherence is a bare jargon word ("minimal").
+// Map it to a plain phrase reviewers can read at a glance; fall back to the
+// capitalized raw value for anything unrecognized.
+const ADHERENCE_LABELS: Record<string, string> = {
+  full: 'Full — every required element covered',
+  substantial: 'Substantial — most required elements covered',
+  partial: 'Partial — some required elements missing',
+  minimal: 'Minimal — most required elements missing',
+  none: 'None — required elements not covered',
+}
+
+export function adherenceLabel(level: string | null | undefined): string {
+  if (!level) return '—'
+  return ADHERENCE_LABELS[level.toLowerCase()] ?? level.charAt(0).toUpperCase() + level.slice(1)
+}
+
+// The checker's violation_reason prose embeds raw element keys
+// ("program_overview, timeline_expectations"). Swap each for its friendly
+// label so the reason reads plainly and matches the checklist above it.
+export function humanizeElementKeys(text: string): string {
+  let out = text
+  for (const el of ACHIEVE_ELEMENTS) {
+    out = out.replace(new RegExp(el.missingKey, 'g'), el.label)
+  }
+  return out
+}

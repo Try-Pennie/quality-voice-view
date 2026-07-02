@@ -1,7 +1,7 @@
 // Self-check for deriveChecklist — no test runner in this repo by design.
 // Run: npx tsx src/lib/achieve-checklist.check.ts
 import assert from 'node:assert'
-import { deriveChecklist } from './achieve-checklist'
+import { adherenceLabel, deriveChecklist, humanizeElementKeys } from './achieve-checklist'
 
 // 1. Booleans-only input: two false flags -> 4 covered.
 const bools = deriveChecklist({
@@ -36,5 +36,21 @@ assert.strictEqual(both.coveredCount, 5)
 // 5. Empty / undefined -> all 6 default to covered.
 assert.strictEqual(deriveChecklist({}).coveredCount, 6)
 assert.strictEqual(deriveChecklist(undefined).coveredCount, 6)
+
+// 6. adherenceLabel: known level mapped, unknown capitalized, empty -> dash.
+assert.strictEqual(adherenceLabel('minimal'), 'Minimal — most required elements missing')
+assert.strictEqual(adherenceLabel('FULL'), 'Full — every required element covered')
+assert.strictEqual(adherenceLabel('weird'), 'Weird')
+assert.strictEqual(adherenceLabel(null), '—')
+
+// 7. humanizeElementKeys: raw element keys swapped for friendly labels.
+const humanized = humanizeElementKeys(
+  'Three required elements (program_overview, timeline_expectations, client_communication_process) were missing.',
+)
+assert.strictEqual(
+  humanized,
+  'Three required elements (Program overview, Timeline expectations, Client communication) were missing.',
+)
+assert.strictEqual(humanizeElementKeys('no keys here'), 'no keys here')
 
 console.log('achieve-checklist: all checks passed')
