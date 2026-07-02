@@ -2,7 +2,7 @@ import { FormEvent, useEffect, useMemo, useState, type ReactNode } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { Check, ChevronRight, ExternalLink, HelpCircle, RefreshCcw, X } from 'lucide-react'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
-import { ACHIEVE_ELEMENTS, ACHIEVE_TERMS, deriveChecklist } from '@/lib/achieve-checklist'
+import { ACHIEVE_ELEMENTS, ACHIEVE_TERMS, adherenceLabel, deriveChecklist, humanizeElementKeys } from '@/lib/achieve-checklist'
 import { fetchAchieveAlerts, fetchAchieveAllCalls, submitAchieveReviewFeedback } from '@/lib/achieve-queries'
 import type { AlertActionTaken, AlertInaccuracyReason, AlertWithFeedback } from '@/types/database'
 import { formatDateTime } from '@/lib/utils'
@@ -286,13 +286,14 @@ function AchieveQueueRow({ row, mode, onSelect }: { row: AchieveRow; mode: 'revi
       <div className="grid gap-3 md:grid-cols-[minmax(0,1.7fr)_minmax(0,0.85fr)_minmax(0,0.75fr)_2rem] md:items-center">
         <div className="min-w-0 space-y-1">
           <div className="flex flex-wrap items-center gap-2">
-            <span className="break-all font-mono text-sm font-semibold leading-5 text-slate-950">{row.call_id || '—'}</span>
+            <span className="text-sm font-semibold leading-5 text-slate-950">{row.contact_name || 'Unknown contact'}</span>
             <ResultPill alert={row} />
             {mode === 'review' && <AlertStatusPill reviewed={row.is_reviewed} />}
           </div>
           <div className="text-xs leading-5 text-slate-500">
-            {formatDateTime(row.alert_created_at)} · {achieveNumberLabel(row)}
+            {row.contact_phone || 'No phone on file'} · {formatDateTime(row.alert_created_at)}
           </div>
+          <div className="break-all font-mono text-[11px] leading-4 text-slate-400">Call ID {row.call_id || '—'}</div>
         </div>
         <div className="text-sm text-slate-700">
           <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">Confidence</div>
@@ -432,10 +433,10 @@ function AchieveAlertDetails({
         <dl className="grid gap-3 text-sm sm:grid-cols-[9rem_1fr]">
           <Row
             label="Overall"
-            value={adherence.overall_script_adherence ?? '—'}
+            value={adherenceLabel(adherence.overall_script_adherence)}
             hint={{ title: ACHIEVE_TERMS.script_adherence.label, body: ACHIEVE_TERMS.script_adherence.definition }}
           />
-          <Row label="Why" value={adherence.violation_reason ?? '—'} />
+          <Row label="Why" value={adherence.violation_reason ? humanizeElementKeys(adherence.violation_reason) : '—'} />
         </dl>
       </DrawerSection>
 
@@ -708,9 +709,4 @@ function summarize(alerts: AlertWithFeedback[]) {
     flagged: alerts.filter(alert => alert.has_violation).length,
     reviewed: alerts.filter(alert => alert.is_reviewed).length,
   }
-}
-
-
-function achieveNumberLabel(row: Pick<AchieveRow, 'contact_phone'>) {
-  return row.contact_phone ? `Achieve number ${row.contact_phone}` : 'Achieve number unavailable'
 }
