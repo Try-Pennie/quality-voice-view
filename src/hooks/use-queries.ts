@@ -33,6 +33,11 @@ import {
   type InsightsWindow,
 } from '../lib/insights-queries'
 import { filterSuppressedAlertRows, isSuppressedAlertModule } from '../lib/suppressed-alerts'
+import {
+  fetchResolverPolicyHistory,
+  fetchModulePrompts,
+  fetchDispositionOptions,
+} from '../lib/admin-queries'
 
 // React Query hashes queryKeys via stable JSON serialization, so primitives are
 // preferable to live Date / UserScope references — both are reconstructed on
@@ -306,6 +311,35 @@ export function useAlertThread(
     queryKey: ['alertThread', callId, moduleName, scopeKey(scope)],
     queryFn: () => fetchAlertThread(callId!, moduleName!, scope),
     enabled: !!callId && !!moduleName && !isSuppressedAlertModule(moduleName, scope),
+  })
+}
+
+// ---- admin config (PSAI-203) ----
+
+// Resolver policy version history, latest-first. Element 0 is the active
+// policy. No server-side filters, so no filter parts in the key.
+export function useResolverPolicyHistory() {
+  return useQuery({
+    queryKey: ['admin', 'resolver-policy-history'],
+    queryFn: () => fetchResolverPolicyHistory(),
+  })
+}
+
+// Read-only deployed module prompts, synced from the eavesly backend on deploy.
+export function useModulePrompts() {
+  return useQuery({
+    queryKey: ['admin', 'module-prompts'],
+    queryFn: fetchModulePrompts,
+    staleTime: 5 * 60_000,
+  })
+}
+
+// Active CRM dispositions for the enrollment-disposition dropdown.
+export function useDispositionOptions() {
+  return useQuery({
+    queryKey: ['admin', 'disposition-options'],
+    queryFn: fetchDispositionOptions,
+    staleTime: 5 * 60_000,
   })
 }
 
