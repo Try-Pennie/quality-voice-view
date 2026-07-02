@@ -1,6 +1,8 @@
 import { FormEvent, useEffect, useMemo, useState, type ReactNode } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { ChevronRight, ExternalLink, RefreshCcw } from 'lucide-react'
+import { Check, ChevronRight, ExternalLink, HelpCircle, RefreshCcw, X } from 'lucide-react'
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
+import { ACHIEVE_ELEMENTS, ACHIEVE_TERMS, deriveChecklist } from '@/lib/achieve-checklist'
 import { fetchAchieveAlerts, fetchAchieveAllCalls, submitAchieveReviewFeedback } from '@/lib/achieve-queries'
 import type { AlertActionTaken, AlertInaccuracyReason, AlertWithFeedback } from '@/types/database'
 import { formatDateTime } from '@/lib/utils'
@@ -248,10 +250,14 @@ function AchieveRowsState({
         <SheetContent side="right" className="w-full overflow-y-auto bg-slate-50 p-0 sm:max-w-2xl lg:max-w-3xl">
           {selected && (
             <>
-              <SheetHeader className="border-b border-slate-200 bg-white px-6 py-5 text-left">
-                <SheetTitle className="break-all font-mono text-base leading-6 text-slate-950">
-                  {selected.call_id || '—'}
+              <SheetHeader className="space-y-1 border-b border-slate-200 bg-white px-6 py-5 text-left">
+                <SheetTitle className="text-base font-semibold leading-6 text-slate-950">
+                  {selected.contact_name || 'Unknown contact'}
                 </SheetTitle>
+                <p className="text-sm text-slate-600">
+                  {selected.contact_phone || 'No phone on file'} · {formatDateTime(selected.alert_created_at)}
+                </p>
+                <p className="break-all font-mono text-xs text-slate-400">Call ID {selected.call_id || '—'}</p>
               </SheetHeader>
               <div className="p-6">
                 <AchieveAlertDetails alert={selected} mode={mode} onFeedbackSubmitted={onRetry} />
@@ -357,41 +363,83 @@ function AchieveAlertDetails({
   const result = alert.result_json ?? {}
   const adherence = result.script_adherence ?? {}
   const quotes = Array.isArray(adherence.key_evidence_quotes) ? adherence.key_evidence_quotes.slice(0, 5) : []
-  const missing = Array.isArray(adherence.missing_elements) ? adherence.missing_elements : []
   const confidence = result.assessment_confidence ?? {}
   const confidencePct = typeof confidence.score === 'number' ? `${Math.round(confidence.score * 100)}%` : null
   const hasConfidence = !!(confidence.level || confidencePct || confidence.rationale)
   const transcript = trimmedTranscript(alert)
+  const checklist = deriveChecklist(adherence)
+  const verdict = alert.has_violation
+    ? `Flagged — ${checklist.total - checklist.coveredCount} of ${checklist.total} required script elements were missing.`
+    : 'Passed — all required script elements were covered.'
 
   return (
     <article className="space-y-5">
       <DrawerSection title="Call summary">
         <div className="flex flex-wrap items-center gap-2">
           <ResultPill alert={alert} />
-          {mode === 'review' && <AlertStatusPill reviewed={alert.is_reviewed} />}
+          {mode === 'review' && (
+            <span className="inline-flex items-center gap-1">
+              <AlertStatusPill reviewed={alert.is_reviewed} />
+              <Hint title={ACHIEVE_TERMS.needs_review.label} body={ACHIEVE_TERMS.needs_review.definition} />
+            </span>
+          )}
           {confidence.level && (
-            <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${confidenceTone(confidence.level)}`}>
-              Confidence {confidence.level}{confidencePct ? ` · ${confidencePct}` : ''}
+            <span className="inline-flex items-center gap-1">
+              <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${confidenceTone(confidence.level)}`}>
+                Confidence {confidence.level}{confidencePct ? ` · ${confidencePct}` : ''}
+              </span>
+              <Hint title={ACHIEVE_TERMS.confidence.label} body={ACHIEVE_TERMS.confidence.definition} />
             </span>
           )}
         </div>
-        <h2 className="mt-3 break-all font-mono text-base font-semibold leading-6 text-slate-950">{alert.call_id || '—'}</h2>
-        <p className="mt-1 text-sm text-slate-600">{formatDateTime(alert.alert_created_at)} · {achieveNumberLabel(alert)}</p>
-        {alert.call_summary && <p className="mt-4 text-sm leading-6 text-slate-700">{alert.call_summary}</p>}
+        <p className={`mt-3 text-sm font-semibold ${alert.has_violation ? 'text-red-700' : 'text-emerald-700'}`}>
+          {verdict}
+        </p>
+        {alert.call_summary && <p className="mt-3 text-sm leading-6 text-slate-700">{alert.call_summary}</p>}
         <div className="mt-4 flex flex-wrap gap-2">
           {alert.recording_link && <ExternalLinkButton href={alert.recording_link} label="Recording" />}
         </div>
       </DrawerSection>
 
+      <DrawerSection
+        title="What happened on this call"
+        description="Each required welcome-call element and whether the agent covered it."
+      >
+        <div className="mb-3 text-xs font-semibold text-slate-500">
+          {checklist.coveredCount} / {checklist.total} covered
+        </div>
+        <ul className="space-y-2">
+          {checklist.rows.map(row => (
+            <li key={row.key} className="flex items-center gap-2 text-sm">
+              {row.isCovered ? (
+                <Check className="h-4 w-4 shrink-0 text-emerald-600" aria-hidden="true" />
+              ) : (
+                <X className="h-4 w-4 shrink-0 text-red-600" aria-hidden="true" />
+              )}
+              <span className={row.isCovered ? 'text-slate-800' : 'font-medium text-slate-900'}>{row.label}</span>
+              <Hint title={row.label} body={row.definition} />
+              {!row.isCovered && <span className="ml-auto text-xs font-semibold text-red-700">missing</span>}
+            </li>
+          ))}
+        </ul>
+      </DrawerSection>
+
       <DrawerSection title="QA result" description="What the checker found and why it scored the call this way.">
         <dl className="grid gap-3 text-sm sm:grid-cols-[9rem_1fr]">
-          <Row label="Overall" value={adherence.overall_script_adherence ?? '—'} />
+          <Row
+            label="Overall"
+            value={adherence.overall_script_adherence ?? '—'}
+            hint={{ title: ACHIEVE_TERMS.script_adherence.label, body: ACHIEVE_TERMS.script_adherence.definition }}
+          />
           <Row label="Why" value={adherence.violation_reason ?? '—'} />
-          <Row label="Gaps" value={missing.length ? missing.join(', ') : 'None listed'} />
         </dl>
       </DrawerSection>
 
-      <DrawerSection title="Supporting quotes" description="Evidence snippets used by the checker.">
+      <DrawerSection
+        title="Supporting quotes"
+        description="Evidence snippets used by the checker."
+        hint={{ title: ACHIEVE_TERMS.supporting_quotes.label, body: ACHIEVE_TERMS.supporting_quotes.definition }}
+      >
         {quotes.length ? (
           <ul className="list-disc space-y-2 pl-5 text-sm leading-6 text-slate-700">
             {quotes.map((quote, index) => <li key={index}>{quote}</li>)}
@@ -402,7 +450,10 @@ function AchieveAlertDetails({
       </DrawerSection>
 
       {hasConfidence && (
-        <DrawerSection title="Scoring confidence">
+        <DrawerSection
+          title="Scoring confidence"
+          hint={{ title: ACHIEVE_TERMS.confidence.label, body: ACHIEVE_TERMS.confidence.definition }}
+        >
           <dl className="grid gap-3 text-sm sm:grid-cols-[9rem_1fr]">
             <Row label="Level" value={confidence.level ?? '—'} />
             <Row label="Score" value={confidencePct ?? '—'} />
@@ -421,6 +472,18 @@ function AchieveAlertDetails({
         )}
       </DrawerSection>
 
+      <details className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+        <summary className="cursor-pointer text-sm font-semibold text-slate-950">Key terms</summary>
+        <dl className="mt-4 space-y-3 text-sm">
+          {[...ACHIEVE_ELEMENTS, ...Object.values(ACHIEVE_TERMS)].map(term => (
+            <div key={term.label}>
+              <dt className="font-medium text-slate-900">{term.label}</dt>
+              <dd className="text-slate-600">{term.definition}</dd>
+            </div>
+          ))}
+        </dl>
+      </details>
+
       <DrawerSection title="Reviewer feedback" description="Capture whether the QA result is useful/correct and what should happen next.">
         <AchieveFeedbackForm alert={alert} onSubmitted={onFeedbackSubmitted} />
       </DrawerSection>
@@ -428,11 +491,45 @@ function AchieveAlertDetails({
   )
 }
 
-function DrawerSection({ title, description, children }: { title: string; description?: string; children: ReactNode }) {
+function Hint({ title, body }: { title: string; body: string }) {
+  return (
+    <Popover>
+      <PopoverTrigger asChild>
+        <button
+          type="button"
+          aria-label={`What does "${title}" mean?`}
+          onClick={e => e.stopPropagation()}
+          className="inline-flex items-center align-middle text-slate-400 transition-colors hover:text-blue-700"
+        >
+          <HelpCircle className="h-3.5 w-3.5" aria-hidden="true" />
+        </button>
+      </PopoverTrigger>
+      <PopoverContent className="w-72 text-sm leading-snug" onClick={e => e.stopPropagation()}>
+        <p className="mb-1 font-semibold text-slate-900">{title}</p>
+        <p className="text-slate-600">{body}</p>
+      </PopoverContent>
+    </Popover>
+  )
+}
+
+function DrawerSection({
+  title,
+  description,
+  hint,
+  children,
+}: {
+  title: string
+  description?: string
+  hint?: { title: string; body: string }
+  children: ReactNode
+}) {
   return (
     <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
       <div className="mb-4 border-b border-slate-100 pb-3">
-        <h3 className="text-sm font-semibold text-slate-950">{title}</h3>
+        <div className="flex items-center gap-1.5">
+          <h3 className="text-sm font-semibold text-slate-950">{title}</h3>
+          {hint && <Hint title={hint.title} body={hint.body} />}
+        </div>
         {description && <p className="mt-1 text-xs leading-5 text-slate-500">{description}</p>}
       </div>
       {children}
@@ -580,10 +677,13 @@ function confidenceTone(level: string) {
   return 'bg-amber-100 text-amber-800'
 }
 
-function Row({ label, value }: { label: string; value: string }) {
+function Row({ label, value, hint }: { label: string; value: string; hint?: { title: string; body: string } }) {
   return (
     <>
-      <dt className="text-slate-500">{label}</dt>
+      <dt className="flex items-center gap-1.5 text-slate-500">
+        {label}
+        {hint && <Hint title={hint.title} body={hint.body} />}
+      </dt>
       <dd className="min-w-0 break-words text-slate-800">{value}</dd>
     </>
   )
