@@ -15,6 +15,7 @@ import LoginPage from "./pages/LoginPage";
 import DashboardPage from "./pages/DashboardPage";
 import CallDetailPage from "./pages/CallDetailPage";
 import AlertsPage from "./pages/AlertsPage";
+import DispositionAuditPage from "./pages/DispositionAuditPage";
 import TeamPage from "./pages/TeamPage";
 import SalesFloorInsightsPage from "./pages/SalesFloorInsightsPage";
 import AgentProfilePage from "./pages/AgentProfilePage";
@@ -137,6 +138,17 @@ const App = () => (
                 <ProtectedRoute>
                   <DashboardLayout>
                     <AlertsPage />
+                  </DashboardLayout>
+                </ProtectedRoute>
+              }
+            />
+
+            <Route
+              path="/dashboard/disposition-audit"
+              element={
+                <ProtectedRoute>
+                  <DashboardLayout>
+                    <DispositionAuditPage />
                   </DashboardLayout>
                 </ProtectedRoute>
               }

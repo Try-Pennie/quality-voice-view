@@ -38,6 +38,10 @@ import {
   fetchModulePrompts,
   fetchDispositionOptions,
 } from '../lib/admin-queries'
+import {
+  fetchDispositionAudit,
+  type AuditFilters,
+} from '../lib/disposition-audit-queries'
 
 // React Query hashes queryKeys via stable JSON serialization, so primitives are
 // preferable to live Date / UserScope references — both are reconstructed on
@@ -84,6 +88,26 @@ export function useAlerts(
     enabled: !!scope,
     placeholderData: keepPreviousData,
     select: rows => filterSuppressedAlertRows(rows, scope),
+  })
+}
+
+export function useDispositionAudit(
+  filters: AuditFilters,
+  scope: UserScope | null | undefined,
+) {
+  return useQuery({
+    queryKey: [
+      'dispositionAudit',
+      scopeKey(scope),
+      {
+        start: dateKey(filters.startDate),
+        end: dateKey(filters.endDate),
+        category: filters.category ?? 'all',
+      },
+    ],
+    queryFn: () => fetchDispositionAudit(filters, scope!),
+    enabled: !!scope,
+    placeholderData: keepPreviousData,
   })
 }
 

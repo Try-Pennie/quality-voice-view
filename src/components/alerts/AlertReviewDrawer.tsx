@@ -787,7 +787,7 @@ export function AlertReviewDrawer({
   )
 }
 
-function Toggle({
+export function Toggle({
   label,
   active,
   tone,
@@ -834,7 +834,7 @@ function Toggle({
   )
 }
 
-function Chip({
+export function Chip({
   label,
   active,
   onClick,
