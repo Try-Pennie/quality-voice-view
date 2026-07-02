@@ -2,7 +2,7 @@ import { FormEvent, useEffect, useMemo, useState, type ReactNode } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { Check, ChevronRight, ExternalLink, HelpCircle, RefreshCcw, X } from 'lucide-react'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
-import { ACHIEVE_ELEMENTS, ACHIEVE_TERMS, adherenceLabel, deriveChecklist, humanizeElementKeys } from '@/lib/achieve-checklist'
+import { ACHIEVE_ELEMENTS, ACHIEVE_SECTION_ORDER, ACHIEVE_TERMS, adherenceLabel, deriveChecklist, humanizeElementKeys, type ChecklistRow } from '@/lib/achieve-checklist'
 import { fetchAchieveAlerts, fetchAchieveAllCalls, submitAchieveReviewFeedback } from '@/lib/achieve-queries'
 import type { AlertActionTaken, AlertInaccuracyReason, AlertWithFeedback } from '@/types/database'
 import { formatDateTime } from '@/lib/utils'
@@ -352,6 +352,25 @@ function rowKey(row: AlertWithFeedback) {
   return `${row.module_result_id}:${row.call_id}:${row.module_name}`
 }
 
+// Group the checklist rows under their script section so Achieve managers read
+// the call against their own script structure (Introduction → Three keys to
+// success → Dashboard & tools → Closing). Known sections come first in that
+// canonical order; any others (e.g. v0's "Program") follow in first-appearance
+// order. Empty sections are skipped.
+function groupChecklistBySection(rows: ChecklistRow[]): { section: string; rows: ChecklistRow[] }[] {
+  const bySection = new Map<string, ChecklistRow[]>()
+  for (const row of rows) {
+    const bucket = bySection.get(row.section)
+    if (bucket) bucket.push(row)
+    else bySection.set(row.section, [row])
+  }
+  const ordered = [
+    ...ACHIEVE_SECTION_ORDER.filter(section => bySection.has(section)),
+    ...Array.from(bySection.keys()).filter(section => !ACHIEVE_SECTION_ORDER.includes(section)),
+  ]
+  return ordered.map(section => ({ section, rows: bySection.get(section)! }))
+}
+
 function AchieveAlertDetails({
   alert,
   mode,
@@ -368,7 +387,8 @@ function AchieveAlertDetails({
   const confidencePct = typeof confidence.score === 'number' ? `${Math.round(confidence.score * 100)}%` : null
   const hasConfidence = !!(confidence.level || confidencePct || confidence.rationale)
   const transcript = trimmedTranscript(alert)
-  const checklist = deriveChecklist(adherence)
+  const checklist = deriveChecklist(adherence, result.script_version)
+  const checklistSections = groupChecklistBySection(checklist.rows)
   const missingCount = checklist.total - checklist.coveredCount
   const verdict = alert.has_violation
     ? missingCount > 0
@@ -412,21 +432,30 @@ function AchieveAlertDetails({
         <div className="mb-3 text-xs font-semibold text-slate-500">
           {checklist.coveredCount} / {checklist.total} covered
         </div>
-        <ul className="space-y-2">
-          {checklist.rows.map(row => (
-            <li key={row.key} className="flex items-center gap-2 text-sm">
-              {row.isCovered ? (
-                <Check className="h-4 w-4 shrink-0 text-emerald-600" aria-hidden="true" />
-              ) : (
-                <X className="h-4 w-4 shrink-0 text-red-600" aria-hidden="true" />
-              )}
-              <span className={row.isCovered ? 'text-slate-800' : 'font-medium text-slate-900'}>{row.label}</span>
-              <span className="sr-only">{row.isCovered ? 'covered' : 'missing'}</span>
-              <Hint title={row.label} body={row.definition} />
-              {!row.isCovered && <span className="ml-auto text-xs font-semibold text-red-700">missing</span>}
-            </li>
+        <div className="space-y-4">
+          {checklistSections.map(section => (
+            <div key={section.section}>
+              <h4 className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-slate-400">
+                {section.section}
+              </h4>
+              <ul className="space-y-2">
+                {section.rows.map(row => (
+                  <li key={row.key} className="flex items-center gap-2 text-sm">
+                    {row.isCovered ? (
+                      <Check className="h-4 w-4 shrink-0 text-emerald-600" aria-hidden="true" />
+                    ) : (
+                      <X className="h-4 w-4 shrink-0 text-red-600" aria-hidden="true" />
+                    )}
+                    <span className={row.isCovered ? 'text-slate-800' : 'font-medium text-slate-900'}>{row.label}</span>
+                    <span className="sr-only">{row.isCovered ? 'covered' : 'missing'}</span>
+                    <Hint title={row.label} body={row.definition} />
+                    {!row.isCovered && <span className="ml-auto text-xs font-semibold text-red-700">missing</span>}
+                  </li>
+                ))}
+              </ul>
+            </div>
           ))}
-        </ul>
+        </div>
       </DrawerSection>
 
       <DrawerSection title="QA result" description="What the checker found and why it scored the call this way.">
@@ -436,7 +465,7 @@ function AchieveAlertDetails({
             value={adherenceLabel(adherence.overall_script_adherence)}
             hint={{ title: ACHIEVE_TERMS.script_adherence.label, body: ACHIEVE_TERMS.script_adherence.definition }}
           />
-          <Row label="Why" value={adherence.violation_reason ? humanizeElementKeys(adherence.violation_reason) : '—'} />
+          <Row label="Why" value={adherence.violation_reason ? humanizeElementKeys(adherence.violation_reason, result.script_version) : '—'} />
         </dl>
       </DrawerSection>
 
