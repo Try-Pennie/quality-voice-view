@@ -15,6 +15,11 @@ export const PITCH_WATCH_SECONDS = 2400 // 40 min
 // Markers (already normalized) that mark a call as part of a pitch cohort.
 const PITCH_MARKERS = ['cal com meeting', 'call now requested']
 
+// Dispositions where the lead never connected. These have a few seconds of ring
+// time, so the talk-time bands would mislabel them "rushed" (PSAI). A no-show
+// isn't a pitch attempt — exclude it from the cohort entirely.
+const NO_CONNECT_MARKERS = ['no show']
+
 // Lowercase + collapse any run of non-alphanumerics to a single space so
 // "Cal.com Meeting", "CAL_COM_MEETING", and "call-now  requested" all match.
 function normalize(value: string | null | undefined): string {
@@ -30,7 +35,9 @@ export type PitchFields = {
 // Eligible pitch cohort when campaign_name OR disposition contains a marker.
 // Missing/empty fields → non-pitch.
 export function isPitchCall(fields: PitchFields): boolean {
-  const hay = `${normalize(fields.campaign_name)} ${normalize(fields.disposition)}`
+  const disp = normalize(fields.disposition)
+  if (NO_CONNECT_MARKERS.some(m => disp.includes(m))) return false
+  const hay = `${normalize(fields.campaign_name)} ${disp}`
   return PITCH_MARKERS.some(m => hay.includes(m))
 }
 

@@ -17,6 +17,16 @@ assert.equal(isPitchCall({ campaign_name: 'Cold Outreach' }), false)
 assert.equal(isPitchCall({ campaign_name: null, disposition: null }), false)
 assert.equal(isPitchCall({}), false)
 
+// no-show never connected → not a pitch call, even in a pitch campaign
+assert.equal(
+  isPitchCall({ campaign_name: 'Cal.com Meeting', disposition: '1.1A - No Show - First Call' }),
+  false,
+)
+assert.equal(
+  pitchCallRisk({ campaign_name: 'Cal.com Meeting', disposition: '1.1A - No Show - First Call', talk_time: 30 }).rushed,
+  false,
+)
+
 // --- bands by seconds: 1800 / 2400 boundaries ---
 assert.equal(talkTimeBand(0), 'unknown')
 assert.equal(talkTimeBand(null), 'unknown')
