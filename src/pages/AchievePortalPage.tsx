@@ -368,8 +368,11 @@ function AchieveAlertDetails({
   const hasConfidence = !!(confidence.level || confidencePct || confidence.rationale)
   const transcript = trimmedTranscript(alert)
   const checklist = deriveChecklist(adherence)
+  const missingCount = checklist.total - checklist.coveredCount
   const verdict = alert.has_violation
-    ? `Flagged — ${checklist.total - checklist.coveredCount} of ${checklist.total} required script elements were missing.`
+    ? missingCount > 0
+      ? `Flagged — ${missingCount} of ${checklist.total} required script elements were missing.`
+      : 'Flagged — see the reason and evidence below.'
     : 'Passed — all required script elements were covered.'
 
   return (
@@ -417,6 +420,7 @@ function AchieveAlertDetails({
                 <X className="h-4 w-4 shrink-0 text-red-600" aria-hidden="true" />
               )}
               <span className={row.isCovered ? 'text-slate-800' : 'font-medium text-slate-900'}>{row.label}</span>
+              <span className="sr-only">{row.isCovered ? 'covered' : 'missing'}</span>
               <Hint title={row.label} body={row.definition} />
               {!row.isCovered && <span className="ml-auto text-xs font-semibold text-red-700">missing</span>}
             </li>
