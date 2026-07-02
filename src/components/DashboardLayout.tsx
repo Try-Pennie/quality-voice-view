@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { NavLink, useNavigate, useLocation } from 'react-router-dom'
 import { BookOpen, Lightbulb, LightbulbOff, LogOut, Menu } from 'lucide-react'
 import { useAuth } from '../hooks/useAuth'
+import { useUserScope } from '../hooks/use-queries'
 import { HintsProvider, useHints } from './ui/help-hint'
 import { NotificationBell } from './NotificationBell'
 import {
@@ -22,6 +23,10 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
 
 function DashboardChrome({ children }: { children: React.ReactNode }) {
   const { user, signOut } = useAuth()
+  // God-mode gates the Admin nav link. TanStack Query dedupes this with the
+  // AdminPage's own useUserScope call. The link is UX only — RLS enforces.
+  const { data: scope } = useUserScope(user?.email)
+  const isGodMode = !!scope?.isGodMode
   const { enabled: hintsEnabled, toggle: toggleHints } = useHints()
   const navigate = useNavigate()
   const location = useLocation()
@@ -77,6 +82,9 @@ function DashboardChrome({ children }: { children: React.ReactNode }) {
                 <DashNavLink to="/dashboard/team">Team</DashNavLink>
                 <DashNavLink to="/dashboard/alerts">Alerts</DashNavLink>
                 <DashNavLink to="/dashboard/insights">Insights</DashNavLink>
+                {isGodMode && (
+                  <DashNavLink to="/dashboard/admin">Admin</DashNavLink>
+                )}
               </nav>
             </div>
 
@@ -162,6 +170,11 @@ function DashboardChrome({ children }: { children: React.ReactNode }) {
                     <MobileNavLink to="/dashboard/insights">
                       Insights
                     </MobileNavLink>
+                    {isGodMode && (
+                      <MobileNavLink to="/dashboard/admin" carryDates={false}>
+                        Admin
+                      </MobileNavLink>
+                    )}
                     <MobileNavLink to="/dashboard/help" carryDates={false}>
                       Glossary
                     </MobileNavLink>
