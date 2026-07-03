@@ -403,7 +403,9 @@ function AchieveAlertDetails({
   const result = alert.result_json ?? {}
 
   // Skipped rows carry no script_adherence and must never render as a pass/fail
-  // verdict or checklist — short-circuit before any of that logic runs.
+  // verdict or checklist — short-circuit before any of that logic runs. Keep the
+  // reviewer feedback form so these rows can still be marked reviewed and leave
+  // the Needs-review queue.
   if (result.grading_skipped) {
     return (
       <article className="space-y-5">
@@ -413,13 +415,17 @@ function AchieveAlertDetails({
             ? ' (the handoff was attempted but the advocate never joined).'
             : ' (the call did not reach the welcome-call handoff).'}
         </p>
+        <DrawerSection title="Reviewer feedback" description="Capture whether the QA result is useful/correct and what should happen next.">
+          <AchieveFeedbackForm alert={alert} onSubmitted={onFeedbackSubmitted} />
+        </DrawerSection>
       </article>
     )
   }
 
   // Pre-hardening rows were graded on the FULL transcript (used_full_transcript_fallback),
   // so their free-text fields (quotes, violation reason, notes, summary) can reference
-  // Pennie-internal content. Withhold all of it before any of that logic runs.
+  // Pennie-internal content. Withhold all of it before any of that logic runs, but keep
+  // the reviewer feedback form so these rows can still be marked reviewed.
   if (result.transcript_segment?.used_full_transcript_fallback === true) {
     return (
       <article className="space-y-5">
@@ -427,6 +433,9 @@ function AchieveAlertDetails({
           Details withheld — this call was graded on an unreliable transcript segment
           before segmentation hardening, and its details may reference non-Achieve content.
         </p>
+        <DrawerSection title="Reviewer feedback" description="Capture whether the QA result is useful/correct and what should happen next.">
+          <AchieveFeedbackForm alert={alert} onSubmitted={onFeedbackSubmitted} />
+        </DrawerSection>
       </article>
     )
   }
