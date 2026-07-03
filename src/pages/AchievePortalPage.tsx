@@ -797,9 +797,15 @@ function ExternalLinkButton({ href, label }: { href: string; label: string }) {
 }
 
 function summarize(alerts: AlertWithFeedback[]) {
-  // Ungraded rows (grading_skipped) carry no pass/fail verdict — counting them as
-  // passes would inflate "Scored calls" and the pass rate shown to the partner.
-  const scored = alerts.filter(alert => !alert.result_json?.grading_skipped)
+  // Ungraded rows (grading_skipped) and pre-hardening fallback rows
+  // (used_full_transcript_fallback, badged "Not graded / details withheld" elsewhere
+  // on this page) carry no trustworthy pass/fail verdict — counting them would
+  // inflate "Scored calls" and the pass rate shown to the partner.
+  const scored = alerts.filter(
+    alert =>
+      !alert.result_json?.grading_skipped &&
+      alert.result_json?.transcript_segment?.used_full_transcript_fallback !== true,
+  )
   return {
     total: scored.length,
     flagged: scored.filter(alert => alert.has_violation).length,
