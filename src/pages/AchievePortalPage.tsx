@@ -140,11 +140,13 @@ function AchieveReviewQueue() {
                 Failed checks appear in <strong>Needs review</strong>. Passed calls are kept in <strong>All calls</strong> for audit/history.
               </>
             }
+            statsCols={allStats.notGraded > 0 ? 'grid-cols-2 sm:grid-cols-4' : undefined}
             stats={
               <>
                 <SupportingStat label="Scored calls" value={allStats.total} />
                 <SupportingStat label="Failed checks" value={allStats.flagged} />
                 <SupportingStat label="Pass rate" value={allStats.total === 0 ? '—' : `${Math.round(((allStats.total - allStats.flagged) / allStats.total) * 100)}%`} />
+                {allStats.notGraded > 0 && <SupportingStat label="Not graded" value={allStats.notGraded} />}
               </>
             }
           />
@@ -276,6 +278,11 @@ function AchieveQueueRow({ row, mode, onSelect }: { row: AchieveRow; mode: 'revi
   const confidence = result.assessment_confidence ?? {}
   const missing = Array.isArray(adherence.missing_elements) ? adherence.missing_elements : []
   const gapLabel = missing.length === 0 ? 'No gaps noted' : `${missing.length} gap${missing.length === 1 ? '' : 's'} noted`
+  // Skipped rows have no segment; pre-hardening fallback rows were graded on the
+  // full transcript and may reference non-Achieve content. Neither should show an
+  // adherence/gap verdict to the partner.
+  const skipped = !!result.grading_skipped
+  const fallbackWithheld = result.transcript_segment?.used_full_transcript_fallback === true
 
   return (
     <button
@@ -301,10 +308,16 @@ function AchieveQueueRow({ row, mode, onSelect }: { row: AchieveRow; mode: 'revi
         </div>
         <div className="text-sm text-slate-700">
           <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">Result</div>
-          <div className="flex flex-wrap gap-2">
-            <span>{adherence.overall_script_adherence ?? 'Unknown'}</span>
-            <span className={row.has_violation ? 'font-semibold text-red-700' : 'text-slate-500'}>{gapLabel}</span>
-          </div>
+          {skipped ? (
+            <div className="text-slate-500">Not graded — no welcome-call segment</div>
+          ) : fallbackWithheld ? (
+            <div className="text-slate-500">Not graded — details withheld</div>
+          ) : (
+            <div className="flex flex-wrap gap-2">
+              <span>{adherence.overall_script_adherence ?? 'Unknown'}</span>
+              <span className={row.has_violation ? 'font-semibold text-red-700' : 'text-slate-500'}>{gapLabel}</span>
+            </div>
+          )}
         </div>
         <ChevronRight className="hidden h-4 w-4 justify-self-end text-slate-400 transition-transform group-hover:translate-x-0.5 group-hover:text-blue-700 md:block" />
       </div>
@@ -328,9 +341,11 @@ function AchieveRowsSkeleton() {
 }
 
 function ResultPill({ alert }: { alert: AlertWithFeedback }) {
-  // Ungraded rows have no pass/fail verdict — show a neutral badge instead of
-  // the misleading emerald "Pass" chip (has_violation is false on skipped rows).
-  if (alert.result_json?.grading_skipped) {
+  // Ungraded rows (no segment) and pre-hardening fallback rows (graded on the full
+  // transcript, may reference non-Achieve content) have no trustworthy pass/fail
+  // verdict — show a neutral badge instead of the misleading emerald "Pass" chip
+  // (has_violation is false on skipped rows).
+  if (alert.result_json?.grading_skipped || alert.result_json?.transcript_segment?.used_full_transcript_fallback === true) {
     return <span className="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-semibold text-slate-700">Not graded</span>
   }
   const classes = alert.has_violation ? 'bg-red-100 text-red-800' : 'bg-emerald-100 text-emerald-800'
@@ -397,6 +412,20 @@ function AchieveAlertDetails({
           {result.skip_reason === 'transfer_leg_too_short'
             ? ' (the handoff was attempted but the advocate never joined).'
             : ' (the call did not reach the welcome-call handoff).'}
+        </p>
+      </article>
+    )
+  }
+
+  // Pre-hardening rows were graded on the FULL transcript (used_full_transcript_fallback),
+  // so their free-text fields (quotes, violation reason, notes, summary) can reference
+  // Pennie-internal content. Withhold all of it before any of that logic runs.
+  if (result.transcript_segment?.used_full_transcript_fallback === true) {
+    return (
+      <article className="space-y-5">
+        <p className="rounded-2xl border border-amber-200 bg-amber-50 p-5 text-sm text-amber-900">
+          Details withheld — this call was graded on an unreliable transcript segment
+          before segmentation hardening, and its details may reference non-Achieve content.
         </p>
       </article>
     )
@@ -759,9 +788,13 @@ function ExternalLinkButton({ href, label }: { href: string; label: string }) {
 }
 
 function summarize(alerts: AlertWithFeedback[]) {
+  // Ungraded rows (grading_skipped) carry no pass/fail verdict — counting them as
+  // passes would inflate "Scored calls" and the pass rate shown to the partner.
+  const scored = alerts.filter(alert => !alert.result_json?.grading_skipped)
   return {
-    total: alerts.length,
-    flagged: alerts.filter(alert => alert.has_violation).length,
-    reviewed: alerts.filter(alert => alert.is_reviewed).length,
+    total: scored.length,
+    flagged: scored.filter(alert => alert.has_violation).length,
+    reviewed: scored.filter(alert => alert.is_reviewed).length,
+    notGraded: alerts.length - scored.length,
   }
 }
