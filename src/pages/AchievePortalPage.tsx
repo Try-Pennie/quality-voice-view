@@ -328,6 +328,11 @@ function AchieveRowsSkeleton() {
 }
 
 function ResultPill({ alert }: { alert: AlertWithFeedback }) {
+  // Ungraded rows have no pass/fail verdict — show a neutral badge instead of
+  // the misleading emerald "Pass" chip (has_violation is false on skipped rows).
+  if (alert.result_json?.grading_skipped) {
+    return <span className="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-semibold text-slate-700">Not graded</span>
+  }
   const classes = alert.has_violation ? 'bg-red-100 text-red-800' : 'bg-emerald-100 text-emerald-800'
   const label = alert.has_violation ? 'Failed check' : 'Pass'
 
@@ -381,6 +386,22 @@ function AchieveAlertDetails({
   onFeedbackSubmitted: () => void
 }) {
   const result = alert.result_json ?? {}
+
+  // Skipped rows carry no script_adherence and must never render as a pass/fail
+  // verdict or checklist — short-circuit before any of that logic runs.
+  if (result.grading_skipped) {
+    return (
+      <article className="space-y-5">
+        <p className="rounded-2xl border border-amber-200 bg-amber-50 p-5 text-sm text-amber-900">
+          Not graded — no Achieve/FDR welcome-call segment was found in this call
+          {result.skip_reason === 'transfer_leg_too_short'
+            ? ' (the handoff was attempted but the advocate never joined).'
+            : ' (the call did not reach the welcome-call handoff).'}
+        </p>
+      </article>
+    )
+  }
+
   const adherence = result.script_adherence ?? {}
   const quotes = Array.isArray(adherence.key_evidence_quotes) ? adherence.key_evidence_quotes.slice(0, 5) : []
   const confidence = result.assessment_confidence ?? {}
@@ -502,7 +523,7 @@ function AchieveAlertDetails({
             {transcript}
           </pre>
         ) : (
-          <p className="text-sm text-slate-500">No trimmed transcript is available for this row yet.</p>
+          <p className="text-sm text-slate-500">Transcript withheld — no reliable Achieve/FDR segment boundary for this call.</p>
         )}
       </DrawerSection>
 
@@ -697,11 +718,16 @@ function AchieveFeedbackForm({ alert, onSubmitted }: { alert: AchieveRow; onSubm
 function trimmedTranscript(alert: AchieveRow) {
   const transcript = alert.original_transcript?.trim()
   if (!transcript) return ''
-  const startLine = alert.result_json?.transcript_segment?.start_line
-  const lines = transcript.split(/\r?\n/)
-  if (typeof startLine !== 'number' || startLine <= 1) return transcript
-  const from = Math.max(0, startLine - 1)
-  return lines.slice(from).join('\n').trim() || transcript
+  const result = alert.result_json ?? {}
+  const seg = result.transcript_segment
+  // Never render an unbounded transcript in this external-facing portal: no
+  // segment metadata, an explicit fallback, or a skipped grade all mean the
+  // boundary is unreliable.
+  if (!seg || seg.used_full_transcript_fallback || result.grading_skipped || seg.segment_found === false) return ''
+  const startLine = seg.start_line
+  if (typeof startLine !== 'number') return ''
+  // start_line is a 0-based line index stamped by the eavesly segmenter.
+  return transcript.split(/\r?\n/).slice(Math.max(0, startLine)).join('\n').trim()
 }
 
 function confidenceTone(level: string) {
