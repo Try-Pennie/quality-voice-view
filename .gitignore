@@ -25,3 +25,6 @@ dist-ssr
 
 # Use npm (package-lock.json) — a stale bun.lockb breaks Cloudflare Pages builds
 bun.lockb
+
+# Claude Code agent worktrees (scratch checkouts; never commit)
+.claude/worktrees/
