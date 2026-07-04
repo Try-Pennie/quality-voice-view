@@ -3,7 +3,7 @@ import { useQuery } from '@tanstack/react-query'
 import { Check, ChevronRight, ExternalLink, HelpCircle, RefreshCcw, X } from 'lucide-react'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { ACHIEVE_ELEMENTS, ACHIEVE_SECTION_ORDER, ACHIEVE_TERMS, adherenceLabel, deriveChecklist, humanizeElementKeys, type ChecklistRow } from '@/lib/achieve-checklist'
-import { fetchAchieveAlerts, fetchAchieveAllCalls, submitAchieveReviewFeedback } from '@/lib/achieve-queries'
+import { ACHIEVE_PASSWORD_SESSION_KEY, fetchAchievePortalData, submitAchieveReviewFeedback, verifyAchievePortalPassword, type AchievePortalRow } from '@/lib/achieve-queries'
 import type { AlertActionTaken, AlertInaccuracyReason, AlertWithFeedback } from '@/types/database'
 import { formatDateTime } from '@/lib/utils'
 import { ErrorState } from '@/components/states/ErrorState'
@@ -11,12 +11,7 @@ import { PageHero, SupportingStat } from '@/components/PageHero'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet'
 
-const SESSION_KEY = 'achieve_portal_unlocked'
-const configuredPassword = import.meta.env.VITE_ACHIEVE_PORTAL_PASSWORD as string | undefined
-
-type AchieveRow = AlertWithFeedback & {
-  original_transcript?: string | null
-}
+type AchieveRow = AchievePortalRow
 
 const ACTION_OPTIONS: { value: AlertActionTaken; label: string }[] = [
   { value: 'no_action_needed', label: 'No action needed' },
@@ -36,7 +31,7 @@ const INACCURACY_OPTIONS: { value: AlertInaccuracyReason; label: string }[] = [
 ]
 
 export default function AchievePortalPage() {
-  const [unlocked, setUnlocked] = useState(() => sessionStorage.getItem(SESSION_KEY) === 'true')
+  const [unlocked, setUnlocked] = useState(() => !!sessionStorage.getItem(ACHIEVE_PASSWORD_SESSION_KEY))
 
   if (!unlocked) {
     return <AchievePasswordGate onUnlock={() => setUnlocked(true)} />
@@ -48,19 +43,22 @@ export default function AchievePortalPage() {
 function AchievePasswordGate({ onUnlock }: { onUnlock: () => void }) {
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
-  const isConfigured = !!configuredPassword
+  const [checking, setChecking] = useState(false)
 
-  const submit = (event: FormEvent) => {
+  const submit = async (event: FormEvent) => {
     event.preventDefault()
-    if (!isConfigured) {
-      setError('Portal access is not available yet. Contact your administrator.')
+    if (!password || checking) return
+    setChecking(true)
+    setError('')
+    // The server validates the password; sessionStorage only caches it so each
+    // subsequent data request can send it along without re-prompting.
+    const result = await verifyAchievePortalPassword(password)
+    setChecking(false)
+    if (!result.ok) {
+      setError(result.error ?? 'Could not verify the password.')
       return
     }
-    if (password !== configuredPassword) {
-      setError('Incorrect password.')
-      return
-    }
-    sessionStorage.setItem(SESSION_KEY, 'true')
+    sessionStorage.setItem(ACHIEVE_PASSWORD_SESSION_KEY, password)
     onUnlock()
   }
 
@@ -90,16 +88,11 @@ function AchievePasswordGate({ onUnlock }: { onUnlock: () => void }) {
           <button
             type="submit"
             className="w-full rounded-lg bg-blue-600 px-4 py-2 font-semibold text-white transition-colors hover:bg-blue-500 disabled:cursor-not-allowed disabled:bg-slate-300 disabled:text-slate-600"
-            disabled={!isConfigured}
+            disabled={checking}
           >
-            Continue
+            {checking ? 'Checking…' : 'Continue'}
           </button>
         </form>
-        {!isConfigured && (
-          <p className="mt-4 text-xs leading-5 text-slate-400">
-            Admin setup: set <code className="font-mono">VITE_ACHIEVE_PORTAL_PASSWORD</code> to enable access.
-          </p>
-        )}
       </section>
     </main>
   )
@@ -107,25 +100,19 @@ function AchievePasswordGate({ onUnlock }: { onUnlock: () => void }) {
 
 function AchieveReviewQueue() {
   const [activeTab, setActiveTab] = useState<'alerts' | 'all-calls'>('alerts')
-  const alertsQuery = useQuery({
-    queryKey: ['achieve-alerts'],
-    queryFn: () => fetchAchieveAlerts(),
-    staleTime: 60_000,
-  })
-  const allCallsQuery = useQuery({
-    queryKey: ['achieve-all-calls'],
-    queryFn: () => fetchAchieveAllCalls(),
+  const portalQuery = useQuery({
+    queryKey: ['achieve-portal-data'],
+    queryFn: fetchAchievePortalData,
     staleTime: 60_000,
   })
 
-  const alerts = useMemo(() => alertsQuery.data ?? [], [alertsQuery.data])
-  const allCalls = useMemo(() => allCallsQuery.data ?? [], [allCallsQuery.data])
+  const alerts = useMemo(() => portalQuery.data?.alerts ?? [], [portalQuery.data])
+  const allCalls = useMemo(() => portalQuery.data?.allCalls ?? [], [portalQuery.data])
   const allStats = useMemo(() => summarize(allCalls), [allCalls])
-  const isFetching = alertsQuery.isFetching || allCallsQuery.isFetching
+  const isFetching = portalQuery.isFetching
 
   const refresh = () => {
-    void alertsQuery.refetch()
-    void allCallsQuery.refetch()
+    void portalQuery.refetch()
   }
 
   return (
@@ -169,20 +156,20 @@ function AchieveReviewQueue() {
             <AchieveRowsState
               rows={alerts}
               mode="review"
-              isError={alertsQuery.isError}
-              isPending={alertsQuery.isPending}
+              isError={portalQuery.isError}
+              isPending={portalQuery.isPending}
               emptyMessage="No failed Achieve checks need human review. Passed calls are available under All calls."
-              onRetry={() => alertsQuery.refetch()}
+              onRetry={refresh}
             />
           </TabsContent>
           <TabsContent value="all-calls" className="mt-4">
             <AchieveRowsState
               rows={allCalls}
               mode="history"
-              isError={allCallsQuery.isError}
-              isPending={allCallsQuery.isPending}
+              isError={portalQuery.isError}
+              isPending={portalQuery.isPending}
               emptyMessage="No scored Achieve calls yet."
-              onRetry={() => allCallsQuery.refetch()}
+              onRetry={refresh}
             />
           </TabsContent>
         </Tabs>
@@ -215,7 +202,7 @@ function AchieveRowsState({
   }, [rows, selected])
 
   if (isError) {
-    return <ErrorState title="Could not load Achieve QA rows" message="Retry after confirming Supabase/RLS access for this scaffold." onRetry={onRetry} />
+    return <ErrorState title="Could not load Achieve QA rows" message="Retry after confirming the Achieve portal service is reachable." onRetry={onRetry} />
   }
   if (isPending) {
     return <AchieveRowsSkeleton />
@@ -663,7 +650,6 @@ function AchieveFeedbackForm({ alert, onSubmitted }: { alert: AchieveRow; onSubm
     setStatus(null)
     const res = await submitAchieveReviewFeedback({
       call_id: alert.call_id,
-      module_name: alert.module_name,
       reviewer_email: email,
       accurate,
       action_taken: accurate ? (action || 'no_action_needed') : null,
@@ -754,18 +740,14 @@ function AchieveFeedbackForm({ alert, onSubmitted }: { alert: AchieveRow; onSubm
 }
 
 function trimmedTranscript(alert: AchieveRow) {
-  const transcript = alert.original_transcript?.trim()
-  if (!transcript) return ''
+  // The achieve-portal edge function trims the transcript to the graded
+  // segment server-side (and withholds it when the boundary is unreliable) —
+  // the browser never receives the full transcript. Keep the client-side guard
+  // anyway so a withheld/skipped row can never render transcript text.
   const result = alert.result_json ?? {}
   const seg = result.transcript_segment
-  // Never render an unbounded transcript in this external-facing portal: no
-  // segment metadata, an explicit fallback, or a skipped grade all mean the
-  // boundary is unreliable.
   if (!seg || seg.used_full_transcript_fallback || result.grading_skipped || seg.segment_found === false) return ''
-  const startLine = seg.start_line
-  if (typeof startLine !== 'number') return ''
-  // start_line is a 0-based line index stamped by the eavesly segmenter.
-  return transcript.split(/\r?\n/).slice(Math.max(0, startLine)).join('\n').trim()
+  return alert.trimmed_transcript?.trim() ?? ''
 }
 
 function confidenceTone(level: string) {
