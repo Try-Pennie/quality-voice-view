@@ -13,6 +13,23 @@ import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sh
 
 type AchieveRow = AchievePortalRow
 
+// Missing (uncovered) script elements for a row, derived the same way the
+// detail checklist is. Returns [] for ungraded/withheld rows so no adherence
+// detail leaks for them anywhere this is used.
+function missingElementsForRow(row: AchieveRow): { key: string; label: string }[] {
+  const result = row.result_json ?? {}
+  if (result.grading_skipped || result.transcript_segment?.used_full_transcript_fallback === true) return []
+  const checklist = deriveChecklist(result.script_adherence ?? {}, result.script_version)
+  return checklist.rows.filter(r => !r.isCovered).map(r => ({ key: r.key, label: r.label }))
+}
+
+// First sentence of a reason string, for the compact queue-row failure line.
+function firstSentence(text: string): string {
+  const trimmed = text.trim()
+  const idx = trimmed.indexOf('. ')
+  return idx === -1 ? trimmed : trimmed.slice(0, idx + 1)
+}
+
 const ACTION_OPTIONS: { value: AlertActionTaken; label: string }[] = [
   { value: 'no_action_needed', label: 'No action needed' },
   { value: 'coached', label: 'Coached agent' },
@@ -100,6 +117,7 @@ function AchievePasswordGate({ onUnlock }: { onUnlock: () => void }) {
 
 function AchieveReviewQueue() {
   const [activeTab, setActiveTab] = useState<'alerts' | 'all-calls'>('alerts')
+  const [elementFilter, setElementFilter] = useState<string | null>(null)
   const portalQuery = useQuery({
     queryKey: ['achieve-portal-data'],
     queryFn: fetchAchievePortalData,
@@ -110,6 +128,30 @@ function AchieveReviewQueue() {
   const allCalls = useMemo(() => portalQuery.data?.allCalls ?? [], [portalQuery.data])
   const allStats = useMemo(() => summarize(allCalls), [allCalls])
   const isFetching = portalQuery.isFetching
+
+  // Which script elements are most often missed across failed checks, so a
+  // reviewer can see the top failure modes and click one to filter the queues.
+  const elementTally = useMemo(() => {
+    const counts = new Map<string, { key: string; label: string; count: number }>()
+    for (const row of allCalls) {
+      if (!row.has_violation) continue
+      for (const el of missingElementsForRow(row)) {
+        const existing = counts.get(el.key)
+        if (existing) existing.count += 1
+        else counts.set(el.key, { key: el.key, label: el.label, count: 1 })
+      }
+    }
+    return Array.from(counts.values()).sort((a, b) => b.count - a.count)
+  }, [allCalls])
+
+  const filteredAlerts = useMemo(
+    () => (elementFilter ? alerts.filter(row => missingElementsForRow(row).some(el => el.key === elementFilter)) : alerts),
+    [alerts, elementFilter],
+  )
+  const filteredAllCalls = useMemo(
+    () => (elementFilter ? allCalls.filter(row => missingElementsForRow(row).some(el => el.key === elementFilter)) : allCalls),
+    [allCalls, elementFilter],
+  )
 
   const refresh = () => {
     void portalQuery.refetch()
@@ -147,28 +189,69 @@ function AchieveReviewQueue() {
           </button>
         </div>
 
+        {elementTally.length > 0 && (
+          <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+            <div className="mb-3 flex items-start justify-between gap-3">
+              <div>
+                <h2 className="text-sm font-semibold text-slate-950">What's failing</h2>
+                <p className="mt-1 text-xs leading-5 text-slate-500">
+                  Script elements missed across failed checks. Select one to filter the lists below.
+                </p>
+              </div>
+              {elementFilter && (
+                <button
+                  type="button"
+                  onClick={() => setElementFilter(null)}
+                  className="shrink-0 text-sm font-semibold text-blue-700 hover:text-blue-800"
+                >
+                  Clear filter
+                </button>
+              )}
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {elementTally.map(el => {
+                const active = elementFilter === el.key
+                return (
+                  <button
+                    key={el.key}
+                    type="button"
+                    onClick={() => setElementFilter(active ? null : el.key)}
+                    className={`rounded-full px-3 py-1 text-xs font-semibold transition-colors ${active ? 'bg-slate-900 text-white' : 'bg-red-50 text-red-800 hover:bg-red-100'}`}
+                  >
+                    {el.label} · {el.count}
+                  </button>
+                )
+              })}
+            </div>
+          </section>
+        )}
+
         <Tabs value={activeTab} onValueChange={value => setActiveTab(value as 'alerts' | 'all-calls')}>
           <TabsList className="bg-white shadow-sm">
-            <TabsTrigger value="alerts">Needs review ({alerts.length})</TabsTrigger>
-            <TabsTrigger value="all-calls">All calls ({allCalls.length})</TabsTrigger>
+            <TabsTrigger value="alerts">Needs review ({filteredAlerts.length})</TabsTrigger>
+            <TabsTrigger value="all-calls">All calls ({filteredAllCalls.length})</TabsTrigger>
           </TabsList>
           <TabsContent value="alerts" className="mt-4">
             <AchieveRowsState
-              rows={alerts}
+              rows={filteredAlerts}
               mode="review"
               isError={portalQuery.isError}
               isPending={portalQuery.isPending}
-              emptyMessage="No failed Achieve checks need human review. Passed calls are available under All calls."
+              emptyMessage={elementFilter
+                ? 'No calls in this tab are missing the selected element.'
+                : 'No failed Achieve checks need human review. Passed calls are available under All calls.'}
               onRetry={refresh}
             />
           </TabsContent>
           <TabsContent value="all-calls" className="mt-4">
             <AchieveRowsState
-              rows={allCalls}
+              rows={filteredAllCalls}
               mode="history"
               isError={portalQuery.isError}
               isPending={portalQuery.isPending}
-              emptyMessage="No scored Achieve calls yet."
+              emptyMessage={elementFilter
+                ? 'No calls in this tab are missing the selected element.'
+                : 'No scored Achieve calls yet.'}
               onRetry={refresh}
             />
           </TabsContent>
@@ -263,8 +346,7 @@ function AchieveQueueRow({ row, mode, onSelect }: { row: AchieveRow; mode: 'revi
   const result = row.result_json ?? {}
   const adherence = result.script_adherence ?? {}
   const confidence = result.assessment_confidence ?? {}
-  const missing = Array.isArray(adherence.missing_elements) ? adherence.missing_elements : []
-  const gapLabel = missing.length === 0 ? 'No gaps noted' : `${missing.length} gap${missing.length === 1 ? '' : 's'} noted`
+  const missingEls = missingElementsForRow(row)
   // Skipped rows have no segment; pre-hardening fallback rows were graded on the
   // full transcript and may reference non-Achieve content. Neither should show an
   // adherence/gap verdict to the partner.
@@ -299,10 +381,29 @@ function AchieveQueueRow({ row, mode, onSelect }: { row: AchieveRow; mode: 'revi
             <div className="text-slate-500">Not graded — no welcome-call segment</div>
           ) : fallbackWithheld ? (
             <div className="text-slate-500">Not graded — details withheld</div>
-          ) : (
-            <div className="flex flex-wrap gap-2">
+          ) : !row.has_violation ? (
+            <div className="flex flex-wrap items-center gap-2">
               <span>{adherence.overall_script_adherence ?? 'Unknown'}</span>
-              <span className={row.has_violation ? 'font-semibold text-red-700' : 'text-slate-500'}>{gapLabel}</span>
+              <span className="text-slate-500">No gaps noted</span>
+            </div>
+          ) : missingEls.length > 0 ? (
+            <div className="space-y-1">
+              <span>{adherence.overall_script_adherence ?? 'Unknown'}</span>
+              <div className="flex flex-wrap items-center gap-1.5">
+                {missingEls.slice(0, 2).map(el => (
+                  <span key={el.key} className="rounded-full bg-red-50 px-2 py-0.5 text-[11px] font-semibold text-red-800">{el.label}</span>
+                ))}
+                {missingEls.length > 2 && <span className="text-[11px] font-semibold text-red-700">+{missingEls.length - 2} more</span>}
+              </div>
+            </div>
+          ) : (
+            <div className="space-y-1">
+              <span>{adherence.overall_script_adherence ?? 'Unknown'}</span>
+              {adherence.violation_reason && (
+                <div className="line-clamp-1 text-xs text-red-700">
+                  {firstSentence(humanizeElementKeys(adherence.violation_reason, result.script_version))}
+                </div>
+              )}
             </div>
           )}
         </div>
@@ -431,7 +532,10 @@ function AchieveAlertDetails({
   const quotes = Array.isArray(adherence.key_evidence_quotes) ? adherence.key_evidence_quotes.slice(0, 5) : []
   const confidence = result.assessment_confidence ?? {}
   const confidencePct = typeof confidence.score === 'number' ? `${Math.round(confidence.score * 100)}%` : null
-  const hasConfidence = !!(confidence.level || confidencePct || confidence.rationale)
+  const limitations = Array.isArray(confidence.limitations)
+    ? confidence.limitations.filter((l): l is string => typeof l === 'string')
+    : []
+  const hasConfidence = !!(confidence.level || confidencePct || confidence.rationale || limitations.length)
   const transcript = trimmedTranscript(alert)
   const checklist = deriveChecklist(adherence, result.script_version)
   const checklistSections = groupChecklistBySection(checklist.rows)
@@ -439,7 +543,7 @@ function AchieveAlertDetails({
   const verdict = alert.has_violation
     ? missingCount > 0
       ? `Flagged — ${missingCount} of ${checklist.total} required script elements were missing.`
-      : 'Flagged — see the reason and evidence below.'
+      : 'Flagged by the QA checker.'
     : 'Passed — all required script elements were covered.'
 
   return (
@@ -465,7 +569,19 @@ function AchieveAlertDetails({
         <p className={`mt-3 text-sm font-semibold ${alert.has_violation ? 'text-red-700' : 'text-emerald-700'}`}>
           {verdict}
         </p>
+        {alert.has_violation && adherence.violation_reason && (
+          <p className="mt-2 rounded-xl border border-red-100 bg-red-50 p-3 text-sm leading-6 text-red-900">
+            {humanizeElementKeys(adherence.violation_reason, result.script_version)}
+          </p>
+        )}
         {alert.call_summary && <p className="mt-3 text-sm leading-6 text-slate-700">{alert.call_summary}</p>}
+        <p className="mt-3 text-sm text-slate-700">
+          <span className="text-slate-500">Overall: </span>
+          {adherenceLabel(adherence.overall_script_adherence)}
+          <span className="ml-1 inline-flex align-middle">
+            <Hint title={ACHIEVE_TERMS.script_adherence.label} body={ACHIEVE_TERMS.script_adherence.definition} />
+          </span>
+        </p>
         <div className="mt-4 flex flex-wrap gap-2">
           {alert.recording_link && <ExternalLinkButton href={alert.recording_link} label="Recording" />}
         </div>
@@ -478,6 +594,11 @@ function AchieveAlertDetails({
         <div className="mb-3 text-xs font-semibold text-slate-500">
           {checklist.coveredCount} / {checklist.total} covered
         </div>
+        {missingCount > 0 && (
+          <div className="mb-3 text-sm font-medium text-red-700">
+            Missing: {checklist.rows.filter(r => !r.isCovered).map(r => r.label).join(', ')}
+          </div>
+        )}
         <div className="space-y-4">
           {checklistSections.map(section => (
             <div key={section.section}>
@@ -504,17 +625,6 @@ function AchieveAlertDetails({
         </div>
       </DrawerSection>
 
-      <DrawerSection title="QA result" description="What the checker found and why it scored the call this way.">
-        <dl className="grid gap-3 text-sm sm:grid-cols-[9rem_1fr]">
-          <Row
-            label="Overall"
-            value={adherenceLabel(adherence.overall_script_adherence)}
-            hint={{ title: ACHIEVE_TERMS.script_adherence.label, body: ACHIEVE_TERMS.script_adherence.definition }}
-          />
-          <Row label="Why" value={adherence.violation_reason ? humanizeElementKeys(adherence.violation_reason, result.script_version) : '—'} />
-        </dl>
-      </DrawerSection>
-
       <DrawerSection
         title="Supporting quotes"
         description="Evidence snippets used by the checker."
@@ -538,6 +648,7 @@ function AchieveAlertDetails({
             <Row label="Level" value={confidence.level ?? '—'} />
             <Row label="Score" value={confidencePct ?? '—'} />
             <Row label="Rationale" value={confidence.rationale ?? '—'} />
+            {limitations.length > 0 && <Row label="Limitations" value={limitations.join('; ')} />}
           </dl>
         </DrawerSection>
       )}
