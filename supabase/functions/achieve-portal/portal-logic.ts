@@ -41,6 +41,12 @@ export function isWithheld(result: Json): boolean {
     result?.transcript_segment?.used_full_transcript_fallback === true
 }
 
+// A row belongs in the Needs-review queue when it is a graded violation.
+// Withheld rows (skipped / pre-hardening fallback) are audit-only.
+export function isQueueRow(row: Json): boolean {
+  return row?.has_violation === true && !isWithheld(row?.result_json)
+}
+
 // Same guard chain the portal UI used client-side: no segment metadata, an
 // explicit fallback, or a skipped grade all mean the boundary is unreliable —
 // return '' rather than an unbounded transcript.
