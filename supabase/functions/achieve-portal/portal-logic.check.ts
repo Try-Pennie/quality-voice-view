@@ -5,6 +5,7 @@ import {
   ACHIEVE_MODULE_NAME,
   MAX_TRANSCRIPT_CHARS,
   buildPortalRow,
+  isQueueRow,
   isWithheld,
   sanitizeResultJson,
   trimTranscript,
@@ -58,6 +59,17 @@ assert.ok(!JSON.stringify(sanitizedSkipped).includes('SENSITIVE'))
 const graded = { script_adherence: { overall_script_adherence: 'substantial' }, transcript_segment: { start_line: 1 } }
 assert.deepStrictEqual(sanitizeResultJson(graded), graded)
 assert.ok(!isWithheld(graded))
+
+// --- isQueueRow ----------------------------------------------------------------
+
+// A graded violation belongs in the Needs-review queue.
+assert.strictEqual(isQueueRow({ has_violation: true, result_json: graded }), true)
+// No violation → not in the queue.
+assert.strictEqual(isQueueRow({ has_violation: false, result_json: graded }), false)
+// Skipped grade is audit-only even if flagged has_violation.
+assert.strictEqual(isQueueRow({ has_violation: true, result_json: skippedResult }), false)
+// Pre-hardening full-transcript fallback is withheld → audit-only.
+assert.strictEqual(isQueueRow({ has_violation: true, result_json: fallbackResult }), false)
 
 // --- buildPortalRow ------------------------------------------------------------
 

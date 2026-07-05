@@ -16,6 +16,7 @@ import { createClient } from "jsr:@supabase/supabase-js@2"
 import {
   ACHIEVE_MODULE_NAME,
   buildPortalRow,
+  isQueueRow,
   validateFeedback,
 } from "./portal-logic.ts"
 
@@ -26,13 +27,17 @@ const CORS = {
   "Access-Control-Allow-Methods": "POST, OPTIONS",
 }
 
-const LIST_LIMIT = 100
+// Pagination for the module-results scan. PostgREST silently caps every
+// response at ~1000 rows regardless of .limit(), so we page in 500-row .range()
+// windows and stop at a hard MAX_LIST_ROWS ceiling. The Achieve pilot is small
+// enough that the newest 1000 rows cover the whole review window; if it ever
+// outgrows that, add a date-window request param instead of raising the cap.
+const PAGE_SIZE = 500
+const MAX_LIST_ROWS = 1000
+const ID_CHUNK_SIZE = 200
 
 const MODULE_RESULT_COLUMNS =
   "id, created_at, call_id, module_name, violation_type, has_violation, alert_sent, alert_sent_at, contact_name, contact_phone, recording_link, transcript_url, call_summary, processing_time_ms, result_json"
-
-const ALERT_VIEW_COLUMNS =
-  "module_result_id, alert_created_at, alert_sent_at, call_id, module_name, violation_type, has_violation, alert_sent, contact_name, contact_phone, recording_link, transcript_url, call_summary, processing_time_ms, result_json, feedback_id, feedback_by, accurate, action_taken, inaccuracy_reason, feedback_comment, reviewed_at"
 
 const FEEDBACK_COLUMNS =
   "id, call_id, module_name, manager_email, accurate, action_taken, inaccuracy_reason, comment, reviewed_at"
@@ -91,47 +96,56 @@ Deno.serve(async (req: Request) => {
   )
 
   if (action === "list") {
-    const [alertsRes, callsRes] = await Promise.all([
-      admin
-        .from("eavesly_alerts_with_feedback")
-        .select(ALERT_VIEW_COLUMNS)
-        .eq("module_name", ACHIEVE_MODULE_NAME)
-        .order("alert_created_at", { ascending: false })
-        .limit(LIST_LIMIT),
-      admin
+    // Page through eavesly_module_results newest-first until a short page
+    // signals the end, stopping at MAX_LIST_ROWS. The Needs-review queue is
+    // then derived from the graded-violation rows (isQueueRow) rather than the
+    // alert view, so withheld rows and send-failed violations resolve correctly.
+    // deno-lint-ignore no-explicit-any
+    const callRows: any[] = []
+    for (let offset = 0; offset < MAX_LIST_ROWS; offset += PAGE_SIZE) {
+      const { data, error } = await admin
         .from("eavesly_module_results")
         .select(MODULE_RESULT_COLUMNS)
         .eq("module_name", ACHIEVE_MODULE_NAME)
         .order("created_at", { ascending: false })
-        .limit(LIST_LIMIT),
-    ])
-    if (alertsRes.error || callsRes.error) {
-      console.error("achieve list error", alertsRes.error ?? callsRes.error)
-      return json({ error: "list_failed" }, 500)
+        .range(offset, offset + PAGE_SIZE - 1)
+      if (error) {
+        console.error("achieve list error", error)
+        return json({ error: "list_failed" }, 500)
+      }
+      const page = data ?? []
+      callRows.push(...page)
+      if (page.length < PAGE_SIZE) break
     }
-    const alertRows = alertsRes.data ?? []
-    const callRows = callsRes.data ?? []
+    if (callRows.length >= MAX_LIST_ROWS) {
+      // Cap hit: we return the newest MAX_LIST_ROWS anyway (no client error).
+      // If this fires regularly, move to a date-window request param.
+      console.warn(
+        `achieve list hit MAX_LIST_ROWS (${MAX_LIST_ROWS}); older rows not returned. Consider a date-window param.`,
+      )
+    }
 
     const callIds = Array.from(
-      new Set(
-        [...alertRows, ...callRows].map(row => row.call_id).filter(Boolean),
-      ),
+      new Set(callRows.map(row => row.call_id).filter(Boolean)),
     )
     // deno-lint-ignore no-explicit-any
     const transcriptByCall = new Map<string, any>()
     // deno-lint-ignore no-explicit-any
     const feedbackByCall = new Map<string, any>()
-    if (callIds.length > 0) {
+    // Chunk the .in() lookups: up to MAX_LIST_ROWS ids would blow past URL /
+    // response limits, so fetch in ID_CHUNK_SIZE batches and merge the maps.
+    for (let i = 0; i < callIds.length; i += ID_CHUNK_SIZE) {
+      const chunk = callIds.slice(i, i + ID_CHUNK_SIZE)
       const [transcriptsRes, feedbackRes] = await Promise.all([
         admin
           .from("eavesly_transcription_qa")
           .select("call_id, original_transcript, transcription_link, recording_link")
-          .in("call_id", callIds),
+          .in("call_id", chunk),
         admin
           .from("eavesly_alert_feedback")
           .select(FEEDBACK_COLUMNS)
           .eq("module_name", ACHIEVE_MODULE_NAME)
-          .in("call_id", callIds),
+          .in("call_id", chunk),
       ])
       if (transcriptsRes.error) console.error("achieve transcripts error", transcriptsRes.error)
       if (feedbackRes.error) console.error("achieve feedback error", feedbackRes.error)
@@ -147,7 +161,7 @@ Deno.serve(async (req: Request) => {
     const toRow = (row: any) =>
       buildPortalRow(row, transcriptByCall.get(row.call_id), feedbackByCall.get(row.call_id))
     return json({
-      alerts: alertRows.map(toRow),
+      alerts: callRows.filter(row => isQueueRow(row)).map(toRow),
       all_calls: callRows.map(toRow),
     })
   }
