@@ -12,7 +12,14 @@
 // (toDateParam, startOfBusinessDay) converts to absolute moments.
 
 import type { UserScope } from './alert-queries'
-import { fetchAlertBreakdown, MODULE_LABELS, type AlertBreakdownCell } from './alert-queries'
+import {
+  fetchAlertBreakdown,
+  fetchFalsePositiveReasons,
+  MODULE_LABELS,
+  INACCURACY_REASON_LABELS,
+  type AlertBreakdownCell,
+  type FalsePositiveReasonRow,
+} from './alert-queries'
 import { fetchTeamRollup, type AgentRollup } from './team-queries'
 import { ymdInBusinessTZ } from './time-zone'
 
@@ -327,6 +334,41 @@ export function buildModulePressure(
   return out.sort((a, b) => b.total - a.total || b.unreviewed - a.unreviewed)
 }
 
+// ---------- Model accuracy (where the QA model is getting it wrong) ----------
+
+export type ModelAccuracyModule = {
+  module: string
+  label: string
+  total: number
+  reasons: { reason: string; label: string; count: number }[] // sorted count desc
+}
+
+// Groups overturned false-positive alerts by module, then by inaccuracy reason,
+// so whoever tunes the upstream QA prompts can see which modules are
+// systematically wrong and why. Modules sorted by total desc, reasons within a
+// module by count desc.
+export function buildModelAccuracy(rows: FalsePositiveReasonRow[]): ModelAccuracyModule[] {
+  const byModule = new Map<string, ModelAccuracyModule>()
+  for (const r of rows) {
+    const mod = byModule.get(r.module) ?? {
+      module: r.module,
+      label: MODULE_LABELS[r.module] ?? r.module,
+      total: 0,
+      reasons: [],
+    }
+    mod.total += r.count
+    mod.reasons.push({
+      reason: r.reason,
+      label: INACCURACY_REASON_LABELS[r.reason] ?? r.reason,
+      count: r.count,
+    })
+    byModule.set(r.module, mod)
+  }
+  const out = Array.from(byModule.values())
+  for (const m of out) m.reasons.sort((a, b) => b.count - a.count)
+  return out.sort((a, b) => b.total - a.total)
+}
+
 // ---------- Action insights ----------
 
 export type Insight = {
@@ -439,6 +481,7 @@ export type InsightsReport = {
   watchlist: WatchlistEntry[]
   topAgents: TopAgent[]
   modulePressure: ModulePressure[]
+  modelAccuracy: ModelAccuracyModule[]
   insights: Insight[]
 }
 
@@ -451,6 +494,7 @@ export function assembleReport(input: {
   baselineRollups: AgentRollup[]
   currentAlerts: AlertBreakdownCell[]
   baselineAlerts: AlertBreakdownCell[]
+  falsePositiveRows: FalsePositiveReasonRow[]
 }): InsightsReport {
   const baselineWeeks = Math.max(
     1,
@@ -484,6 +528,7 @@ export function assembleReport(input: {
     watchlist,
     topAgents: buildTopAgents(input.currentRollups),
     modulePressure,
+    modelAccuracy: buildModelAccuracy(input.falsePositiveRows),
     insights: buildInsights(
       teamCurrent,
       teamPrior,
@@ -503,14 +548,24 @@ export async function fetchInsightsReport(
   prior: InsightsWindow,
   baseline: InsightsWindow,
 ): Promise<InsightsReport> {
-  const [currentRollups, priorRollups, baselineRollups, currentAlerts, baselineAlerts] =
-    await Promise.all([
-      fetchTeamRollup(scope, current.start, current.end),
-      fetchTeamRollup(scope, prior.start, prior.end),
-      fetchTeamRollup(scope, baseline.start, baseline.end),
-      fetchAlertBreakdown(scope, current.start, current.end, { excludeInaccurate: true }),
-      fetchAlertBreakdown(scope, baseline.start, baseline.end, { excludeInaccurate: true }),
-    ])
+  // False positives are sparse, so we read them across a wider window than the
+  // one-week current view — baseline.start → current.end spans ~5 weeks, which
+  // gives a usable sample for spotting systematic QA-model misfires.
+  const [
+    currentRollups,
+    priorRollups,
+    baselineRollups,
+    currentAlerts,
+    baselineAlerts,
+    falsePositiveRows,
+  ] = await Promise.all([
+    fetchTeamRollup(scope, current.start, current.end),
+    fetchTeamRollup(scope, prior.start, prior.end),
+    fetchTeamRollup(scope, baseline.start, baseline.end),
+    fetchAlertBreakdown(scope, current.start, current.end, { excludeInaccurate: true }),
+    fetchAlertBreakdown(scope, baseline.start, baseline.end, { excludeInaccurate: true }),
+    fetchFalsePositiveReasons(scope, baseline.start, current.end),
+  ])
   return assembleReport({
     current,
     prior,
@@ -520,5 +575,6 @@ export async function fetchInsightsReport(
     baselineRollups,
     currentAlerts,
     baselineAlerts,
+    falsePositiveRows,
   })
 }

@@ -437,6 +437,60 @@ export async function fetchAlertBreakdown(
   return Array.from(byKey.values())
 }
 
+// ---- false-positive inaccuracy reasons (QA model tuning signal) ----
+
+export type FalsePositiveReasonRow = { module: string; reason: string; count: number }
+
+// Aggregates overturned (accurate=false) alerts by (module, inaccuracy_reason)
+// so the weekly report can show which modules the QA model is systematically
+// wrong about, and why. Same scope/suppressed-module/date/pagination handling
+// as fetchAlertBreakdown.
+export async function fetchFalsePositiveReasons(
+  scope: UserScope,
+  startDate: Date,
+  endDate: Date,
+): Promise<FalsePositiveReasonRow[]> {
+  if (!scope.isGodMode && scope.managedAgents.length === 0) return []
+
+  const rows = await fetchAllPaginated<{
+    module_name: string | null
+    inaccuracy_reason: string | null
+    accurate: boolean | null
+    alert_created_at: string | null
+  }>((from, to) => {
+    let q = sb
+      .from('eavesly_alerts_with_feedback')
+      .select('module_name, inaccuracy_reason, accurate, alert_created_at')
+      .eq('accurate', false)
+      .gte('alert_created_at', startOfBusinessDay(startDate).toISOString())
+      .lte('alert_created_at', endOfBusinessDay(endDate).toISOString())
+      .order('alert_created_at', { ascending: false })
+      .range(from, to)
+    for (const moduleName of ALWAYS_SUPPRESSED_ALERT_MODULES) {
+      q = q.neq('module_name', moduleName)
+    }
+    if (!scope.isGodMode) {
+      for (const moduleName of SUPER_ADMIN_ONLY_ALERT_MODULES) {
+        q = q.neq('module_name', moduleName)
+      }
+    }
+    if (!scope.isGodMode) q = q.in('agent_email', scope.managedAgents)
+    return q
+  })
+
+  const byKey = new Map<string, FalsePositiveReasonRow>()
+  for (const r of rows) {
+    if (!r.module_name) continue
+    const reason = r.inaccuracy_reason?.trim() || 'unspecified'
+    const key = `${r.module_name}::${reason}`
+    const existing = byKey.get(key) || { module: r.module_name, reason, count: 0 }
+    existing.count += 1
+    byKey.set(key, existing)
+  }
+
+  return Array.from(byKey.values())
+}
+
 // ---- display labels ----
 
 export const VIOLATION_TYPE_LABELS: Record<string, string> = {
