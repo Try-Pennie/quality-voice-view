@@ -14,6 +14,7 @@ import {
   type WatchlistEntry,
   type TopAgent,
   type ModulePressure,
+  type ModelAccuracyModule,
   type Insight,
 } from '../lib/insights-queries'
 import { PageHero, SupportingStat } from '../components/PageHero'
@@ -243,6 +244,48 @@ function ModulePressureCard({ rows }: { rows: ModulePressure[] }) {
   )
 }
 
+function ModelAccuracyCard({ rows }: { rows: ModelAccuracyModule[] }) {
+  return (
+    <div className={CARD}>
+      <h2 className="text-lg font-semibold text-pennie-navy">Where the QA model is getting it wrong</h2>
+      <p className="mt-1 text-sm text-pennie-graphite/70">
+        False-positive alerts managers overturned, grouped by reason — the
+        signal for tuning the QA prompts. Trailing ~5 weeks.
+      </p>
+      {rows.length === 0 ? (
+        <p className="mt-4 text-sm text-pennie-graphite/70">
+          No alerts have been marked inaccurate in this window — nothing to tune.
+        </p>
+      ) : (
+        <div className="mt-4 overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="text-left text-pennie-graphite/60">
+                <th className="py-2 pr-4 font-semibold">Module</th>
+                <th className="py-2 pr-4 font-semibold text-right">Overturned</th>
+                <th className="py-2 font-semibold">Why the model was wrong</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map(r => (
+                <tr key={r.module} className="border-t border-border/60 align-top">
+                  <td className="py-3 pr-4 font-medium text-pennie-navy">{r.label}</td>
+                  <td className="py-3 pr-4 text-right tabular-nums">{r.total}</td>
+                  <td className="py-3 text-pennie-graphite/70">
+                    {r.reasons
+                      .map(reason => `${reason.count} ${reason.label}`)
+                      .join(', ')}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  )
+}
+
 export default function SalesFloorInsightsPage() {
   const { user } = useAuth()
   const navigate = useNavigate()
@@ -432,6 +475,8 @@ export default function SalesFloorInsightsPage() {
                 <TopAgents rows={report.topAgents} onSelect={goToAgent} />
                 <ModulePressureCard rows={report.modulePressure} />
               </div>
+
+              <ModelAccuracyCard rows={report.modelAccuracy} />
 
               <div className="rounded-3xl bg-pennie-beige/60 p-5 text-xs text-pennie-graphite/70 break-inside-avoid">
                 <p className="font-semibold text-pennie-navy mb-1">How to read this report</p>
