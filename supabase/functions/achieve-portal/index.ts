@@ -16,6 +16,7 @@ import { createClient } from "jsr:@supabase/supabase-js@2"
 import {
   ACHIEVE_MODULE_NAME,
   buildPortalRow,
+  isCompetitorTransfer,
   isQueueRow,
   validateFeedback,
 } from "./portal-logic.ts"
@@ -114,7 +115,9 @@ Deno.serve(async (req: Request) => {
         return json({ error: "list_failed" }, 500)
       }
       const page = data ?? []
-      callRows.push(...page)
+      // Competitor-transfer rows (calls mis-transferred to Beyond Finance) must
+      // not reach Achieve at all — drop them before either tab is built.
+      callRows.push(...page.filter(row => !isCompetitorTransfer(row.result_json)))
       if (page.length < PAGE_SIZE) break
     }
     if (callRows.length >= MAX_LIST_ROWS) {

@@ -41,6 +41,14 @@ export function isWithheld(result: Json): boolean {
     result?.transcript_segment?.used_full_transcript_fallback === true
 }
 
+// Calls mis-transferred to Beyond Finance (a competitor of Achieve) are graded-
+// skipped with this reason by eavesly. Showing Achieve a call that went to a
+// competitor is a conflict of interest, so these rows are dropped from the
+// portal entirely — they appear in neither the alerts queue nor all_calls.
+export function isCompetitorTransfer(result: Json): boolean {
+  return result?.skip_reason === 'competitor_transfer'
+}
+
 // A row belongs in the Needs-review queue when it is a graded violation.
 // Withheld rows (skipped / pre-hardening fallback) are audit-only.
 export function isQueueRow(row: Json): boolean {

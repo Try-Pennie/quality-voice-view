@@ -5,6 +5,7 @@ import {
   ACHIEVE_MODULE_NAME,
   MAX_TRANSCRIPT_CHARS,
   buildPortalRow,
+  isCompetitorTransfer,
   isQueueRow,
   isWithheld,
   sanitizeResultJson,
@@ -70,6 +71,23 @@ assert.strictEqual(isQueueRow({ has_violation: false, result_json: graded }), fa
 assert.strictEqual(isQueueRow({ has_violation: true, result_json: skippedResult }), false)
 // Pre-hardening full-transcript fallback is withheld → audit-only.
 assert.strictEqual(isQueueRow({ has_violation: true, result_json: fallbackResult }), false)
+
+// --- isCompetitorTransfer ------------------------------------------------------
+
+// A call mis-transferred to Beyond Finance (Achieve's competitor) is dropped
+// from the portal entirely — it must not appear in alerts or all_calls.
+const competitorResult = { grading_skipped: true, skip_reason: 'competitor_transfer' }
+assert.strictEqual(isCompetitorTransfer(competitorResult), true)
+// Ordinary grading_skipped rows (e.g. no transfer leg) are NOT competitor
+// transfers — they stay visible in all_calls as "Not graded", as today.
+assert.strictEqual(isCompetitorTransfer({ grading_skipped: true, skip_reason: 'no_transfer_leg' }), false)
+assert.strictEqual(isCompetitorTransfer(skippedResult), false)
+assert.strictEqual(isCompetitorTransfer(graded), false)
+assert.strictEqual(isCompetitorTransfer(null), false)
+assert.strictEqual(isCompetitorTransfer({}), false)
+// A competitor-transfer row is still withheld (its free text stays server-side)
+// on the paths that do surface it, but the list handler filters it out first.
+assert.ok(isWithheld(competitorResult))
 
 // --- buildPortalRow ------------------------------------------------------------
 
