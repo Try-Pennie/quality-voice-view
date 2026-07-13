@@ -59,14 +59,25 @@ export function isQueueRow(row: Json): boolean {
 // explicit fallback, or a skipped grade all mean the boundary is unreliable —
 // return '' rather than an unbounded transcript.
 export function trimTranscript(originalTranscript: string | null | undefined, result: Json): string {
-  const transcript = originalTranscript?.trim()
-  if (!transcript) return ''
+  const transcript = originalTranscript
+  if (!transcript?.trim()) return ''
   const seg = result?.transcript_segment
   if (!seg || seg.used_full_transcript_fallback || result?.grading_skipped || seg.segment_found === false) return ''
   const startLine = seg.start_line
-  if (typeof startLine !== 'number') return ''
-  // start_line is a 0-based line index stamped by the eavesly segmenter.
-  const trimmed = transcript.split(/\r?\n/).slice(Math.max(0, startLine)).join('\n').trim()
+  const endLine = seg.end_line
+  if (typeof startLine !== 'number' || !Number.isInteger(startLine)) return ''
+  if (endLine !== undefined && (typeof endLine !== 'number' || !Number.isInteger(endLine))) return ''
+
+  // Boundaries are inclusive, 0-based line indexes stamped by the eavesly
+  // segmenter. Rows created before end_line was introduced retain the legacy
+  // start-to-end behavior.
+  const transcriptLines = transcript.split(/\r?\n/)
+  const safeStartLine = Math.max(0, startLine)
+  if (typeof endLine === 'number' && (endLine < safeStartLine || endLine >= transcriptLines.length)) return ''
+  const trimmed = transcriptLines
+    .slice(safeStartLine, typeof endLine === 'number' ? endLine + 1 : undefined)
+    .join('\n')
+    .trim()
   if (trimmed.length > MAX_TRANSCRIPT_CHARS) {
     return `${trimmed.slice(0, MAX_TRANSCRIPT_CHARS)}\n… [transcript truncated]`
   }

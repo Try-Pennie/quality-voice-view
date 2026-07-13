@@ -479,6 +479,25 @@ function groupChecklistBySection(rows: ChecklistRow[]): { section: string; rows:
   return ordered.map(section => ({ section, rows: bySection.get(section)! }))
 }
 
+function achieveSkipReasonDetail(reason: unknown): string {
+  switch (reason) {
+    case 'transfer_leg_too_short':
+      return 'The handoff was attempted, but the advocate never joined.'
+    case 'no_live_welcome_agent':
+      return 'The transfer contained automated audio, but no live welcome-call representative joined.'
+    case 'non_welcome_transfer':
+      return 'The transfer reached a servicing or customer-service interaction, not a welcome call.'
+    case 'welcome_call_not_started':
+      return 'A welcome-call representative joined, but the client-facing welcome call did not begin.'
+    case 'unbounded_label_less':
+      return 'A live welcome call was detected, but its transcript boundary was not reliable enough to share or grade.'
+    case 'no_transfer_leg':
+      return 'The call did not reach the welcome-call handoff.'
+    default:
+      return 'No gradeable live welcome-call interaction was found.'
+  }
+}
+
 function AchieveAlertDetails({
   alert,
   mode,
@@ -498,10 +517,7 @@ function AchieveAlertDetails({
     return (
       <article className="space-y-5">
         <p className="rounded-2xl border border-amber-200 bg-amber-50 p-5 text-sm text-amber-900">
-          Not graded — no Achieve/FDR welcome-call segment was found in this call
-          {result.skip_reason === 'transfer_leg_too_short'
-            ? ' (the handoff was attempted but the advocate never joined).'
-            : ' (the call did not reach the welcome-call handoff).'}
+          Not graded — {achieveSkipReasonDetail(result.skip_reason)}
         </p>
         <DrawerSection title="Reviewer feedback" description="Capture whether the QA result is useful/correct and what should happen next.">
           <AchieveFeedbackForm alert={alert} onSubmitted={onFeedbackSubmitted} />
