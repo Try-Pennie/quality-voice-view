@@ -18,8 +18,21 @@ import {
 const transcript = 'line0\nline1\nline2\nline3'
 const goodSeg = { transcript_segment: { start_line: 2, segmentation_confidence: 'high' } }
 
-// Trims from the segmenter's 0-based start_line.
+// Legacy rows without end_line trim from the segmenter's 0-based start_line.
 assert.strictEqual(trimTranscript(transcript, goodSeg), 'line2\nline3')
+// New rows are bounded at the inclusive 0-based end_line.
+assert.strictEqual(
+  trimTranscript(transcript, { transcript_segment: { start_line: 1, end_line: 2, segmentation_confidence: 'high' } }),
+  'line1\nline2',
+)
+// Invalid boundaries fail closed instead of returning unrelated transcript text.
+assert.strictEqual(trimTranscript(transcript, { transcript_segment: { start_line: 2, end_line: 1 } }), '')
+assert.strictEqual(trimTranscript(transcript, { transcript_segment: { start_line: 1, end_line: 99 } }), '')
+// Leading blank lines remain part of the segmenter's original coordinate system.
+assert.strictEqual(
+  trimTranscript(`\n${transcript}`, { transcript_segment: { start_line: 2, end_line: 3 } }),
+  'line1\nline2',
+)
 // Negative start_line clamps to 0.
 assert.strictEqual(trimTranscript(transcript, { transcript_segment: { start_line: -3 } }), transcript)
 // All unreliable-boundary cases return '' (never an unbounded transcript):
