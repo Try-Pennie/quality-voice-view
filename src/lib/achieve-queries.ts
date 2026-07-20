@@ -84,12 +84,12 @@ export async function fetchAchievePortalData(): Promise<AchievePortalData> {
     const alerts = (data?.alerts ?? []) as AchievePortalRow[]
     const allCalls = (data?.all_calls ?? []) as AchievePortalRow[]
     if (showDemoData && alerts.length === 0 && allCalls.length === 0) {
-      return { alerts: [achieveDemoAlert], allCalls: [achieveDemoAlert] }
+      return { alerts: achieveDemoAlerts, allCalls: achieveDemoAlerts }
     }
     return { alerts, allCalls }
   } catch (error) {
     console.error('Error fetching Achieve portal data:', error)
-    if (showDemoData) return { alerts: [achieveDemoAlert], allCalls: [achieveDemoAlert] }
+    if (showDemoData) return { alerts: achieveDemoAlerts, allCalls: achieveDemoAlerts }
     throw error
   }
 }
@@ -187,3 +187,82 @@ const achieveDemoAlert: AchievePortalRow = {
   acker_emails: [],
   trimmed_transcript: null,
 }
+
+const achievePoorTransferDemoAlert: AchievePortalRow = {
+  ...achieveDemoAlert,
+  module_result_id: -2,
+  alert_created_at: '2026-06-29T18:15:00.000Z',
+  call_id: 'WTpoortransferfulldemo0000000000000001',
+  contact_name: 'Demo transfer client',
+  call_summary: 'DEMO DATA: The required welcome-call script was fully completed. During the handoff, the client returned to an automated phone menu before later reaching another live agent.',
+  result_json: {
+    demo_data: true,
+    script_version: 'fdr_wholesale_db_pilot_v1',
+    script_adherence: {
+      greeting_and_identity_completed: true,
+      recording_disclosure_provided: true,
+      company_credibility_covered: true,
+      call_agenda_provided: true,
+      dedicated_account_deposits_explained: true,
+      creditor_negotiation_explained: true,
+      settlement_authorizations_explained: true,
+      dashboard_account_setup_covered: true,
+      tools_and_resources_covered: true,
+      closing_and_support_provided: true,
+      overall_script_adherence: 'full',
+      missing_elements: [],
+      key_evidence_quotes: [
+        'This call will be recorded for quality and training purposes.',
+        'Before I let you go, our Program Success Team is here for you seven days a week.',
+      ],
+      violation: false,
+    },
+    transfer_experience: {
+      poor_transfer: true,
+      reasons: ['live_rep_then_ivr_reentry_then_live_rep'],
+      ivr_reentry_lines: [121],
+      agent_attempts: [
+        {
+          line: 116,
+          name_asr: 'Marissa',
+          quote: 'I am going to connect you with the next specialist now.',
+        },
+        {
+          line: 134,
+          name_asr: 'Danial',
+          quote: 'Hi, this is Daniel. I can help you from here.',
+        },
+      ],
+      evidence: [
+        { line: 121, quote: 'Please say or enter your selection from the following menu.' },
+        { line: 134, quote: 'Hi, this is Daniel. I can help you from here.' },
+      ],
+      detection_version: 'achieve_poor_transfer_v1',
+    },
+    assessment_confidence: {
+      score: 0.93,
+      level: 'high',
+      rationale: 'DEMO DATA: The partner-leg transcript clearly shows a return to an automated menu before a later live agent joined.',
+      limitations: [
+        'DEMO DATA: Agent names are ASR-derived and may not match the intended spelling.',
+      ],
+    },
+    transcript_segment: {
+      segment_type: 'fdr_disclosure_and_welcome_call',
+      start_line: 82,
+      marker: 'This call will be recorded for quality and training purposes',
+      segmentation_confidence: 'high',
+      segmentation_score: 0.95,
+      used_full_transcript_fallback: false,
+    },
+  },
+  trimmed_transcript: [
+    'Agent: This call will be recorded for quality and training purposes.',
+    'Agent: Before I let you go, our Program Success Team is here for you seven days a week.',
+    'Agent: I am going to connect you with the next specialist now.',
+    'Automated menu: Please say or enter your selection from the following menu.',
+    'Agent: Hi, this is Daniel. I can help you from here.',
+  ].join('\n'),
+}
+
+const achieveDemoAlerts = [achieveDemoAlert, achievePoorTransferDemoAlert]

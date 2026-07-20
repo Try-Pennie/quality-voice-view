@@ -4,6 +4,7 @@ import { Check, ChevronRight, ExternalLink, HelpCircle, RefreshCcw, X } from 'lu
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { ACHIEVE_ELEMENTS, ACHIEVE_SECTION_ORDER, ACHIEVE_TERMS, adherenceLabel, deriveChecklist, humanizeElementKeys, type ChecklistRow } from '@/lib/achieve-checklist'
 import { ACHIEVE_PASSWORD_SESSION_KEY, fetchAchievePortalData, submitAchieveReviewFeedback, verifyAchievePortalPassword, type AchievePortalRow } from '@/lib/achieve-queries'
+import { humanizeTransferReason, parseTransferExperience, transferExperienceSummary, type TransferExperience } from '@/lib/achieve-transfer-experience'
 import type { AlertActionTaken, AlertInaccuracyReason, AlertWithFeedback } from '@/types/database'
 import { formatDateTime } from '@/lib/utils'
 import { ErrorState } from '@/components/states/ErrorState'
@@ -284,6 +285,7 @@ function AchieveRowsState({
     }
   }, [rows, selected])
 
+
   if (isError) {
     return <ErrorState title="Could not load Achieve QA rows" message="Retry after confirming the Achieve portal service is reachable." onRetry={onRetry} />
   }
@@ -347,6 +349,8 @@ function AchieveQueueRow({ row, mode, onSelect }: { row: AchieveRow; mode: 'revi
   const adherence = result.script_adherence ?? {}
   const confidence = result.assessment_confidence ?? {}
   const missingEls = missingElementsForRow(row)
+  const transferExperience = parseTransferExperience(result.transfer_experience)
+  const hasPoorTransfer = transferExperience?.poorTransfer === true
   // Skipped rows have no segment; pre-hardening fallback rows were graded on the
   // full transcript and may reference non-Achieve content. Neither should show an
   // adherence/gap verdict to the partner.
@@ -381,6 +385,28 @@ function AchieveQueueRow({ row, mode, onSelect }: { row: AchieveRow; mode: 'revi
             <div className="text-slate-500">Not graded — no welcome-call segment</div>
           ) : fallbackWithheld ? (
             <div className="text-slate-500">Not graded — details withheld</div>
+          ) : hasPoorTransfer && transferExperience ? (
+            <div className="space-y-1.5">
+              <span>{adherence.overall_script_adherence ?? 'Unknown'}</span>
+              {adherence.violation === true && (
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <span className="rounded-full bg-red-50 px-2 py-0.5 text-[11px] font-semibold text-red-800">Script issue</span>
+                  {missingEls.slice(0, 2).map(el => (
+                    <span key={el.key} className="rounded-full bg-red-50 px-2 py-0.5 text-[11px] font-semibold text-red-800">{el.label}</span>
+                  ))}
+                  {missingEls.length > 2 && <span className="text-[11px] font-semibold text-red-700">+{missingEls.length - 2} more</span>}
+                </div>
+              )}
+              {adherence.violation === true && missingEls.length === 0 && typeof adherence.violation_reason === 'string' && (
+                <div className="line-clamp-1 text-xs text-red-700">
+                  Script: {firstSentence(humanizeElementKeys(adherence.violation_reason, result.script_version))}
+                </div>
+              )}
+              <div className="flex flex-wrap items-start gap-1.5">
+                <span className="shrink-0 rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-semibold text-amber-900">Poor transfer</span>
+                <span className="line-clamp-2 text-xs text-amber-900">{transferExperienceSummary(transferExperience)}</span>
+              </div>
+            </div>
           ) : !row.has_violation ? (
             <div className="flex flex-wrap items-center gap-2">
               <span>{adherence.overall_script_adherence ?? 'Unknown'}</span>
@@ -545,6 +571,9 @@ function AchieveAlertDetails({
   }
 
   const adherence = result.script_adherence ?? {}
+  const transferExperience = parseTransferExperience(result.transfer_experience)
+  const hasPoorTransfer = transferExperience?.poorTransfer === true
+  const scriptViolation = adherence.violation === true
   const quotes = Array.isArray(adherence.key_evidence_quotes) ? adherence.key_evidence_quotes.slice(0, 5) : []
   const confidence = result.assessment_confidence ?? {}
   const confidencePct = typeof confidence.score === 'number' ? `${Math.round(confidence.score * 100)}%` : null
@@ -556,11 +585,22 @@ function AchieveAlertDetails({
   const checklist = deriveChecklist(adherence, result.script_version)
   const checklistSections = groupChecklistBySection(checklist.rows)
   const missingCount = checklist.total - checklist.coveredCount
-  const verdict = alert.has_violation
-    ? missingCount > 0
-      ? `Flagged — ${missingCount} of ${checklist.total} required script elements were missing.`
-      : 'Flagged by the QA checker.'
-    : 'Passed — all required script elements were covered.'
+  let verdict: string
+  if (hasPoorTransfer && scriptViolation) {
+    verdict = missingCount > 0
+      ? `Flagged — ${missingCount} of ${checklist.total} required script elements were missing, and the handoff/transfer experience failed.`
+      : 'Flagged — both the required script check and the handoff/transfer experience failed.'
+  } else if (hasPoorTransfer) {
+    verdict = missingCount === 0
+      ? 'Flagged — the required script was completed, but the handoff/transfer experience failed.'
+      : 'Flagged — the handoff/transfer experience failed; the script check itself was not marked as failed.'
+  } else {
+    verdict = alert.has_violation
+      ? missingCount > 0
+        ? `Flagged — ${missingCount} of ${checklist.total} required script elements were missing.`
+        : 'Flagged by the QA checker.'
+      : 'Passed — all required script elements were covered.'
+  }
 
   return (
     <article className="space-y-5">
@@ -585,7 +625,7 @@ function AchieveAlertDetails({
         <p className={`mt-3 text-sm font-semibold ${alert.has_violation ? 'text-red-700' : 'text-emerald-700'}`}>
           {verdict}
         </p>
-        {alert.has_violation && adherence.violation_reason && (
+        {alert.has_violation && adherence.violation_reason && (!hasPoorTransfer || scriptViolation) && (
           <p className="mt-2 rounded-xl border border-red-100 bg-red-50 p-3 text-sm leading-6 text-red-900">
             {humanizeElementKeys(adherence.violation_reason, result.script_version)}
           </p>
@@ -602,6 +642,10 @@ function AchieveAlertDetails({
           {alert.recording_link && <ExternalLinkButton href={alert.recording_link} label="Recording" />}
         </div>
       </DrawerSection>
+
+      {hasPoorTransfer && transferExperience && (
+        <TransferExperienceSection transfer={transferExperience} />
+      )}
 
       <DrawerSection
         title="What happened on this call"
@@ -695,6 +739,68 @@ function AchieveAlertDetails({
         <AchieveFeedbackForm alert={alert} onSubmitted={onFeedbackSubmitted} />
       </DrawerSection>
     </article>
+  )
+}
+
+function TransferExperienceSection({ transfer }: { transfer: TransferExperience }) {
+  const reasons = transfer.reasons.length > 0
+    ? transfer.reasons.map(humanizeTransferReason)
+    : [transferExperienceSummary(transfer)]
+  const evidence = transfer.evidence.slice(0, 4)
+
+  return (
+    <DrawerSection
+      title="Transfer experience"
+      description="Handoff quality is evaluated separately from completion of the required welcome-call script."
+    >
+      <div className="space-y-5">
+        <div>
+          <h4 className="text-xs font-semibold uppercase tracking-wide text-slate-500">Why it failed</h4>
+          <ul className="mt-2 list-disc space-y-1.5 pl-5 text-sm leading-6 text-slate-700">
+            {reasons.map((reason, index) => <li key={`${reason}:${index}`}>{reason}</li>)}
+          </ul>
+        </div>
+
+        <div>
+          <h4 className="text-xs font-semibold uppercase tracking-wide text-slate-500">Live-agent attempts</h4>
+          <p className="mt-1 text-xs leading-5 text-slate-500">
+            Agent names are transcribed from audio (ASR), so spelling may be approximate.
+          </p>
+          {transfer.agentAttempts.length > 0 ? (
+            <ul className="mt-2 space-y-2">
+              {transfer.agentAttempts.map((attempt, index) => (
+                <li key={`${attempt.line}:${index}`} className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+                  <p className="text-sm font-semibold text-slate-800">
+                    {attempt.nameAsr ? `Name heard as “${attempt.nameAsr}”` : 'Agent name not captured'}
+                  </p>
+                  <blockquote className="mt-1 text-sm leading-6 text-slate-600">“{attempt.quote}”</blockquote>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="mt-2 text-sm text-slate-500">No live-agent attempt names were captured.</p>
+          )}
+        </div>
+
+        <div>
+          <h4 className="text-xs font-semibold uppercase tracking-wide text-slate-500">Partner-leg evidence</h4>
+          {evidence.length > 0 ? (
+            <>
+              <ul className="mt-2 list-disc space-y-2 pl-5 text-sm leading-6 text-slate-700">
+                {evidence.map((item, index) => <li key={`${item.line}:${index}`}>“{item.quote}”</li>)}
+              </ul>
+              {transfer.evidence.length > evidence.length && (
+                <p className="mt-2 text-xs text-slate-500">
+                  {transfer.evidence.length - evidence.length} additional evidence {transfer.evidence.length - evidence.length === 1 ? 'quote' : 'quotes'} not shown.
+                </p>
+              )}
+            </>
+          ) : (
+            <p className="mt-2 text-sm text-slate-500">No transfer evidence quotes were captured.</p>
+          )}
+        </div>
+      </div>
+    </DrawerSection>
   )
 }
 
