@@ -18,6 +18,7 @@ import AlertsPage from "./pages/AlertsPage";
 import DispositionAuditPage from "./pages/DispositionAuditPage";
 import TeamPage from "./pages/TeamPage";
 import SalesFloorInsightsPage from "./pages/SalesFloorInsightsPage";
+import GotaAdoptionPage from "./pages/GotaAdoptionPage";
 import AgentProfilePage from "./pages/AgentProfilePage";
 import HelpPage from "./pages/HelpPage";
 import AdminPage from "./pages/AdminPage";
@@ -116,6 +117,17 @@ const App = () => (
                 <ProtectedRoute>
                   <DashboardLayout>
                     <SalesFloorInsightsPage />
+                  </DashboardLayout>
+                </ProtectedRoute>
+              }
+            />
+
+            <Route
+              path="/dashboard/gota"
+              element={
+                <ProtectedRoute>
+                  <DashboardLayout>
+                    <GotaAdoptionPage />
                   </DashboardLayout>
                 </ProtectedRoute>
               }

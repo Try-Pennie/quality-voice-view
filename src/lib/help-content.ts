@@ -351,6 +351,12 @@ const ENTRIES = {
     body:
       'Detects mentions of pending lawsuits, garnishments, or attorneys. Agents must confirm or escalate per legal policy when these surface.',
   },
+  'module.gota_check': {
+    category: 'Alert types',
+    title: 'Achieve GOTA',
+    body:
+      'Checks that the agent ran the guided GOTA signing walkthrough (Going Over The Agreement) while the client e-signed an Achieve enrollment. Achieve-assigned agents only — Beyond enrollments are never graded. Fires only when a client signed without the walkthrough; skipped walkthrough sections ("beats") are coaching signals, not violations.',
+  },
   'module.program_expectations': {
     category: 'Alert types',
     title: 'Program expectations',
@@ -492,6 +498,7 @@ export const MODULE_HELP_IDS: Record<string, HelpId> = {
   warm_transfer: 'module.warm_transfer',
   litigation_check: 'module.litigation_check',
   program_expectations: 'module.program_expectations',
+  gota_check: 'module.gota_check',
 }
 
 export const VIOLATION_HELP_IDS: Record<string, HelpId> = {
@@ -500,6 +507,7 @@ export const VIOLATION_HELP_IDS: Record<string, HelpId> = {
   warm_transfer: 'violation.warm_transfer',
   litigation_check: 'violation.litigation_check',
   program_expectations: 'violation.program_expectations',
+  gota_check: 'module.gota_check',
 }
 
 export const ACTION_HELP_IDS: Record<string, HelpId> = {
