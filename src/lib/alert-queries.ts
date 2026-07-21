@@ -500,6 +500,7 @@ export const VIOLATION_TYPE_LABELS: Record<string, string> = {
   litigation_check: 'Litigation check',
   program_expectations: 'Program expectations',
   achieve_welcome_call: 'Achieve welcome call',
+  gota_check: 'Achieve GOTA',
 }
 
 export const MODULE_LABELS: Record<string, string> = {
@@ -509,6 +510,7 @@ export const MODULE_LABELS: Record<string, string> = {
   litigation_check: 'Litigation check',
   program_expectations: 'Program expectations',
   achieve_welcome_call_qa: 'Achieve Welcome Call QA',
+  gota_check: 'Achieve GOTA',
 }
 
 export const ACTION_TAKEN_LABELS: Record<string, string> = {
@@ -548,6 +550,8 @@ export function extractEvidence(violationType: string, result: any): string {
       return result?.key_evidence_quote || ''
     case 'program_expectations':
       return result?.key_evidence_quote || ''
+    case 'gota_check':
+      return result?.key_evidence_quote || ''
     default:
       return ''
   }
@@ -565,6 +569,8 @@ export function extractReason(violationType: string, result: any): string {
     case 'litigation_check':
       return result?.violation_reason || ''
     case 'program_expectations':
+      return result?.violation_reason || ''
+    case 'gota_check':
       return result?.violation_reason || ''
     default:
       return ''

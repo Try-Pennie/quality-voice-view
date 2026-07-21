@@ -58,6 +58,8 @@ export function accentForViolation(violationType: string): AccentFamily {
       return 'blue'
     case 'program_expectations':
       return 'yellow'
+    case 'gota_check':
+      return 'peach'
     default:
       return 'navy'
   }

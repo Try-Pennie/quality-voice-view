@@ -26,6 +26,7 @@ import {
   fetchCallDetail,
 } from '../lib/queries'
 import { fetchRecentNotifications } from '../lib/notification-queries'
+import { fetchGotaEvaluations } from '../lib/gota-queries'
 import {
   fetchInsightsReport,
   priorWeekOf,
@@ -75,6 +76,19 @@ export function useUserScope(email: string | null | undefined) {
     enabled: !!email,
     // Manager → agent mapping rarely changes within a session.
     staleTime: 5 * 60_000,
+  })
+}
+
+export function useGotaEvaluations(
+  scope: UserScope | null | undefined,
+  startDate: Date,
+  endDate: Date,
+) {
+  return useQuery({
+    queryKey: ['gotaEvaluations', scopeKey(scope), dateKey(startDate), dateKey(endDate)],
+    queryFn: () => fetchGotaEvaluations(scope!, startDate, endDate),
+    enabled: !!scope,
+    placeholderData: keepPreviousData,
   })
 }
 

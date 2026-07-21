@@ -40,6 +40,7 @@ const MODULE_OPTIONS = [
   { value: 'warm_transfer', label: MODULE_LABELS.warm_transfer },
   { value: 'litigation_check', label: MODULE_LABELS.litigation_check },
   { value: 'program_expectations', label: MODULE_LABELS.program_expectations },
+  { value: 'gota_check', label: MODULE_LABELS.gota_check },
 ]
 
 type StatusView = 'all' | 'new' | 'reviewed'
