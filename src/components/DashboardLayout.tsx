@@ -82,7 +82,7 @@ function DashboardChrome({ children }: { children: React.ReactNode }) {
                 <DashNavLink to="/dashboard/team">Team</DashNavLink>
                 <DashNavLink to="/dashboard/alerts">Alerts</DashNavLink>
                 <DashNavLink to="/dashboard/disposition-audit">Disposition Audit</DashNavLink>
-                <DashNavLink to="/dashboard/gota">GOTA</DashNavLink>
+                <DashNavLink to="/dashboard/gota">Achieve GOTA</DashNavLink>
                 <DashNavLink to="/dashboard/insights">Insights</DashNavLink>
                 {isGodMode && (
                   <DashNavLink to="/dashboard/admin">Admin</DashNavLink>
@@ -173,7 +173,7 @@ function DashboardChrome({ children }: { children: React.ReactNode }) {
                       Disposition Audit
                     </MobileNavLink>
                     <MobileNavLink to="/dashboard/gota">
-                      GOTA
+                      Achieve GOTA
                     </MobileNavLink>
                     <MobileNavLink to="/dashboard/insights">
                       Insights

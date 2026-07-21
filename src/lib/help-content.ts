@@ -355,7 +355,7 @@ const ENTRIES = {
     category: 'Alert types',
     title: 'Achieve GOTA',
     body:
-      'Checks that the agent ran the guided GOTA signing walkthrough (Going Over The Agreement) while the client e-signed an Achieve enrollment. Fires only when a client signed without the walkthrough; skipped walkthrough sections ("beats") are coaching signals, not violations.',
+      'Checks that the agent ran the guided GOTA signing walkthrough (Going Over The Agreement) while the client e-signed an Achieve enrollment. Achieve-assigned agents only — Beyond enrollments are never graded. Fires only when a client signed without the walkthrough; skipped walkthrough sections ("beats") are coaching signals, not violations.',
   },
   'module.program_expectations': {
     category: 'Alert types',

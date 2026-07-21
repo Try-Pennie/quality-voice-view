@@ -82,7 +82,8 @@ function AdoptionTrendCard({
     >
       {!hasData ? (
         <div className="h-[240px] flex items-center justify-center text-sm text-pennie-graphite/50">
-          No signed Achieve enrollments in this window
+          No signed Achieve enrollments in this window — only Achieve-assigned
+          agents' calls are graded
         </div>
       ) : (
         <div
@@ -295,7 +296,8 @@ function AgentAdoptionTable({
         </div>
       ) : agents.length === 0 ? (
         <p className="mt-4 text-sm text-pennie-graphite/60">
-          No Achieve GOTA evaluations in this window.
+          No Achieve GOTA evaluations in this window. Only enrollment calls by
+          Achieve-assigned agents are graded — Beyond teams won't appear here.
         </p>
       ) : (
         <div className="mt-4 overflow-x-auto">
@@ -372,7 +374,8 @@ function RecentEvaluationsTable({
         </div>
       ) : recent.length === 0 ? (
         <p className="mt-4 text-sm text-pennie-graphite/60">
-          No evaluations in this window.
+          No evaluations in this window — only Achieve-assigned agents' calls
+          are graded.
         </p>
       ) : (
         <div className="mt-4 overflow-x-auto">
@@ -555,7 +558,7 @@ export default function GotaAdoptionPage() {
                 </>
               )
             }
-            description="The GOTA (Going Over The Agreement) is the guided signing walkthrough required on every Achieve enrollment before the welcome call. Adoption = signed enrollments where the agent walked the client through the agreement page by page."
+            description="The GOTA (Going Over The Agreement) is the guided signing walkthrough required on every Achieve enrollment before the welcome call. Adoption = signed enrollments where the agent walked the client through the agreement page by page. Achieve only — calls by Beyond-assigned agents are never graded here."
             statsCols="grid-cols-2 sm:grid-cols-4"
             stats={
               !loading ? (
@@ -572,10 +575,12 @@ export default function GotaAdoptionPage() {
           <div className="flex items-start gap-2 rounded-2xl bg-pennie-beige/60 px-4 py-3 text-xs text-pennie-graphite/80">
             <Info className="w-4 h-4 flex-none mt-0.5 text-pennie-blue-deeper" aria-hidden="true" />
             <p>
-              The GOTA check is in rollout: Slack alerts are paused while
-              accuracy is validated, so this page and the alert queue are the
-              places to review. Grades come from an automated QA model and are
-              directional — confirm on the call before coaching.
+              The GOTA check only evaluates enrollment calls by agents assigned
+              to the Achieve partner — if your team works Beyond leads, this
+              page will stay empty. The check is in rollout: Slack alerts are
+              paused while accuracy is validated, so this page and the alert
+              queue are the places to review. Grades come from an automated QA
+              model and are directional — confirm on the call before coaching.
               {summary.overturned > 0 &&
                 ` ${summary.overturned} flagged call${summary.overturned === 1 ? ' has' : 's have'} already been overturned as inaccurate in this window.`}
             </p>
