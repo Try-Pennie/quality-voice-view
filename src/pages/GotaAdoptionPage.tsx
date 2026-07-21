@@ -176,9 +176,8 @@ function BeatCoverageCard({
     <div className={CARD}>
       <p className="pennie-label">Walkthrough beat coverage</p>
       <p className="text-xs text-pennie-graphite/60 mt-1">
-        How often each key section is covered inside conducted walkthroughs —
-        the lowest bars are the floor-wide coaching targets. Beats never make a
-        call a violation.
+        How often each section is covered in conducted walkthroughs. Lowest bars
+        are coaching targets.
       </p>
       {loading ? (
         <div className="mt-4 space-y-3">
@@ -248,8 +247,7 @@ function PacketMixCard({
     <div className={CARD}>
       <p className="pennie-label">Agreement packets</p>
       <p className="text-xs text-pennie-graphite/60 mt-1">
-        Signed enrollments by agreement type. Red-state clients sign the
-        Turnbull Law Group packet; green states sign the FDR agreement.
+        Signed enrollments by agreement type.
       </p>
       {loading ? (
         <div className="mt-4 h-24 rounded-2xl bg-pennie-beige/60 animate-pulse" />
@@ -287,8 +285,7 @@ function AgentAdoptionTable({
     <div className={CARD}>
       <p className="pennie-label">Adoption by agent</p>
       <p className="text-xs text-pennie-graphite/60 mt-1">
-        Coaching order — agents with signed-without-GOTA calls first, then the
-        lowest adoption. “Avg missed beats” is within conducted walkthroughs.
+        Coaching order: signed-without-GOTA first, then lowest adoption.
       </p>
       {loading ? (
         <div className="mt-4">
@@ -364,9 +361,7 @@ function RecentEvaluationsTable({
     <div className={CARD}>
       <p className="pennie-label">Recent evaluations</p>
       <p className="text-xs text-pennie-graphite/60 mt-1">
-        Every Achieve enrollment call the GOTA check graded, newest first.
-        “Signed w/o GOTA” rows link to the alert for review; everything else
-        links to the call.
+        Every graded enrollment call, newest first.
       </p>
       {loading ? (
         <div className="mt-4">
@@ -558,7 +553,7 @@ export default function GotaAdoptionPage() {
                 </>
               )
             }
-            description="The GOTA (Going Over The Agreement) is the guided signing walkthrough required on every Achieve enrollment before the welcome call. Adoption = signed enrollments where the agent walked the client through the agreement page by page. Achieve only — calls by Beyond-assigned agents are never graded here."
+            description="Adoption is the share of signed Achieve enrollments where the agent walked the client through the agreement page by page. Achieve only."
             statsCols="grid-cols-2 sm:grid-cols-4"
             stats={
               !loading ? (
@@ -575,14 +570,11 @@ export default function GotaAdoptionPage() {
           <div className="flex items-start gap-2 rounded-2xl bg-pennie-beige/60 px-4 py-3 text-xs text-pennie-graphite/80">
             <Info className="w-4 h-4 flex-none mt-0.5 text-pennie-blue-deeper" aria-hidden="true" />
             <p>
-              The GOTA check only evaluates enrollment calls by agents assigned
-              to the Achieve partner — if your team works Beyond leads, this
-              page will stay empty. The check is in rollout: Slack alerts are
-              paused while accuracy is validated, so this page and the alert
-              queue are the places to review. Grades come from an automated QA
-              model and are directional — confirm on the call before coaching.
+              In rollout: Slack alerts are paused while accuracy is validated —
+              review here and in the alert queue. Grades come from an automated
+              QA model, so confirm on the call before coaching.
               {summary.overturned > 0 &&
-                ` ${summary.overturned} flagged call${summary.overturned === 1 ? ' has' : 's have'} already been overturned as inaccurate in this window.`}
+                ` ${summary.overturned} flagged call${summary.overturned === 1 ? ' has' : 's have'} already been overturned in this window.`}
             </p>
           </div>
 
