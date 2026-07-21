@@ -39,6 +39,27 @@ export function formatDateTime(dateString: string | Date | null): string {
   })
 }
 
+/**
+ * Display name for an agent. Prefers the real full name; falls back to a
+ * prettified email local part ("john.smith" → "John Smith", "akhan" →
+ * "Akhan") so new agents whose names haven't reached agent_directory yet
+ * never render as "Unknown". Only shows "Unknown" when we have neither.
+ */
+export function agentDisplayName(
+  fullName: string | null | undefined,
+  email: string | null | undefined,
+): string {
+  const name = fullName?.trim()
+  if (name) return name
+  const local = email?.split('@')[0]?.trim()
+  if (!local) return 'Unknown'
+  return local
+    .split(/[._-]+/)
+    .filter(Boolean)
+    .map(part => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(' ')
+}
+
 // Pennie pill classes for legacy CallDetailPage callers. Prefer
 // pillClasses(accentForScore(...)) from lib/violation-styles for new code.
 export function getScoreBadgeColor(score: string | null): string {

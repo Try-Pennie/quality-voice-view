@@ -2,7 +2,7 @@ import { useCallback, useMemo } from 'react'
 import { useParams, useNavigate, useLocation } from 'react-router-dom'
 import { useCallDetail, useAlertsForCall, useUserScope } from '../hooks/use-queries'
 import { useAuth } from '../hooks/useAuth'
-import { formatDateTime, formatDuration, formatPhoneNumber, getScoreBadgeColor } from '../lib/utils'
+import { agentDisplayName, formatDateTime, formatDuration, formatPhoneNumber, getScoreBadgeColor } from '../lib/utils'
 import { HelpHint } from '../components/ui/help-hint'
 import { pitchCallRisk, explainPitchRisk, BAND_LABEL } from '../lib/pitch-call-risk'
 import { accentForBand, pillClasses } from '../lib/violation-styles'
@@ -178,7 +178,7 @@ export default function CallDetailPage() {
           <div className="min-w-0">
             <p className="pennie-label mb-2">Call detail</p>
             <h1 className="text-2xl sm:text-3xl font-semibold tracking-[-0.01em] text-pennie-navy">
-              {call.agent_full_name || 'Unknown agent'}
+              {agentDisplayName(call.agent_full_name, call.agent_email)}
             </h1>
             <dl className="mt-4 grid grid-cols-[auto_1fr] gap-x-4 gap-y-1.5 text-sm">
               <dt className="text-[11px] font-semibold uppercase tracking-wider text-pennie-graphite/60 pt-0.5">

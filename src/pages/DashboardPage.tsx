@@ -9,6 +9,7 @@ import {
 } from '../lib/url-filters'
 import { ymdInBusinessTZ } from '../lib/time-zone'
 import {
+  agentDisplayName,
   formatDuration,
   formatPhoneNumber,
   formatDateTime,
@@ -219,7 +220,9 @@ export default function DashboardPage() {
       if (sortKey === 'time') {
         cmp = (a.started_at || '').localeCompare(b.started_at || '')
       } else if (sortKey === 'agent') {
-        cmp = (a.agent_full_name || '').localeCompare(b.agent_full_name || '')
+        cmp = agentDisplayName(a.agent_full_name, a.agent_email).localeCompare(
+          agentDisplayName(b.agent_full_name, b.agent_email),
+        )
       } else if (sortKey === 'talk') {
         cmp = (a.talk_time ?? 0) - (b.talk_time ?? 0)
       } else if (sortKey === 'score') {
@@ -469,7 +472,7 @@ export default function DashboardPage() {
                       <div className="flex-1 min-w-0">
                         <div className="flex items-baseline justify-between gap-3">
                           <p className="text-sm font-semibold text-pennie-navy truncate">
-                            {call.agent_full_name || 'Unknown'}
+                            {agentDisplayName(call.agent_full_name, call.agent_email)}
                           </p>
                           <span className="text-[11px] text-muted-foreground tabular-nums whitespace-nowrap">
                             {formatDateTime(call.started_at)}
@@ -664,7 +667,7 @@ export default function DashboardPage() {
                       {formatDateTime(call.started_at)}
                     </td>
                     <td className="px-4 py-4 whitespace-nowrap text-sm font-semibold text-pennie-navy">
-                      {call.agent_full_name || 'Unknown'}
+                      {agentDisplayName(call.agent_full_name, call.agent_email)}
                     </td>
                     <td className="px-4 py-4 whitespace-nowrap text-sm text-muted-foreground tabular-nums">
                       {formatPhoneNumber(call.contact_phone)}
