@@ -473,6 +473,36 @@ export type Database = {
         }
         Relationships: []
       }
+      eavesly_module_results_with_feedback: {
+        Row: {
+          accurate: boolean | null
+          action_taken: string | null
+          agent_email: string | null
+          alert_sent: boolean | null
+          alert_sent_at: string | null
+          assigned_manager_email: string | null
+          call_id: string | null
+          call_summary: string | null
+          contact_name: string | null
+          contact_phone: string | null
+          created_at: string | null
+          feedback_by: string | null
+          feedback_comment: string | null
+          feedback_id: number | null
+          has_violation: boolean | null
+          inaccuracy_reason: string | null
+          is_reviewed: boolean | null
+          module_name: string | null
+          module_result_id: number | null
+          recording_link: string | null
+          result_json: Json | null
+          reviewed_at: string | null
+          sfdc_lead_id: string | null
+          transcript_url: string | null
+          violation_type: string | null
+        }
+        Relationships: []
+      }
       eavesly_session_index: {
         Row: {
           agent_email: string | null
