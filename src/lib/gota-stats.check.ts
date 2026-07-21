@@ -34,7 +34,7 @@ function evaluation(overrides: Partial<GotaEvaluation> & { call_id: string }): G
   return {
     agent_email: 'agent@trypennie.com',
     contact_name: null,
-    alert_created_at: '2026-07-21T15:00:00Z',
+    evaluated_at: '2026-07-21T15:00:00Z',
     has_violation: false,
     is_reviewed: false,
     accurate: null,
@@ -58,7 +58,7 @@ const conducted = evaluation({
 const conductedMissingBeats = evaluation({
   call_id: 'c2',
   agent_email: 'other@trypennie.com',
-  alert_created_at: '2026-07-22T15:00:00Z',
+  evaluated_at: '2026-07-22T15:00:00Z',
   result: parseGotaResult({
     enrollment_completed: true,
     gota_conducted: true,
@@ -71,7 +71,7 @@ const conductedMissingBeats = evaluation({
 const violation = evaluation({
   call_id: 'c3',
   has_violation: true,
-  alert_created_at: '2026-07-22T18:00:00Z',
+  evaluated_at: '2026-07-22T18:00:00Z',
   result: parseGotaResult({ enrollment_completed: true, gota_conducted: false }),
 })
 const noSigning = evaluation({

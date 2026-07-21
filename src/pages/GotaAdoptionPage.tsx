@@ -401,7 +401,7 @@ function RecentEvaluationsTable({
                         to={target}
                         className="pennie-focus-ring text-pennie-blue-deeper hover:underline underline-offset-4"
                       >
-                        {fmtDate(r.alert_created_at)}
+                        {fmtDate(r.evaluated_at)}
                       </Link>
                     </td>
                     <td className="py-3 pr-4 text-pennie-graphite/90">

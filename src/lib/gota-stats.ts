@@ -5,7 +5,8 @@
 // The GOTA (Going Over The Agreement) is Pennie's guided, page-by-page signing
 // walkthrough, mandatory on every Achieve enrollment before the welcome call.
 // Eavesly's gota_check module evaluates each Achieve enrollment call and stores
-// one row per call (surfaced through eavesly_alerts_with_feedback):
+// one row per call (surfaced through eavesly_module_results_with_feedback —
+// NOT the alerts view, which filters to alert_sent and would hide clean calls):
 //
 //   result_json.enrollment_completed  — the client e-signed on this call
 //   result_json.gota_conducted        — the agent ran the guided walkthrough
@@ -84,7 +85,7 @@ export type GotaEvaluation = {
   call_id: string
   agent_email: string | null
   contact_name: string | null
-  alert_created_at: string
+  evaluated_at: string
   has_violation: boolean
   is_reviewed: boolean
   accurate: boolean | null
@@ -192,8 +193,8 @@ export function aggregateGotaByAgent(rows: GotaEvaluation[]): GotaAgentRow[] {
               (missedBeatCounts.reduce((a, b) => a + b, 0) / missedBeatCounts.length) * 10,
             ) / 10,
       lastCallAt: agentRows.reduce(
-        (latest, r) => (r.alert_created_at > latest ? r.alert_created_at : latest),
-        agentRows[0].alert_created_at,
+        (latest, r) => (r.evaluated_at > latest ? r.evaluated_at : latest),
+        agentRows[0].evaluated_at,
       ),
     })
   }
@@ -220,7 +221,7 @@ export type GotaDailyBucket = {
 export function aggregateGotaDaily(rows: GotaEvaluation[]): GotaDailyBucket[] {
   const byDay = new Map<string, { signings: number; conducted: number; violations: number }>()
   for (const row of rows) {
-    const day = ymdInBusinessTZ(new Date(row.alert_created_at))
+    const day = ymdInBusinessTZ(new Date(row.evaluated_at))
     const bucket = byDay.get(day) ?? { signings: 0, conducted: 0, violations: 0 }
     if (row.result.enrollment_completed) bucket.signings += 1
     if (row.result.enrollment_completed && row.result.gota_conducted) bucket.conducted += 1
