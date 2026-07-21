@@ -1,10 +1,19 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { NavLink, useNavigate, useLocation } from 'react-router-dom'
-import { BookOpen, Lightbulb, LightbulbOff, LogOut, Menu } from 'lucide-react'
+import {
+  BookOpen,
+  ChevronDown,
+  Lightbulb,
+  LightbulbOff,
+  LogOut,
+  Menu,
+} from 'lucide-react'
 import { useAuth } from '../hooks/useAuth'
-import { useUserScope } from '../hooks/use-queries'
+import { useAlertBreakdown, useUserScope } from '../hooks/use-queries'
+import { ymdInBusinessTZ } from '../lib/time-zone'
 import { HintsProvider, useHints } from './ui/help-hint'
 import { NotificationBell } from './NotificationBell'
+import { Popover, PopoverContent, PopoverTrigger } from './ui/popover'
 import {
   Sheet,
   SheetContent,
@@ -12,6 +21,14 @@ import {
   SheetTitle,
   SheetTrigger,
 } from './ui/sheet'
+
+// Secondary analysis surfaces grouped under the "Reports" dropdown so the
+// primary manager loop (Calls / Alerts / Team) stays flat in the top nav.
+const REPORT_LINKS = [
+  { to: '/dashboard/disposition-audit', label: 'Disposition Audit' },
+  { to: '/dashboard/gota', label: 'Achieve GOTA' },
+  { to: '/dashboard/insights', label: 'Insights' },
+]
 
 export function DashboardLayout({ children }: { children: React.ReactNode }) {
   return (
@@ -31,6 +48,25 @@ function DashboardChrome({ children }: { children: React.ReactNode }) {
   const navigate = useNavigate()
   const location = useLocation()
   const [mobileNavOpen, setMobileNavOpen] = useState(false)
+  const [reportsOpen, setReportsOpen] = useState(false)
+
+  // Open-alert count for the Alerts nav badge — today's window (ET), matching
+  // the queue's default view, so it shares the AlertsPage breakdown cache.
+  // Uses the simple `unreviewed` count for all roles; god-mode "needs my ✓"
+  // nuance stays on the page itself.
+  const [todayStart, todayEnd] = useMemo(() => {
+    const [y, m, d] = ymdInBusinessTZ(new Date()).split('-').map(Number)
+    const start = new Date(y, m - 1, d)
+    start.setHours(0, 0, 0, 0)
+    const end = new Date(y, m - 1, d)
+    end.setHours(23, 59, 59, 999)
+    return [start, end] as const
+  }, [])
+  const { data: breakdown } = useAlertBreakdown(scope, todayStart, todayEnd)
+  const openAlertCount = useMemo(
+    () => (breakdown ?? []).reduce((sum, c) => sum + c.unreviewed, 0),
+    [breakdown],
+  )
 
   // Press "?" anywhere outside text inputs to jump to the glossary.
   useEffect(() => {
@@ -58,6 +94,7 @@ function DashboardChrome({ children }: { children: React.ReactNode }) {
   // params don't matter for this.
   useEffect(() => {
     setMobileNavOpen(false)
+    setReportsOpen(false)
   }, [location.pathname])
 
   return (
@@ -79,11 +116,11 @@ function DashboardChrome({ children }: { children: React.ReactNode }) {
                 <DashNavLink to="/dashboard" end>
                   Calls
                 </DashNavLink>
+                <DashNavLink to="/dashboard/alerts" badge={openAlertCount}>
+                  Alerts
+                </DashNavLink>
                 <DashNavLink to="/dashboard/team">Team</DashNavLink>
-                <DashNavLink to="/dashboard/alerts">Alerts</DashNavLink>
-                <DashNavLink to="/dashboard/disposition-audit">Disposition Audit</DashNavLink>
-                <DashNavLink to="/dashboard/gota">Achieve GOTA</DashNavLink>
-                <DashNavLink to="/dashboard/insights">Insights</DashNavLink>
+                <ReportsMenu open={reportsOpen} onOpenChange={setReportsOpen} />
                 {isGodMode && (
                   <DashNavLink to="/dashboard/admin">Admin</DashNavLink>
                 )}
@@ -165,19 +202,19 @@ function DashboardChrome({ children }: { children: React.ReactNode }) {
                     <MobileNavLink to="/dashboard" end>
                       Calls
                     </MobileNavLink>
-                    <MobileNavLink to="/dashboard/team">Team</MobileNavLink>
-                    <MobileNavLink to="/dashboard/alerts">
+                    <MobileNavLink
+                      to="/dashboard/alerts"
+                      badge={openAlertCount}
+                    >
                       Alerts
                     </MobileNavLink>
-                    <MobileNavLink to="/dashboard/disposition-audit">
-                      Disposition Audit
-                    </MobileNavLink>
-                    <MobileNavLink to="/dashboard/gota">
-                      Achieve GOTA
-                    </MobileNavLink>
-                    <MobileNavLink to="/dashboard/insights">
-                      Insights
-                    </MobileNavLink>
+                    <MobileNavLink to="/dashboard/team">Team</MobileNavLink>
+                    <p className="pennie-label px-4 pt-4 pb-1">Reports</p>
+                    {REPORT_LINKS.map(link => (
+                      <MobileNavLink key={link.to} to={link.to}>
+                        {link.label}
+                      </MobileNavLink>
+                    ))}
                     {isGodMode && (
                       <MobileNavLink to="/dashboard/admin" carryDates={false}>
                         Admin
@@ -240,14 +277,101 @@ function DashboardChrome({ children }: { children: React.ReactNode }) {
   )
 }
 
+function NavBadge({ count }: { count: number }) {
+  if (count <= 0) return null
+  return (
+    <span
+      className="inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 rounded-full bg-pennie-blue-deeper text-pennie-white text-[10px] font-bold tabular-nums"
+      aria-label={`${count} open alert${count === 1 ? '' : 's'} today`}
+    >
+      {count > 99 ? '99+' : count}
+    </span>
+  )
+}
+
+function ReportsMenu({
+  open,
+  onOpenChange,
+}: {
+  open: boolean
+  onOpenChange: (open: boolean) => void
+}) {
+  const location = useLocation()
+  const isActive = REPORT_LINKS.some(link =>
+    location.pathname.startsWith(link.to),
+  )
+  const params = new URLSearchParams(location.search)
+  const start = params.get('start')
+  const endParam = params.get('end')
+  const carry = new URLSearchParams()
+  if (start) carry.set('start', start)
+  if (endParam) carry.set('end', endParam)
+  const withDates = (to: string) =>
+    carry.toString() ? `${to}?${carry.toString()}` : to
+
+  return (
+    <Popover open={open} onOpenChange={onOpenChange}>
+      <PopoverTrigger asChild>
+        <button
+          type="button"
+          aria-expanded={open}
+          className={`pennie-focus-ring relative px-4 py-2 rounded-full text-sm font-semibold transition-colors inline-flex items-center gap-1.5 ${
+            isActive
+              ? 'text-pennie-navy bg-pennie-beige'
+              : 'text-pennie-graphite/70 hover:text-pennie-navy hover:bg-pennie-beige/60'
+          }`}
+        >
+          {isActive && (
+            <span
+              className="w-1.5 h-1.5 rounded-full bg-pennie-blue-dark"
+              aria-hidden="true"
+            />
+          )}
+          Reports
+          <ChevronDown
+            className={`w-3.5 h-3.5 transition-transform ${open ? 'rotate-180' : ''}`}
+            aria-hidden="true"
+          />
+        </button>
+      </PopoverTrigger>
+      <PopoverContent
+        align="start"
+        sideOffset={8}
+        className="w-56 p-2 rounded-2xl bg-pennie-white border-border shadow-floating"
+      >
+        <nav aria-label="Reports" className="flex flex-col gap-0.5">
+          {REPORT_LINKS.map(link => (
+            <NavLink
+              key={link.to}
+              to={withDates(link.to)}
+              onClick={() => onOpenChange(false)}
+              className={({ isActive: linkActive }) =>
+                `pennie-focus-ring flex items-center min-h-[40px] px-3 rounded-xl text-sm font-semibold transition-colors ${
+                  linkActive
+                    ? 'text-pennie-navy bg-pennie-beige'
+                    : 'text-pennie-graphite hover:text-pennie-navy hover:bg-pennie-beige/60'
+                }`
+              }
+            >
+              {link.label}
+            </NavLink>
+          ))}
+        </nav>
+      </PopoverContent>
+    </Popover>
+  )
+}
+
 function DashNavLink({
   to,
   end,
   children,
+  badge,
 }: {
   to: string
   end?: boolean
   children: React.ReactNode
+  badge?: number
 }) {
   const location = useLocation()
   // Calls / Team / Alerts all use the same ?start=&end= contract, so carrying
@@ -281,6 +405,7 @@ function DashNavLink({
             />
           )}
           {children}
+          {badge != null && <NavBadge count={badge} />}
         </span>
       )}
     </NavLink>
@@ -292,11 +417,13 @@ function MobileNavLink({
   end,
   children,
   carryDates = true,
+  badge,
 }: {
   to: string
   end?: boolean
   children: React.ReactNode
   carryDates?: boolean
+  badge?: number
 }) {
   const location = useLocation()
   const params = new URLSearchParams(location.search)
@@ -327,6 +454,7 @@ function MobileNavLink({
             aria-hidden="true"
           />
           {children}
+          {badge != null && <NavBadge count={badge} />}
         </span>
       )}
     </NavLink>

@@ -1,13 +1,17 @@
-import { useState, useEffect, useMemo, useCallback, useId, type KeyboardEvent } from 'react'
+import { useState, useEffect, useMemo, useCallback, useId, useRef, type KeyboardEvent } from 'react'
+import { toast } from 'sonner'
 import { useParams, useNavigate, useSearchParams, useLocation } from 'react-router-dom'
 import { useQueryClient } from '@tanstack/react-query'
 import { useAuth } from '../hooks/useAuth'
 import {
   fetchAlertOne,
+  setAlertAck,
   VIOLATION_TYPE_LABELS,
   MODULE_LABELS,
+  type AlertBreakdownCell,
   type AlertFilters,
 } from '../lib/alert-queries'
+import type { AgentRollup } from '../lib/team-queries'
 import { AlertHeatmap } from '../components/alerts/AlertHeatmap'
 import {
   useUserScope,
@@ -28,7 +32,16 @@ import { AlertReviewDrawer } from '../components/alerts/AlertReviewDrawer'
 import { formatDateParam, parseDateParam } from '../lib/url-filters'
 import { ymdInBusinessTZ } from '../lib/time-zone'
 import { filterSuppressedAlertRows, isSuppressedAlertModule } from '../lib/suppressed-alerts'
-import { CheckCheck, ChevronDown, ChevronRight, Inbox, MessageSquare, Search } from 'lucide-react'
+import {
+  CheckCheck,
+  ChevronDown,
+  ChevronRight,
+  Inbox,
+  Loader2,
+  MessageSquare,
+  Search,
+} from 'lucide-react'
+import { SortableTh } from '@/components/ui/sortable-th'
 import { HelpHint } from '../components/ui/help-hint'
 import { PageHero, SupportingStat } from '../components/PageHero'
 import { ErrorState } from '@/components/states/ErrorState'
@@ -44,6 +57,11 @@ const MODULE_OPTIONS = [
 ]
 
 type StatusView = 'all' | 'new' | 'reviewed'
+
+type SortKey = 'time' | 'agent' | 'violation' | 'status'
+
+const alertKey = (a: Pick<AlertWithFeedback, 'call_id' | 'module_name'>) =>
+  `${a.call_id}__${a.module_name}`
 
 export default function AlertsPage() {
   const { user } = useAuth()
@@ -92,6 +110,20 @@ export default function AlertsPage() {
   // Mobile-only collapse state for the alert-type chip row. Open by default
   // on `sm+` (the disclosure trigger is hidden); state ignored there.
   const [alertTypeOpen, setAlertTypeOpen] = useState(false)
+
+  // Column sorting for the queue table. Time descending is the default —
+  // newest alerts first, matching the fetch order.
+  const [sortKey, setSortKey] = useState<SortKey>('time')
+  const [sortDesc, setSortDesc] = useState(true)
+
+  // Bulk approve (god-mode): row selection over already-manager-reviewed
+  // alerts that still need this user's ✓.
+  const [selected, setSelected] = useState<Set<string>>(new Set())
+  const [bulkPending, setBulkPending] = useState(false)
+
+  // Roving row focus for J/K keyboard navigation on the list itself.
+  const [focusIndex, setFocusIndex] = useState(-1)
+  const rowRefs = useRef<Map<number, HTMLTableRowElement>>(new Map())
 
   // Only date + module hit the server; status, accuracy, and search are
   // applied client-side against the in-memory result set.
@@ -198,8 +230,48 @@ export default function AlertsPage() {
         return haystack.includes(q)
       })
     }
-    return rows
-  }, [allAlerts, statusView, search, scope?.isGodMode, closedForMe])
+
+    // Sort a copy — this ordering drives the table, J/K navigation, and the
+    // drawer's next/prev, so they always agree.
+    const statusRank = (a: AlertWithFeedback) => {
+      if (!a.is_reviewed) return 0
+      if (scope?.isGodMode && !closedForMe(a)) return 1
+      if (a.accurate === false) return 3
+      return 2
+    }
+    const sorted = [...rows].sort((a, b) => {
+      let cmp = 0
+      if (sortKey === 'time') {
+        cmp = (a.alert_created_at || '').localeCompare(b.alert_created_at || '')
+      } else if (sortKey === 'agent') {
+        cmp = (a.agent_email || '').localeCompare(b.agent_email || '')
+      } else if (sortKey === 'violation') {
+        cmp = (VIOLATION_TYPE_LABELS[a.violation_type] ?? a.violation_type).localeCompare(
+          VIOLATION_TYPE_LABELS[b.violation_type] ?? b.violation_type,
+        )
+      } else {
+        cmp = statusRank(a) - statusRank(b)
+      }
+      if (cmp === 0) {
+        // Stable tiebreak: newest first.
+        cmp = (b.alert_created_at || '').localeCompare(a.alert_created_at || '')
+        return cmp
+      }
+      return sortDesc ? -cmp : cmp
+    })
+    return sorted
+  }, [allAlerts, statusView, search, scope?.isGodMode, closedForMe, sortKey, sortDesc])
+
+  const toggleSort = useCallback((key: SortKey) => {
+    setSortKey(prev => {
+      if (prev === key) {
+        setSortDesc(d => !d)
+        return prev
+      }
+      setSortDesc(key === 'time') // time defaults newest-first, text A→Z
+      return key
+    })
+  }, [])
 
   // Deep-link: open drawer if URL has /:callId/:moduleName.
   useEffect(() => {
@@ -312,11 +384,20 @@ export default function AlertsPage() {
         const stillOpen = scope?.isGodMode
           ? (a: AlertWithFeedback) => !closedForMe(a)
           : (a: AlertWithFeedback) => !a.is_reviewed
-        const remaining = allAlerts.filter(
+        // Walk the *visible* queue (sorted + searched) so auto-advance moves
+        // in the same order the manager sees in the table — continuing from
+        // the current position, then wrapping to earlier skipped alerts.
+        const idx = alerts.findIndex(
           a =>
-            stillOpen(a) &&
-            !(a.call_id === merged.call_id && a.module_name === merged.module_name),
+            a.call_id === merged.call_id && a.module_name === merged.module_name,
         )
+        const isRemaining = (a: AlertWithFeedback) =>
+          stillOpen(a) &&
+          !(a.call_id === merged.call_id && a.module_name === merged.module_name)
+        const remaining = [
+          ...alerts.slice(Math.max(idx, 0) + 1).filter(isRemaining),
+          ...alerts.slice(0, Math.max(idx, 0)).filter(isRemaining),
+        ]
         if (remaining.length === 0) {
           closeDrawer()
           return
@@ -327,7 +408,7 @@ export default function AlertsPage() {
       }
     },
     [
-      allAlerts,
+      alerts,
       drawerAlert,
       openDrawer,
       closeDrawer,
@@ -337,6 +418,149 @@ export default function AlertsPage() {
       closedForMe,
     ],
   )
+
+  // ---- Bulk approve (god-mode second-layer review) ----
+  // Only alerts that already carry a manager's structured review can be
+  // bulk-acked; unreviewed alerts must go through the drawer form.
+  const isAckable = useCallback(
+    (a: AlertWithFeedback) =>
+      !!scope?.isGodMode && !!a.is_reviewed && !closedForMe(a),
+    [scope?.isGodMode, closedForMe],
+  )
+  const ackableAlerts = useMemo(() => alerts.filter(isAckable), [alerts, isAckable])
+  const showBulkColumn = !!scope?.isGodMode && ackableAlerts.length > 0
+  const selectedTargets = useMemo(
+    () => ackableAlerts.filter(a => selected.has(alertKey(a))),
+    [ackableAlerts, selected],
+  )
+
+  // Selection only makes sense within one filtered view — reset when it moves.
+  useEffect(() => {
+    setSelected(new Set())
+  }, [startDate, endDate, statusView, moduleFilter, search])
+
+  const toggleSelected = useCallback((a: AlertWithFeedback) => {
+    setSelected(prev => {
+      const next = new Set(prev)
+      const key = alertKey(a)
+      if (next.has(key)) next.delete(key)
+      else next.add(key)
+      return next
+    })
+  }, [])
+
+  const toggleSelectAll = useCallback(() => {
+    setSelected(prev =>
+      prev.size >= ackableAlerts.length && ackableAlerts.length > 0
+        ? new Set()
+        : new Set(ackableAlerts.map(alertKey)),
+    )
+  }, [ackableAlerts])
+
+  const handleBulkApprove = useCallback(async () => {
+    const email = user?.email
+    if (!email || selectedTargets.length === 0) return
+    setBulkPending(true)
+    const results = await Promise.allSettled(
+      selectedTargets.map(a =>
+        setAlertAck({
+          call_id: a.call_id,
+          module_name: a.module_name,
+          acker_email: email,
+          acked: true,
+        }),
+      ),
+    )
+    const okKeys = new Set<string>()
+    let failed = 0
+    results.forEach((r, i) => {
+      if (r.status === 'fulfilled' && r.value.ok) okKeys.add(alertKey(selectedTargets[i]))
+      else failed++
+    })
+    if (okKeys.size > 0) {
+      queryClient.setQueriesData<AlertWithFeedback[]>(
+        { queryKey: ['alerts'] },
+        old =>
+          old?.map(a =>
+            okKeys.has(alertKey(a))
+              ? {
+                  ...a,
+                  acker_emails: Array.from(
+                    new Set([...(a.acker_emails ?? []), email]),
+                  ),
+                }
+              : a,
+          ) ?? old,
+      )
+      queryClient.invalidateQueries({ queryKey: ['alertBreakdown'] })
+    }
+    setBulkPending(false)
+    setSelected(new Set())
+    if (failed === 0) {
+      toast.success(
+        `Approved ${okKeys.size} review${okKeys.size === 1 ? '' : 's'}`,
+      )
+    } else {
+      toast.error(
+        `Approved ${okKeys.size}, ${failed} failed — select the rest and try again.`,
+      )
+    }
+  }, [user?.email, selectedTargets, queryClient])
+
+  // ---- J/K keyboard navigation over the list (drawer closed) ----
+  useEffect(() => {
+    if (drawerAlert) return
+    const handler = (e: globalThis.KeyboardEvent) => {
+      const t = e.target as HTMLElement | null
+      if (
+        t &&
+        (t.tagName === 'INPUT' ||
+          t.tagName === 'TEXTAREA' ||
+          t.tagName === 'SELECT' ||
+          t.isContentEditable)
+      ) {
+        return
+      }
+      if (e.metaKey || e.ctrlKey || e.altKey) return
+      if (e.key === 'j' || e.key === 'k') {
+        e.preventDefault()
+        setFocusIndex(prev => {
+          if (alerts.length === 0) return -1
+          if (prev === -1) return 0
+          return e.key === 'j'
+            ? Math.min(prev + 1, alerts.length - 1)
+            : Math.max(prev - 1, 0)
+        })
+      } else if (e.key === 'Enter') {
+        // Focused buttons/links keep their native Enter behavior (incl. the
+        // row's own Enter handler when it holds DOM focus).
+        if (
+          t &&
+          (t.tagName === 'BUTTON' ||
+            t.tagName === 'A' ||
+            t.getAttribute('role') === 'button')
+        ) {
+          return
+        }
+        const target = alerts[focusIndex]
+        if (focusIndex >= 0 && target) {
+          e.preventDefault()
+          openDrawer(target)
+        }
+      }
+    }
+    window.addEventListener('keydown', handler)
+    return () => window.removeEventListener('keydown', handler)
+  }, [drawerAlert, alerts, focusIndex, openDrawer])
+
+  // Keep the focused row visible and clamp when the list shrinks.
+  useEffect(() => {
+    setFocusIndex(prev => (prev >= alerts.length ? alerts.length - 1 : prev))
+  }, [alerts.length])
+  useEffect(() => {
+    if (focusIndex < 0) return
+    rowRefs.current.get(focusIndex)?.scrollIntoView({ block: 'nearest' })
+  }, [focusIndex])
 
   const stats = useMemo(() => {
     const total = alerts.length
@@ -437,6 +661,16 @@ export default function AlertsPage() {
     )
   }
 
+  // Drawer position within the visible queue — drives prev/next, the
+  // "3 of 17" indicator, and hides both when a deep link isn't in the list.
+  const drawerIndex = drawerAlert
+    ? alerts.findIndex(
+        a =>
+          a.call_id === drawerAlert.call_id &&
+          a.module_name === drawerAlert.module_name,
+      )
+    : -1
+
   // Headline reflects the count in the current filtered view. For god-mode
   // this includes manager-reviewed-but-not-acked-by-me alerts under "new".
   const headlineNumber = alerts.length
@@ -526,13 +760,12 @@ export default function AlertsPage() {
               Status
               <HelpHint id="filter.alerts.status" />
             </legend>
-            <div className="flex gap-1" role="radiogroup" aria-label="Filter by status">
+            <div className="flex gap-1" role="group" aria-label="Filter by status">
               {(['new', 'reviewed', 'all'] as const).map(s => (
                 <button
                   key={s}
                   type="button"
-                  role="radio"
-                  aria-checked={statusView === s}
+                  aria-pressed={statusView === s}
                   onClick={() => setStatusView(s)}
                   className={`min-h-[40px] px-4 py-2 rounded-full text-sm font-semibold border transition-all duration-200 ${
                     statusView === s
@@ -651,24 +884,99 @@ export default function AlertsPage() {
           />
         ) : alerts.length === 0 ? (
           <EmptyState
-            title={statusView === 'new' ? 'Inbox zero — nothing to review.' : 'No alerts match.'}
+            title={
+              search.trim()
+                ? 'No matches in this window.'
+                : statusView === 'new'
+                  ? 'Inbox zero — nothing to review.'
+                  : 'No alerts match.'
+            }
             message={
-              statusView === 'new'
-                ? 'New alerts will land here as Eavesly flags them.'
-                : 'Try widening the date range or clearing filters.'
+              search.trim()
+                ? `Search only covers ${startDate.toLocaleDateString()} – ${endDate.toLocaleDateString()} — widen the date range to look further back.`
+                : statusView === 'new'
+                  ? 'New alerts will land here as Eavesly flags them.'
+                  : 'Try widening the date range or clearing filters.'
             }
           />
         ) : (
+          <>
+            {showBulkColumn && selectedTargets.length > 0 && (
+              <div className="flex flex-wrap items-center justify-between gap-3 px-4 sm:px-6 py-3 bg-pennie-green-light/60 border-b border-pennie-green-light">
+                <p className="text-sm font-semibold text-pennie-navy tabular-nums">
+                  {selectedTargets.length} selected
+                </p>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setSelected(new Set())}
+                    disabled={bulkPending}
+                    className="pennie-focus-ring min-h-[36px] px-3 py-1.5 rounded-full text-xs font-semibold text-pennie-graphite hover:text-pennie-navy hover:bg-pennie-white/70 transition-colors disabled:opacity-50"
+                  >
+                    Clear
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleBulkApprove}
+                    disabled={bulkPending}
+                    className="pennie-focus-ring inline-flex items-center gap-1.5 min-h-[36px] px-4 py-1.5 rounded-full bg-pennie-green-dark text-pennie-white text-xs font-semibold hover:bg-pennie-green-dark/90 transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
+                  >
+                    {bulkPending ? (
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" aria-hidden="true" />
+                    ) : (
+                      <CheckCheck className="w-3.5 h-3.5" aria-hidden="true" />
+                    )}
+                    {bulkPending
+                      ? 'Approving…'
+                      : `Approve ${selectedTargets.length} review${selectedTargets.length === 1 ? '' : 's'}`}
+                  </button>
+                </div>
+              </div>
+            )}
           <div className="overflow-x-auto">
             <table className="min-w-full">
               <thead className="bg-pennie-beige/60">
                 <tr>
-                  <Th>Time (ET)</Th>
-                  <Th>Agent</Th>
+                  {showBulkColumn && (
+                    <th className="pl-4 sm:pl-5 pr-1 py-3 w-10 text-left">
+                      <input
+                        type="checkbox"
+                        checked={
+                          ackableAlerts.length > 0 &&
+                          selectedTargets.length === ackableAlerts.length
+                        }
+                        onChange={toggleSelectAll}
+                        aria-label="Select all approvable alerts"
+                        className="w-4 h-4 rounded border-border text-pennie-blue-deeper focus:ring-pennie-blue-deeper/40 align-middle"
+                      />
+                    </th>
+                  )}
+                  <SortableTh
+                    label="Time (ET)"
+                    active={sortKey === 'time'}
+                    desc={sortDesc}
+                    onClick={() => toggleSort('time')}
+                  />
+                  <SortableTh
+                    label="Agent"
+                    active={sortKey === 'agent'}
+                    desc={sortDesc}
+                    onClick={() => toggleSort('agent')}
+                  />
                   <Th>Contact</Th>
-                  <Th>Violation</Th>
+                  <SortableTh
+                    label="Violation"
+                    active={sortKey === 'violation'}
+                    desc={sortDesc}
+                    onClick={() => toggleSort('violation')}
+                  />
                   <Th>Summary</Th>
-                  <Th>Status</Th>
+                  <SortableTh
+                    label="Status"
+                    active={sortKey === 'status'}
+                    desc={sortDesc}
+                    onClick={() => toggleSort('status')}
+                  />
                   <th aria-hidden="true" className="w-10" />
                 </tr>
               </thead>
@@ -676,15 +984,36 @@ export default function AlertsPage() {
                 {alerts.map((a, i) => (
                   <tr
                     key={`${a.call_id}__${a.module_name}`}
+                    ref={el => {
+                      if (el) rowRefs.current.set(i, el)
+                      else rowRefs.current.delete(i)
+                    }}
                     role="button"
                     tabIndex={0}
                     aria-label={`Review ${VIOLATION_TYPE_LABELS[a.violation_type] ?? a.violation_type} alert for ${a.contact_name ?? 'unknown contact'}`}
                     className={`pennie-focus-ring-inset group cursor-pointer transition-colors duration-150 hover:bg-pennie-blue-light/40 ${
                       i !== 0 ? 'border-t border-border/60' : ''
-                    }`}
+                    } ${i === focusIndex ? 'bg-pennie-blue-light/40' : ''}`}
                     onClick={() => openDrawer(a)}
                     onKeyDown={e => onRowKeyDown(e, a)}
                   >
+                    {showBulkColumn && (
+                      <td
+                        className="pl-4 sm:pl-5 pr-1 py-3 sm:py-4 align-top w-10"
+                        onClick={e => e.stopPropagation()}
+                        onKeyDown={e => e.stopPropagation()}
+                      >
+                        {isAckable(a) && (
+                          <input
+                            type="checkbox"
+                            checked={selected.has(alertKey(a))}
+                            onChange={() => toggleSelected(a)}
+                            aria-label={`Select alert for ${a.agent_email ?? 'unknown agent'}`}
+                            className="w-4 h-4 rounded border-border text-pennie-blue-deeper focus:ring-pennie-blue-deeper/40"
+                          />
+                        )}
+                      </td>
+                    )}
                     <Td>
                       <span className="text-sm text-muted-foreground tabular-nums">
                         {formatDateTime(a.alert_created_at)}
@@ -734,8 +1063,14 @@ export default function AlertsPage() {
               </tbody>
             </table>
           </div>
+          </>
         )}
       </section>
+
+      <p className="hidden sm:block text-[11px] text-muted-foreground px-2">
+        Keyboard: J/K move through the list · Enter opens · in the drawer Y/N
+        sets the verdict, 1–9 picks a reason, ⌘/Ctrl+Enter saves.
+      </p>
 
       <AlertReviewDrawer
         alert={drawerAlert}
@@ -743,24 +1078,12 @@ export default function AlertsPage() {
         onClose={closeDrawer}
         onSubmitted={onFeedbackSubmitted}
         onAdvance={advance}
-        hasNext={
-          drawerAlert
-            ? alerts.findIndex(
-                a =>
-                  a.call_id === drawerAlert.call_id &&
-                  a.module_name === drawerAlert.module_name,
-              ) <
-              alerts.length - 1
-            : false
-        }
-        hasPrev={
-          drawerAlert
-            ? alerts.findIndex(
-                a =>
-                  a.call_id === drawerAlert.call_id &&
-                  a.module_name === drawerAlert.module_name,
-              ) > 0
-            : false
+        hasNext={drawerIndex >= 0 && drawerIndex < alerts.length - 1}
+        hasPrev={drawerIndex > 0}
+        queuePosition={
+          drawerIndex >= 0
+            ? { index: drawerIndex + 1, total: alerts.length }
+            : null
         }
       />
     </div>
@@ -812,6 +1135,7 @@ function Th({ children }: { children: React.ReactNode }) {
     </th>
   )
 }
+
 
 function Td({ children }: { children: React.ReactNode }) {
   return <td className="px-4 sm:px-6 py-3 sm:py-4 align-top">{children}</td>

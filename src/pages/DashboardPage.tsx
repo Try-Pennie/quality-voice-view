@@ -23,12 +23,58 @@ import { DispositionFilter, prettify as prettifyDisposition } from '../component
 import { RefreshingHint } from '../components/ui/refreshing-hint'
 import { ThresholdSettingsSheet } from '../components/settings/ThresholdSettings'
 import { ThresholdSettings, DEFAULT_THRESHOLDS } from '../types/settings'
-import { Settings, Download, Loader2, ChevronRight } from 'lucide-react'
+import {
+  ArrowDown,
+  ArrowUp,
+  ArrowUpDown,
+  ChevronRight,
+  Download,
+  Loader2,
+  Settings,
+} from 'lucide-react'
+import { SortableTh } from '@/components/ui/sortable-th'
 import { HelpHint } from '../components/ui/help-hint'
 import { PageHero, SupportingStat } from '../components/PageHero'
 import { ErrorState } from '@/components/states/ErrorState'
 
 type QuickFilter = 'all' | 'escalations' | 'compliance' | 'threshold' | 'rushed'
+
+type CallSortKey = 'time' | 'agent' | 'talk' | 'score' | 'compliance' | 'csat'
+
+// Ordinal rank for QA rating vocabularies so score columns sort sensibly
+// (excellent > good > fair > poor, pass > fail, high > medium > low).
+const SCORE_RANK: Record<string, number> = {
+  excellent: 5,
+  pass: 5,
+  high: 5,
+  good: 4,
+  medium: 4,
+  fair: 3,
+  needs_improvement: 3,
+  low: 3,
+  poor: 2,
+  fail: 2,
+}
+const scoreRank = (s: string | null | undefined) =>
+  SCORE_RANK[s?.toLowerCase() ?? ''] ?? 0
+
+// Condensed pagination: always show first/last, a window around the current
+// page, and ellipses for the gaps.
+function paginationItems(current: number, total: number): (number | '…')[] {
+  if (total <= 7) return Array.from({ length: total }, (_, i) => i + 1)
+  const wanted = new Set([1, 2, current - 1, current, current + 1, total - 1, total])
+  const pages = Array.from(wanted)
+    .filter(p => p >= 1 && p <= total)
+    .sort((a, b) => a - b)
+  const items: (number | '…')[] = []
+  let prev = 0
+  for (const p of pages) {
+    if (prev && p - prev > 1) items.push('…')
+    items.push(p)
+    prev = p
+  }
+  return items
+}
 
 export default function DashboardPage() {
   const navigate = useNavigate()
@@ -93,6 +139,21 @@ export default function DashboardPage() {
   const [currentPage, setCurrentPage] = useState(1)
   const ITEMS_PER_PAGE = 25
 
+  const [sortKey, setSortKey] = useState<CallSortKey>('time')
+  const [sortDesc, setSortDesc] = useState(true)
+  const toggleSort = (key: CallSortKey) => {
+    setSortKey(prev => {
+      if (prev === key) {
+        setSortDesc(d => !d)
+        return prev
+      }
+      // Time and score-ish columns default to "worst/newest first" reads:
+      // newest calls, longest talk, highest score. Agent defaults A→Z.
+      setSortDesc(key !== 'agent')
+      return key
+    })
+  }
+
   useEffect(() => {
     const saved = localStorage.getItem('thresholdSettings')
     if (saved) {
@@ -149,7 +210,34 @@ export default function DashboardPage() {
 
   useEffect(() => {
     setCurrentPage(1)
-  }, [quickFilter, calls])
+  }, [quickFilter, calls, selectedDispositions, sortKey, sortDesc])
+
+  const sortedCalls = useMemo(() => {
+    const rows = [...filteredCalls]
+    rows.sort((a, b) => {
+      let cmp = 0
+      if (sortKey === 'time') {
+        cmp = (a.started_at || '').localeCompare(b.started_at || '')
+      } else if (sortKey === 'agent') {
+        cmp = (a.agent_full_name || '').localeCompare(b.agent_full_name || '')
+      } else if (sortKey === 'talk') {
+        cmp = (a.talk_time ?? 0) - (b.talk_time ?? 0)
+      } else if (sortKey === 'score') {
+        cmp = scoreRank(a.qa?.overall_score) - scoreRank(b.qa?.overall_score)
+      } else if (sortKey === 'compliance') {
+        cmp = scoreRank(a.qa?.compliance_rating) - scoreRank(b.qa?.compliance_rating)
+      } else {
+        cmp =
+          scoreRank(a.qa?.customer_satisfaction_likely) -
+          scoreRank(b.qa?.customer_satisfaction_likely)
+      }
+      if (cmp === 0) {
+        return (b.started_at || '').localeCompare(a.started_at || '')
+      }
+      return sortDesc ? -cmp : cmp
+    })
+    return rows
+  }, [filteredCalls, sortKey, sortDesc])
 
   // Headline + supporting stats track filteredCalls so disposition + quick
   // filter are reflected. windowMetrics keeps the unfiltered total for the
@@ -161,8 +249,8 @@ export default function DashboardPage() {
 
   const startIndex = (currentPage - 1) * ITEMS_PER_PAGE
   const endIndex = startIndex + ITEMS_PER_PAGE
-  const paginatedCalls = filteredCalls.slice(startIndex, endIndex)
-  const totalPages = Math.ceil(filteredCalls.length / ITEMS_PER_PAGE)
+  const paginatedCalls = sortedCalls.slice(startIndex, endIndex)
+  const totalPages = Math.ceil(sortedCalls.length / ITEMS_PER_PAGE)
 
   const [exporting, setExporting] = useState(false)
 
@@ -177,7 +265,7 @@ export default function DashboardPage() {
       // keeps ~400KB out of the main bundle.
       const { exportDashboardToPDF } = await import('../lib/pdf-export')
       await exportDashboardToPDF(
-        filteredCalls,
+        sortedCalls,
         {
           totalCalls: metrics.totalCalls,
           requiresAttention: metrics.callsRequiringAttention,
@@ -421,29 +509,105 @@ export default function DashboardPage() {
           <table className="min-w-full">
             <thead className="bg-pennie-beige/60">
               <tr>
-                <Th>
-                  Date / time (ET)
-                  <HelpHint id="column.severity" className="ml-1" />
-                </Th>
-                <Th>Agent</Th>
+                <th
+                  className="px-4 py-3 first:pl-5 text-left"
+                  aria-sort={
+                    sortKey === 'time'
+                      ? sortDesc
+                        ? 'descending'
+                        : 'ascending'
+                      : undefined
+                  }
+                >
+                  <span className="inline-flex items-center">
+                    <SortLabel
+                      label="Date / time (ET)"
+                      active={sortKey === 'time'}
+                      desc={sortDesc}
+                      onClick={() => toggleSort('time')}
+                    />
+                    <HelpHint id="column.severity" className="ml-1" />
+                  </span>
+                </th>
+                <SortableTh
+                  label="Agent"
+                  active={sortKey === 'agent'}
+                  desc={sortDesc}
+                  onClick={() => toggleSort('agent')}
+                  className="px-4 py-3"
+                />
                 <Th>Contact</Th>
-                <Th>Talk time</Th>
+                <SortableTh
+                  label="Talk time"
+                  active={sortKey === 'talk'}
+                  desc={sortDesc}
+                  onClick={() => toggleSort('talk')}
+                  className="px-4 py-3"
+                />
                 <Th>
                   Disposition
                   <HelpHint id="column.disposition" className="ml-1" />
                 </Th>
-                <Th>
-                  Score
-                  <HelpHint id="column.score" className="ml-1" />
-                </Th>
-                <Th>
-                  Compliance
-                  <HelpHint id="column.compliance" className="ml-1" />
-                </Th>
-                <Th>
-                  Cust sat
-                  <HelpHint id="column.csat" className="ml-1" />
-                </Th>
+                <th
+                  className="px-4 py-3 text-left"
+                  aria-sort={
+                    sortKey === 'score'
+                      ? sortDesc
+                        ? 'descending'
+                        : 'ascending'
+                      : undefined
+                  }
+                >
+                  <span className="inline-flex items-center">
+                    <SortLabel
+                      label="Score"
+                      active={sortKey === 'score'}
+                      desc={sortDesc}
+                      onClick={() => toggleSort('score')}
+                    />
+                    <HelpHint id="column.score" className="ml-1" />
+                  </span>
+                </th>
+                <th
+                  className="px-4 py-3 text-left"
+                  aria-sort={
+                    sortKey === 'compliance'
+                      ? sortDesc
+                        ? 'descending'
+                        : 'ascending'
+                      : undefined
+                  }
+                >
+                  <span className="inline-flex items-center">
+                    <SortLabel
+                      label="Compliance"
+                      active={sortKey === 'compliance'}
+                      desc={sortDesc}
+                      onClick={() => toggleSort('compliance')}
+                    />
+                    <HelpHint id="column.compliance" className="ml-1" />
+                  </span>
+                </th>
+                <th
+                  className="px-4 py-3 text-left"
+                  aria-sort={
+                    sortKey === 'csat'
+                      ? sortDesc
+                        ? 'descending'
+                        : 'ascending'
+                      : undefined
+                  }
+                >
+                  <span className="inline-flex items-center">
+                    <SortLabel
+                      label="Cust sat"
+                      active={sortKey === 'csat'}
+                      desc={sortDesc}
+                      onClick={() => toggleSort('csat')}
+                    />
+                    <HelpHint id="column.csat" className="ml-1" />
+                  </span>
+                </th>
                 <th aria-hidden="true" className="w-10" />
               </tr>
             </thead>
@@ -543,8 +707,8 @@ export default function DashboardPage() {
         {!loading && (
         <div className="bg-pennie-beige/40 px-4 sm:px-6 py-3 sm:py-4 flex flex-wrap items-center justify-between gap-3 border-t border-border">
           <p className="text-sm text-muted-foreground tabular-nums">
-            Showing {filteredCalls.length === 0 ? 0 : startIndex + 1}–
-            {Math.min(endIndex, filteredCalls.length)} of {filteredCalls.length}
+            Showing {sortedCalls.length === 0 ? 0 : startIndex + 1}–
+            {Math.min(endIndex, sortedCalls.length)} of {sortedCalls.length}
           </p>
           <div className="flex gap-2">
             <button
@@ -556,26 +720,30 @@ export default function DashboardPage() {
               Previous
             </button>
             <div className="flex gap-1">
-              {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
-                const page = i + 1
-                return (
+              {paginationItems(currentPage, totalPages).map((item, i) =>
+                item === '…' ? (
+                  <span
+                    key={`gap-${i}`}
+                    className="px-1.5 text-muted-foreground self-center"
+                    aria-hidden="true"
+                  >
+                    …
+                  </span>
+                ) : (
                   <button
-                    key={page}
+                    key={item}
                     type="button"
-                    aria-current={currentPage === page ? 'page' : undefined}
-                    onClick={() => setCurrentPage(page)}
-                    className={`min-h-[36px] min-w-[36px] px-3 rounded-full text-sm font-semibold transition-colors ${
-                      currentPage === page
+                    aria-current={currentPage === item ? 'page' : undefined}
+                    onClick={() => setCurrentPage(item)}
+                    className={`min-h-[36px] min-w-[36px] px-3 rounded-full text-sm font-semibold transition-colors tabular-nums ${
+                      currentPage === item
                         ? 'bg-pennie-navy text-pennie-white'
                         : 'bg-pennie-white border border-border text-pennie-graphite hover:bg-pennie-beige'
                     }`}
                   >
-                    {page}
+                    {item}
                   </button>
-                )
-              })}
-              {totalPages > 5 && (
-                <span className="px-2 text-muted-foreground self-center">…</span>
+                ),
               )}
             </div>
             <button
@@ -632,6 +800,34 @@ function Th({ children }: { children: React.ReactNode }) {
     <th className="text-left text-[11px] font-bold text-pennie-graphite/70 uppercase tracking-[0.06em] px-4 py-3 first:pl-5">
       {children}
     </th>
+  )
+}
+
+// Sort trigger sized to sit inline next to a HelpHint inside a th that also
+// carries aria-sort (SortableTh owns both when there's no hint).
+function SortLabel({
+  label,
+  active,
+  desc,
+  onClick,
+}: {
+  label: string
+  active: boolean
+  desc: boolean
+  onClick: () => void
+}) {
+  const Icon = active ? (desc ? ArrowDown : ArrowUp) : ArrowUpDown
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`pennie-focus-ring inline-flex items-center gap-1 rounded-full text-[11px] font-bold uppercase tracking-[0.06em] transition-colors ${
+        active ? 'text-pennie-navy' : 'text-pennie-graphite/70 hover:text-pennie-navy'
+      }`}
+    >
+      {label}
+      <Icon className={`w-3 h-3 ${active ? '' : 'opacity-50'}`} aria-hidden="true" />
+    </button>
   )
 }
 

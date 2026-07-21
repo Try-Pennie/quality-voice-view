@@ -13,28 +13,34 @@ export function CoachingRecommendations({ data }: { data: any }) {
   const [isExpanded, setIsExpanded] = useState(true)
 
   return (
-    <div className="bg-card rounded-lg shadow border border-border">
+    <section className="bg-pennie-white rounded-3xl shadow-resting overflow-hidden">
       <button
+        type="button"
         onClick={() => setIsExpanded(!isExpanded)}
-        className="w-full px-6 py-4 flex items-center justify-between hover:bg-accent"
+        aria-expanded={isExpanded}
+        className="pennie-focus-ring-inset w-full px-6 sm:px-8 py-5 flex items-center justify-between gap-3 text-left hover:bg-pennie-beige/40 transition-colors"
       >
         <div className="flex items-center gap-3">
-          {isExpanded ? <ChevronDown className="w-5 h-5" /> : <ChevronRight className="w-5 h-5" />}
-          <h2 className="text-lg font-semibold text-foreground flex items-center gap-2">
-            <Lightbulb className="w-5 h-5 text-amber-500" />
-            Coaching Recommendations
+          {isExpanded ? (
+            <ChevronDown className="w-4 h-4 text-pennie-graphite/60" aria-hidden="true" />
+          ) : (
+            <ChevronRight className="w-4 h-4 text-pennie-graphite/60" aria-hidden="true" />
+          )}
+          <h2 className="text-lg font-semibold text-pennie-navy flex items-center gap-2">
+            <Lightbulb className="w-5 h-5 text-pennie-yellow-dark" aria-hidden="true" />
+            Coaching recommendations
           </h2>
         </div>
       </button>
 
       {isExpanded && (
-        <div className="px-6 pb-6 space-y-4">
+        <div className="px-6 sm:px-8 pb-6 sm:pb-8 space-y-4">
           {data.strengths?.length > 0 && (
             <div>
-              <div className="font-semibold text-green-900 mb-2 flex items-center gap-2">
-                <CheckCircle2 className="w-4 h-4 text-green-600" /> Strengths
-              </div>
-              <ul className="list-disc list-inside space-y-1 text-sm text-foreground bg-green-50 border border-green-200 rounded p-4">
+              <p className="font-semibold text-pennie-green-dark mb-2 flex items-center gap-2 text-sm">
+                <CheckCircle2 className="w-4 h-4" aria-hidden="true" /> Strengths
+              </p>
+              <ul className="list-disc list-inside space-y-1 text-sm text-pennie-graphite bg-pennie-green-light/60 border border-pennie-green-light rounded-2xl p-4">
                 {data.strengths.map((s: string, i: number) => (
                   <li key={i}>{s}</li>
                 ))}
@@ -44,10 +50,10 @@ export function CoachingRecommendations({ data }: { data: any }) {
 
           {data.areas_for_improvement?.length > 0 && (
             <div>
-              <div className="font-semibold text-yellow-900 mb-2 flex items-center gap-2">
-                <AlertTriangle className="w-4 h-4 text-yellow-600" /> Areas for Improvement
-              </div>
-              <ul className="list-disc list-inside space-y-1 text-sm text-foreground bg-yellow-50 border border-yellow-200 rounded p-4">
+              <p className="font-semibold text-pennie-yellow-dark mb-2 flex items-center gap-2 text-sm">
+                <AlertTriangle className="w-4 h-4" aria-hidden="true" /> Areas for improvement
+              </p>
+              <ul className="list-disc list-inside space-y-1 text-sm text-pennie-graphite bg-pennie-yellow-light/60 border border-pennie-yellow-main/40 rounded-2xl p-4">
                 {data.areas_for_improvement.map((a: string, i: number) => (
                   <li key={i}>{a}</li>
                 ))}
@@ -57,10 +63,10 @@ export function CoachingRecommendations({ data }: { data: any }) {
 
           {data.specific_coaching_points?.length > 0 && (
             <div>
-              <div className="font-semibold text-blue-900 mb-2 flex items-center gap-2">
-                <Target className="w-4 h-4 text-blue-600" /> Specific Coaching Points
-              </div>
-              <ul className="list-disc list-inside space-y-1 text-sm text-foreground bg-blue-50 border border-blue-200 rounded p-4">
+              <p className="font-semibold text-pennie-blue-deeper mb-2 flex items-center gap-2 text-sm">
+                <Target className="w-4 h-4" aria-hidden="true" /> Specific coaching points
+              </p>
+              <ul className="list-disc list-inside space-y-1 text-sm text-pennie-graphite bg-pennie-blue-light/40 border border-pennie-blue-light rounded-2xl p-4">
                 {data.specific_coaching_points.map((c: string, i: number) => (
                   <li key={i}>{c}</li>
                 ))}
@@ -70,10 +76,10 @@ export function CoachingRecommendations({ data }: { data: any }) {
 
           {data.training_recommendations?.length > 0 && (
             <div>
-              <div className="font-semibold text-purple-900 mb-2 flex items-center gap-2">
-                <BookOpen className="w-4 h-4 text-purple-600" /> Training Recommendations
-              </div>
-              <ul className="list-disc list-inside space-y-1 text-sm text-foreground bg-purple-50 border border-purple-200 rounded p-4">
+              <p className="font-semibold text-pennie-indigo-dark mb-2 flex items-center gap-2 text-sm">
+                <BookOpen className="w-4 h-4" aria-hidden="true" /> Training recommendations
+              </p>
+              <ul className="list-disc list-inside space-y-1 text-sm text-pennie-graphite bg-pennie-beige/70 border border-border rounded-2xl p-4">
                 {data.training_recommendations.map((t: string, i: number) => (
                   <li key={i}>{t}</li>
                 ))}
@@ -82,6 +88,6 @@ export function CoachingRecommendations({ data }: { data: any }) {
           )}
         </div>
       )}
-    </div>
+    </section>
   )
 }

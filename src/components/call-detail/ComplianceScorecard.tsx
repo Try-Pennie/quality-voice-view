@@ -8,6 +8,7 @@ import {
   ShieldCheck,
   XCircle,
 } from 'lucide-react'
+import { getScoreBadgeColor } from '../../lib/utils'
 
 export function ComplianceScorecard({ data }: { data: any }) {
   const [isExpanded, setIsExpanded] = useState(data.overall_compliance_score === 'fail')
@@ -23,41 +24,46 @@ export function ComplianceScorecard({ data }: { data: any }) {
 
   const renderIcon = (value: string) => {
     const className = 'w-5 h-5 shrink-0'
-    if (value === 'pass') return <CheckCircle2 className={`${className} text-green-600`} />
-    if (value === 'fail') return <XCircle className={`${className} text-red-600`} />
-    return <Circle className={`${className} text-muted-foreground`} />
+    if (value === 'pass') return <CheckCircle2 className={`${className} text-pennie-green-dark`} />
+    if (value === 'fail') return <XCircle className={`${className} text-pennie-peach-deeper`} />
+    return <Circle className={`${className} text-pennie-graphite/40`} />
   }
 
   return (
-    <div className="bg-card rounded-lg shadow border border-border">
+    <section className="bg-pennie-white rounded-3xl shadow-resting overflow-hidden">
       <button
+        type="button"
         onClick={() => setIsExpanded(!isExpanded)}
-        className="w-full px-6 py-4 flex items-center justify-between hover:bg-accent"
+        aria-expanded={isExpanded}
+        className="pennie-focus-ring-inset w-full px-6 sm:px-8 py-5 flex items-center justify-between gap-3 text-left hover:bg-pennie-beige/40 transition-colors"
       >
         <div className="flex items-center gap-3">
-          {isExpanded ? <ChevronDown className="w-5 h-5" /> : <ChevronRight className="w-5 h-5" />}
-          <h2 className="text-lg font-semibold text-foreground flex items-center gap-2">
-            <ShieldCheck className="w-5 h-5 text-emerald-600" />
-            Compliance Scorecard
+          {isExpanded ? (
+            <ChevronDown className="w-4 h-4 text-pennie-graphite/60" aria-hidden="true" />
+          ) : (
+            <ChevronRight className="w-4 h-4 text-pennie-graphite/60" aria-hidden="true" />
+          )}
+          <h2 className="text-lg font-semibold text-pennie-navy flex items-center gap-2">
+            <ShieldCheck className="w-5 h-5 text-pennie-green-dark" aria-hidden="true" />
+            Compliance scorecard
           </h2>
         </div>
-        <span className={`px-3 py-1 rounded-full text-sm font-semibold ${
-          data.overall_compliance_score === 'pass'
-            ? 'bg-green-100 text-green-800'
-            : 'bg-red-100 text-red-800'
-        }`}>
-          {data.overall_compliance_score?.toUpperCase()}
+        <span className={getScoreBadgeColor(data.overall_compliance_score)}>
+          {data.overall_compliance_score || 'N/A'}
         </span>
       </button>
 
       {isExpanded && (
-        <div className="px-6 pb-6 space-y-4">
+        <div className="px-6 sm:px-8 pb-6 sm:pb-8 space-y-4">
           {data.requires_manager_review && (
-            <div className="bg-red-50 border-2 border-red-300 rounded p-4">
-              <div className="font-bold text-red-900 mb-2 flex items-center gap-2">
-                <AlertTriangle className="w-4 h-4" /> REQUIRES MANAGER REVIEW
-              </div>
-              <div className="text-red-800 text-sm">{data.escalation_reason}</div>
+            <div className="bg-pennie-peach-light border border-pennie-peach-main/50 rounded-2xl p-4">
+              <p className="font-semibold text-pennie-peach-deeper mb-1 flex items-center gap-2 text-sm">
+                <AlertTriangle className="w-4 h-4" aria-hidden="true" />
+                Requires manager review
+              </p>
+              <p className="text-pennie-graphite text-sm leading-relaxed">
+                {data.escalation_reason}
+              </p>
             </div>
           )}
 
@@ -66,9 +72,11 @@ export function ComplianceScorecard({ data }: { data: any }) {
               <div key={i} className="flex items-start gap-3">
                 <span className="mt-0.5">{renderIcon(check.value)}</span>
                 <div className="flex-1">
-                  <div className="font-medium text-foreground">{check.label}</div>
+                  <div className="font-medium text-pennie-graphite">{check.label}</div>
                   {check.timestamp && (
-                    <div className="text-xs text-muted-foreground mt-1">Timestamp: {check.timestamp}</div>
+                    <div className="text-xs text-muted-foreground mt-1 tabular-nums">
+                      Timestamp: {check.timestamp}
+                    </div>
                   )}
                 </div>
               </div>
@@ -76,9 +84,11 @@ export function ComplianceScorecard({ data }: { data: any }) {
           </div>
 
           {data.compliance_violations?.length > 0 && (
-            <div className="bg-red-50 border border-red-200 rounded p-4">
-              <div className="font-semibold text-red-900 mb-2">Violations:</div>
-              <ul className="list-disc list-inside space-y-1 text-sm text-red-800">
+            <div className="bg-pennie-peach-light/60 border border-pennie-peach-light rounded-2xl p-4">
+              <p className="font-semibold text-pennie-peach-deeper mb-2 text-sm">
+                Violations
+              </p>
+              <ul className="list-disc list-inside space-y-1 text-sm text-pennie-graphite">
                 {data.compliance_violations.map((v: string, i: number) => (
                   <li key={i}>{v}</li>
                 ))}
@@ -87,6 +97,6 @@ export function ComplianceScorecard({ data }: { data: any }) {
           )}
         </div>
       )}
-    </div>
+    </section>
   )
 }
