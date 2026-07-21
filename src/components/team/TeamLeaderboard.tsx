@@ -1,6 +1,6 @@
 import { useState, useMemo } from 'react'
 import type { AgentRollup } from '../../lib/team-queries'
-import { formatDuration } from '../../lib/utils'
+import { agentDisplayName, formatDuration } from '../../lib/utils'
 import { AgentSparkline } from './AgentSparkline'
 import { ArrowUp, ArrowDown, ArrowUpDown } from 'lucide-react'
 
@@ -165,7 +165,7 @@ export function TeamLeaderboard({
                   />
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-semibold text-pennie-navy truncate">
-                      {agent.agent_full_name || 'Unknown'}
+                      {agentDisplayName(agent.agent_full_name, agent.agent_email)}
                     </p>
                     <p className="mt-0.5 text-xs text-pennie-graphite/60 truncate">
                       {agent.agent_email}
@@ -359,7 +359,7 @@ export function TeamLeaderboard({
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
                       <div className="text-sm font-semibold text-pennie-navy">
-                        {agent.agent_full_name || 'Unknown'}
+                        {agentDisplayName(agent.agent_full_name, agent.agent_email)}
                       </div>
                       <div className="text-xs text-pennie-graphite/60 mt-0.5">
                         {agent.agent_email}

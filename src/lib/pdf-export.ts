@@ -1,4 +1,5 @@
 import jsPDF from 'jspdf'
+import { agentDisplayName } from './utils'
 
 /**
  * Export dashboard data to PDF
@@ -100,7 +101,7 @@ export async function exportDashboardToPDF(
       hour: '2-digit',
       minute: '2-digit'
     }) : ''
-    const agent = call.agent_full_name || 'Unknown'
+    const agent = agentDisplayName(call.agent_full_name, call.agent_email)
     const talkTime = formatDuration(call.talk_time)
     const score = call.qa?.overall_score || 'N/A'
     const compliance = call.qa?.compliance_rating || 'N/A'
@@ -190,7 +191,7 @@ export async function exportCallDetailToPDF(call: any) {
   pdf.setFont('helvetica', 'normal')
 
   const basicInfo = [
-    ['Agent', call.agent_full_name || 'Unknown'],
+    ['Agent', agentDisplayName(call.agent_full_name, call.agent_email)],
     ['Date/Time', call.started_at ? new Date(call.started_at).toLocaleString() : 'N/A'],
     ['Direction', call.direction || 'N/A'],
     ['Talk Time', formatDuration(call.talk_time)],
