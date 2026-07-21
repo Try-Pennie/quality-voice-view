@@ -121,6 +121,16 @@ export default function HelpPage() {
                 </a>
               </li>
             ))}
+            {!query.trim() && (
+              <li>
+                <a
+                  href="#keyboard-shortcuts"
+                  className="block text-sm text-pennie-graphite/80 hover:text-pennie-navy hover:underline underline-offset-4"
+                >
+                  Keyboard shortcuts
+                </a>
+              </li>
+            )}
           </ul>
         </nav>
 
@@ -172,9 +182,76 @@ export default function HelpPage() {
               Nothing matches "{query.trim()}". Try a shorter term.
             </p>
           )}
+
+          {!query.trim() && <KeyboardShortcuts />}
         </div>
       </div>
     </div>
+  )
+}
+
+const SHORTCUT_GROUPS: { title: string; rows: [string, string][] }[] = [
+  {
+    title: 'Anywhere',
+    rows: [['?', 'Open this glossary']],
+  },
+  {
+    title: 'Alert queue',
+    rows: [
+      ['J / K', 'Move down / up the list'],
+      ['Enter', 'Open the highlighted alert'],
+      ['Esc', 'Close the review drawer'],
+    ],
+  },
+  {
+    title: 'Review drawer',
+    rows: [
+      ['Y / N', 'Real issue / false alarm'],
+      ['1–9', 'Pick an action or reason'],
+      ['J / K', 'Next / previous alert'],
+      ['⌘/Ctrl + Enter', 'Save the review'],
+    ],
+  },
+  {
+    title: 'Audio player',
+    rows: [
+      ['Space', 'Play / pause'],
+      ['← / →', 'Skip back / forward 10s'],
+    ],
+  },
+]
+
+function KeyboardShortcuts() {
+  return (
+    <section id="keyboard-shortcuts" className="scroll-mt-24">
+      <h2 className="font-display text-xl text-pennie-navy mb-3">
+        Keyboard shortcuts
+      </h2>
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-5">
+        {SHORTCUT_GROUPS.map(group => (
+          <div
+            key={group.title}
+            className="border-l-2 border-border pl-4 py-1"
+          >
+            <h3 className="font-semibold text-pennie-navy text-sm mb-2">
+              {group.title}
+            </h3>
+            <dl className="space-y-1.5">
+              {group.rows.map(([keys, action]) => (
+                <div key={keys} className="flex items-baseline gap-3">
+                  <dt className="min-w-[110px]">
+                    <kbd className="px-1.5 py-0.5 rounded-md border border-border bg-pennie-beige text-[11px] font-mono text-pennie-graphite whitespace-nowrap">
+                      {keys}
+                    </kbd>
+                  </dt>
+                  <dd className="text-sm text-pennie-graphite/90">{action}</dd>
+                </div>
+              ))}
+            </dl>
+          </div>
+        ))}
+      </div>
+    </section>
   )
 }
 

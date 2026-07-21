@@ -89,6 +89,24 @@ const INACCURACY_OPTIONS: AlertInaccuracyReason[] = [
 // so the catch-all bucket stays analyzable instead of opaque.
 const OTHER_NOTES_MIN = 10
 
+// Insert-and-edit starters for the real-issue notes field. They cover the
+// common coaching outcomes so a manager isn't typing the same sentence 20
+// times a day — the note stays editable and the 30-char minimum still applies.
+const QUICK_PHRASES: { label: string; text: string }[] = [
+  {
+    label: 'Coached in 1:1',
+    text: 'Coached in 1:1 — agent acknowledged the issue and committed to correcting it going forward.',
+  },
+  {
+    label: 'Discussed after call',
+    text: 'Discussed with the agent right after the call; they understood the gap and will adjust.',
+  },
+  {
+    label: 'Escalated',
+    text: 'Escalated to leadership with the recording attached for follow-up.',
+  },
+]
+
 interface Props {
   alert: AlertWithFeedback | null
   currentUserEmail: string | null | undefined
@@ -97,6 +115,8 @@ interface Props {
   onAdvance: (delta: 1 | -1) => void
   hasNext: boolean
   hasPrev: boolean
+  /** 1-based position of this alert in the visible queue, for "3 of 17". */
+  queuePosition?: { index: number; total: number } | null
 }
 
 export function AlertReviewDrawer({
@@ -107,6 +127,7 @@ export function AlertReviewDrawer({
   onAdvance,
   hasNext,
   hasPrev,
+  queuePosition,
 }: Props) {
   const [accurate, setAccurate] = useState<boolean | null>(null)
   const [action, setAction] = useState<AlertActionTaken | null>(null)
@@ -393,7 +414,15 @@ export function AlertReviewDrawer({
             <span className="text-xs text-muted-foreground tabular-nums hidden sm:inline">
               {formatDateTime(alert.alert_created_at)}
             </span>
-            <div className="ml-auto flex gap-1">
+            <div className="ml-auto flex items-center gap-1">
+              {queuePosition && queuePosition.index > 0 && (
+                <span
+                  className="text-xs text-muted-foreground tabular-nums whitespace-nowrap mr-1.5"
+                  aria-label={`Alert ${queuePosition.index} of ${queuePosition.total} in queue`}
+                >
+                  {queuePosition.index} of {queuePosition.total}
+                </span>
+              )}
               <button
                 type="button"
                 onClick={() => onAdvance(-1)}
@@ -650,7 +679,7 @@ export function AlertReviewDrawer({
                     )
                   )}
                 </legend>
-                <div className="flex gap-2" role="radiogroup" aria-label={promptCopy}>
+                <div className="flex gap-2" role="group" aria-label={promptCopy}>
                   <Toggle
                     label="Real issue (Y)"
                     active={accurate === true}
@@ -680,7 +709,7 @@ export function AlertReviewDrawer({
                   </legend>
                   <div
                     className="flex flex-wrap gap-1.5"
-                    role="radiogroup"
+                    role="group"
                     aria-label="Action taken"
                   >
                     {ACTION_OPTIONS.map((opt, i) => (
@@ -703,7 +732,7 @@ export function AlertReviewDrawer({
                   </legend>
                   <div
                     className="flex flex-wrap gap-1.5"
-                    role="radiogroup"
+                    role="group"
                     aria-label="Why was it a false alarm?"
                   >
                     {INACCURACY_OPTIONS.map((opt, i) => (
@@ -757,6 +786,30 @@ export function AlertReviewDrawer({
                     rows={3}
                     className="w-full px-3 py-2 rounded-2xl border border-border bg-pennie-white text-base sm:text-sm font-medium resize-none focus:outline-none focus:ring-2 focus:ring-pennie-blue-deeper/40 focus:border-pennie-blue-deeper"
                   />
+                  {accurate === true && (
+                    <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+                      <span className="text-[11px] text-pennie-graphite/60 font-medium">
+                        Quick start:
+                      </span>
+                      {QUICK_PHRASES.map(phrase => (
+                        <button
+                          key={phrase.label}
+                          type="button"
+                          title={phrase.text}
+                          onClick={() =>
+                            setComment(prev =>
+                              prev.trim()
+                                ? `${prev.trimEnd()} ${phrase.text}`
+                                : phrase.text,
+                            )
+                          }
+                          className="pennie-focus-ring min-h-[32px] px-3 py-1 rounded-full border border-border bg-pennie-white text-[11px] font-semibold text-pennie-graphite hover:bg-pennie-blue-light hover:border-pennie-blue-light transition-colors"
+                        >
+                          {phrase.label}…
+                        </button>
+                      ))}
+                    </div>
+                  )}
                 </div>
               )}
 
@@ -817,8 +870,7 @@ export function Toggle({
   return (
     <button
       type="button"
-      role="radio"
-      aria-checked={active}
+      aria-pressed={active}
       onClick={onClick}
       className={`flex-1 min-h-[48px] px-4 py-3 rounded-full text-sm font-semibold inline-flex items-center justify-center gap-1.5 transition-all duration-200 ${baseColors}`}
     >
@@ -846,8 +898,7 @@ export function Chip({
   return (
     <button
       type="button"
-      role="radio"
-      aria-checked={active}
+      aria-pressed={active}
       onClick={onClick}
       className={`min-h-[44px] sm:min-h-[36px] px-4 sm:px-3.5 py-2 sm:py-1.5 rounded-full text-sm sm:text-xs font-semibold border transition-all duration-200 ${
         active

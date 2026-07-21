@@ -5,9 +5,9 @@ import {
   ChevronDown,
   ChevronRight,
   ClipboardCheck,
-  MinusCircle,
   XCircle,
 } from 'lucide-react'
+import { getScoreBadgeColor } from '../../lib/utils'
 
 // Program phases the agent is expected to walk the customer through, plus the
 // required downside disclosures. Each maps to a `<key>_covered` boolean and a
@@ -33,9 +33,9 @@ export function ProgramExpectationsScorecard({ data }: { data: any }) {
   const renderCoverageIcon = (covered: boolean) => {
     const className = 'w-5 h-5 shrink-0'
     return covered ? (
-      <CheckCircle2 className={`${className} text-green-600`} />
+      <CheckCircle2 className={`${className} text-pennie-green-dark`} />
     ) : (
-      <XCircle className={`${className} text-red-600`} />
+      <XCircle className={`${className} text-pennie-peach-deeper`} />
     )
   }
 
@@ -46,8 +46,10 @@ export function ProgramExpectationsScorecard({ data }: { data: any }) {
       <div key={item.key} className="flex items-start gap-3">
         <span className="mt-0.5">{renderCoverageIcon(covered)}</span>
         <div className="flex-1">
-          <div className="font-medium text-foreground">{item.label}</div>
-          <div className="text-sm text-muted-foreground">{covered ? 'Covered' : 'Not covered'}</div>
+          <div className="font-medium text-pennie-graphite">{item.label}</div>
+          <div className="text-sm text-muted-foreground">
+            {covered ? 'Covered' : 'Not covered'}
+          </div>
           {evidence && (
             <div className="text-xs text-muted-foreground mt-1 italic">“{evidence}”</div>
           )}
@@ -56,65 +58,59 @@ export function ProgramExpectationsScorecard({ data }: { data: any }) {
     )
   }
 
-  const badgeIcon =
-    status === 'pass' ? <CheckCircle2 className="w-4 h-4" /> :
-    status === 'fail' ? <XCircle className="w-4 h-4" /> :
-    <MinusCircle className="w-4 h-4" />
-
   return (
-    <div className="bg-card rounded-lg shadow border border-border">
+    <section className="bg-pennie-white rounded-3xl shadow-resting overflow-hidden">
       <button
+        type="button"
         onClick={() => setIsExpanded(!isExpanded)}
-        className="w-full px-6 py-4 flex items-center justify-between hover:bg-accent"
+        aria-expanded={isExpanded}
+        className="pennie-focus-ring-inset w-full px-6 sm:px-8 py-5 flex items-center justify-between gap-3 text-left hover:bg-pennie-beige/40 transition-colors"
       >
         <div className="flex items-center gap-3">
-          {isExpanded ? <ChevronDown className="w-5 h-5" /> : <ChevronRight className="w-5 h-5" />}
-          <h2 className="text-lg font-semibold text-foreground flex items-center gap-2">
-            <ClipboardCheck className="w-5 h-5 text-blue-600" />
-            Program Expectations
+          {isExpanded ? (
+            <ChevronDown className="w-4 h-4 text-pennie-graphite/60" aria-hidden="true" />
+          ) : (
+            <ChevronRight className="w-4 h-4 text-pennie-graphite/60" aria-hidden="true" />
+          )}
+          <h2 className="text-lg font-semibold text-pennie-navy flex items-center gap-2">
+            <ClipboardCheck className="w-5 h-5 text-pennie-blue-deeper" aria-hidden="true" />
+            Program expectations
           </h2>
         </div>
-        <span className={`px-3 py-1 rounded-full text-sm font-semibold inline-flex items-center gap-1.5 ${
-          status === 'pass' ? 'bg-green-100 text-green-800' :
-          status === 'fail' ? 'bg-red-100 text-red-800' :
-          'bg-muted text-muted-foreground'
-        }`}>
-          {badgeIcon}
-          {status === 'not_applicable' ? 'N/A' : status?.toUpperCase() || 'N/A'}
+        <span className={getScoreBadgeColor(status === 'not_applicable' ? null : status ?? null)}>
+          {status === 'not_applicable' ? 'N/A' : status || 'N/A'}
         </span>
       </button>
 
       {isExpanded && (
-        <div className="px-6 pb-6 space-y-4">
+        <div className="px-6 sm:px-8 pb-6 sm:pb-8 space-y-4">
           <div className="flex items-center gap-2 text-sm text-muted-foreground">
-            <span className="font-medium text-foreground">Enrollment completed:</span>
+            <span className="font-medium text-pennie-graphite">Enrollment completed:</span>
             {data.enrollment_completed ? 'Yes' : 'No'}
           </div>
           {data.enrollment_evidence_quote && (
-            <div className="text-xs text-muted-foreground italic -mt-2">“{data.enrollment_evidence_quote}”</div>
+            <div className="text-xs text-muted-foreground italic -mt-2">
+              “{data.enrollment_evidence_quote}”
+            </div>
           )}
 
           <div>
-            <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-3">
-              Program Phases
-            </div>
+            <p className="pennie-label mb-3">Program phases</p>
             <div className="space-y-3">{PHASES.map(renderRow)}</div>
           </div>
 
           <div>
-            <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-3">
-              Required Disclosures
-            </div>
+            <p className="pennie-label mb-3">Required disclosures</p>
             <div className="space-y-3">{DISCLOSURES.map(renderRow)}</div>
           </div>
 
           {data.missing_elements?.length > 0 && (
-            <div className="bg-yellow-50 border border-yellow-200 rounded p-4">
-              <div className="font-semibold text-yellow-900 mb-2 flex items-center gap-2">
-                <AlertTriangle className="w-4 h-4" />
-                Missing Elements:
-              </div>
-              <ul className="list-disc list-inside space-y-1 text-sm text-yellow-800">
+            <div className="bg-pennie-yellow-light/60 border border-pennie-yellow-main/50 rounded-2xl p-4">
+              <p className="font-semibold text-pennie-yellow-dark mb-2 flex items-center gap-2 text-sm">
+                <AlertTriangle className="w-4 h-4" aria-hidden="true" />
+                Missing elements
+              </p>
+              <ul className="list-disc list-inside space-y-1 text-sm text-pennie-graphite">
                 {data.missing_elements.map((e: string, i: number) => (
                   <li key={i}>{e}</li>
                 ))}
@@ -123,13 +119,13 @@ export function ProgramExpectationsScorecard({ data }: { data: any }) {
           )}
 
           {data.section_summary && (
-            <div className="bg-blue-50 border border-blue-200 rounded p-4">
-              <div className="font-semibold text-blue-900 mb-2">Summary:</div>
-              <p className="text-sm text-blue-800">{data.section_summary}</p>
+            <div className="bg-pennie-blue-light/40 border border-pennie-blue-light rounded-2xl p-4">
+              <p className="font-semibold text-pennie-blue-deeper mb-2 text-sm">Summary</p>
+              <p className="text-sm text-pennie-graphite leading-relaxed">{data.section_summary}</p>
             </div>
           )}
         </div>
       )}
-    </div>
+    </section>
   )
 }

@@ -8,6 +8,7 @@ import {
   Circle,
   XCircle,
 } from 'lucide-react'
+import { getScoreBadgeColor } from '../../lib/utils'
 
 export function SalesProcessScorecard({ data }: { data: any }) {
   const [isExpanded, setIsExpanded] = useState(false)
@@ -25,44 +26,47 @@ export function SalesProcessScorecard({ data }: { data: any }) {
   // (distinct from overall_process_adherence, which is excellent/good/fair/poor).
   const renderIcon = (value: string) => {
     const className = 'w-5 h-5 shrink-0'
-    if (value === 'complete') return <CheckCircle2 className={`${className} text-green-600`} />
-    if (value === 'partial') return <AlertTriangle className={`${className} text-yellow-600`} />
-    if (value === 'missing') return <XCircle className={`${className} text-red-600`} />
-    return <Circle className={`${className} text-muted-foreground`} />
+    if (value === 'complete') return <CheckCircle2 className={`${className} text-pennie-green-dark`} />
+    if (value === 'partial') return <AlertTriangle className={`${className} text-pennie-yellow-dark`} />
+    if (value === 'missing') return <XCircle className={`${className} text-pennie-peach-deeper`} />
+    return <Circle className={`${className} text-pennie-graphite/40`} />
   }
 
   return (
-    <div className="bg-card rounded-lg shadow border border-border">
+    <section className="bg-pennie-white rounded-3xl shadow-resting overflow-hidden">
       <button
+        type="button"
         onClick={() => setIsExpanded(!isExpanded)}
-        className="w-full px-6 py-4 flex items-center justify-between hover:bg-accent"
+        aria-expanded={isExpanded}
+        className="pennie-focus-ring-inset w-full px-6 sm:px-8 py-5 flex items-center justify-between gap-3 text-left hover:bg-pennie-beige/40 transition-colors"
       >
         <div className="flex items-center gap-3">
-          {isExpanded ? <ChevronDown className="w-5 h-5" /> : <ChevronRight className="w-5 h-5" />}
-          <h2 className="text-lg font-semibold text-foreground flex items-center gap-2">
-            <BarChart3 className="w-5 h-5 text-indigo-600" />
-            Sales Process Scorecard
+          {isExpanded ? (
+            <ChevronDown className="w-4 h-4 text-pennie-graphite/60" aria-hidden="true" />
+          ) : (
+            <ChevronRight className="w-4 h-4 text-pennie-graphite/60" aria-hidden="true" />
+          )}
+          <h2 className="text-lg font-semibold text-pennie-navy flex items-center gap-2">
+            <BarChart3 className="w-5 h-5 text-pennie-blue-deeper" aria-hidden="true" />
+            Sales process scorecard
           </h2>
         </div>
-        <span className={`px-3 py-1 rounded-full text-sm font-semibold ${
-          data.overall_process_adherence === 'excellent' ? 'bg-green-100 text-green-800' :
-          data.overall_process_adherence === 'good' ? 'bg-blue-100 text-blue-800' :
-          data.overall_process_adherence === 'fair' ? 'bg-yellow-100 text-yellow-800' :
-          'bg-red-100 text-red-800'
-        }`}>
-          {data.overall_process_adherence?.toUpperCase()}
+        <span className={getScoreBadgeColor(data.overall_process_adherence)}>
+          {data.overall_process_adherence || 'N/A'}
         </span>
       </button>
 
       {isExpanded && (
-        <div className="px-6 pb-6 space-y-4">
+        <div className="px-6 sm:px-8 pb-6 sm:pb-8 space-y-4">
           <div className="space-y-3">
             {steps.map((step, i) => (
               <div key={i} className="flex items-start gap-3">
                 <span className="mt-0.5">{renderIcon(step.value)}</span>
                 <div className="flex-1">
-                  <div className="font-medium text-foreground">{step.label}</div>
-                  <div className="text-sm text-muted-foreground mt-1 capitalize">{(step.value || 'N/A').replace(/_/g, ' ')}</div>
+                  <div className="font-medium text-pennie-graphite">{step.label}</div>
+                  <div className="text-sm text-muted-foreground mt-1 capitalize">
+                    {(step.value || 'N/A').replace(/_/g, ' ')}
+                  </div>
                   {step.location && (
                     <div className="text-xs text-muted-foreground mt-1">{step.location}</div>
                   )}
@@ -72,9 +76,11 @@ export function SalesProcessScorecard({ data }: { data: any }) {
           </div>
 
           {data.missed_opportunities?.length > 0 && (
-            <div className="bg-yellow-50 border border-yellow-200 rounded p-4">
-              <div className="font-semibold text-yellow-900 mb-2">Missed Opportunities:</div>
-              <ul className="list-disc list-inside space-y-1 text-sm text-yellow-800">
+            <div className="bg-pennie-yellow-light/60 border border-pennie-yellow-main/50 rounded-2xl p-4">
+              <p className="font-semibold text-pennie-yellow-dark mb-2 text-sm">
+                Missed opportunities
+              </p>
+              <ul className="list-disc list-inside space-y-1 text-sm text-pennie-graphite">
                 {data.missed_opportunities.map((o: string, i: number) => (
                   <li key={i}>{o}</li>
                 ))}
@@ -83,13 +89,15 @@ export function SalesProcessScorecard({ data }: { data: any }) {
           )}
 
           {data.process_notes && (
-            <div className="bg-blue-50 border border-blue-200 rounded p-4">
-              <div className="font-semibold text-blue-900 mb-2">Process Notes:</div>
-              <p className="text-sm text-blue-800">{data.process_notes}</p>
+            <div className="bg-pennie-blue-light/40 border border-pennie-blue-light rounded-2xl p-4">
+              <p className="font-semibold text-pennie-blue-deeper mb-2 text-sm">
+                Process notes
+              </p>
+              <p className="text-sm text-pennie-graphite leading-relaxed">{data.process_notes}</p>
             </div>
           )}
         </div>
       )}
-    </div>
+    </section>
   )
 }

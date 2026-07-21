@@ -20,16 +20,16 @@ export function CallAlertsSection({
   const visibleAlerts = filterSuppressedAlertRows(alerts)
   if (loading) {
     return (
-      <div className="bg-card rounded-lg shadow p-6 border border-border">
-        <h2 className="text-lg font-semibold text-foreground mb-4">Alerts</h2>
-        <div className="h-20 rounded bg-muted animate-pulse" />
+      <div className="pennie-card">
+        <h2 className="text-lg font-semibold text-pennie-navy mb-4">Alerts</h2>
+        <div className="h-20 rounded-2xl bg-pennie-beige animate-pulse" />
       </div>
     )
   }
   if (visibleAlerts.length === 0) {
     return (
-      <div className="bg-card rounded-lg shadow p-6 border border-border">
-        <h2 className="text-lg font-semibold text-foreground mb-2">Alerts</h2>
+      <div className="pennie-card">
+        <h2 className="text-lg font-semibold text-pennie-navy mb-2">Alerts</h2>
         <p className="text-sm text-muted-foreground">
           No alerts fired for this call.
         </p>
@@ -40,10 +40,10 @@ export function CallAlertsSection({
   const passes = visibleAlerts.filter(a => !a.has_violation)
 
   return (
-    <div className="bg-card rounded-lg shadow p-6 border border-border">
+    <div className="pennie-card">
       <header className="mb-4 flex items-baseline justify-between gap-4 flex-wrap">
         <div>
-          <h2 className="text-lg font-semibold text-foreground">Alerts</h2>
+          <h2 className="text-lg font-semibold text-pennie-navy">Alerts</h2>
           <p className="text-sm text-muted-foreground">
             {violations.length} violation{violations.length === 1 ? '' : 's'},{' '}
             {passes.length} check{passes.length === 1 ? '' : 's'} passed
@@ -69,9 +69,9 @@ export function CallAlertsSection({
             {passes.map(a => (
               <li
                 key={`${a.call_id}-${a.module_name}`}
-                className="flex items-center justify-between gap-3 text-sm rounded-md bg-muted/40 px-3 py-2"
+                className="flex items-center justify-between gap-3 text-sm rounded-xl bg-pennie-beige/60 px-3 py-2"
               >
-                <span className="font-medium text-foreground">
+                <span className="font-medium text-pennie-graphite">
                   {MODULE_LABELS[a.module_name] ?? a.module_name}
                 </span>
                 <span className="text-xs text-muted-foreground">No violation</span>
@@ -92,12 +92,12 @@ function AlertCard({ alert }: { alert: AlertWithFeedback }) {
     VIOLATION_TYPE_LABELS[alert.violation_type] ?? alert.violation_type
 
   return (
-    <li className="rounded-lg border border-border bg-pennie-white p-4 space-y-3">
+    <li className="rounded-2xl border border-border bg-pennie-white p-4 space-y-3">
       <div className="flex flex-wrap items-center gap-2">
         <span className={pillClasses(accentForViolation(alert.violation_type))}>
           {violationLabel}
         </span>
-        <span className="text-sm font-semibold text-foreground">
+        <span className="text-sm font-semibold text-pennie-navy">
           {moduleLabel}
         </span>
         <span className="ml-auto text-xs text-muted-foreground tabular-nums">
@@ -106,7 +106,7 @@ function AlertCard({ alert }: { alert: AlertWithFeedback }) {
       </div>
 
       {reason && (
-        <div className="text-sm text-foreground">
+        <div className="text-sm text-pennie-graphite">
           <span className="font-semibold">Reason: </span>
           {reason}
         </div>
