@@ -31,7 +31,8 @@ import {
   softDeleteAlertMessage,
   submitAlertFeedback,
 } from '@/lib/alert-queries'
-import { useAlertThread } from '@/hooks/use-queries'
+import { useAgentFeedbackForCall, useAlertThread } from '@/hooks/use-queries'
+import { PennieAgentFeedbackSection } from '@/components/PennieAgentFeedbackSection'
 import { VIOLATION_HELP_IDS } from '@/lib/help-content'
 import { HelpHint } from '@/components/ui/help-hint'
 import {
@@ -149,6 +150,13 @@ export function AlertReviewDrawer({
   const { data: thread, refetch: refetchThread } = useAlertThread(
     alert?.call_id,
     alert?.module_name,
+  )
+
+  // Pennie agent form feedback about the Achieve welcome-call rep — only
+  // relevant (and only fetched) for Achieve welcome-call QA alerts.
+  const { data: agentFeedback } = useAgentFeedbackForCall(
+    alert?.call_id,
+    alert?.module_name === 'achieve_welcome_call_qa',
   )
 
   useEffect(() => {
@@ -607,6 +615,10 @@ export function AlertReviewDrawer({
               )}
             </div>
           </section>
+
+          {/* What the Pennie agent said about the Achieve welcome-call rep
+              (achieve_welcome_call_qa alerts only; hidden when no submission). */}
+          <PennieAgentFeedbackSection feedback={agentFeedback} compact />
 
           <ThreadSection
             messages={thread?.messages ?? []}

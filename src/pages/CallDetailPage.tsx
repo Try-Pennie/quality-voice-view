@@ -1,6 +1,6 @@
 import { useCallback, useMemo } from 'react'
 import { useParams, useNavigate, useLocation } from 'react-router-dom'
-import { useCallDetail, useAlertsForCall, useUserScope } from '../hooks/use-queries'
+import { useCallDetail, useAlertsForCall, useAgentFeedbackForCall, useUserScope } from '../hooks/use-queries'
 import { useAuth } from '../hooks/useAuth'
 import { agentDisplayName, formatDateTime, formatDuration, formatPhoneNumber, getScoreBadgeColor } from '../lib/utils'
 import { HelpHint } from '../components/ui/help-hint'
@@ -15,6 +15,7 @@ import { ProgramExpectationsScorecard } from '../components/call-detail/ProgramE
 import { CustomerExperienceScorecard } from '../components/call-detail/CustomerExperienceScorecard'
 import { CoachingRecommendations } from '../components/call-detail/CoachingRecommendations'
 import { CallAlertsSection } from '../components/call-detail/CallAlertsSection'
+import { PennieAgentFeedbackSection } from '../components/PennieAgentFeedbackSection'
 import { ErrorState } from '@/components/states/ErrorState'
 import {
   AlertTriangle,
@@ -52,6 +53,9 @@ export default function CallDetailPage() {
   } = useAlertsForCall(callId, scope)
   const alerts = useMemo(() => alertsData ?? [], [alertsData])
   const alertsLoading = alertsPending && !alertsData
+  // Pennie agent form feedback about the Achieve welcome-call rep — empty for
+  // most calls, so the section simply doesn't render without it.
+  const { data: agentFeedback } = useAgentFeedbackForCall(callId)
 
   // Go back to wherever the user came from (Team drill-down, agent profile,
   // alerts queue, Calls list…). `location.key === 'default'` means this page
@@ -264,6 +268,9 @@ export default function CallDetailPage() {
       ) : (
         <CallAlertsSection alerts={alerts} loading={alertsLoading} />
       )}
+
+      {/* SECTION 1.6: Pennie agent feedback about the Achieve welcome-call rep */}
+      <PennieAgentFeedbackSection feedback={agentFeedback} />
 
       {/* SECTION 2: Audio player */}
       <section className="pennie-card">
