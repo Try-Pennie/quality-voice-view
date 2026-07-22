@@ -34,6 +34,7 @@ import {
   type InsightsWindow,
 } from '../lib/insights-queries'
 import { filterSuppressedAlertRows, isSuppressedAlertModule } from '../lib/suppressed-alerts'
+import { fetchAgentFeedbackForCall } from '../lib/agent-feedback-queries'
 import {
   fetchResolverPolicyHistory,
   fetchModulePrompts,
@@ -337,6 +338,21 @@ export function useAlertsForCall(
     queryFn: () => fetchAlertsForCall(callId!, scope),
     enabled: !!callId,
     select: rows => filterSuppressedAlertRows(rows, scope),
+  })
+}
+
+// Pennie agent form feedback about the Achieve welcome-call rep, matched to
+// this call (see agent-feedback-queries.ts). Empty for most calls — only
+// Achieve transfers where the Pennie agent submitted the feedback form.
+export function useAgentFeedbackForCall(
+  callId: string | null | undefined,
+  enabled = true,
+) {
+  return useQuery({
+    queryKey: ['agentFeedbackForCall', callId],
+    queryFn: () => fetchAgentFeedbackForCall(callId!),
+    enabled: !!callId && enabled,
+    staleTime: 60_000,
   })
 }
 
