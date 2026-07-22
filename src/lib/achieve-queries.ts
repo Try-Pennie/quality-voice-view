@@ -15,13 +15,32 @@ export const ACHIEVE_PASSWORD_SESSION_KEY = 'achieve_portal_password'
 
 const showDemoData = import.meta.env.VITE_ACHIEVE_DEMO_DATA === 'true'
 
+// Pennie agent form feedback about the Achieve welcome-call rep, synced from
+// the "Achieve Welcome Call" Google Sheet into achieve_agent_feedback and
+// matched to calls server-side (phone + submission time). Optional: only some
+// transfers get a form submission.
+export type AchieveAgentFeedback = {
+  id: number
+  lead_phone_raw?: string | null // only present on unmatched entries
+  achieve_agent_name: string | null
+  accent: boolean | null
+  background_noise: boolean | null
+  connection_issues: boolean | null
+  call_quality: string | null // 'Good' | 'Fair' | 'Poor'
+  notes: string | null
+  submitted_by: string | null
+  submitted_at: string
+}
+
 export type AchievePortalRow = AlertWithFeedback & {
   trimmed_transcript?: string | null
+  agent_feedback?: AchieveAgentFeedback[]
 }
 
 export type AchievePortalData = {
   alerts: AchievePortalRow[]
   allCalls: AchievePortalRow[]
+  unmatchedAgentFeedback: AchieveAgentFeedback[]
 }
 
 export type AchieveReviewFeedbackInput = {
@@ -83,13 +102,14 @@ export async function fetchAchievePortalData(): Promise<AchievePortalData> {
     const data = await invokePortal('list')
     const alerts = (data?.alerts ?? []) as AchievePortalRow[]
     const allCalls = (data?.all_calls ?? []) as AchievePortalRow[]
+    const unmatchedAgentFeedback = (data?.unmatched_agent_feedback ?? []) as AchieveAgentFeedback[]
     if (showDemoData && alerts.length === 0 && allCalls.length === 0) {
-      return { alerts: achieveDemoAlerts, allCalls: achieveDemoAlerts }
+      return { alerts: achieveDemoAlerts, allCalls: achieveDemoAlerts, unmatchedAgentFeedback: [] }
     }
-    return { alerts, allCalls }
+    return { alerts, allCalls, unmatchedAgentFeedback }
   } catch (error) {
     console.error('Error fetching Achieve portal data:', error)
-    if (showDemoData) return { alerts: achieveDemoAlerts, allCalls: achieveDemoAlerts }
+    if (showDemoData) return { alerts: achieveDemoAlerts, allCalls: achieveDemoAlerts, unmatchedAgentFeedback: [] }
     throw error
   }
 }

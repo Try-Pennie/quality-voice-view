@@ -15,10 +15,12 @@ import "jsr:@supabase/functions-js/edge-runtime.d.ts"
 import { createClient } from "jsr:@supabase/supabase-js@2"
 import {
   ACHIEVE_MODULE_NAME,
+  buildAgentFeedbackView,
   buildPortalRow,
   isCompetitorTransfer,
   isQueueRow,
   validateFeedback,
+  type AgentFeedbackRow,
 } from "./portal-logic.ts"
 
 const CORS = {
@@ -42,6 +44,12 @@ const MODULE_RESULT_COLUMNS =
 
 const FEEDBACK_COLUMNS =
   "id, call_id, module_name, manager_email, accurate, action_taken, inaccuracy_reason, comment, reviewed_at"
+
+const AGENT_FEEDBACK_COLUMNS =
+  "id, lead_phone_raw, achieve_agent_name, accent, background_noise, connection_issues, call_quality, notes, submitted_by, submitted_at, matched_call_id"
+
+// Cap for the standalone unmatched-feedback list.
+const MAX_UNMATCHED_FEEDBACK = 200
 
 function json(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), {
@@ -135,11 +143,12 @@ Deno.serve(async (req: Request) => {
     const transcriptByCall = new Map<string, any>()
     // deno-lint-ignore no-explicit-any
     const feedbackByCall = new Map<string, any>()
+    const agentFeedbackByCall = new Map<string, AgentFeedbackRow[]>()
     // Chunk the .in() lookups: up to MAX_LIST_ROWS ids would blow past URL /
     // response limits, so fetch in ID_CHUNK_SIZE batches and merge the maps.
     for (let i = 0; i < callIds.length; i += ID_CHUNK_SIZE) {
       const chunk = callIds.slice(i, i + ID_CHUNK_SIZE)
-      const [transcriptsRes, feedbackRes] = await Promise.all([
+      const [transcriptsRes, feedbackRes, agentFeedbackRes] = await Promise.all([
         admin
           .from("eavesly_transcription_qa")
           .select("call_id, original_transcript, transcription_link, recording_link")
@@ -149,23 +158,51 @@ Deno.serve(async (req: Request) => {
           .select(FEEDBACK_COLUMNS)
           .eq("module_name", ACHIEVE_MODULE_NAME)
           .in("call_id", chunk),
+        admin
+          .from("achieve_agent_feedback")
+          .select(AGENT_FEEDBACK_COLUMNS)
+          .in("matched_call_id", chunk)
+          .order("submitted_at", { ascending: true }),
       ])
       if (transcriptsRes.error) console.error("achieve transcripts error", transcriptsRes.error)
       if (feedbackRes.error) console.error("achieve feedback error", feedbackRes.error)
+      if (agentFeedbackRes.error) console.error("achieve agent feedback error", agentFeedbackRes.error)
       for (const row of transcriptsRes.data ?? []) {
         if (row.call_id) transcriptByCall.set(row.call_id, row)
       }
       for (const row of feedbackRes.data ?? []) {
         if (row.call_id) feedbackByCall.set(row.call_id, row)
       }
+      for (const row of agentFeedbackRes.data ?? []) {
+        if (!row.matched_call_id) continue
+        const bucket = agentFeedbackByCall.get(row.matched_call_id)
+        if (bucket) bucket.push(row)
+        else agentFeedbackByCall.set(row.matched_call_id, [row])
+      }
     }
+
+    // Feedback whose phone never matched an Achieve QA call — shown in its own
+    // portal section so agent observations are never silently dropped.
+    const { data: unmatchedRows, error: unmatchedError } = await admin
+      .from("achieve_agent_feedback")
+      .select(AGENT_FEEDBACK_COLUMNS)
+      .is("matched_call_id", null)
+      .order("submitted_at", { ascending: false })
+      .limit(MAX_UNMATCHED_FEEDBACK)
+    if (unmatchedError) console.error("achieve unmatched agent feedback error", unmatchedError)
 
     // deno-lint-ignore no-explicit-any
     const toRow = (row: any) =>
-      buildPortalRow(row, transcriptByCall.get(row.call_id), feedbackByCall.get(row.call_id))
+      buildPortalRow(
+        row,
+        transcriptByCall.get(row.call_id),
+        feedbackByCall.get(row.call_id),
+        agentFeedbackByCall.get(row.call_id) ?? [],
+      )
     return json({
       alerts: callRows.filter(row => isQueueRow(row)).map(toRow),
       all_calls: callRows.map(toRow),
+      unmatched_agent_feedback: (unmatchedRows ?? []).map(row => buildAgentFeedbackView(row, true)),
     })
   }
 

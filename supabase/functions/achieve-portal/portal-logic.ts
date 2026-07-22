@@ -105,6 +105,39 @@ export function sanitizeResultJson(result: Json): Json {
   return result
 }
 
+// Pennie agent form feedback (achieve_agent_feedback), matched to a call by
+// phone + submission time. Multiple submissions can reference one call (e.g.
+// a re-transfer after a failed handoff), so views are arrays.
+export type AgentFeedbackRow = {
+  id: number
+  lead_phone_raw?: string | null
+  achieve_agent_name: string | null
+  accent: boolean | null
+  background_noise: boolean | null
+  connection_issues: boolean | null
+  call_quality: string | null
+  notes: string | null
+  submitted_by: string | null
+  submitted_at: string
+}
+
+// Explicit projection for the partner-facing payload. lead_phone_raw is only
+// included for unmatched entries (there is no call row to identify them by).
+export function buildAgentFeedbackView(row: AgentFeedbackRow, includePhone = false) {
+  return {
+    id: row.id,
+    lead_phone_raw: includePhone ? row.lead_phone_raw ?? null : undefined,
+    achieve_agent_name: row.achieve_agent_name ?? null,
+    accent: row.accent ?? null,
+    background_noise: row.background_noise ?? null,
+    connection_issues: row.connection_issues ?? null,
+    call_quality: row.call_quality ?? null,
+    notes: row.notes ?? null,
+    submitted_by: row.submitted_by || null,
+    submitted_at: row.submitted_at,
+  }
+}
+
 type FeedbackRow = {
   id: number
   call_id: string
@@ -119,7 +152,12 @@ type FeedbackRow = {
 
 // Assemble one partner-facing row. Explicit projection: internal identifiers
 // (agent_email, sfdc_lead_id, assigned manager) never leave the server.
-export function buildPortalRow(row: Json, transcript: Json, feedback: FeedbackRow | undefined) {
+export function buildPortalRow(
+  row: Json,
+  transcript: Json,
+  feedback: FeedbackRow | undefined,
+  agentFeedback: AgentFeedbackRow[] = [],
+) {
   const withheld = isWithheld(row.result_json)
   return {
     module_result_id: row.module_result_id ?? row.id,
@@ -152,6 +190,7 @@ export function buildPortalRow(row: Json, transcript: Json, feedback: FeedbackRo
     last_message_at: null,
     acker_emails: [],
     trimmed_transcript: trimTranscript(transcript?.original_transcript, row.result_json) || null,
+    agent_feedback: agentFeedback.map(f => buildAgentFeedbackView(f)),
   }
 }
 
