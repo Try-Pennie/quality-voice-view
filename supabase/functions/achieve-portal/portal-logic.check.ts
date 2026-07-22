@@ -4,6 +4,7 @@ import assert from 'node:assert'
 import {
   ACHIEVE_MODULE_NAME,
   MAX_TRANSCRIPT_CHARS,
+  buildAgentFeedbackView,
   buildPortalRow,
   isCompetitorTransfer,
   isQueueRow,
@@ -143,6 +144,63 @@ assert.strictEqual(gradedRow.trimmed_transcript, 'line2\nline3')
 assert.strictEqual(gradedRow.call_summary, 'ok summary')
 assert.strictEqual(gradedRow.is_reviewed, true)
 assert.strictEqual(gradedRow.feedback_by, 'r@a.com')
+// No matched agent feedback -> empty array, never undefined.
+assert.deepStrictEqual(gradedRow.agent_feedback, [])
+
+// --- buildAgentFeedbackView / agent_feedback on rows ---------------------------
+
+const agentFeedbackRow = {
+  id: 7,
+  lead_phone_raw: '(555) 123-4567',
+  achieve_agent_name: 'Jasmine',
+  accent: false,
+  background_noise: true,
+  connection_issues: null,
+  call_quality: 'Fair',
+  notes: 'a bit robotic',
+  submitted_by: 'Pennie Agent',
+  submitted_at: '2026-07-15T17:45:12Z',
+  // internal fields that must not leak through the projection:
+  phone_normalized: '5551234567',
+  matched_call_id: 'CA456',
+  matched_at: '2026-07-15T18:00:00Z',
+  created_at: '2026-07-15T18:00:00Z',
+// deno-lint-ignore no-explicit-any
+} as any
+
+// Matched view: no phone (the call row identifies it), no internal fields.
+const matchedView = buildAgentFeedbackView(agentFeedbackRow)
+assert.strictEqual(matchedView.lead_phone_raw, undefined)
+assert.strictEqual(matchedView.call_quality, 'Fair')
+assert.strictEqual(matchedView.notes, 'a bit robotic')
+assert.strictEqual(matchedView.submitted_by, 'Pennie Agent')
+assert.ok(!('phone_normalized' in matchedView))
+assert.ok(!('matched_call_id' in matchedView))
+assert.ok(!('created_at' in matchedView))
+
+// Unmatched view keeps the raw phone so the reviewer can identify the call.
+const unmatchedView = buildAgentFeedbackView(agentFeedbackRow, true)
+assert.strictEqual(unmatchedView.lead_phone_raw, '(555) 123-4567')
+
+// Empty submitted_by ('' in the DB) normalizes to null for display.
+assert.strictEqual(buildAgentFeedbackView({ ...agentFeedbackRow, submitted_by: '' }).submitted_by, null)
+
+// Rows carry matched agent feedback through buildPortalRow.
+const rowWithAgentFeedback = buildPortalRow(
+  {
+    id: 12,
+    call_id: 'CA456',
+    module_name: ACHIEVE_MODULE_NAME,
+    has_violation: false,
+    result_json: { transcript_segment: { start_line: 0 } },
+  },
+  { call_id: 'CA456', original_transcript: transcript },
+  undefined,
+  [agentFeedbackRow],
+)
+assert.strictEqual(rowWithAgentFeedback.agent_feedback.length, 1)
+assert.strictEqual(rowWithAgentFeedback.agent_feedback[0].call_quality, 'Fair')
+assert.strictEqual(rowWithAgentFeedback.agent_feedback[0].lead_phone_raw, undefined)
 
 // --- validateFeedback -----------------------------------------------------------
 

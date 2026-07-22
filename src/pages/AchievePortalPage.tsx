@@ -3,7 +3,7 @@ import { useQuery } from '@tanstack/react-query'
 import { Check, ChevronRight, ExternalLink, HelpCircle, RefreshCcw, X } from 'lucide-react'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { ACHIEVE_ELEMENTS, ACHIEVE_SECTION_ORDER, ACHIEVE_TERMS, adherenceLabel, deriveChecklist, humanizeElementKeys, type ChecklistRow } from '@/lib/achieve-checklist'
-import { ACHIEVE_PASSWORD_SESSION_KEY, fetchAchievePortalData, submitAchieveReviewFeedback, verifyAchievePortalPassword, type AchievePortalRow } from '@/lib/achieve-queries'
+import { ACHIEVE_PASSWORD_SESSION_KEY, fetchAchievePortalData, submitAchieveReviewFeedback, verifyAchievePortalPassword, type AchieveAgentFeedback, type AchievePortalRow } from '@/lib/achieve-queries'
 import { humanizeTransferReason, parseTransferExperience, transferExperienceSummary, type TransferExperience } from '@/lib/achieve-transfer-experience'
 import type { AlertActionTaken, AlertInaccuracyReason, AlertWithFeedback } from '@/types/database'
 import { formatDateTime } from '@/lib/utils'
@@ -29,6 +29,27 @@ function firstSentence(text: string): string {
   const trimmed = text.trim()
   const idx = trimmed.indexOf('. ')
   return idx === -1 ? trimmed : trimmed.slice(0, idx + 1)
+}
+
+// Tone for the Pennie-agent call-quality rating (Good/Fair/Poor free text).
+function agentQualityTone(quality: string | null): string {
+  const q = (quality ?? '').toLowerCase()
+  if (q === 'good') return 'bg-emerald-100 text-emerald-800'
+  if (q === 'poor') return 'bg-red-100 text-red-800'
+  if (q === 'fair') return 'bg-amber-100 text-amber-800'
+  return 'bg-slate-100 text-slate-700'
+}
+
+// Worst rating wins when multiple Pennie agents rated the same call.
+function worstAgentQuality(feedback: AchieveAgentFeedback[]): string | null {
+  const order = ['poor', 'fair', 'good']
+  let worst: string | null = null
+  for (const f of feedback) {
+    const q = (f.call_quality ?? '').toLowerCase()
+    if (!order.includes(q)) continue
+    if (worst === null || order.indexOf(q) < order.indexOf(worst)) worst = q
+  }
+  return worst ? worst[0].toUpperCase() + worst.slice(1) : null
 }
 
 const ACTION_OPTIONS: { value: AlertActionTaken; label: string }[] = [
@@ -127,6 +148,7 @@ function AchieveReviewQueue() {
 
   const alerts = useMemo(() => portalQuery.data?.alerts ?? [], [portalQuery.data])
   const allCalls = useMemo(() => portalQuery.data?.allCalls ?? [], [portalQuery.data])
+  const unmatchedAgentFeedback = useMemo(() => portalQuery.data?.unmatchedAgentFeedback ?? [], [portalQuery.data])
   const allStats = useMemo(() => summarize(allCalls), [allCalls])
   const isFetching = portalQuery.isFetching
 
@@ -257,6 +279,24 @@ function AchieveReviewQueue() {
             />
           </TabsContent>
         </Tabs>
+
+        {unmatchedAgentFeedback.length > 0 && (
+          <details className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+            <summary className="cursor-pointer text-sm font-semibold text-slate-950">
+              Pennie agent feedback without a matched call ({unmatchedAgentFeedback.length})
+            </summary>
+            <p className="mt-1 text-xs leading-5 text-slate-500">
+              Form submissions from Pennie agents about welcome-call reps that could not be matched to a scored
+              call above (usually a mistyped phone number, or a transfer that never produced a QA row). Kept
+              visible so agent observations are never lost.
+            </p>
+            <div className="mt-4 space-y-3">
+              {unmatchedAgentFeedback.map(item => (
+                <AgentFeedbackCard key={item.id} item={item} showPhone />
+              ))}
+            </div>
+          </details>
+        )}
       </div>
     </main>
   )
@@ -369,6 +409,7 @@ function AchieveQueueRow({ row, mode, onSelect }: { row: AchieveRow; mode: 'revi
             <span className="text-sm font-semibold leading-5 text-slate-950">{row.contact_name || 'Unknown contact'}</span>
             <ResultPill alert={row} />
             {mode === 'review' && <AlertStatusPill reviewed={row.is_reviewed} />}
+            <AgentFeedbackPill feedback={row.agent_feedback} />
           </div>
           <div className="text-xs leading-5 text-slate-500">
             {row.contact_phone || 'No phone on file'} · {formatDateTime(row.alert_created_at)}
@@ -468,6 +509,18 @@ function ResultPill({ alert }: { alert: AlertWithFeedback }) {
   return <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${classes}`}>{label}</span>
 }
 
+// Small badge shown when one or more Pennie agents submitted form feedback
+// about the welcome-call rep on this call.
+function AgentFeedbackPill({ feedback }: { feedback?: AchieveAgentFeedback[] }) {
+  if (!feedback || feedback.length === 0) return null
+  const quality = worstAgentQuality(feedback)
+  return (
+    <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${agentQualityTone(quality)}`}>
+      Pennie agent: {quality ?? 'feedback'}{feedback.length > 1 ? ` ×${feedback.length}` : ''}
+    </span>
+  )
+}
+
 function AlertStatusPill({ reviewed }: { reviewed: boolean }) {
   return (
     <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${reviewed ? 'bg-slate-100 text-slate-700' : 'bg-amber-100 text-amber-800'}`}>
@@ -545,6 +598,7 @@ function AchieveAlertDetails({
         <p className="rounded-2xl border border-amber-200 bg-amber-50 p-5 text-sm text-amber-900">
           Not graded — {achieveSkipReasonDetail(result.skip_reason)}
         </p>
+        <AgentFeedbackSection feedback={alert.agent_feedback} />
         <DrawerSection title="Reviewer feedback" description="Capture whether the QA result is useful/correct and what should happen next.">
           <AchieveFeedbackForm alert={alert} onSubmitted={onFeedbackSubmitted} />
         </DrawerSection>
@@ -563,6 +617,7 @@ function AchieveAlertDetails({
           Details withheld — this call was graded on an unreliable transcript segment
           before segmentation hardening, and its details may reference non-Achieve content.
         </p>
+        <AgentFeedbackSection feedback={alert.agent_feedback} />
         <DrawerSection title="Reviewer feedback" description="Capture whether the QA result is useful/correct and what should happen next.">
           <AchieveFeedbackForm alert={alert} onSubmitted={onFeedbackSubmitted} />
         </DrawerSection>
@@ -646,6 +701,8 @@ function AchieveAlertDetails({
       {hasPoorTransfer && transferExperience && (
         <TransferExperienceSection transfer={transferExperience} />
       )}
+
+      <AgentFeedbackSection feedback={alert.agent_feedback} />
 
       <DrawerSection
         title="What happened on this call"
@@ -739,6 +796,57 @@ function AchieveAlertDetails({
         <AchieveFeedbackForm alert={alert} onSubmitted={onFeedbackSubmitted} />
       </DrawerSection>
     </article>
+  )
+}
+
+// What the Pennie agent said about the Achieve welcome-call rep on this call.
+// Rendered only when at least one form submission matched the call.
+function AgentFeedbackSection({ feedback }: { feedback?: AchieveAgentFeedback[] }) {
+  if (!feedback || feedback.length === 0) return null
+  return (
+    <DrawerSection
+      title="Pennie agent feedback"
+      description="Submitted by the Pennie agent who transferred the client and observed the welcome call. Not all calls receive a submission."
+    >
+      <div className="space-y-3">
+        {feedback.map(item => (
+          <AgentFeedbackCard key={item.id} item={item} />
+        ))}
+      </div>
+    </DrawerSection>
+  )
+}
+
+function AgentFeedbackCard({ item, showPhone = false }: { item: AchieveAgentFeedback; showPhone?: boolean }) {
+  const flags = [
+    item.accent === true ? 'Accent' : null,
+    item.background_noise === true ? 'Background noise' : null,
+    item.connection_issues === true ? 'Connection issues' : null,
+  ].filter((f): f is string => f !== null)
+
+  return (
+    <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+      <div className="flex flex-wrap items-center gap-2">
+        {item.call_quality && (
+          <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${agentQualityTone(item.call_quality)}`}>
+            {item.call_quality}
+          </span>
+        )}
+        {flags.map(flag => (
+          <span key={flag} className="rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-semibold text-amber-900">{flag}</span>
+        ))}
+        {item.achieve_agent_name && (
+          <span className="text-xs text-slate-600">Welcome-call rep: <span className="font-semibold text-slate-800">{item.achieve_agent_name}</span></span>
+        )}
+      </div>
+      {showPhone && item.lead_phone_raw && (
+        <p className="mt-2 font-mono text-xs text-slate-500">Client phone (as entered): {item.lead_phone_raw}</p>
+      )}
+      {item.notes && <p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-slate-700">{item.notes}</p>}
+      <p className="mt-2 text-xs text-slate-500">
+        {item.submitted_by ? `Submitted by ${item.submitted_by}` : 'Submitter not recorded'} · {formatDateTime(item.submitted_at)}
+      </p>
+    </div>
   )
 }
 
