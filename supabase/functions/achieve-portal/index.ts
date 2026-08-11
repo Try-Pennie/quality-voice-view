@@ -19,8 +19,10 @@ import {
   buildPortalRow,
   isCompetitorTransfer,
   isQueueRow,
+  parseWelcomeAgentLookupRow,
   validateFeedback,
   type AgentFeedbackRow,
+  type WelcomeAgentIdentity,
 } from "./portal-logic.ts"
 
 const CORS = {
@@ -40,7 +42,7 @@ const MAX_LIST_ROWS = 1000
 const ID_CHUNK_SIZE = 200
 
 const MODULE_RESULT_COLUMNS =
-  "id, created_at, call_id, module_name, violation_type, has_violation, alert_sent, alert_sent_at, contact_name, contact_phone, recording_link, transcript_url, call_summary, processing_time_ms, result_json"
+  "id, created_at, call_id, module_name, violation_type, has_violation, alert_sent, alert_sent_at, contact_name, contact_phone, recording_link, transcript_url, call_summary, processing_time_ms, result_json, sfdc_lead_id"
 
 const FEEDBACK_COLUMNS =
   "id, call_id, module_name, manager_email, accurate, action_taken, inaccuracy_reason, comment, reviewed_at"
@@ -139,6 +141,37 @@ Deno.serve(async (req: Request) => {
     const callIds = Array.from(
       new Set(callRows.map(row => row.call_id).filter(Boolean)),
     )
+    const sfdcLeadIds = Array.from(
+      new Set(
+        callRows.flatMap(row =>
+          typeof row.sfdc_lead_id === "string" && row.sfdc_lead_id.trim()
+            ? [row.sfdc_lead_id]
+            : []
+        ),
+      ),
+    )
+    const welcomeAgentByLead = new Map<string, WelcomeAgentIdentity>()
+    for (let i = 0; i < sfdcLeadIds.length; i += ID_CHUNK_SIZE) {
+      const { data, error } = await admin.rpc(
+        "get_achieve_welcome_agents_for_leads",
+        { p_sfdc_lead_ids: sfdcLeadIds.slice(i, i + ID_CHUNK_SIZE) },
+      )
+      if (error) {
+        // Attribution is additive: keep the QA portal available when the bridge
+        // sync/RPC is temporarily unavailable, but make the loss observable.
+        console.error("achieve welcome-agent lookup error", error)
+        continue
+      }
+      for (const rawRow of data ?? []) {
+        const parsed = parseWelcomeAgentLookupRow(rawRow)
+        if (!parsed) continue
+        welcomeAgentByLead.set(parsed.sfdc_lead_id, {
+          achieve_agent_name: parsed.achieve_agent_name,
+          achieve_agent_email: parsed.achieve_agent_email,
+        })
+      }
+    }
+
     // deno-lint-ignore no-explicit-any
     const transcriptByCall = new Map<string, any>()
     // deno-lint-ignore no-explicit-any
@@ -198,6 +231,9 @@ Deno.serve(async (req: Request) => {
         transcriptByCall.get(row.call_id),
         feedbackByCall.get(row.call_id),
         agentFeedbackByCall.get(row.call_id) ?? [],
+        typeof row.sfdc_lead_id === "string"
+          ? welcomeAgentByLead.get(row.sfdc_lead_id)
+          : undefined,
       )
     return json({
       alerts: callRows.filter(row => isQueueRow(row)).map(toRow),
