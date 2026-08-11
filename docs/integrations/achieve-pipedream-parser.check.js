@@ -50,8 +50,9 @@ const snowflakeRows = [
 ];
 assert.deepEqual(extractSnowflakeRows({ rows: snowflakeRows }), snowflakeRows);
 assert.deepEqual(extractSnowflakeRows(JSON.stringify(snowflakeRows)), snowflakeRows);
-assert.equal(pipedreamComponent.version, "0.2.1");
+assert.equal(pipedreamComponent.version, "0.2.2");
 assert.equal(pipedreamComponent.props.snowflakeRows.type, "any");
+assert.equal(pipedreamComponent.props.snowflakeRows.secret, undefined);
 
 const syncedAt = "2026-08-11T13:00:00.000Z";
 const bridgePlan = planBridgeRows(snowflakeRows, agentPlan.records, syncedAt);

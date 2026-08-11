@@ -574,7 +574,7 @@ const define = globalThis.defineComponent ?? ((component) => component);
 export default define({
   name: "Welcome-Call Agents → Supabase",
   key: "wca-ingest-supabase",
-  version: "0.2.1",
+  version: "0.2.2",
   type: "action",
   props: {
     snowflakeRows: {
@@ -582,7 +582,6 @@ export default define({
       label: "Snowflake bridge rows",
       description:
         "Set this to `{{steps.fetch_achieve_client_sfdc_map.$return_value}}` from the preceding Snowflake step.",
-      secret: true,
     },
     db: { type: "data_store", label: "Data Store (file-dedupe state)" },
     gdriveSaJson: {
