@@ -47,6 +47,85 @@ order by client_id, last_seen_on desc, id desc;
 comment on view public.welcome_call_agent_current is
   'Latest Achieve welcome-call representative assignment per exact client ID.';
 
+-- Pipedream sends validated chunks as [{ client_id,
+-- welcome_call_agent_name, welcome_call_agent_email, report_date }]. Re-runs
+-- update the observed date range without rewriting unchanged rows.
+create or replace function public.ingest_welcome_call_agents(rows jsonb)
+returns table (
+  inserted bigint,
+  updated bigint,
+  unchanged bigint
+)
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  inserted_count bigint;
+  updated_count bigint;
+  source_count bigint;
+begin
+  if rows is null or jsonb_typeof(rows) <> 'array' then
+    raise exception using
+      errcode = '22023',
+      message = 'rows must be a JSON array';
+  end if;
+
+  with parsed as (
+    select
+      nullif(btrim(item.value ->> 'client_id'), '') as client_id,
+      btrim(coalesce(item.value ->> 'welcome_call_agent_name', '')) as agent_name,
+      lower(nullif(btrim(item.value ->> 'welcome_call_agent_email'), '')) as agent_email,
+      (item.value ->> 'report_date')::date as report_date,
+      item.ordinality
+    from jsonb_array_elements(rows) with ordinality as item(value, ordinality)
+  ),
+  source_rows as (
+    select distinct on (client_id, agent_email)
+      client_id,
+      agent_name,
+      agent_email,
+      report_date
+    from parsed
+    where client_id is not null
+      and agent_email is not null
+      and report_date is not null
+    order by client_id, agent_email, ordinality desc
+  ),
+  upserted as (
+    insert into public.welcome_call_agent_log as target
+      (client_id, welcome_call_agent_name, welcome_call_agent_email,
+       first_seen_on, last_seen_on)
+    select client_id, agent_name, agent_email, report_date, report_date
+    from source_rows
+    on conflict (client_id, welcome_call_agent_email) do update set
+      welcome_call_agent_name = excluded.welcome_call_agent_name,
+      first_seen_on = least(target.first_seen_on, excluded.first_seen_on),
+      last_seen_on = greatest(target.last_seen_on, excluded.last_seen_on),
+      updated_at = now()
+    where target.welcome_call_agent_name is distinct from excluded.welcome_call_agent_name
+       or target.first_seen_on > excluded.first_seen_on
+       or target.last_seen_on < excluded.last_seen_on
+    returning (xmax = 0) as is_insert
+  )
+  select
+    count(*) filter (where is_insert),
+    count(*) filter (where not is_insert),
+    (select count(*) from source_rows)
+  into inserted_count, updated_count, source_count
+  from upserted;
+
+  return query
+  select
+    inserted_count,
+    updated_count,
+    source_count - inserted_count - updated_count;
+end;
+$$;
+
+comment on function public.ingest_welcome_call_agents(jsonb) is
+  'Service-only idempotent ingestion of validated Achieve welcome-call representative report rows.';
+
 -- 2) Snowflake ID bridge -----------------------------------------------------
 create table if not exists public.achieve_client_sfdc_map (
   sfdc_lead_id text primary key,
@@ -84,6 +163,11 @@ grant select, insert, update, delete on table public.welcome_call_agent_log to s
 grant select on table public.welcome_call_agent_current to service_role;
 grant select, insert, update, delete on table public.achieve_client_sfdc_map to service_role;
 grant usage, select on sequence public.welcome_call_agent_log_id_seq to service_role;
+
+revoke execute on function public.ingest_welcome_call_agents(jsonb)
+  from anon, authenticated, public;
+grant execute on function public.ingest_welcome_call_agents(jsonb)
+  to service_role;
 
 -- 3) Partner-safe lookup -----------------------------------------------------
 -- Resolve only unambiguous client assignments. If a future daily report records
