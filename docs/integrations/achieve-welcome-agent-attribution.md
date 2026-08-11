@@ -36,11 +36,13 @@ from AIRBYTE_SFDC_DATABASE.AIRBYTE_SFDC_SCHEMA.LEAD
 where nullif(trim(CLIENT_NO_A__C), '') is not null;
 ```
 
-Replace the existing parser with [`achieve-pipedream-parser.js`](./achieve-pipedream-parser.js). It reads:
+Replace the existing parser with [`achieve-pipedream-parser.js`](./achieve-pipedream-parser.js). In the parser step's **Snowflake bridge rows** prop, enter this Pipedream expression:
 
 ```js
-steps.fetch_achieve_client_sfdc_map.$return_value
+{{steps.fetch_achieve_client_sfdc_map.$return_value}}
 ```
+
+The explicit prop is required because the parser is a published Pipedream action; it should not rely on implicit access to another step's runtime object. The parser accepts either the resulting array or a JSON-encoded version of it.
 
 The parser:
 

@@ -247,12 +247,23 @@ function snowflakeField(row, ...names) {
 }
 
 // Pipedream's Snowflake Execute Query action normally returns an array of row
-// objects. Accept common wrappers as a defensive compatibility seam.
+// objects. Published actions receive previous-step data most reliably through
+// an explicit prop expression, which may arrive as either a value or JSON.
 export function extractSnowflakeRows(value) {
-  if (Array.isArray(value)) return value;
-  if (Array.isArray(value?.rows)) return value.rows;
-  if (Array.isArray(value?.data)) return value.data;
-  if (Array.isArray(value?.results)) return value.results;
+  let candidate = value;
+  if (typeof candidate === "string") {
+    try {
+      candidate = JSON.parse(candidate);
+    } catch {
+      throw new Error(
+        `Snowflake input for step ${SNOWFLAKE_STEP_KEY} was not valid JSON`,
+      );
+    }
+  }
+  if (Array.isArray(candidate)) return candidate;
+  if (Array.isArray(candidate?.rows)) return candidate.rows;
+  if (Array.isArray(candidate?.data)) return candidate.data;
+  if (Array.isArray(candidate?.results)) return candidate.results;
   throw new Error(
     `Snowflake step ${SNOWFLAKE_STEP_KEY} did not return a row array`,
   );
@@ -563,9 +574,16 @@ const define = globalThis.defineComponent ?? ((component) => component);
 export default define({
   name: "Welcome-Call Agents → Supabase",
   key: "wca-ingest-supabase",
-  version: "0.2.0",
+  version: "0.2.1",
   type: "action",
   props: {
+    snowflakeRows: {
+      type: "any",
+      label: "Snowflake bridge rows",
+      description:
+        "Set this to `{{steps.fetch_achieve_client_sfdc_map.$return_value}}` from the preceding Snowflake step.",
+      secret: true,
+    },
     db: { type: "data_store", label: "Data Store (file-dedupe state)" },
     gdriveSaJson: {
       type: "string",
@@ -716,7 +734,8 @@ export default define({
 
     let bridgePlan;
     try {
-      const snowflakeValue = steps?.[SNOWFLAKE_STEP_KEY]?.$return_value;
+      const snowflakeValue = this.snowflakeRows
+        ?? steps?.[SNOWFLAKE_STEP_KEY]?.$return_value;
       bridgePlan = planBridgeRows(
         extractSnowflakeRows(snowflakeValue),
         agentPlan.records,

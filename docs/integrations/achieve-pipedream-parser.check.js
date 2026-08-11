@@ -49,6 +49,9 @@ const snowflakeRows = [
   },
 ];
 assert.deepEqual(extractSnowflakeRows({ rows: snowflakeRows }), snowflakeRows);
+assert.deepEqual(extractSnowflakeRows(JSON.stringify(snowflakeRows)), snowflakeRows);
+assert.equal(pipedreamComponent.version, "0.2.1");
+assert.equal(pipedreamComponent.props.snowflakeRows.type, "any");
 
 const syncedAt = "2026-08-11T13:00:00.000Z";
 const bridgePlan = planBridgeRows(snowflakeRows, agentPlan.records, syncedAt);
@@ -128,6 +131,7 @@ async function runComponent({ bridgeFails }) {
   };
 
   const context = {
+    snowflakeRows: JSON.stringify(snowflakeRows),
     db: {
       async get() { return null; },
       async set(key, value) { calls.push("state-set"); this.saved = { key, value }; },
@@ -142,14 +146,10 @@ async function runComponent({ bridgeFails }) {
   const runtime = {
     export(key, value) { exports.set(key, value); },
   };
-  const steps = {
-    fetch_achieve_client_sfdc_map: {
-      $return_value: snowflakeRows,
-    },
-  };
-
   try {
-    const result = await pipedreamComponent.run.call(context, { $: runtime, steps });
+    // Published Pipedream actions receive the Snowflake output through the
+    // configured prop; no implicit previous-step runtime object is required.
+    const result = await pipedreamComponent.run.call(context, { $: runtime, steps: {} });
     return { calls, exports, result, error: null };
   } catch (error) {
     return { calls, exports, result: null, error };
