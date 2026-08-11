@@ -33,6 +33,8 @@ export type AchieveAgentFeedback = {
 }
 
 export type AchievePortalRow = AlertWithFeedback & {
+  achieve_agent_name: string | null
+  achieve_agent_email: string | null
   trimmed_transcript?: string | null
   agent_feedback?: AchieveAgentFeedback[]
 }
@@ -151,6 +153,8 @@ const achieveDemoAlert: AchievePortalRow = {
   transcript_url: null,
   call_summary: 'DEMO DATA: Client completed FDR enrollment handoff and welcome call; app/dashboard setup was completed and program basics were reviewed, but the agent never gave the required "recorded for quality and training purposes" disclosure.',
   sfdc_lead_id: null,
+  achieve_agent_name: 'Max Reynolds',
+  achieve_agent_email: 'max.reynolds@example.invalid',
   processing_time_ms: null,
   result_json: {
     demo_data: true,

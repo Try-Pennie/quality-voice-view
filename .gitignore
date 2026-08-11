@@ -28,3 +28,6 @@ bun.lockb
 
 # Claude Code agent worktrees (scratch checkouts; never commit)
 .claude/worktrees/
+
+# Supabase CLI linked-project metadata (local-only)
+supabase/.temp/

@@ -150,13 +150,43 @@ type FeedbackRow = {
   reviewed_at: string | null
 }
 
+// Achieve/FDR representative resolved server-side through the Snowflake-backed
+// Salesforce Lead ID -> Achieve client ID bridge.
+export type WelcomeAgentIdentity = {
+  achieve_agent_name: string
+  achieve_agent_email: string
+}
+
+export type WelcomeAgentLookupRow = WelcomeAgentIdentity & {
+  sfdc_lead_id: string
+}
+
+// Parse the service-only RPC projection before it enters portal assembly. A
+// malformed row is ignored, leaving attribution explicitly unmatched.
+export function parseWelcomeAgentLookupRow(value: unknown): WelcomeAgentLookupRow | null {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return null
+  // SAFETY: The object check above establishes an indexable boundary record;
+  // every field is independently refined below before the value is returned.
+  const row = value as Record<string, unknown>
+  if (typeof row.sfdc_lead_id !== 'string' || !row.sfdc_lead_id.trim()) return null
+  if (typeof row.achieve_agent_name !== 'string' || !row.achieve_agent_name.trim()) return null
+  if (typeof row.achieve_agent_email !== 'string' || !row.achieve_agent_email.trim()) return null
+  return {
+    sfdc_lead_id: row.sfdc_lead_id,
+    achieve_agent_name: row.achieve_agent_name,
+    achieve_agent_email: row.achieve_agent_email,
+  }
+}
+
 // Assemble one partner-facing row. Explicit projection: internal identifiers
-// (agent_email, sfdc_lead_id, assigned manager) never leave the server.
+// (agent_email, sfdc_lead_id, assigned manager) never leave the server. Only the
+// Achieve/FDR representative identity resolved from Achieve's own report is added.
 export function buildPortalRow(
   row: Json,
   transcript: Json,
   feedback: FeedbackRow | undefined,
   agentFeedback: AgentFeedbackRow[] = [],
+  welcomeAgent?: WelcomeAgentIdentity,
 ) {
   const withheld = isWithheld(row.result_json)
   return {
@@ -175,6 +205,8 @@ export function buildPortalRow(
     transcript_url: row.transcript_url ?? transcript?.transcription_link ?? null,
     call_summary: withheld ? null : row.call_summary ?? null,
     sfdc_lead_id: null,
+    achieve_agent_name: welcomeAgent?.achieve_agent_name ?? null,
+    achieve_agent_email: welcomeAgent?.achieve_agent_email ?? null,
     processing_time_ms: row.processing_time_ms ?? null,
     result_json: sanitizeResultJson(row.result_json),
     assigned_manager_email: null,

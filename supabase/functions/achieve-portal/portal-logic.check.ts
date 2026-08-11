@@ -9,6 +9,7 @@ import {
   isCompetitorTransfer,
   isQueueRow,
   isWithheld,
+  parseWelcomeAgentLookupRow,
   sanitizeResultJson,
   trimTranscript,
   validateFeedback,
@@ -103,6 +104,29 @@ assert.strictEqual(isCompetitorTransfer({}), false)
 // on the paths that do surface it, but the list handler filters it out first.
 assert.ok(isWithheld(competitorResult))
 
+// --- parseWelcomeAgentLookupRow ------------------------------------------------
+
+assert.deepStrictEqual(
+  parseWelcomeAgentLookupRow({
+    sfdc_lead_id: 'LEAD1',
+    achieve_agent_name: 'Achieve Representative',
+    achieve_agent_email: 'representative@achieve.test',
+  }),
+  {
+    sfdc_lead_id: 'LEAD1',
+    achieve_agent_name: 'Achieve Representative',
+    achieve_agent_email: 'representative@achieve.test',
+  },
+)
+assert.strictEqual(parseWelcomeAgentLookupRow(null), null)
+assert.strictEqual(parseWelcomeAgentLookupRow([]), null)
+assert.strictEqual(parseWelcomeAgentLookupRow({ sfdc_lead_id: 'LEAD1' }), null)
+assert.strictEqual(parseWelcomeAgentLookupRow({
+  sfdc_lead_id: ' ',
+  achieve_agent_name: 'Achieve Representative',
+  achieve_agent_email: 'representative@achieve.test',
+}), null)
+
 // --- buildPortalRow ------------------------------------------------------------
 
 const withheldRow = buildPortalRow(
@@ -144,8 +168,28 @@ assert.strictEqual(gradedRow.trimmed_transcript, 'line2\nline3')
 assert.strictEqual(gradedRow.call_summary, 'ok summary')
 assert.strictEqual(gradedRow.is_reviewed, true)
 assert.strictEqual(gradedRow.feedback_by, 'r@a.com')
-// No matched agent feedback -> empty array, never undefined.
+// No welcome-agent bridge match and no matched agent feedback stay explicit.
+assert.strictEqual(gradedRow.achieve_agent_name, null)
+assert.strictEqual(gradedRow.achieve_agent_email, null)
 assert.deepStrictEqual(gradedRow.agent_feedback, [])
+
+const attributedRow = buildPortalRow(
+  {
+    id: 9,
+    call_id: 'CA789',
+    module_name: ACHIEVE_MODULE_NAME,
+    sfdc_lead_id: 'INTERNAL_LEAD_ID',
+    result_json: { ...graded, transcript_segment: { start_line: 0 } },
+  },
+  { call_id: 'CA789', original_transcript: transcript },
+  undefined,
+  [],
+  { achieve_agent_name: 'Achieve Representative', achieve_agent_email: 'representative@achieve.test' },
+)
+assert.strictEqual(attributedRow.achieve_agent_name, 'Achieve Representative')
+assert.strictEqual(attributedRow.achieve_agent_email, 'representative@achieve.test')
+assert.strictEqual(attributedRow.sfdc_lead_id, null)
+assert.ok(!JSON.stringify(attributedRow).includes('INTERNAL_LEAD_ID'))
 
 // --- buildAgentFeedbackView / agent_feedback on rows ---------------------------
 

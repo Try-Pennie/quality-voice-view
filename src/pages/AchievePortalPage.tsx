@@ -371,6 +371,13 @@ function AchieveRowsState({
                 <p className="text-sm text-slate-600">
                   {selected.contact_phone || 'No phone on file'} · {formatDateTime(selected.alert_created_at)}
                 </p>
+                <p className="text-sm text-slate-700">
+                  <span className="font-semibold">Achieve report agent: </span>
+                  {selected.achieve_agent_name ?? 'Not matched'}
+                  {selected.achieve_agent_email && (
+                    <span className="text-slate-500"> · {selected.achieve_agent_email}</span>
+                  )}
+                </p>
                 <p className="break-all font-mono text-xs text-slate-400">Call ID {selected.call_id || '—'}</p>
               </SheetHeader>
               <div className="p-6">
@@ -413,6 +420,9 @@ function AchieveQueueRow({ row, mode, onSelect }: { row: AchieveRow; mode: 'revi
           </div>
           <div className="text-xs leading-5 text-slate-500">
             {row.contact_phone || 'No phone on file'} · {formatDateTime(row.alert_created_at)}
+          </div>
+          <div className={`text-xs font-semibold leading-5 ${row.achieve_agent_name ? 'text-blue-700' : 'text-slate-400'}`}>
+            Achieve report agent: {row.achieve_agent_name ?? 'Not matched'}
           </div>
           <div className="break-all font-mono text-[11px] leading-4 text-slate-400">Call ID {row.call_id || '—'}</div>
         </div>
@@ -836,7 +846,7 @@ function AgentFeedbackCard({ item, showPhone = false }: { item: AchieveAgentFeed
           <span key={flag} className="rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-semibold text-amber-900">{flag}</span>
         ))}
         {item.achieve_agent_name && (
-          <span className="text-xs text-slate-600">Welcome-call rep: <span className="font-semibold text-slate-800">{item.achieve_agent_name}</span></span>
+          <span className="text-xs text-slate-600">Rep entered on form: <span className="font-semibold text-slate-800">{item.achieve_agent_name}</span></span>
         )}
       </div>
       {showPhone && item.lead_phone_raw && (
