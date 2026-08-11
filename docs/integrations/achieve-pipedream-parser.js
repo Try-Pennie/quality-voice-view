@@ -507,7 +507,7 @@ async function sbTableCount(url, key, tableName, countColumn) {
   );
   if (!response.ok) {
     throw new Error(
-      `Supabase table check failed for ${tableName} (${response.status}) — has migration 20260811150000 been applied?`,
+      `Supabase table check failed for ${tableName} (${response.status}) — has migration 20260811151118 been applied?`,
     );
   }
   const contentRange = response.headers.get("content-range") || "";

@@ -54,7 +54,7 @@ The parser:
 
 ## Safe activation order
 
-1. Apply migration `20260811150000_achieve_welcome_agent_attribution.sql`.
+1. Apply migration `20260811151118_achieve_welcome_agent_attribution.sql`.
 2. Run the updated Pipedream workflow with **Dry run** enabled.
 3. Inspect `report.stats.bridge`, `report.anomalies`, and `report.bridgeResult`.
 4. Run once with **Dry run** disabled and **Force reprocess** enabled.
