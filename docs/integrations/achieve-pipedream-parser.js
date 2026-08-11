@@ -574,10 +574,10 @@ const define = globalThis.defineComponent ?? ((component) => component);
 export default define({
   name: "Welcome-Call Agents → Supabase",
   key: "wca-ingest-supabase",
-  version: "0.2.2",
+  version: "0.2.3",
   type: "action",
   props: {
-    snowflakeRows: {
+    snowflakeBridgeRowsInput: {
       type: "any",
       label: "Snowflake bridge rows",
       description:
@@ -733,7 +733,7 @@ export default define({
 
     let bridgePlan;
     try {
-      const snowflakeValue = this.snowflakeRows
+      const snowflakeValue = this.snowflakeBridgeRowsInput
         ?? steps?.[SNOWFLAKE_STEP_KEY]?.$return_value;
       bridgePlan = planBridgeRows(
         extractSnowflakeRows(snowflakeValue),
