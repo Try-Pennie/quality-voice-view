@@ -2,9 +2,11 @@
 //
 // Pulls Pennie agent feedback rows from the "Achieve Welcome Call 🚨" Google
 // Sheet (Form Responses) into public.achieve_agent_feedback, then matches them
-// to Achieve welcome calls by normalized phone + submission-time proximity
-// (public.match_achieve_agent_feedback). The /achieve portal reads the result
-// through the achieve-portal edge function.
+// to Eavesly calls by normalized phone + submission-time proximity + an
+// unambiguous submitter display-name resolution to the call agent email
+// (public.match_achieve_agent_feedback). New matched_call_id values are set only
+// when that call also has ordinary, non-audit Achieve QA. The /achieve portal
+// reads the result through the achieve-portal edge function.
 //
 // Triggered every 15 min by pg_cron/pg_net (see migration
 // 20260722120000_achieve_agent_feedback.sql). Auth is a shared secret header:
@@ -189,7 +191,9 @@ Deno.serve(async (req: Request) => {
     )
 
     // Upsert in chunks against the dedup index (submitted_at, lead_phone_raw,
-    // submitted_by). Existing rows keep their matched_call_id.
+    // submitted_by). The upsert never overwrites derived match fields; the RPC
+    // below preserves legacy/sticky associations and only matches rows that do
+    // not yet have either a module or call-only association.
     let upserted = 0
     for (let i = 0; i < rows.length; i += 200) {
       const chunk = rows.slice(i, i + 200)
@@ -212,7 +216,8 @@ Deno.serve(async (req: Request) => {
       parsed_rows: rows.length,
       skipped_rows: values.length - rows.length,
       upserted,
-      newly_matched: matched,
+      newly_matched: matched, // backward-compatible response key
+      newly_call_matched: matched,
     })
   } catch (error) {
     console.error("achieve-feedback-sync error", error)

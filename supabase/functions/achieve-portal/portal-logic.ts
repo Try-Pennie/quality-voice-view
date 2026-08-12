@@ -49,10 +49,48 @@ export function isCompetitorTransfer(result: Json): boolean {
   return result?.skip_reason === 'competitor_transfer'
 }
 
+// Historical module backfills opt into a separate audit surface with the exact
+// persisted marker `result_json.backfill.audit_only === true`. Parse the marker
+// narrowly so malformed/string values never move ordinary rows out of metrics.
+export function isAuditOnlyResult(result: unknown): boolean {
+  if (typeof result !== 'object' || result === null || Array.isArray(result)) return false
+  // SAFETY: The object check establishes an indexable boundary record; the
+  // nested value is independently refined before it affects portal routing.
+  const resultRecord = result as Record<string, unknown>
+  const backfill = resultRecord.backfill
+  if (typeof backfill !== 'object' || backfill === null || Array.isArray(backfill)) return false
+  // SAFETY: The nested object check establishes an indexable boundary record.
+  const backfillRecord = backfill as Record<string, unknown>
+  return backfillRecord.audit_only === true
+}
+
+// Feedback is writable only for ordinary module results. This pure decision is
+// also enforced by the submit_feedback server action; the UI is not a trust boundary.
+export function canSubmitPortalFeedback(result: unknown): boolean {
+  return !isAuditOnlyResult(result)
+}
+
 // A row belongs in the Needs-review queue when it is a graded violation.
-// Withheld rows (skipped / pre-hardening fallback) are audit-only.
+// Withheld and explicit historical-backfill rows are audit-only.
 export function isQueueRow(row: Json): boolean {
-  return row?.has_violation === true && !isWithheld(row?.result_json)
+  return row?.has_violation === true &&
+    !isWithheld(row?.result_json) &&
+    !isAuditOnlyResult(row?.result_json)
+}
+
+// Partition once at the server boundary so audit-only rows cannot accidentally
+// enter either the Needs-review queue or normal All calls metrics.
+export function partitionPortalRows<T extends { result_json?: unknown }>(rows: readonly T[]): {
+  normalRows: T[]
+  auditRows: T[]
+} {
+  const normalRows: T[] = []
+  const auditRows: T[] = []
+  for (const row of rows) {
+    if (isAuditOnlyResult(row.result_json)) auditRows.push(row)
+    else normalRows.push(row)
+  }
+  return { normalRows, auditRows }
 }
 
 // Same guard chain the portal UI used client-side: no segment metadata, an
@@ -119,11 +157,43 @@ export type AgentFeedbackRow = {
   notes: string | null
   submitted_by: string | null
   submitted_at: string
+  matched_call_id?: string | null
+  matched_eavesly_call_id?: string | null
+  call_match_status?: string | null
+  call_match_confidence?: string | null
+  call_match_reason?: string | null
 }
 
-// Explicit projection for the partner-facing payload. lead_phone_raw is only
-// included for unmatched entries (there is no call row to identify them by).
+const CALL_MATCH_REASONS = [
+  'legacy_module_match',
+  'invalid_phone',
+  'submitter_missing',
+  'submitter_not_found',
+  'submitter_ambiguous',
+  'no_call_in_window',
+  'call_ambiguous',
+  'matched_phone_time_submitter',
+] as const
+
+type CallMatchReason = typeof CALL_MATCH_REASONS[number]
+
+function parseCallMatchReason(value: unknown): CallMatchReason | null {
+  if (typeof value !== 'string' || !(CALL_MATCH_REASONS as readonly string[]).includes(value)) return null
+  // SAFETY: Membership in the readonly literal set establishes CallMatchReason.
+  return value as CallMatchReason
+}
+
+// Explicit projection for the approved partner feedback view. Internal call
+// identifiers never leave the server; the status only communicates whether QA
+// exists for the high-confidence Eavesly call match.
 export function buildAgentFeedbackView(row: AgentFeedbackRow, includePhone = false) {
+  const hasModuleMatch = typeof row.matched_call_id === 'string' && row.matched_call_id.trim().length > 0
+  const hasCallMatch = typeof row.matched_eavesly_call_id === 'string' && row.matched_eavesly_call_id.trim().length > 0
+  const qaMatchStatus = hasModuleMatch
+    ? 'qa_matched'
+    : hasCallMatch
+      ? 'qa_missing'
+      : 'call_unmatched'
   return {
     id: row.id,
     lead_phone_raw: includePhone ? row.lead_phone_raw ?? null : undefined,
@@ -135,6 +205,9 @@ export function buildAgentFeedbackView(row: AgentFeedbackRow, includePhone = fal
     notes: row.notes ?? null,
     submitted_by: row.submitted_by || null,
     submitted_at: row.submitted_at,
+    qa_match_status: qaMatchStatus,
+    call_match_confidence: row.call_match_confidence === 'high' ? 'high' : null,
+    call_match_reason: parseCallMatchReason(row.call_match_reason),
   }
 }
 

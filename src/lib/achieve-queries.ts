@@ -21,7 +21,7 @@ const showDemoData = import.meta.env.VITE_ACHIEVE_DEMO_DATA === 'true'
 // transfers get a form submission.
 export type AchieveAgentFeedback = {
   id: number
-  lead_phone_raw?: string | null // only present on unmatched entries
+  lead_phone_raw?: string | null // only present on standalone feedback entries
   achieve_agent_name: string | null
   accent: boolean | null
   background_noise: boolean | null
@@ -30,6 +30,18 @@ export type AchieveAgentFeedback = {
   notes: string | null
   submitted_by: string | null
   submitted_at: string
+  qa_match_status?: 'qa_matched' | 'qa_missing' | 'call_unmatched'
+  call_match_confidence?: 'high' | null
+  call_match_reason?:
+    | 'legacy_module_match'
+    | 'invalid_phone'
+    | 'submitter_missing'
+    | 'submitter_not_found'
+    | 'submitter_ambiguous'
+    | 'no_call_in_window'
+    | 'call_ambiguous'
+    | 'matched_phone_time_submitter'
+    | null
 }
 
 export type AchievePortalRow = AlertWithFeedback & {
@@ -42,6 +54,8 @@ export type AchievePortalRow = AlertWithFeedback & {
 export type AchievePortalData = {
   alerts: AchievePortalRow[]
   allCalls: AchievePortalRow[]
+  backfillAudit: AchievePortalRow[]
+  qaMissingAgentFeedback: AchieveAgentFeedback[]
   unmatchedAgentFeedback: AchieveAgentFeedback[]
 }
 
@@ -104,14 +118,30 @@ export async function fetchAchievePortalData(): Promise<AchievePortalData> {
     const data = await invokePortal('list')
     const alerts = (data?.alerts ?? []) as AchievePortalRow[]
     const allCalls = (data?.all_calls ?? []) as AchievePortalRow[]
+    const backfillAudit = (data?.backfill_audit ?? []) as AchievePortalRow[]
+    const qaMissingAgentFeedback = (data?.qa_missing_agent_feedback ?? []) as AchieveAgentFeedback[]
     const unmatchedAgentFeedback = (data?.unmatched_agent_feedback ?? []) as AchieveAgentFeedback[]
     if (showDemoData && alerts.length === 0 && allCalls.length === 0) {
-      return { alerts: achieveDemoAlerts, allCalls: achieveDemoAlerts, unmatchedAgentFeedback: [] }
+      return {
+        alerts: achieveDemoAlerts,
+        allCalls: achieveDemoAlerts,
+        backfillAudit: [],
+        qaMissingAgentFeedback: [],
+        unmatchedAgentFeedback: [],
+      }
     }
-    return { alerts, allCalls, unmatchedAgentFeedback }
+    return { alerts, allCalls, backfillAudit, qaMissingAgentFeedback, unmatchedAgentFeedback }
   } catch (error) {
     console.error('Error fetching Achieve portal data:', error)
-    if (showDemoData) return { alerts: achieveDemoAlerts, allCalls: achieveDemoAlerts, unmatchedAgentFeedback: [] }
+    if (showDemoData) {
+      return {
+        alerts: achieveDemoAlerts,
+        allCalls: achieveDemoAlerts,
+        backfillAudit: [],
+        qaMissingAgentFeedback: [],
+        unmatchedAgentFeedback: [],
+      }
+    }
     throw error
   }
 }

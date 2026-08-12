@@ -17,16 +17,32 @@ const sb = supabase as any
 export async function fetchAgentFeedbackForCall(
   callId: string,
 ): Promise<AchieveAgentFeedback[]> {
-  const { data, error } = await sb
-    .from('achieve_agent_feedback')
-    .select(
-      'id, lead_phone_raw, achieve_agent_name, accent, background_noise, connection_issues, call_quality, notes, submitted_by, submitted_at',
-    )
-    .eq('matched_call_id', callId)
-    .order('submitted_at', { ascending: true })
+  const columns =
+    'id, lead_phone_raw, achieve_agent_name, accent, background_noise, connection_issues, call_quality, notes, submitted_by, submitted_at'
+  // matched_eavesly_call_id includes high-confidence call matches whose Achieve
+  // module row is missing. The legacy lookup preserves visibility while older
+  // rows remain pending their next normal sync/rematch cycle.
+  const [callMatchResult, moduleMatchResult] = await Promise.all([
+    sb
+      .from('achieve_agent_feedback')
+      .select(columns)
+      .eq('matched_eavesly_call_id', callId)
+      .order('submitted_at', { ascending: true }),
+    sb
+      .from('achieve_agent_feedback')
+      .select(columns)
+      .eq('matched_call_id', callId)
+      .order('submitted_at', { ascending: true }),
+  ])
+  const error = callMatchResult.error ?? moduleMatchResult.error
   if (error) {
     console.error('Error fetching agent feedback for call:', error)
     throw error
   }
-  return (data ?? []) as AchieveAgentFeedback[]
+
+  const byId = new Map<number, AchieveAgentFeedback>()
+  for (const row of [...(callMatchResult.data ?? []), ...(moduleMatchResult.data ?? [])]) {
+    byId.set(row.id, row as AchieveAgentFeedback)
+  }
+  return Array.from(byId.values()).sort((a, b) => a.submitted_at.localeCompare(b.submitted_at))
 }
