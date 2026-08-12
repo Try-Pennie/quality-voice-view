@@ -52,6 +52,29 @@ function worstAgentQuality(feedback: AchieveAgentFeedback[]): string | null {
   return worst ? worst[0].toUpperCase() + worst.slice(1) : null
 }
 
+function callMatchReasonLabel(reason: AchieveAgentFeedback['call_match_reason']): string | null {
+  switch (reason) {
+    case 'legacy_module_match':
+      return 'Matched by the legacy Achieve QA module association.'
+    case 'invalid_phone':
+      return 'Phone number could not be normalized.'
+    case 'submitter_missing':
+      return 'Submitter name was not recorded.'
+    case 'submitter_not_found':
+      return 'Submitter name did not resolve to the agent directory.'
+    case 'submitter_ambiguous':
+      return 'Submitter name resolves to multiple Pennie agents.'
+    case 'no_call_in_window':
+      return 'No matching agent call was found in the submission window.'
+    case 'call_ambiguous':
+      return 'Multiple calls matched; no call was selected.'
+    case 'matched_phone_time_submitter':
+      return 'Matched by phone, submission time, and Pennie agent.'
+    default:
+      return null
+  }
+}
+
 const ACTION_OPTIONS: { value: AlertActionTaken; label: string }[] = [
   { value: 'no_action_needed', label: 'No action needed' },
   { value: 'coached', label: 'Coached agent' },
@@ -138,7 +161,7 @@ function AchievePasswordGate({ onUnlock }: { onUnlock: () => void }) {
 }
 
 function AchieveReviewQueue() {
-  const [activeTab, setActiveTab] = useState<'alerts' | 'all-calls'>('alerts')
+  const [activeTab, setActiveTab] = useState<'alerts' | 'all-calls' | 'backfill-audit'>('alerts')
   const [elementFilter, setElementFilter] = useState<string | null>(null)
   const portalQuery = useQuery({
     queryKey: ['achieve-portal-data'],
@@ -148,6 +171,8 @@ function AchieveReviewQueue() {
 
   const alerts = useMemo(() => portalQuery.data?.alerts ?? [], [portalQuery.data])
   const allCalls = useMemo(() => portalQuery.data?.allCalls ?? [], [portalQuery.data])
+  const backfillAudit = useMemo(() => portalQuery.data?.backfillAudit ?? [], [portalQuery.data])
+  const qaMissingAgentFeedback = useMemo(() => portalQuery.data?.qaMissingAgentFeedback ?? [], [portalQuery.data])
   const unmatchedAgentFeedback = useMemo(() => portalQuery.data?.unmatchedAgentFeedback ?? [], [portalQuery.data])
   const allStats = useMemo(() => summarize(allCalls), [allCalls])
   const isFetching = portalQuery.isFetching
@@ -249,10 +274,11 @@ function AchieveReviewQueue() {
           </section>
         )}
 
-        <Tabs value={activeTab} onValueChange={value => setActiveTab(value as 'alerts' | 'all-calls')}>
+        <Tabs value={activeTab} onValueChange={value => setActiveTab(value as 'alerts' | 'all-calls' | 'backfill-audit')}>
           <TabsList className="bg-white shadow-sm">
             <TabsTrigger value="alerts">Needs review ({filteredAlerts.length})</TabsTrigger>
             <TabsTrigger value="all-calls">All calls ({filteredAllCalls.length})</TabsTrigger>
+            <TabsTrigger value="backfill-audit">Backfill audit ({backfillAudit.length})</TabsTrigger>
           </TabsList>
           <TabsContent value="alerts" className="mt-4">
             <AchieveRowsState
@@ -278,7 +304,34 @@ function AchieveReviewQueue() {
               onRetry={refresh}
             />
           </TabsContent>
+          <TabsContent value="backfill-audit" className="mt-4">
+            <AchieveRowsState
+              rows={backfillAudit}
+              mode="audit"
+              isError={portalQuery.isError}
+              isPending={portalQuery.isPending}
+              emptyMessage="No audit-only historical backfill rows."
+              onRetry={refresh}
+            />
+          </TabsContent>
         </Tabs>
+
+        {qaMissingAgentFeedback.length > 0 && (
+          <details className="rounded-2xl border border-amber-200 bg-white p-5 shadow-sm">
+            <summary className="cursor-pointer text-sm font-semibold text-slate-950">
+              Pennie agent feedback with call found, QA missing ({qaMissingAgentFeedback.length})
+            </summary>
+            <p className="mt-1 text-xs leading-5 text-slate-500">
+              High-confidence phone, time, and submitter matches found the Eavesly call, but no Achieve QA
+              module row exists. These submissions stay visible here without entering QA metrics or Needs review.
+            </p>
+            <div className="mt-4 space-y-3">
+              {qaMissingAgentFeedback.map(item => (
+                <AgentFeedbackCard key={item.id} item={item} showPhone />
+              ))}
+            </div>
+          </details>
+        )}
 
         {unmatchedAgentFeedback.length > 0 && (
           <details className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
@@ -286,9 +339,8 @@ function AchieveReviewQueue() {
               Pennie agent feedback without a matched call ({unmatchedAgentFeedback.length})
             </summary>
             <p className="mt-1 text-xs leading-5 text-slate-500">
-              Form submissions from Pennie agents about welcome-call reps that could not be matched to a scored
-              call above (usually a mistyped phone number, or a transfer that never produced a QA row). Kept
-              visible so agent observations are never lost.
+              Form submissions that could not be matched unambiguously to an Eavesly call. Kept visible so
+              agent observations are never lost.
             </p>
             <div className="mt-4 space-y-3">
               {unmatchedAgentFeedback.map(item => (
@@ -311,7 +363,7 @@ function AchieveRowsState({
   onRetry,
 }: {
   rows: AchieveRow[]
-  mode: 'review' | 'history'
+  mode: 'review' | 'history' | 'audit'
   isError: boolean
   isPending: boolean
   emptyMessage: string
@@ -336,10 +388,16 @@ function AchieveRowsState({
     return <div className="rounded-2xl border border-slate-200 bg-white p-8 text-center text-slate-600 shadow-sm">{emptyMessage}</div>
   }
 
-  const title = mode === 'review' ? 'Needs review' : 'All scored calls'
+  const title = mode === 'review'
+    ? 'Needs review'
+    : mode === 'audit'
+      ? 'Backfill audit'
+      : 'All scored calls'
   const description = mode === 'review'
     ? 'Only failed checks appear here. Open a row to review the reason and supporting evidence.'
-    : 'Passed and failed calls are listed for audit/history. Passed calls do not require human review.'
+    : mode === 'audit'
+      ? 'Historical audit-only backfills are read-only, isolated here, and never affect normal metrics or review queues.'
+      : 'Passed and failed calls are listed for audit/history. Passed calls do not require human review.'
 
   return (
     <>
@@ -391,7 +449,7 @@ function AchieveRowsState({
   )
 }
 
-function AchieveQueueRow({ row, mode, onSelect }: { row: AchieveRow; mode: 'review' | 'history'; onSelect: () => void }) {
+function AchieveQueueRow({ row, mode, onSelect }: { row: AchieveRow; mode: 'review' | 'history' | 'audit'; onSelect: () => void }) {
   const result = row.result_json ?? {}
   const adherence = result.script_adherence ?? {}
   const confidence = result.assessment_confidence ?? {}
@@ -593,7 +651,7 @@ function AchieveAlertDetails({
   onFeedbackSubmitted,
 }: {
   alert: AchieveRow
-  mode: 'review' | 'history'
+  mode: 'review' | 'history' | 'audit'
   onFeedbackSubmitted: () => void
 }) {
   const result = alert.result_json ?? {}
@@ -609,9 +667,11 @@ function AchieveAlertDetails({
           Not graded — {achieveSkipReasonDetail(result.skip_reason)}
         </p>
         <AgentFeedbackSection feedback={alert.agent_feedback} />
-        <DrawerSection title="Reviewer feedback" description="Capture whether the QA result is useful/correct and what should happen next.">
-          <AchieveFeedbackForm alert={alert} onSubmitted={onFeedbackSubmitted} />
-        </DrawerSection>
+        {mode !== 'audit' && (
+          <DrawerSection title="Reviewer feedback" description="Capture whether the QA result is useful/correct and what should happen next.">
+            <AchieveFeedbackForm alert={alert} onSubmitted={onFeedbackSubmitted} />
+          </DrawerSection>
+        )}
       </article>
     )
   }
@@ -628,9 +688,11 @@ function AchieveAlertDetails({
           before segmentation hardening, and its details may reference non-Achieve content.
         </p>
         <AgentFeedbackSection feedback={alert.agent_feedback} />
-        <DrawerSection title="Reviewer feedback" description="Capture whether the QA result is useful/correct and what should happen next.">
-          <AchieveFeedbackForm alert={alert} onSubmitted={onFeedbackSubmitted} />
-        </DrawerSection>
+        {mode !== 'audit' && (
+          <DrawerSection title="Reviewer feedback" description="Capture whether the QA result is useful/correct and what should happen next.">
+            <AchieveFeedbackForm alert={alert} onSubmitted={onFeedbackSubmitted} />
+          </DrawerSection>
+        )}
       </article>
     )
   }
@@ -802,9 +864,11 @@ function AchieveAlertDetails({
         </dl>
       </details>
 
-      <DrawerSection title="Reviewer feedback" description="Capture whether the QA result is useful/correct and what should happen next.">
-        <AchieveFeedbackForm alert={alert} onSubmitted={onFeedbackSubmitted} />
-      </DrawerSection>
+      {mode !== 'audit' && (
+        <DrawerSection title="Reviewer feedback" description="Capture whether the QA result is useful/correct and what should happen next.">
+          <AchieveFeedbackForm alert={alert} onSubmitted={onFeedbackSubmitted} />
+        </DrawerSection>
+      )}
     </article>
   )
 }
@@ -828,6 +892,7 @@ function AgentFeedbackSection({ feedback }: { feedback?: AchieveAgentFeedback[] 
 }
 
 function AgentFeedbackCard({ item, showPhone = false }: { item: AchieveAgentFeedback; showPhone?: boolean }) {
+  const matchReason = callMatchReasonLabel(item.call_match_reason)
   const flags = [
     item.accent === true ? 'Accent' : null,
     item.background_noise === true ? 'Background noise' : null,
@@ -837,6 +902,11 @@ function AgentFeedbackCard({ item, showPhone = false }: { item: AchieveAgentFeed
   return (
     <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
       <div className="flex flex-wrap items-center gap-2">
+        {item.qa_match_status === 'qa_missing' && (
+          <span className="rounded-full bg-amber-100 px-2.5 py-1 text-xs font-semibold text-amber-900">
+            Call found · QA missing
+          </span>
+        )}
         {item.call_quality && (
           <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${agentQualityTone(item.call_quality)}`}>
             {item.call_quality}
@@ -851,6 +921,12 @@ function AgentFeedbackCard({ item, showPhone = false }: { item: AchieveAgentFeed
       </div>
       {showPhone && item.lead_phone_raw && (
         <p className="mt-2 font-mono text-xs text-slate-500">Client phone (as entered): {item.lead_phone_raw}</p>
+      )}
+      {showPhone && matchReason && (
+        <p className="mt-2 text-xs text-slate-600">
+          Match status: {matchReason}
+          {item.call_match_confidence === 'high' ? ' High confidence.' : ''}
+        </p>
       )}
       {item.notes && <p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-slate-700">{item.notes}</p>}
       <p className="mt-2 text-xs text-slate-500">

@@ -6,10 +6,13 @@ import {
   MAX_TRANSCRIPT_CHARS,
   buildAgentFeedbackView,
   buildPortalRow,
+  canSubmitPortalFeedback,
+  isAuditOnlyResult,
   isCompetitorTransfer,
   isQueueRow,
   isWithheld,
   parseWelcomeAgentLookupRow,
+  partitionPortalRows,
   sanitizeResultJson,
   trimTranscript,
   validateFeedback,
@@ -86,6 +89,29 @@ assert.strictEqual(isQueueRow({ has_violation: false, result_json: graded }), fa
 assert.strictEqual(isQueueRow({ has_violation: true, result_json: skippedResult }), false)
 // Pre-hardening full-transcript fallback is withheld → audit-only.
 assert.strictEqual(isQueueRow({ has_violation: true, result_json: fallbackResult }), false)
+// Explicit historical backfills are audit-only even when they are graded violations.
+const auditOnlyResult = {
+  ...graded,
+  backfill: { audit_only: true },
+}
+assert.strictEqual(isAuditOnlyResult(auditOnlyResult), true)
+assert.strictEqual(isQueueRow({ has_violation: true, result_json: auditOnlyResult }), false)
+// Similar-looking or malformed persisted JSON must remain on the normal path.
+assert.strictEqual(isAuditOnlyResult({ backfill: { audit_only: false } }), false)
+assert.strictEqual(isAuditOnlyResult({ backfill: { audit_only: 'true' } }), false)
+assert.strictEqual(isAuditOnlyResult(null), false)
+// Audit-only rows are read-only at the server decision boundary.
+assert.strictEqual(canSubmitPortalFeedback(auditOnlyResult), false)
+assert.strictEqual(canSubmitPortalFeedback(graded), true)
+assert.strictEqual(canSubmitPortalFeedback({ backfill: { audit_only: 'true' } }), true)
+
+const partitionedRows = partitionPortalRows([
+  { id: 1, result_json: graded },
+  { id: 2, result_json: auditOnlyResult },
+  { id: 3, result_json: { backfill: { audit_only: false } } },
+])
+assert.deepStrictEqual(partitionedRows.normalRows.map(row => row.id), [1, 3])
+assert.deepStrictEqual(partitionedRows.auditRows.map(row => row.id), [2])
 
 // --- isCompetitorTransfer ------------------------------------------------------
 
@@ -209,8 +235,7 @@ const agentFeedbackRow = {
   matched_call_id: 'CA456',
   matched_at: '2026-07-15T18:00:00Z',
   created_at: '2026-07-15T18:00:00Z',
-// deno-lint-ignore no-explicit-any
-} as any
+}
 
 // Matched view: no phone (the call row identifies it), no internal fields.
 const matchedView = buildAgentFeedbackView(agentFeedbackRow)
@@ -221,6 +246,33 @@ assert.strictEqual(matchedView.submitted_by, 'Pennie Agent')
 assert.ok(!('phone_normalized' in matchedView))
 assert.ok(!('matched_call_id' in matchedView))
 assert.ok(!('created_at' in matchedView))
+assert.strictEqual(matchedView.qa_match_status, 'qa_matched')
+
+const qaMissingView = buildAgentFeedbackView({
+  ...agentFeedbackRow,
+  matched_call_id: null,
+  matched_eavesly_call_id: 'CA_NO_QA',
+  call_match_status: 'matched',
+  call_match_confidence: 'high',
+  call_match_reason: 'matched_phone_time_submitter',
+}, true)
+assert.strictEqual(qaMissingView.qa_match_status, 'qa_missing')
+assert.strictEqual(qaMissingView.call_match_confidence, 'high')
+assert.strictEqual(qaMissingView.call_match_reason, 'matched_phone_time_submitter')
+assert.ok(!('matched_eavesly_call_id' in qaMissingView))
+
+const legacyMatchedView = buildAgentFeedbackView({
+  ...agentFeedbackRow,
+  call_match_confidence: null,
+  call_match_reason: 'legacy_module_match',
+})
+assert.strictEqual(legacyMatchedView.qa_match_status, 'qa_matched')
+assert.strictEqual(legacyMatchedView.call_match_confidence, null)
+assert.strictEqual(legacyMatchedView.call_match_reason, 'legacy_module_match')
+assert.strictEqual(buildAgentFeedbackView({
+  ...agentFeedbackRow,
+  call_match_reason: 'unknown_future_reason',
+}).call_match_reason, null)
 
 // Unmatched view keeps the raw phone so the reviewer can identify the call.
 const unmatchedView = buildAgentFeedbackView(agentFeedbackRow, true)
