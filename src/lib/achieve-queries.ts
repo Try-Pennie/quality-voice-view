@@ -1,32 +1,21 @@
+import { FunctionRegion } from '@supabase/supabase-js'
 import { supabase } from '@/integrations/supabase/client'
 import type { AlertActionTaken, AlertInaccuracyReason, AlertWithFeedback } from '@/types/database'
 
-// All Achieve portal data flows through the achieve-portal edge function
-// (PSAI-204): the portal password is validated server-side on every request,
-// reads/writes run with the service role scoped to the Achieve module, and
-// transcripts arrive pre-trimmed. The browser never queries eavesly tables
-// for Achieve rows directly.
-
 export const ACHIEVE_MODULE_NAME = 'achieve_welcome_call_qa'
-
-// sessionStorage is only a UX cache so the reviewer doesn't retype the
-// password per request — the server re-validates it on every call.
 export const ACHIEVE_PASSWORD_SESSION_KEY = 'achieve_portal_password'
+export const ACHIEVE_LIST_QUERY_KEY = ['achieve-portal-data'] as const
 
 const showDemoData = import.meta.env.VITE_ACHIEVE_DEMO_DATA === 'true'
 
-// Pennie agent form feedback about the Achieve welcome-call rep, synced from
-// the "Achieve Welcome Call" Google Sheet into achieve_agent_feedback and
-// matched to calls server-side (phone + submission time). Optional: only some
-// transfers get a form submission.
 export type AchieveAgentFeedback = {
   id: number
-  lead_phone_raw?: string | null // only present on standalone feedback entries
+  lead_phone_raw?: string | null
   achieve_agent_name: string | null
   accent: boolean | null
   background_noise: boolean | null
   connection_issues: boolean | null
-  call_quality: string | null // 'Good' | 'Fair' | 'Poor'
+  call_quality: string | null
   notes: string | null
   submitted_by: string | null
   submitted_at: string
@@ -51,12 +40,27 @@ export type AchievePortalRow = AlertWithFeedback & {
   agent_feedback?: AchieveAgentFeedback[]
 }
 
+export type AchieveCoverage = {
+  loaded: number
+  cap: number
+  capReached: boolean
+}
+
 export type AchievePortalData = {
   alerts: AchievePortalRow[]
   allCalls: AchievePortalRow[]
-  backfillAudit: AchievePortalRow[]
+  coverage: AchieveCoverage
+}
+
+export type AchieveAuditData = {
+  rows: AchievePortalRow[]
+  coverage: AchieveCoverage
+}
+
+export type AchieveFeedbackExceptions = {
   qaMissingAgentFeedback: AchieveAgentFeedback[]
   unmatchedAgentFeedback: AchieveAgentFeedback[]
+  capPerList: number
 }
 
 export type AchieveReviewFeedbackInput = {
@@ -68,81 +72,272 @@ export type AchieveReviewFeedbackInput = {
   comment?: string | null
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-async function invokePortal(action: string, extra: Record<string, unknown> = {}): Promise<any> {
-  const password = sessionStorage.getItem(ACHIEVE_PASSWORD_SESSION_KEY) ?? ''
-  const { data, error } = await supabase.functions.invoke('achieve-portal', {
-    body: { password, action, ...extra },
-  })
-  if (error) {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const status = (error as any)?.context?.status
-    if (status === 401) {
-      // Stale/rotated password: drop the cached one and land back on the gate.
-      sessionStorage.removeItem(ACHIEVE_PASSWORD_SESSION_KEY)
-      window.location.reload()
-      throw new Error('invalid_password')
-    }
-    let message = error.message
-    try {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const body = await (error as any)?.context?.json?.()
-      if (body?.error) message = body.error
-    } catch {
-      // keep the generic message
-    }
-    throw new Error(message)
+export class AchievePortalRequestError extends Error {
+  constructor(
+    readonly code: string,
+    readonly status: number | null,
+  ) {
+    super(code)
+    this.name = 'AchievePortalRequestError'
   }
-  return data
 }
 
-export async function verifyAchievePortalPassword(
-  password: string,
-): Promise<{ ok: boolean; error?: string }> {
-  const { error } = await supabase.functions.invoke('achieve-portal', {
-    body: { password, action: 'verify' },
-  })
-  if (!error) return { ok: true }
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const status = (error as any)?.context?.status
-  if (status === 401) return { ok: false, error: 'Incorrect password.' }
-  if (status === 503) {
-    return { ok: false, error: 'Portal access is not available yet. Contact your administrator.' }
+type BoundaryRecord = Readonly<Record<string, unknown>>
+
+function record(value: unknown): BoundaryRecord | null {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+    ? value as BoundaryRecord
+    : null
+}
+
+function nullableString(value: unknown): string | null {
+  return typeof value === 'string' ? value : null
+}
+
+function nullableBoolean(value: unknown): boolean | null {
+  return typeof value === 'boolean' ? value : null
+}
+
+function parseAgentFeedback(value: unknown): AchieveAgentFeedback | null {
+  const item = record(value)
+  if (!item || typeof item.id !== 'number' || typeof item.submitted_at !== 'string') return null
+  const status = item.qa_match_status
+  const reason = item.call_match_reason
+  return {
+    id: item.id,
+    lead_phone_raw: nullableString(item.lead_phone_raw),
+    achieve_agent_name: nullableString(item.achieve_agent_name),
+    accent: nullableBoolean(item.accent),
+    background_noise: nullableBoolean(item.background_noise),
+    connection_issues: nullableBoolean(item.connection_issues),
+    call_quality: nullableString(item.call_quality),
+    notes: nullableString(item.notes),
+    submitted_by: nullableString(item.submitted_by),
+    submitted_at: item.submitted_at,
+    qa_match_status: status === 'qa_matched' || status === 'qa_missing' || status === 'call_unmatched' ? status : undefined,
+    call_match_confidence: item.call_match_confidence === 'high' ? 'high' : null,
+    call_match_reason:
+      reason === 'legacy_module_match' || reason === 'invalid_phone' || reason === 'submitter_missing'
+      || reason === 'submitter_not_found' || reason === 'submitter_ambiguous' || reason === 'no_call_in_window'
+      || reason === 'call_ambiguous' || reason === 'matched_phone_time_submitter'
+        ? reason
+        : null,
   }
-  console.error('Error verifying Achieve portal password:', error)
-  return { ok: false, error: 'Could not reach the portal service. Try again.' }
+}
+
+function parseActionTaken(value: unknown): AlertActionTaken | null {
+  return value === 'coached' || value === 'escalated' || value === 'follow_up_later' || value === 'no_action_needed'
+    ? value
+    : null
+}
+
+function parseInaccuracyReason(value: unknown): AlertInaccuracyReason | null {
+  return value === 'soft_inquiry_misclassified' || value === 'wrong_context' || value === 'evidence_misquoted'
+    || value === 'policy_does_not_apply' || value === 'addressed_off_call' || value === 'covered_not_verbatim'
+    || value === 'call_dropped_incomplete' || value === 'other'
+    ? value
+    : null
+}
+
+function parsePortalRow(value: unknown): AchievePortalRow | null {
+  const row = record(value)
+  if (!row || typeof row.module_result_id !== 'number' || row.module_result_id <= 0) return null
+  if (typeof row.alert_created_at !== 'string' || typeof row.call_id !== 'string') return null
+  if (typeof row.module_name !== 'string' || typeof row.has_violation !== 'boolean') return null
+  const agentFeedback = Array.isArray(row.agent_feedback)
+    ? row.agent_feedback.flatMap(item => {
+        const parsed = parseAgentFeedback(item)
+        return parsed ? [parsed] : []
+      })
+    : []
+  return {
+    module_result_id: row.module_result_id,
+    alert_created_at: row.alert_created_at,
+    alert_sent_at: nullableString(row.alert_sent_at),
+    call_id: row.call_id,
+    module_name: row.module_name,
+    violation_type: typeof row.violation_type === 'string' ? row.violation_type : 'achieve_welcome_call',
+    has_violation: row.has_violation,
+    alert_sent: row.alert_sent === true,
+    agent_email: null,
+    contact_name: nullableString(row.contact_name),
+    contact_phone: nullableString(row.contact_phone),
+    recording_link: nullableString(row.recording_link),
+    transcript_url: nullableString(row.transcript_url),
+    call_summary: nullableString(row.call_summary),
+    sfdc_lead_id: null,
+    processing_time_ms: typeof row.processing_time_ms === 'number' ? row.processing_time_ms : null,
+    result_json: record(row.result_json) ?? {},
+    assigned_manager_email: null,
+    feedback_id: typeof row.feedback_id === 'number' ? row.feedback_id : null,
+    feedback_by: nullableString(row.feedback_by),
+    accurate: nullableBoolean(row.accurate),
+    action_taken: parseActionTaken(row.action_taken),
+    inaccuracy_reason: parseInaccuracyReason(row.inaccuracy_reason),
+    feedback_comment: nullableString(row.feedback_comment),
+    reviewed_at: nullableString(row.reviewed_at),
+    is_reviewed: row.is_reviewed === true,
+    message_count: 0,
+    last_message_at: null,
+    acker_emails: [],
+    achieve_agent_name: nullableString(row.achieve_agent_name),
+    achieve_agent_email: nullableString(row.achieve_agent_email),
+    trimmed_transcript: nullableString(row.trimmed_transcript),
+    agent_feedback: agentFeedback,
+  }
+}
+
+function parseRows(value: unknown): AchievePortalRow[] {
+  if (!Array.isArray(value)) throw new AchievePortalRequestError('invalid_response', null)
+  const rows: AchievePortalRow[] = []
+  for (const item of value) {
+    const parsed = parsePortalRow(item)
+    // Dropping one malformed row would silently corrupt overview denominators.
+    // Treat the response atomically instead.
+    if (!parsed) throw new AchievePortalRequestError('invalid_response', null)
+    rows.push(parsed)
+  }
+  return rows
+}
+
+function parseCoverage(value: unknown, fallbackLoaded: number, fallbackCap: number): AchieveCoverage {
+  const coverage = record(value)
+  return {
+    loaded: typeof coverage?.loaded === 'number' ? coverage.loaded : fallbackLoaded,
+    cap: typeof coverage?.cap === 'number' ? coverage.cap : fallbackCap,
+    capReached: coverage?.cap_reached === true,
+  }
+}
+
+function errorContext(error: unknown): { status: number | null; json?: () => Promise<unknown> } {
+  const item = record(error)
+  const context = record(item?.context)
+  return {
+    status: typeof context?.status === 'number' ? context.status : null,
+    json: typeof context?.json === 'function' ? context.json.bind(context) as () => Promise<unknown> : undefined,
+  }
+}
+
+async function invokePortal(
+  action: string,
+  extra: Readonly<Record<string, unknown>> = {},
+  suppliedPassword?: string,
+): Promise<unknown> {
+  const password = suppliedPassword ?? sessionStorage.getItem(ACHIEVE_PASSWORD_SESSION_KEY) ?? ''
+  const { data, error } = await supabase.functions.invoke('achieve-portal', {
+    body: { password, action, ...extra },
+    // This function performs several database round trips. Keep execution near
+    // the us-east-2 database instead of the external reviewer's location.
+    region: FunctionRegion.UsEast1,
+  })
+  if (!error) return data
+
+  const context = errorContext(error)
+  let code = context.status === 401 ? 'invalid_password' : 'request_failed'
+  if (context.json) {
+    try {
+      const responseBody = record(await context.json())
+      if (typeof responseBody?.error === 'string') code = responseBody.error
+    } catch {
+      // The status-derived code remains the safe boundary fallback.
+    }
+  }
+  if (context.status === 401 && suppliedPassword === undefined) {
+    sessionStorage.removeItem(ACHIEVE_PASSWORD_SESSION_KEY)
+    window.location.reload()
+  }
+  throw new AchievePortalRequestError(code, context.status)
+}
+
+function parseListResponse(value: unknown): AchievePortalData {
+  const response = record(value)
+  if (!response) throw new AchievePortalRequestError('invalid_response', null)
+  const allCalls = parseRows(response.all_calls)
+  const alerts = allCalls.filter(row =>
+    row.has_violation
+    && row.result_json?.grading_skipped !== true
+    && row.result_json?.transcript_segment?.used_full_transcript_fallback !== true,
+  )
+  return {
+    alerts,
+    allCalls,
+    coverage: parseCoverage(response.coverage, allCalls.length, 1000),
+  }
+}
+
+function demoPortalData(): AchievePortalData {
+  return {
+    alerts: achieveDemoAlerts,
+    allCalls: achieveDemoAlerts,
+    coverage: { loaded: achieveDemoAlerts.length, cap: 1000, capReached: false },
+  }
+}
+
+function withDemoFallback(data: AchievePortalData): AchievePortalData {
+  return showDemoData && data.allCalls.length === 0 ? demoPortalData() : data
+}
+
+function canUseDemoFallback(error: unknown): boolean {
+  // Demo payloads cover list/service failures, never an incorrect password.
+  return !(error instanceof AchievePortalRequestError && error.code === 'invalid_password')
+}
+
+// The new frontend uses list_overview; legacy list remains reserved for the
+// already-deployed frontend during the backend-first compatibility rollout.
+export async function unlockAchievePortal(password: string): Promise<AchievePortalData> {
+  try {
+    return withDemoFallback(parseListResponse(await invokePortal('list_overview', {}, password)))
+  } catch (error) {
+    if (showDemoData && canUseDemoFallback(error)) return demoPortalData()
+    throw error
+  }
 }
 
 export async function fetchAchievePortalData(): Promise<AchievePortalData> {
   try {
-    const data = await invokePortal('list')
-    const alerts = (data?.alerts ?? []) as AchievePortalRow[]
-    const allCalls = (data?.all_calls ?? []) as AchievePortalRow[]
-    const backfillAudit = (data?.backfill_audit ?? []) as AchievePortalRow[]
-    const qaMissingAgentFeedback = (data?.qa_missing_agent_feedback ?? []) as AchieveAgentFeedback[]
-    const unmatchedAgentFeedback = (data?.unmatched_agent_feedback ?? []) as AchieveAgentFeedback[]
-    if (showDemoData && alerts.length === 0 && allCalls.length === 0) {
-      return {
-        alerts: achieveDemoAlerts,
-        allCalls: achieveDemoAlerts,
-        backfillAudit: [],
-        qaMissingAgentFeedback: [],
-        unmatchedAgentFeedback: [],
-      }
-    }
-    return { alerts, allCalls, backfillAudit, qaMissingAgentFeedback, unmatchedAgentFeedback }
+    return withDemoFallback(parseListResponse(await invokePortal('list_overview')))
   } catch (error) {
     console.error('Error fetching Achieve portal data:', error)
-    if (showDemoData) {
-      return {
-        alerts: achieveDemoAlerts,
-        allCalls: achieveDemoAlerts,
-        backfillAudit: [],
-        qaMissingAgentFeedback: [],
-        unmatchedAgentFeedback: [],
-      }
-    }
+    if (showDemoData && canUseDemoFallback(error)) return demoPortalData()
     throw error
+  }
+}
+
+export async function fetchAchievePortalDetail(moduleResultId: number): Promise<AchievePortalRow> {
+  if (showDemoData && moduleResultId < 0) {
+    const demoRow = achieveDemoAlerts.find(row => row.module_result_id === moduleResultId)
+    if (demoRow) return demoRow
+    throw new AchievePortalRequestError('not_found', 404)
+  }
+  const response = record(await invokePortal('detail', { module_result_id: moduleResultId }))
+  const row = parsePortalRow(response?.row)
+  if (!row) throw new AchievePortalRequestError('invalid_response', null)
+  return row
+}
+
+export async function fetchAchieveAuditData(): Promise<AchieveAuditData> {
+  const response = record(await invokePortal('list_audit'))
+  if (!response) throw new AchievePortalRequestError('invalid_response', null)
+  const rows = parseRows(response.rows)
+  return { rows, coverage: parseCoverage(response.coverage, rows.length, 1000) }
+}
+
+export async function fetchAchieveFeedbackExceptions(): Promise<AchieveFeedbackExceptions> {
+  const response = record(await invokePortal('list_feedback_exceptions'))
+  if (!response) throw new AchievePortalRequestError('invalid_response', null)
+  const qaMissing = Array.isArray(response.qa_missing_agent_feedback) ? response.qa_missing_agent_feedback : []
+  const unmatched = Array.isArray(response.unmatched_agent_feedback) ? response.unmatched_agent_feedback : []
+  const coverage = record(response.coverage)
+  return {
+    qaMissingAgentFeedback: qaMissing.flatMap(item => {
+      const parsed = parseAgentFeedback(item)
+      return parsed ? [parsed] : []
+    }),
+    unmatchedAgentFeedback: unmatched.flatMap(item => {
+      const parsed = parseAgentFeedback(item)
+      return parsed ? [parsed] : []
+    }),
+    capPerList: typeof coverage?.cap_per_list === 'number' ? coverage.cap_per_list : 200,
   }
 }
 

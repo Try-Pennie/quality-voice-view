@@ -5,6 +5,7 @@ import {
   ACHIEVE_MODULE_NAME,
   MAX_TRANSCRIPT_CHARS,
   buildAgentFeedbackView,
+  buildPortalListRow,
   buildPortalRow,
   canSubmitPortalFeedback,
   isAuditOnlyResult,
@@ -216,6 +217,135 @@ assert.strictEqual(attributedRow.achieve_agent_name, 'Achieve Representative')
 assert.strictEqual(attributedRow.achieve_agent_email, 'representative@achieve.test')
 assert.strictEqual(attributedRow.sfdc_lead_id, null)
 assert.ok(!JSON.stringify(attributedRow).includes('INTERNAL_LEAD_ID'))
+
+const approvedDetailRow = buildPortalRow(
+  {
+    id: 10,
+    call_id: 'CA-DETAIL',
+    module_name: ACHIEVE_MODULE_NAME,
+    call_summary: 'Approved detail summary',
+    result_json: {
+      script_adherence: {
+        violation_reason: 'Approved detail reason',
+        key_evidence_quotes: ['Approved detail quote'],
+      },
+      assessment_confidence: {
+        rationale: 'Approved detail rationale',
+        limitations: ['Approved detail limitation'],
+      },
+      transfer_experience: {
+        poor_transfer: true,
+        reasons: ['ivr_reentry_before_later_live_agent'],
+        evidence: [{ line: 3, quote: 'Approved transfer evidence' }],
+        agent_attempts: [{ line: 2, quote: 'Approved agent attempt' }],
+      },
+      transcript_segment: { start_line: 0 },
+    },
+  },
+  { original_transcript: 'Approved transcript' },
+  undefined,
+)
+const approvedDetailJson = JSON.stringify(approvedDetailRow)
+for (const approvedContent of [
+  'Approved detail summary',
+  'Approved detail reason',
+  'Approved detail quote',
+  'Approved detail rationale',
+  'Approved detail limitation',
+  'Approved transfer evidence',
+  'Approved agent attempt',
+  'Approved transcript',
+]) {
+  assert.ok(approvedDetailJson.includes(approvedContent))
+}
+
+// --- buildPortalListRow --------------------------------------------------------
+
+const sentinelAgentFeedback = {
+  id: 70,
+  achieve_agent_name: 'SENTINEL form agent',
+  accent: false,
+  background_noise: true,
+  connection_issues: null,
+  call_quality: 'Poor',
+  notes: 'SENTINEL agent notes',
+  submitted_by: 'Pennie Agent',
+  submitted_at: '2026-07-04T12:00:00Z',
+  matched_call_id: 'CA-LIGHT',
+}
+const lightweightRow = buildPortalListRow(
+  {
+    module_result_id: 10,
+    alert_created_at: '2026-07-04T00:00:00Z',
+    call_id: 'CA-LIGHT',
+    module_name: ACHIEVE_MODULE_NAME,
+    has_violation: true,
+    contact_name: 'Client',
+    contact_phone: '555-0100',
+    recording_link: 'SENTINEL recording URL',
+    transcript_url: 'SENTINEL transcript URL',
+    call_summary: 'SENTINEL summary',
+    result_json: {
+      script_version: 'fdr_wholesale_db_pilot_v1',
+      script_adherence: {
+        greeting_and_identity_completed: true,
+        recording_disclosure_provided: false,
+        missing_elements: ['recording_disclosure'],
+        overall_script_adherence: 'substantial',
+        violation: true,
+        violation_reason: 'SENTINEL rationale',
+        key_evidence_quotes: ['SENTINEL quote'],
+      },
+      assessment_confidence: {
+        level: 'high',
+        score: 0.87,
+        rationale: 'SENTINEL confidence rationale',
+        limitations: ['SENTINEL limitation'],
+      },
+      transfer_experience: {
+        poor_transfer: true,
+        reasons: ['ivr_reentry_before_later_live_agent'],
+        evidence: [{ line: 3, quote: 'SENTINEL transfer evidence' }],
+        agent_attempts: [{ line: 2, quote: 'SENTINEL agent attempt' }],
+      },
+    },
+  },
+  { id: 4, call_id: 'CA-LIGHT', module_name: ACHIEVE_MODULE_NAME, manager_email: 'manager@achieve.test', accurate: false, action_taken: null, inaccuracy_reason: 'wrong_context', comment: 'SENTINEL manager comment', reviewed_at: '2026-07-05T00:00:00Z' },
+  [sentinelAgentFeedback],
+  { achieve_agent_name: 'Achieve Representative', achieve_agent_email: 'representative@achieve.test' },
+)
+const lightweightJson = JSON.stringify(lightweightRow)
+assert.strictEqual(lightweightRow.result_json.script_adherence.recording_disclosure_provided, false)
+assert.deepStrictEqual(lightweightRow.result_json.script_adherence.missing_elements, ['recording_disclosure'])
+assert.strictEqual(lightweightRow.result_json.script_adherence.overall_script_adherence, 'substantial')
+assert.strictEqual(lightweightRow.result_json.script_adherence.violation, true)
+assert.strictEqual(lightweightRow.result_json.assessment_confidence.level, 'high')
+assert.strictEqual(lightweightRow.result_json.assessment_confidence.score, 0.87)
+assert.strictEqual(lightweightRow.result_json.transfer_experience.poor_transfer, true)
+assert.deepStrictEqual(lightweightRow.result_json.transfer_experience.reasons, ['ivr_reentry_before_later_live_agent'])
+assert.strictEqual(lightweightRow.agent_feedback[0].call_quality, 'Poor')
+assert.strictEqual(lightweightRow.agent_feedback[0].accent, false)
+assert.strictEqual(lightweightRow.is_reviewed, true)
+assert.strictEqual(lightweightRow.achieve_agent_name, 'Achieve Representative')
+assert.ok(!lightweightJson.includes('SENTINEL'))
+assert.ok(!('recording_link' in lightweightRow))
+assert.ok(!('transcript_url' in lightweightRow))
+assert.ok(!('call_summary' in lightweightRow))
+assert.ok(!('trimmed_transcript' in lightweightRow))
+
+const withheldLightweightRow = buildPortalListRow(
+  {
+    id: 11,
+    call_id: 'CA-WITHHELD',
+    module_name: ACHIEVE_MODULE_NAME,
+    call_summary: 'SENTINEL withheld summary',
+    result_json: fallbackResult,
+  },
+  undefined,
+  [sentinelAgentFeedback],
+)
+assert.strictEqual(withheldLightweightRow.result_json.transcript_segment.used_full_transcript_fallback, true)
+assert.ok(!JSON.stringify(withheldLightweightRow).includes('SENTINEL'))
 
 // --- buildAgentFeedbackView / agent_feedback on rows ---------------------------
 

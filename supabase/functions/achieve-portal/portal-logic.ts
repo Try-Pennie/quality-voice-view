@@ -211,7 +211,7 @@ export function buildAgentFeedbackView(row: AgentFeedbackRow, includePhone = fal
   }
 }
 
-type FeedbackRow = {
+export type FeedbackRow = {
   id: number
   call_id: string
   module_name: string
@@ -296,6 +296,89 @@ export function buildPortalRow(
     acker_emails: [],
     trimmed_transcript: trimTranscript(transcript?.original_transcript, row.result_json) || null,
     agent_feedback: agentFeedback.map(f => buildAgentFeedbackView(f)),
+  }
+}
+
+function buildListResultJson(result: Json): Json {
+  if (!result || isWithheld(result)) return sanitizeResultJson(result)
+
+  const adherence = result.script_adherence
+  const compactAdherence: Record<string, unknown> = {}
+  if (adherence && typeof adherence === 'object' && !Array.isArray(adherence)) {
+    for (const [key, value] of Object.entries(adherence)) {
+      if (typeof value === 'boolean') compactAdherence[key] = value
+    }
+    if (typeof adherence.overall_script_adherence === 'string') {
+      compactAdherence.overall_script_adherence = adherence.overall_script_adherence
+    }
+    if (Array.isArray(adherence.missing_elements)) {
+      compactAdherence.missing_elements = adherence.missing_elements.filter(
+        (value: unknown): value is string => typeof value === 'string',
+      )
+    }
+  }
+
+  const confidence = result.assessment_confidence
+  const compactConfidence = confidence && typeof confidence === 'object' && !Array.isArray(confidence)
+    ? {
+        level: typeof confidence.level === 'string' ? confidence.level : null,
+        score: typeof confidence.score === 'number' ? confidence.score : null,
+      }
+    : null
+  const transfer = result.transfer_experience
+  const compactTransfer = transfer && typeof transfer === 'object' && !Array.isArray(transfer)
+    ? {
+        poor_transfer: transfer.poor_transfer === true,
+        reasons: Array.isArray(transfer.reasons)
+          ? transfer.reasons.filter((value: unknown): value is string => typeof value === 'string')
+          : [],
+      }
+    : null
+
+  return {
+    script_version: typeof result.script_version === 'string' ? result.script_version : null,
+    script_adherence: compactAdherence,
+    assessment_confidence: compactConfidence,
+    transfer_experience: compactTransfer,
+  }
+}
+
+function buildCompactAgentFeedback(row: AgentFeedbackRow) {
+  return {
+    id: row.id,
+    accent: row.accent ?? null,
+    background_noise: row.background_noise ?? null,
+    connection_issues: row.connection_issues ?? null,
+    call_quality: row.call_quality ?? null,
+    submitted_at: row.submitted_at,
+  }
+}
+
+// Initial-list projection: only fields needed by overview analytics, filters,
+// and queue rows. Drawer-only text, links, evidence, and transcript content are
+// deliberately absent rather than null so payload growth fails visibly.
+export function buildPortalListRow(
+  row: Json,
+  feedback: FeedbackRow | undefined,
+  agentFeedback: AgentFeedbackRow[] = [],
+  welcomeAgent?: WelcomeAgentIdentity,
+) {
+  const reviewedAt = feedback?.reviewed_at ?? row.reviewed_at ?? null
+  return {
+    module_result_id: row.module_result_id ?? row.id,
+    alert_created_at: row.alert_created_at ?? row.created_at ?? new Date(0).toISOString(),
+    call_id: row.call_id,
+    module_name: row.module_name,
+    violation_type: row.violation_type ?? 'achieve_welcome_call',
+    has_violation: row.has_violation ?? false,
+    contact_name: row.contact_name ?? null,
+    contact_phone: row.contact_phone ?? null,
+    achieve_agent_name: welcomeAgent?.achieve_agent_name ?? null,
+    achieve_agent_email: welcomeAgent?.achieve_agent_email ?? null,
+    result_json: buildListResultJson(row.result_json),
+    reviewed_at: reviewedAt,
+    is_reviewed: !!reviewedAt,
+    agent_feedback: agentFeedback.map(buildCompactAgentFeedback),
   }
 }
 
