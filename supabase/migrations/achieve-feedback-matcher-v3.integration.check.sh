@@ -89,6 +89,8 @@ insert into public.eavesly_calls(call_id, contact_phone, agent_email, started_at
   ('audit-b', '444-444-4444', 'alice@example.test', '2026-01-02 11:00Z'),
   ('amb-a', '555-555-5555', 'alice@example.test', '2026-01-02 10:00Z'),
   ('amb-b', '555-555-5555', 'alice@example.test', '2026-01-02 11:00Z'),
+  ('single-name-a', '666-666-6666', 'alice@example.test', '2026-01-02 10:00Z'),
+  ('single-name-b', '666-666-6666', 'alice@example.test', '2026-01-02 11:00Z'),
   ('historical', '888-888-8888', 'alice@example.test', '2026-01-02 11:00Z');
 
 insert into public.eavesly_module_results(call_id, module_name, result_json) values
@@ -99,7 +101,9 @@ insert into public.eavesly_module_results(call_id, module_name, result_json) val
 
 insert into public.eavesly_transcription_qa(call_id, original_transcript) values
   ('name-a', 'Another representative joined.'),
-  ('name-b', 'Welcome. My name is Maria Lopez, and I will help today.');
+  ('name-b', 'Welcome. My name is Maria Lopez, and I will help today.'),
+  ('single-name-a', 'Another representative joined.'),
+  ('single-name-b', 'Welcome. My name is Maria, and I will help today.');
 
 insert into public.achieve_agent_feedback(
   lead_phone_raw, achieve_agent_name, submitted_by, submitted_at, phone_normalized,
@@ -107,7 +111,7 @@ insert into public.achieve_agent_feedback(
   call_match_confidence, call_match_reason, call_matched_at
 ) values
   ('9999999999', null, 'Alice Smith', '2026-01-02 12:00Z', '9999999999',
-    'legacy', '2026-01-02 12:01Z', 'legacy', 'matched', null, 'legacy_module_match', '2026-01-02 12:01Z'),
+    'legacy', '2026-01-02 12:01Z', 'legacy', 'matched', 'high', 'legacy_module_match', '2026-01-02 12:01Z'),
   ('1111111111', null, 'Alice Smith', '2026-01-02 12:00Z', '1111111111',
     null, null, null, 'ambiguous', null, 'call_ambiguous', null),
   ('2222222222', 'Maria Lopez', 'Alice Smith', '2026-01-02 12:00Z', '2222222222',
@@ -120,8 +124,10 @@ insert into public.achieve_agent_feedback(
     null, null, null, 'ambiguous', null, 'call_ambiguous', null),
   ('5555555555', null, 'Alice Smith', '2026-01-02 12:00Z', '5555555555',
     null, null, null, 'ambiguous', null, 'call_ambiguous', null),
+  ('6666666666', 'Maria', 'Alice Smith', '2026-01-02 12:00Z', '6666666666',
+    null, null, null, 'ambiguous', null, 'call_ambiguous', null),
   ('8888888888', null, 'Alice Smith', '2026-01-02 12:00Z', '8888888888',
-    null, null, 'historical', 'matched', 'high', 'matched_phone_time_submitter', null);
+    null, null, 'historical', 'matched', null, 'matched_phone_time_submitter', null);
 SQL
   cat "$migration"
   cat <<'SQL'
@@ -134,8 +140,8 @@ declare
   second_run integer;
 begin
   select public.report_achieve_agent_feedback_matches_v3() into shadow;
-  if shadow->>'candidate_rows' <> '6' or shadow->>'would_match' <> '4'
-    or shadow->>'would_remain_unresolved' <> '2' then
+  if shadow->>'candidate_rows' <> '7' or shadow->>'would_match' <> '4'
+    or shadow->>'would_remain_unresolved' <> '3' then
     raise exception 'unexpected shadow report: %', shadow;
   end if;
 
@@ -179,22 +185,35 @@ begin
       and call_match_evidence->>'qa_scope' = 'audit_only'
   ) then raise exception 'audit association contaminated ordinary match or was not retained'; end if;
 
+  if exists (
+    select 1 from public.achieve_agent_feedback
+    where lead_phone_raw = '6666666666' and matched_eavesly_call_id is not null
+  ) then raise exception 'one-token transcript name inferred an association'; end if;
+
+  if not exists (
+    select 1 from public.achieve_agent_feedback
+    where lead_phone_raw = '9999999999'
+      and call_match_provenance = 'deterministic'
+      and call_match_confidence is null
+  ) then raise exception 'drifted deterministic confidence was not repaired'; end if;
+
   if not exists (
     select 1 from public.achieve_agent_feedback
     where lead_phone_raw = '8888888888'
       and call_matched_at is not null
       and call_match_provenance = 'inferred'
-  ) then raise exception 'historical consistency repair failed'; end if;
+      and call_match_confidence = 'high'
+  ) then raise exception 'drifted inferred confidence or historical consistency was not repaired'; end if;
 
   select public.get_achieve_feedback_match_totals() into totals;
-  if totals <> '{"unresolved":2,"true_qa_absent":2,"inferred_matched":2,"audit_qa_available":1,"deterministic_matched":1}'::jsonb then
+  if totals <> '{"unresolved":3,"true_qa_absent":2,"inferred_matched":2,"audit_qa_available":1,"deterministic_matched":1}'::jsonb then
     raise exception 'unexpected exact totals: %', totals;
   end if;
 
   if (select count(*) from public.list_achieve_feedback_exceptions('true_qa_absent', 200)) <> 2 then
     raise exception 'true-QA-absent list is not exact';
   end if;
-  if (select count(*) from public.list_achieve_feedback_exceptions('unresolved', 200)) <> 2 then
+  if (select count(*) from public.list_achieve_feedback_exceptions('unresolved', 200)) <> 3 then
     raise exception 'unresolved list is not exact';
   end if;
 

@@ -16,6 +16,8 @@ for (const required of [
   "resolution.phone_normalized is null or resolution.phone_normalized !~ '^[0-9]{10}$' then null",
   "'unique_qa_phone_time'",
   "'transcript_agent_name_phone_time'",
+  "cardinality(regexp_split_to_array(resolution.achieve_name_normalized, '[[:space:]]+')) >= 2",
+  "when call_match_provenance = 'deterministic' then null",
   "'unique_phone_time_no_submitter'",
   'report_achieve_agent_feedback_matches_v3',
   'get_achieve_feedback_match_totals',

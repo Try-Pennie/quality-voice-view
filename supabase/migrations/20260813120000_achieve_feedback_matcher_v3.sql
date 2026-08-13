@@ -119,6 +119,16 @@ set call_match_status = 'matched',
     call_match_evidence = coalesce(call_match_evidence, '{"matcher_version":2,"historical_association":true}'::jsonb)
 where matched_eavesly_call_id is not null;
 
+-- Normalize confidence after provenance repair so drifted historical rows
+-- satisfy the persisted deterministic-vs-inferred distinction. Unassociated
+-- rows retain the v2-compatible nullable/high outcome semantics.
+update public.achieve_agent_feedback
+set call_match_confidence = case
+      when call_match_provenance = 'deterministic' then null
+      else 'high'
+    end
+where matched_eavesly_call_id is not null;
+
 update public.achieve_agent_feedback
 set call_match_provenance = null,
     call_match_method = null,
@@ -216,7 +226,7 @@ as $$
           and module_result.call_id = calls.call_id
           and module_result.result_json @> '{"backfill":{"audit_only":true}}'::jsonb
       ) as has_audit_qa,
-      resolution.achieve_name_normalized <> ''
+      cardinality(regexp_split_to_array(resolution.achieve_name_normalized, '[[:space:]]+')) >= 2
         and exists (
           select 1
           from public.eavesly_transcription_qa as transcript
