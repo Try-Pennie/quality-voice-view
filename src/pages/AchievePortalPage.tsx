@@ -82,6 +82,29 @@ function callMatchReasonLabel(reason: AchieveAgentFeedback['call_match_reason'])
       return 'Multiple calls matched; no call was selected.'
     case 'matched_phone_time_submitter':
       return 'Matched by phone, submission time, and Pennie agent.'
+    case 'matched_unique_qa_phone_time':
+      return 'Inferred from the only exact Achieve QA candidate in the same-agent phone/time window.'
+    case 'matched_transcript_agent_name':
+      return 'Inferred from the full Achieve agent name in one candidate transcript.'
+    case 'matched_unique_phone_time_no_submitter':
+      return 'Inferred from the only global phone/time candidate when the submitter could not be resolved.'
+    default:
+      return null
+  }
+}
+
+function callMatchMethodLabel(method: AchieveAgentFeedback['call_match_method']): string | null {
+  switch (method) {
+    case 'legacy_module_association':
+      return 'Legacy exact module association'
+    case 'phone_time_submitter':
+      return 'Phone + time + Pennie agent'
+    case 'unique_qa_phone_time':
+      return 'Unique exact Achieve QA candidate'
+    case 'transcript_agent_name_phone_time':
+      return 'Full Achieve agent name in transcript'
+    case 'unique_phone_time_no_submitter':
+      return 'Unique global phone + time candidate'
     default:
       return null
   }
@@ -209,8 +232,8 @@ function AchieveReviewQueue() {
   const alerts = useMemo(() => portalQuery.data?.alerts ?? [], [portalQuery.data])
   const allCalls = useMemo(() => portalQuery.data?.allCalls ?? [], [portalQuery.data])
   const backfillAudit = useMemo(() => auditQuery.data?.rows ?? [], [auditQuery.data])
-  const qaMissingAgentFeedback = useMemo(() => feedbackExceptionsQuery.data?.qaMissingAgentFeedback ?? [], [feedbackExceptionsQuery.data])
-  const unmatchedAgentFeedback = useMemo(() => feedbackExceptionsQuery.data?.unmatchedAgentFeedback ?? [], [feedbackExceptionsQuery.data])
+  const trueQaAbsentAgentFeedback = useMemo(() => feedbackExceptionsQuery.data?.trueQaAbsentAgentFeedback ?? [], [feedbackExceptionsQuery.data])
+  const unresolvedAgentFeedback = useMemo(() => feedbackExceptionsQuery.data?.unresolvedAgentFeedback ?? [], [feedbackExceptionsQuery.data])
   const needsReview = useMemo(() => alerts.filter(row => !row.is_reviewed), [alerts])
   const feedbackFilteredAllCalls = useMemo(
     () => filterAchieveRows(allCalls, feedbackFilters),
@@ -267,6 +290,7 @@ function AchieveReviewQueue() {
             <p className="text-xs leading-5 text-slate-500">
               {analytics.loadedCalls} loaded {analytics.loadedCalls === 1 ? 'call' : 'calls'}
               {isFeedbackFiltered ? ' after filtering' : ''}
+              {!isFeedbackFiltered && portalQuery.data ? ` of ${portalQuery.data.coverage.total} total` : ''}
               {portalQuery.data?.coverage.capReached ? ` · capped at ${portalQuery.data.coverage.cap}` : ''}
             </p>
             <button
@@ -291,7 +315,7 @@ function AchieveReviewQueue() {
             <TabsTrigger className="min-h-9 whitespace-nowrap px-2 text-xs sm:px-3 sm:text-sm" value="overview">Overview</TabsTrigger>
             <TabsTrigger className="min-h-9 whitespace-nowrap px-2 text-xs sm:px-3 sm:text-sm" value="alerts">Needs review ({filteredAlerts.length})</TabsTrigger>
             <TabsTrigger className="min-h-9 whitespace-nowrap px-2 text-xs sm:px-3 sm:text-sm" value="all-calls">All calls ({filteredAllCalls.length})</TabsTrigger>
-            <TabsTrigger className="min-h-9 whitespace-nowrap px-2 text-xs sm:px-3 sm:text-sm" value="backfill-audit">Backfill audit{auditQuery.data ? ` (${backfillAudit.length})` : ''}</TabsTrigger>
+            <TabsTrigger className="min-h-9 whitespace-nowrap px-2 text-xs sm:px-3 sm:text-sm" value="backfill-audit">Backfill audit{auditQuery.data ? ` (${backfillAudit.length} of ${auditQuery.data.coverage.total})` : ''}</TabsTrigger>
           </TabsList>
 
           <TabsContent value="overview" className="mt-4">
@@ -360,41 +384,71 @@ function AchieveReviewQueue() {
             onClick={() => setFeedbackExceptionsRequested(true)}
             className="rounded-full border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-800 shadow-sm hover:bg-slate-100"
           >
-            Load feedback exceptions (up to 200 per list)
+            Load feedback match audit
           </button>
         )}
         {feedbackExceptionsRequested && feedbackExceptionsQuery.isPending && <AchieveRowsSkeleton />}
         {feedbackExceptionsQuery.isError && (
           <ErrorState title="Could not load feedback exceptions" message="Retry to load the capped read-only exception lists." onRetry={() => { void feedbackExceptionsQuery.refetch() }} />
         )}
-        {qaMissingAgentFeedback.length > 0 && (
+        {feedbackExceptionsQuery.data && (
+          <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+            <h2 className="text-sm font-semibold text-slate-950">Feedback association audit</h2>
+            <p className="mt-1 text-xs leading-5 text-slate-500">
+              Exact totals. Inferred associations are placed with matched QA but retain method, confidence, and evidence.
+              Audit-only feedback stays read-only in Backfill audit and is excluded from ordinary metrics.
+            </p>
+            <dl className="mt-4 grid gap-3 sm:grid-cols-5">
+              {[
+                ['Deterministic matched', feedbackExceptionsQuery.data.totals.deterministicMatched],
+                ['Inferred matched', feedbackExceptionsQuery.data.totals.inferredMatched],
+                ['Audit QA available', feedbackExceptionsQuery.data.totals.auditQaAvailable],
+                ['True QA absent', feedbackExceptionsQuery.data.totals.trueQaAbsent],
+                ['Unresolved', feedbackExceptionsQuery.data.totals.unresolved],
+              ].map(([label, value]) => (
+                <div key={label} className="rounded-xl bg-slate-50 p-3">
+                  <dt className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">{label}</dt>
+                  <dd className="mt-1 text-xl font-semibold text-slate-950">{value}</dd>
+                </div>
+              ))}
+            </dl>
+          </section>
+        )}
+
+        {trueQaAbsentAgentFeedback.length > 0 && (
           <details className="rounded-2xl border border-amber-200 bg-white p-5 shadow-sm">
             <summary className="cursor-pointer text-sm font-semibold text-slate-950">
-              Pennie agent feedback with call found, QA missing ({qaMissingAgentFeedback.length})
+              Call associated · Achieve QA truly absent ({trueQaAbsentAgentFeedback.length} loaded of {feedbackExceptionsQuery.data?.trueQaAbsentCoverage.total ?? trueQaAbsentAgentFeedback.length})
             </summary>
             <p className="mt-1 text-xs leading-5 text-slate-500">
-              High-confidence phone, time, and submitter matches found the Eavesly call, but no Achieve QA
-              module row exists. These submissions stay visible here without entering QA metrics or Needs review.
+              An exact call association exists, but neither ordinary nor audit-only Achieve QA exists for that call.
+              These submissions stay visible without entering QA metrics or Needs review.
             </p>
+            {feedbackExceptionsQuery.data?.trueQaAbsentCoverage.capReached && (
+              <p className="mt-1 text-xs font-semibold text-amber-800">List capped at {feedbackExceptionsQuery.data.limitPerList}; the exact total is shown above.</p>
+            )}
             <div className="mt-4 space-y-3">
-              {qaMissingAgentFeedback.map(item => (
+              {trueQaAbsentAgentFeedback.map(item => (
                 <AgentFeedbackCard key={item.id} item={item} showPhone />
               ))}
             </div>
           </details>
         )}
 
-        {unmatchedAgentFeedback.length > 0 && (
+        {unresolvedAgentFeedback.length > 0 && (
           <details className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
             <summary className="cursor-pointer text-sm font-semibold text-slate-950">
-              Pennie agent feedback without a matched call ({unmatchedAgentFeedback.length})
+              Unresolved feedback ({unresolvedAgentFeedback.length} loaded of {feedbackExceptionsQuery.data?.unresolvedCoverage.total ?? unresolvedAgentFeedback.length})
             </summary>
             <p className="mt-1 text-xs leading-5 text-slate-500">
-              Form submissions that could not be matched unambiguously to an Eavesly call. Kept visible so
-              agent observations are never lost.
+              Form submissions that could not be associated strongly enough with an Eavesly call. Invalid-phone
+              submissions are never resolved through broad agent/time scans.
             </p>
+            {feedbackExceptionsQuery.data?.unresolvedCoverage.capReached && (
+              <p className="mt-1 text-xs font-semibold text-slate-700">List capped at {feedbackExceptionsQuery.data.limitPerList}; the exact total is shown above.</p>
+            )}
             <div className="mt-4 space-y-3">
-              {unmatchedAgentFeedback.map(item => (
+              {unresolvedAgentFeedback.map(item => (
                 <AgentFeedbackCard key={item.id} item={item} showPhone />
               ))}
             </div>
@@ -672,9 +726,12 @@ function ResultPill({ alert }: { alert: AlertWithFeedback }) {
 function AgentFeedbackPill({ feedback }: { feedback?: AchieveAgentFeedback[] }) {
   if (!feedback || feedback.length === 0) return null
   const quality = worstAchieveAgentRating(feedback)
+  const hasInferred = feedback.some(item => item.call_match_provenance === 'inferred')
+  const hasAudit = feedback.some(item => item.qa_match_status === 'qa_audit')
   return (
     <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${agentQualityTone(quality)}`}>
       Pennie agent: {quality ?? 'feedback'}{feedback.length > 1 ? ` ×${feedback.length}` : ''}
+      {hasInferred ? ' · inferred match' : ''}{hasAudit ? ' · audit only' : ''}
     </span>
   )
 }
@@ -983,6 +1040,8 @@ function AgentFeedbackSection({ feedback }: { feedback?: AchieveAgentFeedback[] 
 
 function AgentFeedbackCard({ item, showPhone = false }: { item: AchieveAgentFeedback; showPhone?: boolean }) {
   const matchReason = callMatchReasonLabel(item.call_match_reason)
+  const matchMethod = callMatchMethodLabel(item.call_match_method)
+  const evidence = item.call_match_evidence ?? null
   const flags = [
     item.accent === true ? 'Accent' : null,
     item.background_noise === true ? 'Background noise' : null,
@@ -992,9 +1051,20 @@ function AgentFeedbackCard({ item, showPhone = false }: { item: AchieveAgentFeed
   return (
     <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
       <div className="flex flex-wrap items-center gap-2">
-        {item.qa_match_status === 'qa_missing' && (
+        {item.qa_match_status === 'qa_absent' && (
           <span className="rounded-full bg-amber-100 px-2.5 py-1 text-xs font-semibold text-amber-900">
-            Call found · QA missing
+            Call associated · QA truly absent
+          </span>
+        )}
+        {item.qa_match_status === 'qa_audit' && (
+          <span className="rounded-full bg-violet-100 px-2.5 py-1 text-xs font-semibold text-violet-900">
+            Audit-only QA · read-only
+          </span>
+        )}
+        {item.call_match_provenance && (
+          <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${item.call_match_provenance === 'inferred' ? 'bg-blue-100 text-blue-900' : 'bg-slate-200 text-slate-800'}`}>
+            {item.call_match_provenance === 'inferred' ? 'Inferred match' : 'Deterministic match'}
+            {item.call_match_confidence === 'high' ? ' · high confidence' : ''}
           </span>
         )}
         {item.call_quality && (
@@ -1012,11 +1082,24 @@ function AgentFeedbackCard({ item, showPhone = false }: { item: AchieveAgentFeed
       {showPhone && item.lead_phone_raw && (
         <p className="mt-2 font-mono text-xs text-slate-500">Client phone (as entered): {item.lead_phone_raw}</p>
       )}
-      {showPhone && matchReason && (
-        <p className="mt-2 text-xs text-slate-600">
-          Match status: {matchReason}
-          {item.call_match_confidence === 'high' ? ' High confidence.' : ''}
-        </p>
+      {(matchMethod || matchReason) && (
+        <div className="mt-2 text-xs leading-5 text-slate-600">
+          {matchMethod && <p><span className="font-semibold text-slate-700">Match method:</span> {matchMethod}</p>}
+          {matchReason && <p>{matchReason}</p>}
+        </div>
+      )}
+      {evidence && Object.keys(evidence).length > 0 && (
+        <details className="mt-2 text-xs text-slate-600">
+          <summary className="cursor-pointer font-semibold text-slate-700">Association evidence</summary>
+          <dl className="mt-1 grid gap-x-3 gap-y-1 sm:grid-cols-[minmax(10rem,auto)_1fr]">
+            {Object.entries(evidence).map(([key, value]) => (
+              <div key={key} className="contents">
+                <dt>{key.replace(/_/g, ' ')}</dt>
+                <dd className="font-mono text-slate-700">{String(value)}</dd>
+              </div>
+            ))}
+          </dl>
+        </details>
       )}
       {item.notes && <p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-slate-700">{item.notes}</p>}
       <p className="mt-2 text-xs text-slate-500">

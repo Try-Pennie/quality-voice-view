@@ -162,6 +162,9 @@ export type AgentFeedbackRow = {
   call_match_status?: string | null
   call_match_confidence?: string | null
   call_match_reason?: string | null
+  call_match_provenance?: string | null
+  call_match_method?: string | null
+  call_match_evidence?: unknown
 }
 
 const CALL_MATCH_REASONS = [
@@ -173,9 +176,24 @@ const CALL_MATCH_REASONS = [
   'no_call_in_window',
   'call_ambiguous',
   'matched_phone_time_submitter',
+  'matched_unique_qa_phone_time',
+  'matched_transcript_agent_name',
+  'matched_unique_phone_time_no_submitter',
 ] as const
 
+const CALL_MATCH_METHODS = [
+  'legacy_module_association',
+  'phone_time_submitter',
+  'unique_qa_phone_time',
+  'transcript_agent_name_phone_time',
+  'unique_phone_time_no_submitter',
+] as const
+
+export type AgentFeedbackQaStatus = 'qa_matched' | 'qa_audit' | 'qa_absent' | 'call_unmatched'
+
 type CallMatchReason = typeof CALL_MATCH_REASONS[number]
+type CallMatchMethod = typeof CALL_MATCH_METHODS[number]
+type MatchEvidence = Readonly<Record<string, string | number | boolean | null>>
 
 function parseCallMatchReason(value: unknown): CallMatchReason | null {
   if (typeof value !== 'string' || !(CALL_MATCH_REASONS as readonly string[]).includes(value)) return null
@@ -183,20 +201,52 @@ function parseCallMatchReason(value: unknown): CallMatchReason | null {
   return value as CallMatchReason
 }
 
+function parseCallMatchMethod(value: unknown): CallMatchMethod | null {
+  if (typeof value !== 'string' || !(CALL_MATCH_METHODS as readonly string[]).includes(value)) return null
+  // SAFETY: Membership in the readonly literal set establishes CallMatchMethod.
+  return value as CallMatchMethod
+}
+
+function parseMatchEvidence(value: unknown): MatchEvidence | null {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return null
+  // SAFETY: The object check establishes an indexable boundary record. Only
+  // aggregate numeric fields and two closed categorical fields are projected;
+  // unknown strings/keys (including possible identifiers) are dropped.
+  const raw = value as Record<string, unknown>
+  const evidence: Record<string, string | number | boolean | null> = {}
+  const numericKeys = [
+    'matcher_version',
+    'same_agent_phone_time_candidate_count',
+    'qa_candidate_count',
+    'transcript_name_candidate_count',
+    'global_phone_time_candidate_count',
+    'absolute_delta_seconds',
+  ] as const
+  for (const key of numericKeys) {
+    const item = raw[key]
+    if (typeof item === 'number' && Number.isFinite(item) && item >= 0) evidence[key] = item
+  }
+  if (raw.qa_scope === 'ordinary' || raw.qa_scope === 'audit_only' || raw.qa_scope === 'absent') {
+    evidence.qa_scope = raw.qa_scope
+  }
+  if (raw.historical_association === true) evidence.historical_association = true
+  return evidence
+}
+
 // Explicit projection for the approved partner feedback view. Internal call
-// identifiers never leave the server; the status only communicates whether QA
-// exists for the high-confidence Eavesly call match.
-export function buildAgentFeedbackView(row: AgentFeedbackRow, includePhone = false) {
+// identifiers never leave the server. Callers supply the QA classification
+// after checking exact Achieve module rows, so audit-only QA cannot be mistaken
+// for an ordinary match.
+export function buildAgentFeedbackView(
+  row: AgentFeedbackRow,
+  options: { includePhone?: boolean; qaStatus?: AgentFeedbackQaStatus } = {},
+) {
   const hasModuleMatch = typeof row.matched_call_id === 'string' && row.matched_call_id.trim().length > 0
   const hasCallMatch = typeof row.matched_eavesly_call_id === 'string' && row.matched_eavesly_call_id.trim().length > 0
-  const qaMatchStatus = hasModuleMatch
-    ? 'qa_matched'
-    : hasCallMatch
-      ? 'qa_missing'
-      : 'call_unmatched'
+  const qaMatchStatus = options.qaStatus ?? (hasModuleMatch ? 'qa_matched' : hasCallMatch ? 'qa_absent' : 'call_unmatched')
   return {
     id: row.id,
-    lead_phone_raw: includePhone ? row.lead_phone_raw ?? null : undefined,
+    lead_phone_raw: options.includePhone ? row.lead_phone_raw ?? null : undefined,
     achieve_agent_name: row.achieve_agent_name ?? null,
     accent: row.accent ?? null,
     background_noise: row.background_noise ?? null,
@@ -208,6 +258,11 @@ export function buildAgentFeedbackView(row: AgentFeedbackRow, includePhone = fal
     qa_match_status: qaMatchStatus,
     call_match_confidence: row.call_match_confidence === 'high' ? 'high' : null,
     call_match_reason: parseCallMatchReason(row.call_match_reason),
+    call_match_provenance: row.call_match_provenance === 'deterministic' || row.call_match_provenance === 'inferred'
+      ? row.call_match_provenance
+      : null,
+    call_match_method: parseCallMatchMethod(row.call_match_method),
+    call_match_evidence: parseMatchEvidence(row.call_match_evidence),
   }
 }
 
@@ -260,6 +315,7 @@ export function buildPortalRow(
   feedback: FeedbackRow | undefined,
   agentFeedback: AgentFeedbackRow[] = [],
   welcomeAgent?: WelcomeAgentIdentity,
+  agentFeedbackQaStatus: AgentFeedbackQaStatus = 'qa_matched',
 ) {
   const withheld = isWithheld(row.result_json)
   return {
@@ -295,7 +351,7 @@ export function buildPortalRow(
     last_message_at: null,
     acker_emails: [],
     trimmed_transcript: trimTranscript(transcript?.original_transcript, row.result_json) || null,
-    agent_feedback: agentFeedback.map(f => buildAgentFeedbackView(f)),
+    agent_feedback: agentFeedback.map(item => buildAgentFeedbackView(item, { qaStatus: agentFeedbackQaStatus })),
   }
 }
 
@@ -343,14 +399,20 @@ function buildListResultJson(result: Json): Json {
   }
 }
 
-function buildCompactAgentFeedback(row: AgentFeedbackRow) {
+function buildCompactAgentFeedback(row: AgentFeedbackRow, qaStatus: AgentFeedbackQaStatus) {
+  const projected = buildAgentFeedbackView(row, { qaStatus })
   return {
-    id: row.id,
-    accent: row.accent ?? null,
-    background_noise: row.background_noise ?? null,
-    connection_issues: row.connection_issues ?? null,
-    call_quality: row.call_quality ?? null,
-    submitted_at: row.submitted_at,
+    id: projected.id,
+    accent: projected.accent,
+    background_noise: projected.background_noise,
+    connection_issues: projected.connection_issues,
+    call_quality: projected.call_quality,
+    submitted_at: projected.submitted_at,
+    qa_match_status: projected.qa_match_status,
+    call_match_confidence: projected.call_match_confidence,
+    call_match_provenance: projected.call_match_provenance,
+    call_match_method: projected.call_match_method,
+    call_match_evidence: projected.call_match_evidence,
   }
 }
 
@@ -362,6 +424,7 @@ export function buildPortalListRow(
   feedback: FeedbackRow | undefined,
   agentFeedback: AgentFeedbackRow[] = [],
   welcomeAgent?: WelcomeAgentIdentity,
+  agentFeedbackQaStatus: AgentFeedbackQaStatus = 'qa_matched',
 ) {
   const reviewedAt = feedback?.reviewed_at ?? row.reviewed_at ?? null
   return {
@@ -378,7 +441,7 @@ export function buildPortalListRow(
     result_json: buildListResultJson(row.result_json),
     reviewed_at: reviewedAt,
     is_reviewed: !!reviewedAt,
-    agent_feedback: agentFeedback.map(buildCompactAgentFeedback),
+    agent_feedback: agentFeedback.map(item => buildCompactAgentFeedback(item, agentFeedbackQaStatus)),
   }
 }
 

@@ -21,6 +21,7 @@ import {
   buildPortalListRow,
   buildPortalRow,
   canSubmitPortalFeedback,
+  isAuditOnlyResult,
   isCompetitorTransfer,
   isQueueRow,
   parseWelcomeAgentLookupRow,
@@ -49,6 +50,7 @@ const MAX_CONCURRENT_CHUNKS = 5
 const MAX_CONCURRENT_LEGACY_CHUNKS = 10
 const MAX_UNMATCHED_FEEDBACK = 200
 const AUDIT_ONLY_MARKER = { backfill: { audit_only: true } }
+const COMPETITOR_TRANSFER_MARKER = { grading_skipped: true, skip_reason: "competitor_transfer" }
 
 const LIST_MODULE_RESULT_COLUMNS =
   "id, created_at, call_id, module_name, violation_type, has_violation, contact_name, contact_phone, result_json, sfdc_lead_id"
@@ -57,7 +59,7 @@ const DETAIL_MODULE_RESULT_COLUMNS =
 const FEEDBACK_COLUMNS =
   "id, call_id, module_name, manager_email, accurate, action_taken, inaccuracy_reason, comment, reviewed_at"
 const AGENT_FEEDBACK_COLUMNS =
-  "id, lead_phone_raw, achieve_agent_name, accent, background_noise, connection_issues, call_quality, notes, submitted_by, submitted_at, matched_call_id, matched_eavesly_call_id, call_match_status, call_match_confidence, call_match_reason"
+  "id, lead_phone_raw, achieve_agent_name, accent, background_noise, connection_issues, call_quality, notes, submitted_by, submitted_at, matched_call_id, matched_eavesly_call_id, call_match_status, call_match_confidence, call_match_reason, call_match_provenance, call_match_method, call_match_evidence"
 
 type BoundaryRow = Record<string, unknown>
 type AdminClient = ReturnType<typeof createClient>
@@ -155,7 +157,11 @@ async function fetchWelcomeAgents(
   return welcomeAgentByLead
 }
 
-async function enrichLightweightRows(admin: AdminClient, rows: readonly BoundaryRow[]) {
+async function enrichLightweightRows(
+  admin: AdminClient,
+  rows: readonly BoundaryRow[],
+  qaScope: "ordinary" | "audit" = "ordinary",
+) {
   const callIds = Array.from(new Set(rows.flatMap(row =>
     typeof row.call_id === "string" && row.call_id ? [row.call_id] : []
   )))
@@ -167,11 +173,15 @@ async function enrichLightweightRows(admin: AdminClient, rows: readonly Boundary
       .select(FEEDBACK_COLUMNS)
       .eq("module_name", ACHIEVE_MODULE_NAME)
       .in("call_id", chunk))),
-    Promise.all(callIdChunks.map(chunk => admin
-      .from("achieve_agent_feedback")
-      .select(AGENT_FEEDBACK_COLUMNS)
-      .in("matched_call_id", chunk)
-      .order("submitted_at", { ascending: true }))),
+    Promise.all(callIdChunks.map(chunk => {
+      let query = admin
+        .from("achieve_agent_feedback")
+        .select(AGENT_FEEDBACK_COLUMNS)
+      query = qaScope === "audit"
+        ? query.in("matched_eavesly_call_id", chunk).is("matched_call_id", null)
+        : query.in("matched_call_id", chunk)
+      return query.order("submitted_at", { ascending: true })
+    })),
   ])
 
   const feedbackByCall = new Map<string, FeedbackRow>()
@@ -198,10 +208,11 @@ async function enrichLightweightRows(admin: AdminClient, rows: readonly Boundary
     }
     for (const rawRow of result.data ?? []) {
       const row = rawRow as AgentFeedbackRow
-      if (!row.matched_call_id) continue
-      const bucket = agentFeedbackByCall.get(row.matched_call_id)
+      const associationId = qaScope === "audit" ? row.matched_eavesly_call_id : row.matched_call_id
+      if (!associationId) continue
+      const bucket = agentFeedbackByCall.get(associationId)
       if (bucket) bucket.push(row)
-      else agentFeedbackByCall.set(row.matched_call_id, [row])
+      else agentFeedbackByCall.set(associationId, [row])
     }
   }
 
@@ -212,6 +223,7 @@ async function enrichLightweightRows(admin: AdminClient, rows: readonly Boundary
     typeof row.sfdc_lead_id === "string"
       ? welcomeAgentByLead.get(row.sfdc_lead_id)
       : undefined,
+    qaScope === "audit" ? "qa_audit" : "qa_matched",
   ))
 }
 
@@ -219,66 +231,123 @@ async function fetchModuleRows(
   admin: AdminClient,
   mode: "normal" | "audit",
   columns = LIST_MODULE_RESULT_COLUMNS,
-): Promise<{ rows: BoundaryRow[]; capReached: boolean } | null> {
+): Promise<{ rows: BoundaryRow[]; total: number; capReached: boolean } | null> {
   const cap = mode === "normal" ? MAX_LIST_ROWS : MAX_AUDIT_ROWS
   const candidates: BoundaryRow[] = []
-  let scannedRows = 0
+  let exactTotal: number | null = null
   for (let offset = 0; offset < cap; offset += PAGE_SIZE) {
     let query = admin
       .from("eavesly_module_results")
-      .select(columns)
+      .select(columns, { count: "exact" })
       .eq("module_name", ACHIEVE_MODULE_NAME)
+      .not("result_json", "cs", JSON.stringify(COMPETITOR_TRANSFER_MARKER))
     query = mode === "audit"
       ? query.contains("result_json", AUDIT_ONLY_MARKER)
       : query.not("result_json", "cs", JSON.stringify(AUDIT_ONLY_MARKER))
-    const { data, error } = await query
+    const { data, error, count } = await query
       .order("created_at", { ascending: false })
       .range(offset, offset + PAGE_SIZE - 1)
-    if (error) {
-      console.error(`achieve ${mode} list error`, error)
+    if (error || count === null) {
+      console.error(`achieve ${mode} list error`, error ?? { code: "exact_count_missing" })
       return null
     }
+    exactTotal = count
     const page = data ?? []
-    scannedRows += page.length
     for (const rawRow of page) {
       const row = parseRecord(rawRow)
-      if (row && !isCompetitorTransfer(row.result_json)) candidates.push(row)
+      if (!row) {
+        console.error(`achieve ${mode} list error`, { code: "invalid_module_row" })
+        return null
+      }
+      if (!isCompetitorTransfer(row.result_json)) candidates.push(row)
     }
     if (page.length < PAGE_SIZE) break
   }
 
+  if (exactTotal === null) return { rows: [], total: 0, capReached: false }
   const partitioned = partitionPortalRows(candidates)
   return {
     rows: mode === "audit" ? partitioned.auditRows : partitioned.normalRows,
-    capReached: scannedRows >= cap,
+    total: exactTotal,
+    capReached: exactTotal > cap,
   }
 }
 
+function parseFeedbackTotals(value: unknown) {
+  const totals = parseRecord(value)
+  if (!totals) return null
+  const keys = [
+    "deterministic_matched",
+    "inferred_matched",
+    "audit_qa_available",
+    "true_qa_absent",
+    "unresolved",
+  ] as const
+  const parsed: Record<typeof keys[number], number> = {
+    deterministic_matched: 0,
+    inferred_matched: 0,
+    audit_qa_available: 0,
+    true_qa_absent: 0,
+    unresolved: 0,
+  }
+  for (const key of keys) {
+    if (typeof totals[key] !== "number" || !Number.isSafeInteger(totals[key]) || totals[key] < 0) return null
+    parsed[key] = totals[key]
+  }
+  return parsed
+}
+
 async function fetchFeedbackExceptions(admin: AdminClient) {
-  const [qaMissingResult, unmatchedResult] = await Promise.all([
-    admin
-      .from("achieve_agent_feedback")
-      .select(AGENT_FEEDBACK_COLUMNS)
-      .is("matched_call_id", null)
-      .not("matched_eavesly_call_id", "is", null)
-      .order("submitted_at", { ascending: false })
-      .limit(MAX_UNMATCHED_FEEDBACK),
-    admin
-      .from("achieve_agent_feedback")
-      .select(AGENT_FEEDBACK_COLUMNS)
-      .is("matched_call_id", null)
-      .is("matched_eavesly_call_id", null)
-      .order("submitted_at", { ascending: false })
-      .limit(MAX_UNMATCHED_FEEDBACK),
+  const [totalsResult, qaAbsentResult, unresolvedResult] = await Promise.all([
+    admin.rpc("get_achieve_feedback_match_totals"),
+    admin.rpc("list_achieve_feedback_exceptions", {
+      p_category: "true_qa_absent",
+      p_limit: MAX_UNMATCHED_FEEDBACK,
+    }),
+    admin.rpc("list_achieve_feedback_exceptions", {
+      p_category: "unresolved",
+      p_limit: MAX_UNMATCHED_FEEDBACK,
+    }),
   ])
-  if (qaMissingResult.error || unmatchedResult.error) {
-    if (qaMissingResult.error) console.error("achieve QA-missing feedback error", qaMissingResult.error)
-    if (unmatchedResult.error) console.error("achieve unmatched feedback error", unmatchedResult.error)
+  if (totalsResult.error || qaAbsentResult.error || unresolvedResult.error) {
+    if (totalsResult.error) console.error("achieve feedback totals error", totalsResult.error)
+    if (qaAbsentResult.error) console.error("achieve QA-absent feedback error", qaAbsentResult.error)
+    if (unresolvedResult.error) console.error("achieve unresolved feedback error", unresolvedResult.error)
     return null
   }
+  const totals = parseFeedbackTotals(totalsResult.data)
+  if (!totals) {
+    console.error("achieve feedback totals error", { code: "invalid_aggregate_shape" })
+    return null
+  }
+  const qaAbsent = (qaAbsentResult.data ?? []).map(row => buildAgentFeedbackView(row, {
+    includePhone: true,
+    qaStatus: "qa_absent",
+  }))
+  const unresolved = (unresolvedResult.data ?? []).map(row => buildAgentFeedbackView(row, {
+    includePhone: true,
+    qaStatus: "call_unmatched",
+  }))
   return {
-    qa_missing_agent_feedback: (qaMissingResult.data ?? []).map(row => buildAgentFeedbackView(row, true)),
-    unmatched_agent_feedback: (unmatchedResult.data ?? []).map(row => buildAgentFeedbackView(row, true)),
+    true_qa_absent_agent_feedback: qaAbsent,
+    unresolved_agent_feedback: unresolved,
+    // Compatibility aliases for the deployed frontend during the additive rollout.
+    qa_missing_agent_feedback: qaAbsent,
+    unmatched_agent_feedback: unresolved,
+    totals,
+    coverage: {
+      limit_per_list: MAX_UNMATCHED_FEEDBACK,
+      true_qa_absent: {
+        total: totals.true_qa_absent,
+        loaded: qaAbsent.length,
+        cap_reached: totals.true_qa_absent > qaAbsent.length,
+      },
+      unresolved: {
+        total: totals.unresolved,
+        loaded: unresolved.length,
+        cap_reached: totals.unresolved > unresolved.length,
+      },
+    },
   }
 }
 
@@ -301,7 +370,7 @@ async function enrichLegacyRows(admin: AdminClient, rows: readonly BoundaryRow[]
     Promise.all(callIdChunks.map(chunk => admin
       .from("achieve_agent_feedback")
       .select(AGENT_FEEDBACK_COLUMNS)
-      .in("matched_call_id", chunk)
+      .in("matched_eavesly_call_id", chunk)
       .order("submitted_at", { ascending: true }))),
   ])
 
@@ -331,7 +400,8 @@ async function enrichLegacyRows(admin: AdminClient, rows: readonly BoundaryRow[]
     }
   }
 
-  const agentFeedbackByCall = new Map<string, AgentFeedbackRow[]>()
+  const ordinaryAgentFeedbackByCall = new Map<string, AgentFeedbackRow[]>()
+  const auditAgentFeedbackByCall = new Map<string, AgentFeedbackRow[]>()
   for (const result of agentFeedbackResults) {
     if (result.error) {
       // Preserve legacy fail-closed agent-feedback behavior.
@@ -339,23 +409,30 @@ async function enrichLegacyRows(admin: AdminClient, rows: readonly BoundaryRow[]
       return null
     }
     for (const rawRow of result.data ?? []) {
-      const row = rawRow as AgentFeedbackRow
-      if (!row.matched_call_id) continue
-      const bucket = agentFeedbackByCall.get(row.matched_call_id)
-      if (bucket) bucket.push(row)
-      else agentFeedbackByCall.set(row.matched_call_id, [row])
+      const feedback = rawRow as AgentFeedbackRow
+      const associationId = feedback.matched_call_id ?? feedback.matched_eavesly_call_id
+      if (!associationId) continue
+      const target = feedback.matched_call_id ? ordinaryAgentFeedbackByCall : auditAgentFeedbackByCall
+      const bucket = target.get(associationId)
+      if (bucket) bucket.push(feedback)
+      else target.set(associationId, [feedback])
     }
   }
 
-  return rows.map(row => buildPortalRow(
-    row,
-    typeof row.call_id === "string" ? transcriptByCall.get(row.call_id) : undefined,
-    typeof row.call_id === "string" ? feedbackByCall.get(row.call_id) : undefined,
-    typeof row.call_id === "string" ? agentFeedbackByCall.get(row.call_id) ?? [] : [],
-    typeof row.sfdc_lead_id === "string"
-      ? welcomeAgentByLead.get(row.sfdc_lead_id)
-      : undefined,
-  ))
+  return rows.map(row => {
+    const auditOnly = isAuditOnlyResult(row.result_json)
+    const agentFeedbackByCall = auditOnly ? auditAgentFeedbackByCall : ordinaryAgentFeedbackByCall
+    return buildPortalRow(
+      row,
+      typeof row.call_id === "string" ? transcriptByCall.get(row.call_id) : undefined,
+      typeof row.call_id === "string" ? feedbackByCall.get(row.call_id) : undefined,
+      typeof row.call_id === "string" ? agentFeedbackByCall.get(row.call_id) ?? [] : [],
+      typeof row.sfdc_lead_id === "string"
+        ? welcomeAgentByLead.get(row.sfdc_lead_id)
+        : undefined,
+      auditOnly ? "qa_audit" : "qa_matched",
+    )
+  })
 }
 
 Deno.serve(async (req: Request) => {
@@ -398,6 +475,7 @@ Deno.serve(async (req: Request) => {
     return json({
       all_calls: rows,
       coverage: {
+        total: loaded.total,
         loaded: rows.length,
         cap: MAX_LIST_ROWS,
         cap_reached: loaded.capReached,
@@ -433,11 +511,12 @@ Deno.serve(async (req: Request) => {
   if (body.action === "list_audit") {
     const loaded = await fetchModuleRows(admin, "audit")
     if (!loaded) return json({ error: "list_failed" }, 500)
-    const rows = await enrichLightweightRows(admin, loaded.rows)
+    const rows = await enrichLightweightRows(admin, loaded.rows, "audit")
     if (!rows) return json({ error: "list_failed" }, 500)
     return json({
       rows,
       coverage: {
+        total: loaded.total,
         loaded: rows.length,
         cap: MAX_AUDIT_ROWS,
         cap_reached: loaded.capReached,
@@ -448,10 +527,7 @@ Deno.serve(async (req: Request) => {
   if (body.action === "list_feedback_exceptions") {
     const exceptions = await fetchFeedbackExceptions(admin)
     if (!exceptions) return json({ error: "list_failed" }, 500)
-    return json({
-      ...exceptions,
-      coverage: { cap_per_list: MAX_UNMATCHED_FEEDBACK },
-    })
+    return json(exceptions)
   }
 
   if (body.action === "detail") {
@@ -475,6 +551,13 @@ Deno.serve(async (req: Request) => {
     const leadIds = typeof row.sfdc_lead_id === "string" && row.sfdc_lead_id.trim()
       ? [row.sfdc_lead_id]
       : []
+    const auditOnly = isAuditOnlyResult(row.result_json)
+    let agentFeedbackQuery = admin
+      .from("achieve_agent_feedback")
+      .select(AGENT_FEEDBACK_COLUMNS)
+    agentFeedbackQuery = auditOnly
+      ? agentFeedbackQuery.eq("matched_eavesly_call_id", row.call_id).is("matched_call_id", null)
+      : agentFeedbackQuery.eq("matched_call_id", row.call_id)
     const [transcriptResult, feedbackResult, agentFeedbackResult, welcomeAgentByLead] = await Promise.all([
       admin
         .from("eavesly_transcription_qa")
@@ -487,11 +570,7 @@ Deno.serve(async (req: Request) => {
         .eq("module_name", ACHIEVE_MODULE_NAME)
         .eq("call_id", row.call_id)
         .maybeSingle(),
-      admin
-        .from("achieve_agent_feedback")
-        .select(AGENT_FEEDBACK_COLUMNS)
-        .eq("matched_call_id", row.call_id)
-        .order("submitted_at", { ascending: true }),
+      agentFeedbackQuery.order("submitted_at", { ascending: true }),
       fetchWelcomeAgents(admin, leadIds.length > 0 ? [row] : []),
     ])
     if (agentFeedbackResult.error) {
@@ -509,6 +588,7 @@ Deno.serve(async (req: Request) => {
       typeof row.sfdc_lead_id === "string"
         ? welcomeAgentByLead.get(row.sfdc_lead_id)
         : undefined,
+      auditOnly ? "qa_audit" : "qa_matched",
     ) })
   }
 

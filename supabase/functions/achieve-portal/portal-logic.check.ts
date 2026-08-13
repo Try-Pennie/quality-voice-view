@@ -378,34 +378,84 @@ assert.ok(!('matched_call_id' in matchedView))
 assert.ok(!('created_at' in matchedView))
 assert.strictEqual(matchedView.qa_match_status, 'qa_matched')
 
-const qaMissingView = buildAgentFeedbackView({
+const inferredFeedbackRow = {
   ...agentFeedbackRow,
   matched_call_id: null,
-  matched_eavesly_call_id: 'CA_NO_QA',
+  matched_eavesly_call_id: 'CA_INFERRED',
   call_match_status: 'matched',
   call_match_confidence: 'high',
-  call_match_reason: 'matched_phone_time_submitter',
-}, true)
-assert.strictEqual(qaMissingView.qa_match_status, 'qa_missing')
-assert.strictEqual(qaMissingView.call_match_confidence, 'high')
-assert.strictEqual(qaMissingView.call_match_reason, 'matched_phone_time_submitter')
-assert.ok(!('matched_eavesly_call_id' in qaMissingView))
+  call_match_reason: 'matched_unique_qa_phone_time',
+  call_match_provenance: 'inferred',
+  call_match_method: 'unique_qa_phone_time',
+  call_match_evidence: {
+    matcher_version: 3,
+    same_agent_phone_time_candidate_count: 2,
+    qa_candidate_count: 1,
+    absolute_delta_seconds: 90,
+    qa_scope: 'ordinary',
+    selected_call_id: 'MUST_NOT_LEAK',
+  },
+}
+const qaAbsentView = buildAgentFeedbackView(inferredFeedbackRow, {
+  includePhone: true,
+  qaStatus: 'qa_absent',
+})
+assert.strictEqual(qaAbsentView.qa_match_status, 'qa_absent')
+assert.strictEqual(qaAbsentView.call_match_confidence, 'high')
+assert.strictEqual(qaAbsentView.call_match_reason, 'matched_unique_qa_phone_time')
+assert.strictEqual(qaAbsentView.call_match_provenance, 'inferred')
+assert.strictEqual(qaAbsentView.call_match_method, 'unique_qa_phone_time')
+assert.deepStrictEqual(qaAbsentView.call_match_evidence, {
+  matcher_version: 3,
+  same_agent_phone_time_candidate_count: 2,
+  qa_candidate_count: 1,
+  absolute_delta_seconds: 90,
+  qa_scope: 'ordinary',
+})
+assert.ok(!JSON.stringify(qaAbsentView).includes('MUST_NOT_LEAK'))
+assert.ok(!('matched_eavesly_call_id' in qaAbsentView))
+
+const auditQaView = buildAgentFeedbackView(inferredFeedbackRow, { qaStatus: 'qa_audit' })
+assert.strictEqual(auditQaView.qa_match_status, 'qa_audit')
+assert.strictEqual(auditQaView.lead_phone_raw, undefined)
+
+const inferredMatchedView = buildAgentFeedbackView({
+  ...inferredFeedbackRow,
+  matched_call_id: 'CA_INFERRED',
+}, { qaStatus: 'qa_matched' })
+assert.strictEqual(inferredMatchedView.qa_match_status, 'qa_matched')
+assert.strictEqual(inferredMatchedView.call_match_provenance, 'inferred')
 
 const legacyMatchedView = buildAgentFeedbackView({
   ...agentFeedbackRow,
   call_match_confidence: null,
   call_match_reason: 'legacy_module_match',
+  call_match_provenance: 'deterministic',
+  call_match_method: 'legacy_module_association',
+  call_match_evidence: { matcher_version: 1 },
 })
 assert.strictEqual(legacyMatchedView.qa_match_status, 'qa_matched')
 assert.strictEqual(legacyMatchedView.call_match_confidence, null)
 assert.strictEqual(legacyMatchedView.call_match_reason, 'legacy_module_match')
+assert.strictEqual(legacyMatchedView.call_match_provenance, 'deterministic')
+assert.strictEqual(legacyMatchedView.call_match_method, 'legacy_module_association')
 assert.strictEqual(buildAgentFeedbackView({
   ...agentFeedbackRow,
   call_match_reason: 'unknown_future_reason',
+  call_match_provenance: 'unknown',
+  call_match_method: 'unknown',
+  call_match_evidence: ['not-an-object'],
 }).call_match_reason, null)
+assert.strictEqual(buildAgentFeedbackView({
+  ...agentFeedbackRow,
+  call_match_reason: 'unknown_future_reason',
+  call_match_provenance: 'unknown',
+  call_match_method: 'unknown',
+  call_match_evidence: ['not-an-object'],
+}).call_match_provenance, null)
 
 // Unmatched view keeps the raw phone so the reviewer can identify the call.
-const unmatchedView = buildAgentFeedbackView(agentFeedbackRow, true)
+const unmatchedView = buildAgentFeedbackView(agentFeedbackRow, { includePhone: true })
 assert.strictEqual(unmatchedView.lead_phone_raw, '(555) 123-4567')
 
 // Empty submitted_by ('' in the DB) normalizes to null for display.
