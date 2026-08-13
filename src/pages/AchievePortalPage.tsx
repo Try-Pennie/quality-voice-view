@@ -1,7 +1,7 @@
 /* Hallmark · pre-emit critique: P5 H5 E4 S5 R4 V5 */
 /* Hallmark · genre: modern-minimal · macrostructure: Workbench · theme: existing slate external portal · designed-as-app · contrast: pass · responsive: pass */
 import { FormEvent, useEffect, useMemo, useState, type ReactNode } from 'react'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Check, ChevronRight, ExternalLink, HelpCircle, RefreshCcw, X } from 'lucide-react'
 import { AchieveFilterBar } from '@/components/achieve/AchieveFilterBar'
 import { AchieveOverview } from '@/components/achieve/AchieveOverview'
@@ -15,7 +15,20 @@ import {
   worstAchieveAgentRating,
   type AchieveAnalyticsFilters,
 } from '@/lib/achieve-analytics'
-import { ACHIEVE_PASSWORD_SESSION_KEY, fetchAchievePortalData, submitAchieveReviewFeedback, verifyAchievePortalPassword, type AchieveAgentFeedback, type AchievePortalRow } from '@/lib/achieve-queries'
+import {
+  ACHIEVE_LIST_QUERY_KEY,
+  ACHIEVE_PASSWORD_SESSION_KEY,
+  AchievePortalRequestError,
+  fetchAchieveAuditData,
+  fetchAchieveFeedbackExceptions,
+  fetchAchievePortalData,
+  fetchAchievePortalDetail,
+  submitAchieveReviewFeedback,
+  unlockAchievePortal,
+  type AchieveAgentFeedback,
+  type AchievePortalData,
+  type AchievePortalRow,
+} from '@/lib/achieve-queries'
 import { humanizeTransferReason, parseTransferExperience, transferExperienceSummary, type TransferExperience } from '@/lib/achieve-transfer-experience'
 import type { AlertActionTaken, AlertInaccuracyReason, AlertWithFeedback } from '@/types/database'
 import { formatDateTime } from '@/lib/utils'
@@ -92,16 +105,21 @@ const INACCURACY_OPTIONS: { value: AlertInaccuracyReason; label: string }[] = [
 ]
 
 export default function AchievePortalPage() {
+  const queryClient = useQueryClient()
   const [unlocked, setUnlocked] = useState(() => !!sessionStorage.getItem(ACHIEVE_PASSWORD_SESSION_KEY))
 
   if (!unlocked) {
-    return <AchievePasswordGate onUnlock={() => setUnlocked(true)} />
+    return <AchievePasswordGate onUnlock={(password, data) => {
+      sessionStorage.setItem(ACHIEVE_PASSWORD_SESSION_KEY, password)
+      queryClient.setQueryData(ACHIEVE_LIST_QUERY_KEY, data)
+      setUnlocked(true)
+    }} />
   }
 
   return <AchieveReviewQueue />
 }
 
-function AchievePasswordGate({ onUnlock }: { onUnlock: () => void }) {
+function AchievePasswordGate({ onUnlock }: { onUnlock: (password: string, data: AchievePortalData) => void }) {
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
   const [checking, setChecking] = useState(false)
@@ -111,16 +129,22 @@ function AchievePasswordGate({ onUnlock }: { onUnlock: () => void }) {
     if (!password || checking) return
     setChecking(true)
     setError('')
-    // The server validates the password; sessionStorage only caches it so each
-    // subsequent data request can send it along without re-prompting.
-    const result = await verifyAchievePortalPassword(password)
-    setChecking(false)
-    if (!result.ok) {
-      setError(result.error ?? 'Could not verify the password.')
-      return
+    // The authenticated lightweight list is the unlock operation. This avoids
+    // a verify-then-list waterfall and seeds the repository QueryClient.
+    try {
+      const data = await unlockAchievePortal(password)
+      onUnlock(password, data)
+    } catch (cause: unknown) {
+      if (cause instanceof AchievePortalRequestError && cause.code === 'invalid_password') {
+        setError('Incorrect password.')
+      } else if (cause instanceof AchievePortalRequestError && cause.code === 'not_configured') {
+        setError('Portal access is not available yet. Contact your administrator.')
+      } else {
+        setError('The portal service could not load the call list. Try again.')
+      }
+    } finally {
+      setChecking(false)
     }
-    sessionStorage.setItem(ACHIEVE_PASSWORD_SESSION_KEY, password)
-    onUnlock()
   }
 
   return (
@@ -163,17 +187,30 @@ function AchieveReviewQueue() {
   const [activeTab, setActiveTab] = useState<'overview' | 'alerts' | 'all-calls' | 'backfill-audit'>('overview')
   const [elementFilter, setElementFilter] = useState<string | null>(null)
   const [feedbackFilters, setFeedbackFilters] = useState<AchieveAnalyticsFilters>(EMPTY_ACHIEVE_FILTERS)
+  const [feedbackExceptionsRequested, setFeedbackExceptionsRequested] = useState(false)
   const portalQuery = useQuery({
-    queryKey: ['achieve-portal-data'],
+    queryKey: ACHIEVE_LIST_QUERY_KEY,
     queryFn: fetchAchievePortalData,
+    staleTime: 60_000,
+  })
+  const auditQuery = useQuery({
+    queryKey: ['achieve-portal-audit'],
+    queryFn: fetchAchieveAuditData,
+    enabled: activeTab === 'backfill-audit',
+    staleTime: 60_000,
+  })
+  const feedbackExceptionsQuery = useQuery({
+    queryKey: ['achieve-portal-feedback-exceptions'],
+    queryFn: fetchAchieveFeedbackExceptions,
+    enabled: feedbackExceptionsRequested,
     staleTime: 60_000,
   })
 
   const alerts = useMemo(() => portalQuery.data?.alerts ?? [], [portalQuery.data])
   const allCalls = useMemo(() => portalQuery.data?.allCalls ?? [], [portalQuery.data])
-  const backfillAudit = useMemo(() => portalQuery.data?.backfillAudit ?? [], [portalQuery.data])
-  const qaMissingAgentFeedback = useMemo(() => portalQuery.data?.qaMissingAgentFeedback ?? [], [portalQuery.data])
-  const unmatchedAgentFeedback = useMemo(() => portalQuery.data?.unmatchedAgentFeedback ?? [], [portalQuery.data])
+  const backfillAudit = useMemo(() => auditQuery.data?.rows ?? [], [auditQuery.data])
+  const qaMissingAgentFeedback = useMemo(() => feedbackExceptionsQuery.data?.qaMissingAgentFeedback ?? [], [feedbackExceptionsQuery.data])
+  const unmatchedAgentFeedback = useMemo(() => feedbackExceptionsQuery.data?.unmatchedAgentFeedback ?? [], [feedbackExceptionsQuery.data])
   const needsReview = useMemo(() => alerts.filter(row => !row.is_reviewed), [alerts])
   const feedbackFilteredAllCalls = useMemo(
     () => filterAchieveRows(allCalls, feedbackFilters),
@@ -228,8 +265,9 @@ function AchieveReviewQueue() {
           </div>
           <div className="flex items-center justify-between gap-3 lg:justify-end">
             <p className="text-xs leading-5 text-slate-500">
-              {analytics.loadedCalls} recent {analytics.loadedCalls === 1 ? 'call' : 'calls'} currently available
+              {analytics.loadedCalls} loaded {analytics.loadedCalls === 1 ? 'call' : 'calls'}
               {isFeedbackFiltered ? ' after filtering' : ''}
+              {portalQuery.data?.coverage.capReached ? ` · capped at ${portalQuery.data.coverage.cap}` : ''}
             </p>
             <button
               type="button"
@@ -253,7 +291,7 @@ function AchieveReviewQueue() {
             <TabsTrigger className="min-h-9 whitespace-nowrap px-2 text-xs sm:px-3 sm:text-sm" value="overview">Overview</TabsTrigger>
             <TabsTrigger className="min-h-9 whitespace-nowrap px-2 text-xs sm:px-3 sm:text-sm" value="alerts">Needs review ({filteredAlerts.length})</TabsTrigger>
             <TabsTrigger className="min-h-9 whitespace-nowrap px-2 text-xs sm:px-3 sm:text-sm" value="all-calls">All calls ({filteredAllCalls.length})</TabsTrigger>
-            <TabsTrigger className="min-h-9 whitespace-nowrap px-2 text-xs sm:px-3 sm:text-sm" value="backfill-audit">Backfill audit ({backfillAudit.length})</TabsTrigger>
+            <TabsTrigger className="min-h-9 whitespace-nowrap px-2 text-xs sm:px-3 sm:text-sm" value="backfill-audit">Backfill audit{auditQuery.data ? ` (${backfillAudit.length})` : ''}</TabsTrigger>
           </TabsList>
 
           <TabsContent value="overview" className="mt-4">
@@ -291,7 +329,7 @@ function AchieveReviewQueue() {
               isPending={portalQuery.isPending}
               emptyMessage={elementFilter || isFeedbackFiltered
                 ? 'No currently available recent calls in this tab match the active filters.'
-                : 'No scored calls appear among the recent calls currently available.'}
+                : 'No calls appear in the currently loaded window.'}
               onRetry={refresh}
             />
           </TabsContent>
@@ -299,10 +337,10 @@ function AchieveReviewQueue() {
             <AchieveRowsState
               rows={backfillAudit}
               mode="audit"
-              isError={portalQuery.isError}
-              isPending={portalQuery.isPending}
-              emptyMessage="No audit-only rows appear in the current loaded audit view."
-              onRetry={refresh}
+              isError={auditQuery.isError}
+              isPending={auditQuery.isPending || auditQuery.isFetching}
+              emptyMessage="No audit-only rows appear in the loaded audit view."
+              onRetry={() => { void auditQuery.refetch() }}
             />
           </TabsContent>
         </Tabs>
@@ -316,6 +354,19 @@ function AchieveReviewQueue() {
           </div>
         )}
 
+        {!feedbackExceptionsRequested && (
+          <button
+            type="button"
+            onClick={() => setFeedbackExceptionsRequested(true)}
+            className="rounded-full border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-800 shadow-sm hover:bg-slate-100"
+          >
+            Load feedback exceptions (up to 200 per list)
+          </button>
+        )}
+        {feedbackExceptionsRequested && feedbackExceptionsQuery.isPending && <AchieveRowsSkeleton />}
+        {feedbackExceptionsQuery.isError && (
+          <ErrorState title="Could not load feedback exceptions" message="Retry to load the capped read-only exception lists." onRetry={() => { void feedbackExceptionsQuery.refetch() }} />
+        )}
         {qaMissingAgentFeedback.length > 0 && (
           <details className="rounded-2xl border border-amber-200 bg-white p-5 shadow-sm">
             <summary className="cursor-pointer text-sm font-semibold text-slate-950">
@@ -369,7 +420,15 @@ function AchieveRowsState({
   emptyMessage: string
   onRetry: () => void
 }) {
+  const queryClient = useQueryClient()
   const [selected, setSelected] = useState<AchieveRow | null>(null)
+  const [visibleCount, setVisibleCount] = useState(50)
+  const detailQuery = useQuery({
+    queryKey: ['achieve-portal-detail', selected?.module_result_id],
+    queryFn: () => fetchAchievePortalDetail(selected?.module_result_id ?? 0),
+    enabled: selected !== null,
+    staleTime: 60_000,
+  })
 
   useEffect(() => {
     if (selected && !rows.some(row => rowKey(row) === rowKey(selected))) {
@@ -377,6 +436,16 @@ function AchieveRowsState({
     }
   }, [rows, selected])
 
+  useEffect(() => {
+    setVisibleCount(50)
+  }, [rows, mode])
+
+  const refreshAfterFeedback = () => {
+    void queryClient.invalidateQueries({ queryKey: ACHIEVE_LIST_QUERY_KEY })
+    if (selected) {
+      void queryClient.invalidateQueries({ queryKey: ['achieve-portal-detail', selected.module_result_id] })
+    }
+  }
 
   if (isError) {
     return <ErrorState title="Could not load Achieve QA rows" message="Retry after confirming the Achieve portal service is reachable." onRetry={onRetry} />
@@ -392,12 +461,12 @@ function AchieveRowsState({
     ? 'Needs review'
     : mode === 'audit'
       ? 'Backfill audit'
-      : 'All scored calls'
+      : 'Loaded calls'
   const description = mode === 'review'
     ? 'Only failed checks appear here. Open a row to review the reason and supporting evidence.'
     : mode === 'audit'
       ? 'Historical audit-only backfills are read-only, isolated here, and never affect normal metrics or review queues.'
-      : 'Passed and failed calls are listed for audit/history. Passed calls do not require human review.'
+      : 'Passed, failed, and not-graded calls from the loaded window. Passed calls do not require human review.'
 
   return (
     <>
@@ -407,7 +476,7 @@ function AchieveRowsState({
           <p className="mt-1 text-xs leading-5 text-slate-500">{description}</p>
         </div>
         <div className="divide-y divide-slate-100">
-          {rows.map(row => (
+          {rows.slice(0, visibleCount).map(row => (
             <AchieveQueueRow
               key={rowKey(row)}
               row={row}
@@ -416,6 +485,17 @@ function AchieveRowsState({
             />
           ))}
         </div>
+        {visibleCount < rows.length && (
+          <div className="border-t border-slate-200 p-4 text-center">
+            <button
+              type="button"
+              onClick={() => setVisibleCount(count => Math.min(count + 50, rows.length))}
+              className="rounded-full border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-800 hover:bg-slate-100"
+            >
+              Load 50 more ({rows.length - visibleCount} loaded rows remaining)
+            </button>
+          </div>
+        )}
       </section>
 
       <Sheet open={!!selected} onOpenChange={open => !open && setSelected(null)}>
@@ -424,22 +504,32 @@ function AchieveRowsState({
             <>
               <SheetHeader className="space-y-1 border-b border-slate-200 bg-white px-6 py-5 text-left">
                 <SheetTitle className="text-base font-semibold leading-6 text-slate-950">
-                  {selected.contact_name || 'Unknown contact'}
+                  {detailQuery.data?.contact_name || selected.contact_name || 'Unknown contact'}
                 </SheetTitle>
                 <p className="text-sm text-slate-600">
-                  {selected.contact_phone || 'No phone on file'} · {formatDateTime(selected.alert_created_at)}
+                  {detailQuery.data?.contact_phone || selected.contact_phone || 'No phone on file'} · {formatDateTime(selected.alert_created_at)}
                 </p>
                 <p className="text-sm text-slate-700">
                   <span className="font-semibold">Achieve report agent: </span>
-                  {selected.achieve_agent_name ?? 'Not matched'}
-                  {selected.achieve_agent_email && (
-                    <span className="text-slate-500"> · {selected.achieve_agent_email}</span>
+                  {detailQuery.data?.achieve_agent_name ?? selected.achieve_agent_name ?? 'Not matched'}
+                  {(detailQuery.data?.achieve_agent_email ?? selected.achieve_agent_email) && (
+                    <span className="text-slate-500"> · {detailQuery.data?.achieve_agent_email ?? selected.achieve_agent_email}</span>
                   )}
                 </p>
                 <p className="break-all font-mono text-xs text-slate-400">Call ID {selected.call_id || '—'}</p>
               </SheetHeader>
               <div className="p-6">
-                <AchieveAlertDetails alert={selected} mode={mode} onFeedbackSubmitted={onRetry} />
+                {detailQuery.isPending || detailQuery.isFetching ? (
+                  <AchieveRowsSkeleton />
+                ) : detailQuery.isError || !detailQuery.data ? (
+                  <ErrorState
+                    title="Could not load call details"
+                    message="The call list is still available. Retry this drawer without reloading the page."
+                    onRetry={() => { void detailQuery.refetch() }}
+                  />
+                ) : (
+                  <AchieveAlertDetails alert={detailQuery.data} mode={mode} onFeedbackSubmitted={refreshAfterFeedback} />
+                )}
               </div>
             </>
           )}
