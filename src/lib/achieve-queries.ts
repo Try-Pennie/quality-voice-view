@@ -19,7 +19,7 @@ export type AchieveAgentFeedback = {
   notes: string | null
   submitted_by: string | null
   submitted_at: string
-  qa_match_status?: 'qa_matched' | 'qa_missing' | 'call_unmatched'
+  qa_match_status?: 'qa_matched' | 'qa_audit' | 'qa_absent' | 'call_unmatched'
   call_match_confidence?: 'high' | null
   call_match_reason?:
     | 'legacy_module_match'
@@ -30,7 +30,19 @@ export type AchieveAgentFeedback = {
     | 'no_call_in_window'
     | 'call_ambiguous'
     | 'matched_phone_time_submitter'
+    | 'matched_unique_qa_phone_time'
+    | 'matched_transcript_agent_name'
+    | 'matched_unique_phone_time_no_submitter'
     | null
+  call_match_provenance?: 'deterministic' | 'inferred' | null
+  call_match_method?:
+    | 'legacy_module_association'
+    | 'phone_time_submitter'
+    | 'unique_qa_phone_time'
+    | 'transcript_agent_name_phone_time'
+    | 'unique_phone_time_no_submitter'
+    | null
+  call_match_evidence?: Readonly<Record<string, string | number | boolean | null>> | null
 }
 
 export type AchievePortalRow = AlertWithFeedback & {
@@ -41,6 +53,7 @@ export type AchievePortalRow = AlertWithFeedback & {
 }
 
 export type AchieveCoverage = {
+  total: number
   loaded: number
   cap: number
   capReached: boolean
@@ -57,10 +70,27 @@ export type AchieveAuditData = {
   coverage: AchieveCoverage
 }
 
+export type AchieveFeedbackTotals = {
+  deterministicMatched: number
+  inferredMatched: number
+  auditQaAvailable: number
+  trueQaAbsent: number
+  unresolved: number
+}
+
+export type AchieveExceptionCoverage = {
+  total: number
+  loaded: number
+  capReached: boolean
+}
+
 export type AchieveFeedbackExceptions = {
-  qaMissingAgentFeedback: AchieveAgentFeedback[]
-  unmatchedAgentFeedback: AchieveAgentFeedback[]
-  capPerList: number
+  trueQaAbsentAgentFeedback: AchieveAgentFeedback[]
+  unresolvedAgentFeedback: AchieveAgentFeedback[]
+  totals: AchieveFeedbackTotals
+  limitPerList: number
+  trueQaAbsentCoverage: AchieveExceptionCoverage
+  unresolvedCoverage: AchieveExceptionCoverage
 }
 
 export type AchieveReviewFeedbackInput = {
@@ -98,11 +128,35 @@ function nullableBoolean(value: unknown): boolean | null {
   return typeof value === 'boolean' ? value : null
 }
 
+function parseMatchEvidence(value: unknown): Readonly<Record<string, string | number | boolean | null>> | null {
+  const raw = record(value)
+  if (!raw) return null
+  const evidence: Record<string, string | number | boolean | null> = {}
+  const numericKeys = [
+    'matcher_version',
+    'same_agent_phone_time_candidate_count',
+    'qa_candidate_count',
+    'transcript_name_candidate_count',
+    'global_phone_time_candidate_count',
+    'absolute_delta_seconds',
+  ] as const
+  for (const key of numericKeys) {
+    const item = raw[key]
+    if (typeof item === 'number' && Number.isFinite(item) && item >= 0) evidence[key] = item
+  }
+  if (raw.qa_scope === 'ordinary' || raw.qa_scope === 'audit_only' || raw.qa_scope === 'absent') {
+    evidence.qa_scope = raw.qa_scope
+  }
+  if (raw.historical_association === true) evidence.historical_association = true
+  return evidence
+}
+
 function parseAgentFeedback(value: unknown): AchieveAgentFeedback | null {
   const item = record(value)
   if (!item || typeof item.id !== 'number' || typeof item.submitted_at !== 'string') return null
   const status = item.qa_match_status
   const reason = item.call_match_reason
+  const method = item.call_match_method
   return {
     id: item.id,
     lead_phone_raw: nullableString(item.lead_phone_raw),
@@ -114,15 +168,38 @@ function parseAgentFeedback(value: unknown): AchieveAgentFeedback | null {
     notes: nullableString(item.notes),
     submitted_by: nullableString(item.submitted_by),
     submitted_at: item.submitted_at,
-    qa_match_status: status === 'qa_matched' || status === 'qa_missing' || status === 'call_unmatched' ? status : undefined,
+    qa_match_status: status === 'qa_matched' || status === 'qa_audit' || status === 'qa_absent' || status === 'call_unmatched'
+      ? status
+      : undefined,
     call_match_confidence: item.call_match_confidence === 'high' ? 'high' : null,
     call_match_reason:
       reason === 'legacy_module_match' || reason === 'invalid_phone' || reason === 'submitter_missing'
       || reason === 'submitter_not_found' || reason === 'submitter_ambiguous' || reason === 'no_call_in_window'
       || reason === 'call_ambiguous' || reason === 'matched_phone_time_submitter'
+      || reason === 'matched_unique_qa_phone_time' || reason === 'matched_transcript_agent_name'
+      || reason === 'matched_unique_phone_time_no_submitter'
         ? reason
         : null,
+    call_match_provenance: item.call_match_provenance === 'deterministic' || item.call_match_provenance === 'inferred'
+      ? item.call_match_provenance
+      : null,
+    call_match_method:
+      method === 'legacy_module_association' || method === 'phone_time_submitter'
+      || method === 'unique_qa_phone_time' || method === 'transcript_agent_name_phone_time'
+      || method === 'unique_phone_time_no_submitter'
+        ? method
+        : null,
+    call_match_evidence: parseMatchEvidence(item.call_match_evidence),
   }
+}
+
+function parseAgentFeedbackRows(value: unknown): AchieveAgentFeedback[] {
+  if (!Array.isArray(value)) throw new AchievePortalRequestError('invalid_response', null)
+  return value.map(item => {
+    const parsed = parseAgentFeedback(item)
+    if (!parsed) throw new AchievePortalRequestError('invalid_response', null)
+    return parsed
+  })
 }
 
 function parseActionTaken(value: unknown): AlertActionTaken | null {
@@ -144,12 +221,9 @@ function parsePortalRow(value: unknown): AchievePortalRow | null {
   if (!row || typeof row.module_result_id !== 'number' || row.module_result_id <= 0) return null
   if (typeof row.alert_created_at !== 'string' || typeof row.call_id !== 'string') return null
   if (typeof row.module_name !== 'string' || typeof row.has_violation !== 'boolean') return null
-  const agentFeedback = Array.isArray(row.agent_feedback)
-    ? row.agent_feedback.flatMap(item => {
-        const parsed = parseAgentFeedback(item)
-        return parsed ? [parsed] : []
-      })
-    : []
+  const agentFeedback = row.agent_feedback === undefined
+    ? []
+    : parseAgentFeedbackRows(row.agent_feedback)
   return {
     module_result_id: row.module_result_id,
     alert_created_at: row.alert_created_at,
@@ -200,13 +274,22 @@ function parseRows(value: unknown): AchievePortalRow[] {
   return rows
 }
 
-function parseCoverage(value: unknown, fallbackLoaded: number, fallbackCap: number): AchieveCoverage {
+function parseNonNegativeInteger(value: unknown): number | null {
+  return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0 ? value : null
+}
+
+function parseCoverage(value: unknown): AchieveCoverage {
   const coverage = record(value)
-  return {
-    loaded: typeof coverage?.loaded === 'number' ? coverage.loaded : fallbackLoaded,
-    cap: typeof coverage?.cap === 'number' ? coverage.cap : fallbackCap,
-    capReached: coverage?.cap_reached === true,
+  const total = parseNonNegativeInteger(coverage?.total)
+  const loaded = parseNonNegativeInteger(coverage?.loaded)
+  const cap = parseNonNegativeInteger(coverage?.cap)
+  if (total === null || loaded === null || cap === null || typeof coverage?.cap_reached !== 'boolean') {
+    throw new AchievePortalRequestError('invalid_response', null)
   }
+  if (loaded > total || loaded > cap || coverage.cap_reached !== (total > loaded)) {
+    throw new AchievePortalRequestError('invalid_response', null)
+  }
+  return { total, loaded, cap, capReached: coverage.cap_reached }
 }
 
 function errorContext(error: unknown): { status: number | null; json?: () => Promise<unknown> } {
@@ -261,7 +344,7 @@ function parseListResponse(value: unknown): AchievePortalData {
   return {
     alerts,
     allCalls,
-    coverage: parseCoverage(response.coverage, allCalls.length, 1000),
+    coverage: parseCoverage(response.coverage),
   }
 }
 
@@ -269,7 +352,7 @@ function demoPortalData(): AchievePortalData {
   return {
     alerts: achieveDemoAlerts,
     allCalls: achieveDemoAlerts,
-    coverage: { loaded: achieveDemoAlerts.length, cap: 1000, capReached: false },
+    coverage: { total: achieveDemoAlerts.length, loaded: achieveDemoAlerts.length, cap: 1000, capReached: false },
   }
 }
 
@@ -319,25 +402,73 @@ export async function fetchAchieveAuditData(): Promise<AchieveAuditData> {
   const response = record(await invokePortal('list_audit'))
   if (!response) throw new AchievePortalRequestError('invalid_response', null)
   const rows = parseRows(response.rows)
-  return { rows, coverage: parseCoverage(response.coverage, rows.length, 1000) }
+  return { rows, coverage: parseCoverage(response.coverage) }
 }
 
 export async function fetchAchieveFeedbackExceptions(): Promise<AchieveFeedbackExceptions> {
   const response = record(await invokePortal('list_feedback_exceptions'))
-  if (!response) throw new AchievePortalRequestError('invalid_response', null)
-  const qaMissing = Array.isArray(response.qa_missing_agent_feedback) ? response.qa_missing_agent_feedback : []
-  const unmatched = Array.isArray(response.unmatched_agent_feedback) ? response.unmatched_agent_feedback : []
-  const coverage = record(response.coverage)
+  const totals = record(response?.totals)
+  const coverage = record(response?.coverage)
+  const absentCoverage = record(coverage?.true_qa_absent)
+  const unresolvedCoverage = record(coverage?.unresolved)
+  if (!response || !totals || !coverage || !absentCoverage || !unresolvedCoverage) {
+    throw new AchievePortalRequestError('invalid_response', null)
+  }
+
+  const deterministicMatched = parseNonNegativeInteger(totals.deterministic_matched)
+  const inferredMatched = parseNonNegativeInteger(totals.inferred_matched)
+  const auditQaAvailable = parseNonNegativeInteger(totals.audit_qa_available)
+  const trueQaAbsent = parseNonNegativeInteger(totals.true_qa_absent)
+  const unresolved = parseNonNegativeInteger(totals.unresolved)
+  const limitPerList = parseNonNegativeInteger(coverage.limit_per_list)
+  const absentTotal = parseNonNegativeInteger(absentCoverage.total)
+  const absentLoaded = parseNonNegativeInteger(absentCoverage.loaded)
+  const unresolvedTotal = parseNonNegativeInteger(unresolvedCoverage.total)
+  const unresolvedLoaded = parseNonNegativeInteger(unresolvedCoverage.loaded)
+  if (
+    deterministicMatched === null || inferredMatched === null || auditQaAvailable === null
+    || trueQaAbsent === null || unresolved === null || limitPerList === null
+    || absentTotal !== trueQaAbsent || unresolvedTotal !== unresolved
+    || absentLoaded === null || unresolvedLoaded === null
+    || typeof absentCoverage.cap_reached !== 'boolean' || typeof unresolvedCoverage.cap_reached !== 'boolean'
+    || absentCoverage.cap_reached !== (absentTotal > absentLoaded)
+    || unresolvedCoverage.cap_reached !== (unresolvedTotal > unresolvedLoaded)
+  ) {
+    throw new AchievePortalRequestError('invalid_response', null)
+  }
+
+  const trueQaAbsentAgentFeedback = parseAgentFeedbackRows(response.true_qa_absent_agent_feedback)
+  const unresolvedAgentFeedback = parseAgentFeedbackRows(response.unresolved_agent_feedback)
+  if (
+    trueQaAbsentAgentFeedback.length !== absentLoaded
+    || unresolvedAgentFeedback.length !== unresolvedLoaded
+    || absentLoaded > limitPerList
+    || unresolvedLoaded > limitPerList
+  ) {
+    throw new AchievePortalRequestError('invalid_response', null)
+  }
+
   return {
-    qaMissingAgentFeedback: qaMissing.flatMap(item => {
-      const parsed = parseAgentFeedback(item)
-      return parsed ? [parsed] : []
-    }),
-    unmatchedAgentFeedback: unmatched.flatMap(item => {
-      const parsed = parseAgentFeedback(item)
-      return parsed ? [parsed] : []
-    }),
-    capPerList: typeof coverage?.cap_per_list === 'number' ? coverage.cap_per_list : 200,
+    trueQaAbsentAgentFeedback,
+    unresolvedAgentFeedback,
+    totals: {
+      deterministicMatched,
+      inferredMatched,
+      auditQaAvailable,
+      trueQaAbsent,
+      unresolved,
+    },
+    limitPerList,
+    trueQaAbsentCoverage: {
+      total: absentTotal,
+      loaded: absentLoaded,
+      capReached: absentCoverage.cap_reached,
+    },
+    unresolvedCoverage: {
+      total: unresolvedTotal,
+      loaded: unresolvedLoaded,
+      capReached: unresolvedCoverage.cap_reached,
+    },
   }
 }
 
