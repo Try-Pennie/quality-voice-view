@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import { ChevronRight, Search } from 'lucide-react'
+import { ArrowDown, ChevronRight, Search } from 'lucide-react'
 import { AchieveRepresentativeFeedbackDrawer } from '@/components/achieve/AchieveRepresentativeFeedbackDrawer'
 import {
   achieveRepresentativeReviewStatus,
@@ -31,15 +31,72 @@ function ReviewStatus({ representative }: { representative: AchieveRepresentativ
   )
 }
 
-function RatingCounts({ representative }: { representative: AchieveRepresentativeFeedback }) {
+const ratingTone: Readonly<Record<'good' | 'fair' | 'poor', string>> = {
+  good: 'bg-emerald-50 text-emerald-800 ring-emerald-100',
+  fair: 'bg-amber-50 text-amber-800 ring-amber-100',
+  poor: 'bg-red-50 text-red-700 ring-red-100',
+}
+
+function RatingValue({ value, tone }: { value: number; tone: keyof typeof ratingTone }) {
   return (
-    <span className="whitespace-nowrap tabular-nums text-slate-600">
-      <span className="text-emerald-800">{representative.ratings.good} G</span>
-      {' · '}
-      <span className="text-amber-800">{representative.ratings.fair} F</span>
-      {' · '}
-      <span className="text-red-700">{representative.ratings.poor} P</span>
+    <span className={`inline-flex min-h-8 min-w-9 items-center justify-center rounded-lg px-2 font-semibold tabular-nums ring-1 ring-inset ${ratingTone[tone]}`}>
+      {value}
     </span>
+  )
+}
+
+function ConditionValue({ value }: { value: number }) {
+  return (
+    <span className={`tabular-nums ${value === 0 ? 'text-slate-500' : 'font-semibold text-slate-700'}`}>
+      {value}
+    </span>
+  )
+}
+
+function FairPoorRate({ representative, decorative = false }: {
+  representative: AchieveRepresentativeFeedback
+  decorative?: boolean
+}) {
+  const status = achieveRepresentativeReviewStatus(representative)
+  const barClass = status === 'needs_review'
+    ? 'bg-amber-500'
+    : status === 'below_threshold'
+      ? 'bg-emerald-500'
+      : 'bg-slate-400'
+  return (
+    <div className="ml-auto w-20">
+      <p className="text-right font-semibold tabular-nums text-slate-950">{representative.fairPoorRate.toFixed(1)}%</p>
+      <div
+        className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-slate-100"
+        role={decorative ? undefined : 'progressbar'}
+        aria-hidden={decorative || undefined}
+        aria-label={decorative ? undefined : `${representative.agentName} Fair or Poor rate`}
+        aria-valuemin={decorative ? undefined : 0}
+        aria-valuemax={decorative ? undefined : 100}
+        aria-valuenow={decorative ? undefined : representative.fairPoorRate}
+        aria-valuetext={decorative ? undefined : `${representative.fairPoorRate.toFixed(1)}%`}
+      >
+        <span className={`block h-full rounded-full ${barClass}`} style={{ width: `${Math.min(representative.fairPoorRate, 100)}%` }} />
+      </div>
+    </div>
+  )
+}
+
+function MobileRatingBreakdown({ representative }: { representative: AchieveRepresentativeFeedback }) {
+  const ratings = [
+    { label: 'Good', value: representative.ratings.good, tone: 'good' },
+    { label: 'Fair', value: representative.ratings.fair, tone: 'fair' },
+    { label: 'Poor', value: representative.ratings.poor, tone: 'poor' },
+  ] as const
+  return (
+    <div className="grid grid-cols-3 gap-2">
+      {ratings.map(rating => (
+        <div key={rating.label} className={`rounded-xl p-3 ring-1 ring-inset ${ratingTone[rating.tone]}`}>
+          <p className="text-xs font-medium">{rating.label}</p>
+          <p className="mt-1 text-lg font-semibold tabular-nums">{rating.value}</p>
+        </div>
+      ))}
+    </div>
   )
 }
 
@@ -110,19 +167,32 @@ export function AchieveRepresentativeTable({ representatives, coverage }: {
         </div>
       ) : (
         <>
-          <div className="hidden overflow-x-auto md:block">
-            <table className="w-full min-w-[900px] border-collapse text-left text-sm">
-              <thead className="bg-slate-50 text-xs font-semibold uppercase tracking-wide text-slate-500">
+          <div className="hidden overflow-x-auto lg:block">
+            <table className="w-full min-w-[1050px] border-collapse text-left text-sm">
+              <thead className="bg-slate-50 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
                 <tr>
-                  <th scope="col" className="px-5 py-3">Representative</th>
-                  <th scope="col" className="px-3 py-3 text-right">Submissions</th>
-                  <th scope="col" className="px-3 py-3">Good · Fair · Poor</th>
-                  <th scope="col" className="px-3 py-3 text-right">Fair/Poor</th>
-                  <th scope="col" className="px-3 py-3 text-right">Noise</th>
-                  <th scope="col" className="px-3 py-3 text-right">Accent</th>
-                  <th scope="col" className="px-3 py-3 text-right">Connection</th>
-                  <th scope="col" className="px-3 py-3">Latest</th>
-                  <th scope="col" className="px-5 py-3">Review</th>
+                  <th scope="col" rowSpan={2} className="w-[26%] px-5 py-3 align-middle">Representative</th>
+                  <th scope="col" rowSpan={2} className="w-24 px-3 py-3 text-center align-middle">Total</th>
+                  <th scope="colgroup" colSpan={3} className="border-l border-slate-200 px-3 py-2 text-center">Ratings</th>
+                  <th scope="col" rowSpan={2} className="w-28 border-l border-slate-200 px-3 py-3 text-right align-middle">
+                    <span className="inline-flex items-center justify-end gap-1 whitespace-nowrap">
+                      Fair/Poor
+                      {minimumSampleOnly && (
+                        <ArrowDown className="h-3.5 w-3.5" aria-label="Sorted highest first" />
+                      )}
+                    </span>
+                  </th>
+                  <th scope="colgroup" colSpan={3} className="border-l border-slate-200 px-3 py-2 text-center">Reported conditions</th>
+                  <th scope="col" rowSpan={2} className="w-28 border-l border-slate-200 px-3 py-3 align-middle">Latest</th>
+                  <th scope="col" rowSpan={2} className="w-32 px-5 py-3 align-middle">Review</th>
+                </tr>
+                <tr className="border-t border-slate-200">
+                  <th scope="col" className="border-l border-slate-200 px-2 py-2 text-center text-emerald-800">Good</th>
+                  <th scope="col" className="px-2 py-2 text-center text-amber-800">Fair</th>
+                  <th scope="col" className="px-2 py-2 text-center text-red-700">Poor</th>
+                  <th scope="col" className="border-l border-slate-200 px-2 py-2 text-center">Noise</th>
+                  <th scope="col" className="px-2 py-2 text-center">Accent</th>
+                  <th scope="col" className="px-2 py-2 text-center">Connection</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
@@ -149,13 +219,20 @@ export function AchieveRepresentativeTable({ representatives, coverage }: {
                         <ChevronRight className="h-4 w-4 shrink-0 text-slate-400 transition-transform group-hover:translate-x-0.5 group-hover:text-blue-700" aria-hidden="true" />
                       </button>
                     </th>
-                    <td className="px-3 py-4 text-right font-semibold tabular-nums text-slate-950">{representative.totalSubmissions}</td>
-                    <td className="px-3 py-4"><RatingCounts representative={representative} /></td>
-                    <td className="px-3 py-4 text-right font-semibold tabular-nums text-slate-950">{representative.fairPoorRate.toFixed(1)}%</td>
-                    <td className="px-3 py-4 text-right tabular-nums text-slate-700">{representative.flags.backgroundNoise}</td>
-                    <td className="px-3 py-4 text-right tabular-nums text-slate-700">{representative.flags.accent}</td>
-                    <td className="px-3 py-4 text-right tabular-nums text-slate-700">{representative.flags.connectionIssues}</td>
-                    <td className="whitespace-nowrap px-3 py-4 text-slate-600">{utcDate.format(new Date(representative.latestSubmittedAt))}</td>
+                    <td className="px-3 py-4 text-center">
+                      <span className="font-semibold tabular-nums text-slate-950">{representative.totalSubmissions}</span>
+                      {representative.ratings.other > 0 && (
+                        <span className="mt-0.5 block text-[11px] tabular-nums text-slate-500">+{representative.ratings.other} other</span>
+                      )}
+                    </td>
+                    <td className="border-l border-slate-100 px-2 py-4 text-center"><RatingValue value={representative.ratings.good} tone="good" /></td>
+                    <td className="px-2 py-4 text-center"><RatingValue value={representative.ratings.fair} tone="fair" /></td>
+                    <td className="px-2 py-4 text-center"><RatingValue value={representative.ratings.poor} tone="poor" /></td>
+                    <td className="border-l border-slate-100 px-3 py-4"><FairPoorRate representative={representative} /></td>
+                    <td className="border-l border-slate-100 px-2 py-4 text-center"><ConditionValue value={representative.flags.backgroundNoise} /></td>
+                    <td className="px-2 py-4 text-center"><ConditionValue value={representative.flags.accent} /></td>
+                    <td className="px-2 py-4 text-center"><ConditionValue value={representative.flags.connectionIssues} /></td>
+                    <td className="whitespace-nowrap border-l border-slate-100 px-3 py-4 text-slate-600">{utcDate.format(new Date(representative.latestSubmittedAt))}</td>
                     <td className="px-5 py-4"><ReviewStatus representative={representative} /></td>
                   </tr>
                 ))}
@@ -163,7 +240,7 @@ export function AchieveRepresentativeTable({ representatives, coverage }: {
             </table>
           </div>
 
-          <div className="divide-y divide-slate-100 md:hidden">
+          <div className="divide-y divide-slate-100 lg:hidden">
             {filtered.map(representative => (
               <button
                 key={representative.agentEmail}
@@ -182,21 +259,31 @@ export function AchieveRepresentativeTable({ representatives, coverage }: {
                     <ChevronRight className="h-4 w-4 text-slate-400" aria-hidden="true" />
                   </div>
                 </div>
-                <div className="mt-4 grid grid-cols-2 gap-x-4 gap-y-3 text-sm">
+                <div className="mt-4 grid grid-cols-[minmax(0,1fr)_6rem] items-end gap-4 border-y border-slate-100 py-3">
                   <div>
-                    <p className="text-xs text-slate-500">Submissions</p>
-                    <p className="mt-0.5 font-semibold tabular-nums text-slate-950">{representative.totalSubmissions}</p>
+                    <p className="text-xs text-slate-500">Total submissions</p>
+                    <p className="mt-0.5 font-semibold tabular-nums text-slate-950">
+                      {representative.totalSubmissions}
+                      {representative.ratings.other > 0 && (
+                        <span className="ml-1 font-normal text-slate-500">· {representative.ratings.other} other</span>
+                      )}
+                    </p>
                   </div>
                   <div>
-                    <p className="text-xs text-slate-500">Fair/Poor</p>
-                    <p className="mt-0.5 font-semibold tabular-nums text-slate-950">{representative.fairPoorRate.toFixed(1)}%</p>
+                    <p className="text-right text-xs text-slate-500">Fair/Poor</p>
+                    <FairPoorRate representative={representative} decorative />
                   </div>
-                  <div className="col-span-2">
-                    <p className="text-xs text-slate-500">Rating mix</p>
-                    <p className="mt-0.5"><RatingCounts representative={representative} /></p>
-                  </div>
-                  <div className="col-span-2 text-xs text-slate-600">
-                    Noise {representative.flags.backgroundNoise} · Accent {representative.flags.accent} · Connection {representative.flags.connectionIssues}
+                </div>
+                <div className="mt-3">
+                  <p className="mb-2 text-xs font-medium text-slate-500">Ratings</p>
+                  <MobileRatingBreakdown representative={representative} />
+                </div>
+                <div className="mt-3">
+                  <p className="mb-1.5 text-xs font-medium text-slate-500">Reported conditions</p>
+                  <div className="grid grid-cols-3 gap-2 text-xs text-slate-600">
+                    <span>Noise <strong className="font-semibold tabular-nums text-slate-800">{representative.flags.backgroundNoise}</strong></span>
+                    <span>Accent <strong className="font-semibold tabular-nums text-slate-800">{representative.flags.accent}</strong></span>
+                    <span>Connection <strong className="font-semibold tabular-nums text-slate-800">{representative.flags.connectionIssues}</strong></span>
                   </div>
                 </div>
               </button>
