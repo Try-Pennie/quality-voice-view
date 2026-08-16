@@ -9,6 +9,7 @@
 //   detail                    — one full drawer row
 //   list_audit                — deferred lightweight audit rows
 //   list_feedback_exceptions  — deferred capped exception lists
+//   get_feedback_overview     — complete Form aggregate + exact representative rollups
 //   submit_feedback           — existing validated write semantics
 //
 // Keep verify/list until a separately approved cleanup after the new frontend
@@ -49,6 +50,7 @@ const ID_CHUNK_SIZE = 200
 const MAX_CONCURRENT_CHUNKS = 5
 const MAX_CONCURRENT_LEGACY_CHUNKS = 10
 const MAX_UNMATCHED_FEEDBACK = 200
+const MAX_FEEDBACK_REPRESENTATIVES = 200
 const AUDIT_ONLY_MARKER = { backfill: { audit_only: true } }
 const COMPETITOR_TRANSFER_MARKER = { grading_skipped: true, skip_reason: "competitor_transfer" }
 
@@ -297,6 +299,25 @@ function parseFeedbackTotals(value: unknown) {
   return parsed
 }
 
+async function fetchFeedbackLeadership(admin: AdminClient) {
+  const result = await admin.rpc("get_achieve_agent_feedback_dashboard", {
+    p_representative_limit: MAX_FEEDBACK_REPRESENTATIVES,
+    p_representative_offset: 0,
+  })
+  if (result.error) {
+    console.error("achieve feedback overview error", result.error)
+    return null
+  }
+  const dashboard = parseRecord(result.data)
+  const overview = parseRecord(dashboard?.overview)
+  const representatives = parseRecord(dashboard?.representatives)
+  if (!dashboard || !overview || !representatives || !Array.isArray(representatives.rows)) {
+    console.error("achieve feedback overview error", { code: "invalid_aggregate_shape" })
+    return null
+  }
+  return { overview, representatives }
+}
+
 async function fetchFeedbackExceptions(admin: AdminClient) {
   const [totalsResult, qaAbsentResult, unresolvedResult] = await Promise.all([
     admin.rpc("get_achieve_feedback_match_totals"),
@@ -466,6 +487,12 @@ Deno.serve(async (req: Request) => {
     Deno.env.get("SUPABASE_URL")!,
     Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
   )
+
+  if (body.action === "get_feedback_overview") {
+    const dashboard = await fetchFeedbackLeadership(admin)
+    if (!dashboard) return json({ error: "feedback_overview_failed" }, 500)
+    return json(dashboard)
+  }
 
   if (body.action === "list_overview") {
     const loaded = await fetchModuleRows(admin, "normal")

@@ -1,10 +1,12 @@
 import { FunctionRegion } from '@supabase/supabase-js'
 import { supabase } from '@/integrations/supabase/client'
+import { parseAchieveFeedbackDashboard, type AchieveFeedbackDashboard } from '@/lib/achieve-feedback-overview'
 import type { AlertActionTaken, AlertInaccuracyReason, AlertWithFeedback } from '@/types/database'
 
 export const ACHIEVE_MODULE_NAME = 'achieve_welcome_call_qa'
 export const ACHIEVE_PASSWORD_SESSION_KEY = 'achieve_portal_password'
 export const ACHIEVE_LIST_QUERY_KEY = ['achieve-portal-data'] as const
+export const ACHIEVE_FEEDBACK_QUERY_KEY = ['achieve-feedback-dashboard'] as const
 
 const showDemoData = import.meta.env.VITE_ACHIEVE_DEMO_DATA === 'true'
 
@@ -383,6 +385,16 @@ export async function fetchAchievePortalData(): Promise<AchievePortalData> {
     console.error('Error fetching Achieve portal data:', error)
     if (showDemoData && canUseDemoFallback(error)) return demoPortalData()
     throw error
+  }
+}
+
+/** Fetch complete Form aggregates and exact Achieve-representative rollups. */
+export async function fetchAchieveFeedbackDashboard(): Promise<AchieveFeedbackDashboard> {
+  const response = await invokePortal('get_feedback_overview')
+  try {
+    return parseAchieveFeedbackDashboard(response)
+  } catch {
+    throw new AchievePortalRequestError('invalid_response', null)
   }
 }
 
