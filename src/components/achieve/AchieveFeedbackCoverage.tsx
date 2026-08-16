@@ -37,7 +37,7 @@ function CoverageRow({ label, count, total, tone }: {
   )
 }
 
-/** Coverage rail that keeps call and exact-representative gaps visible. */
+/** Coverage rail that keeps separate Form/AI attribution and alignment visible. */
 export function AchieveFeedbackCoverage({ overview, onOpenQaMatching }: {
   overview: AchieveFeedbackOverview
   onOpenQaMatching: () => void
@@ -92,6 +92,31 @@ export function AchieveFeedbackCoverage({ overview, onOpenQaMatching }: {
             Open QA &amp; Matching
           </button>
         </div>
+      </div>
+      <div className="border-t border-slate-200 p-5 sm:p-6">
+        <div className="flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
+          <div>
+            <h3 className="font-semibold text-slate-950">Human / AI call alignment</h3>
+            <p className="mt-1 text-xs leading-5 text-slate-500">
+              Worst recognized Form rating per overlapping call. Other-only feedback is excluded.
+            </p>
+          </div>
+          <p className="text-xs tabular-nums text-slate-500">{overview.distinctAnyAgents} representatives across either source</p>
+        </div>
+        <dl className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-5">
+          {[
+            ['Overlap', overview.qa.alignment.overlapCalls],
+            ['Both clear', overview.qa.alignment.bothClear],
+            ['Both concern', overview.qa.alignment.bothConcern],
+            ['Human only', overview.qa.alignment.humanOnly],
+            ['AI only', overview.qa.alignment.aiOnly],
+          ].map(([label, count]) => (
+            <div key={label} className="rounded-xl bg-slate-50 p-3">
+              <dt className="text-xs text-slate-500">{label}</dt>
+              <dd className="mt-1 text-xl font-semibold tabular-nums text-slate-950">{count}</dd>
+            </div>
+          ))}
+        </dl>
       </div>
     </section>
   )

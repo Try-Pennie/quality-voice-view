@@ -29,16 +29,27 @@ for (const required of [
   'body.action === "list_feedback_for_rep"',
   'list_achieve_agent_feedback_for_rep',
   'parseRepresentativeEmail(body.agent_email)',
+  'module_result_id: row.module_result_id',
+  'qa_rows: qaRows',
+  'qa_coverage: qaCoverage',
 ]) {
   assert.ok(index.includes(required), `missing representative detail boundary: ${required}`)
 }
 assert.ok(queries.includes("invokePortal('list_feedback_for_rep', { agent_email: agentEmail })"))
 assert.ok(queries.includes('parseAchieveRepresentativeFeedbackDetails(response)'))
 assert.ok(representativeTable.includes('setSelectedRepresentative(representative)'))
+assert.ok(representativeTable.includes('function ReportedConditions'))
+assert.ok(representativeTable.includes('Noise {representative.flags.backgroundNoise}'))
+assert.ok(representativeTable.includes('function LatestActivity'))
+assert.ok(representativeTable.includes("useState(false)"), 'representative table must default to all reps')
 assert.ok(representativeDrawer.includes('fetchAchieveRepresentativeFeedback'))
+assert.ok(representativeDrawer.includes('fetchAchievePortalDetail'))
+assert.ok(representativeDrawer.includes('selectedQa?.moduleResultId'))
+assert.ok(representativeDrawer.includes('trimmed_transcript'))
 assert.ok(representativeDrawer.includes('Phone and internal call identifiers are excluded.'))
 assert.ok(page.includes("useState<'agent-feedback' | 'qa-matching'>('agent-feedback')"))
 assert.ok(page.includes('dashboard={feedbackDashboardQuery.data}'))
 assert.ok(page.includes('QA &amp; Matching'))
+assert.ok(page.includes('WC Agent Summary'))
 
 console.log('feedback-overview-boundary.check.js: all assertions passed')
