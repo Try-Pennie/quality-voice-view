@@ -3,6 +3,7 @@
 import { FormEvent, useEffect, useMemo, useState, type ReactNode } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Check, ChevronRight, ExternalLink, HelpCircle, RefreshCcw, X } from 'lucide-react'
+import { AchieveFeedbackOverview } from '@/components/achieve/AchieveFeedbackOverview'
 import { AchieveFilterBar } from '@/components/achieve/AchieveFilterBar'
 import { AchieveOverview } from '@/components/achieve/AchieveOverview'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
@@ -16,10 +17,12 @@ import {
   type AchieveAnalyticsFilters,
 } from '@/lib/achieve-analytics'
 import {
+  ACHIEVE_FEEDBACK_QUERY_KEY,
   ACHIEVE_LIST_QUERY_KEY,
   ACHIEVE_PASSWORD_SESSION_KEY,
   AchievePortalRequestError,
   fetchAchieveAuditData,
+  fetchAchieveFeedbackDashboard,
   fetchAchieveFeedbackExceptions,
   fetchAchievePortalData,
   fetchAchievePortalDetail,
@@ -174,9 +177,9 @@ function AchievePasswordGate({ onUnlock }: { onUnlock: (password: string, data: 
     <main className="min-h-screen bg-slate-50 text-slate-900 flex items-center justify-center px-4 py-12">
       <section className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-7 shadow-sm sm:p-8">
         <p className="text-xs font-semibold uppercase tracking-wide text-blue-600">Achieve / FDR</p>
-        <h1 className="mt-2 text-2xl font-semibold tracking-tight text-slate-900">Achieve QA review</h1>
+        <h1 className="mt-2 text-2xl font-semibold tracking-tight text-slate-900">Achieve welcome-call review</h1>
         <p className="mt-2 text-sm leading-6 text-slate-600">
-          Review welcome-call QA results and transcript evidence. Enter the portal password to continue.
+          Review Pennie-agent feedback, representative patterns, and welcome-call QA evidence. Enter the portal password to continue.
         </p>
         <form onSubmit={submit} className="mt-6 space-y-4">
           <div>
@@ -207,6 +210,7 @@ function AchievePasswordGate({ onUnlock }: { onUnlock: (password: string, data: 
 }
 
 function AchieveReviewQueue() {
+  const [activeView, setActiveView] = useState<'agent-feedback' | 'qa-matching'>('agent-feedback')
   const [activeTab, setActiveTab] = useState<'overview' | 'alerts' | 'all-calls' | 'backfill-audit'>('overview')
   const [elementFilter, setElementFilter] = useState<string | null>(null)
   const [feedbackFilters, setFeedbackFilters] = useState<AchieveAnalyticsFilters>(EMPTY_ACHIEVE_FILTERS)
@@ -214,6 +218,11 @@ function AchieveReviewQueue() {
   const portalQuery = useQuery({
     queryKey: ACHIEVE_LIST_QUERY_KEY,
     queryFn: fetchAchievePortalData,
+    staleTime: 60_000,
+  })
+  const feedbackDashboardQuery = useQuery({
+    queryKey: ACHIEVE_FEEDBACK_QUERY_KEY,
+    queryFn: fetchAchieveFeedbackDashboard,
     staleTime: 60_000,
   })
   const auditQuery = useQuery({
@@ -263,13 +272,19 @@ function AchieveReviewQueue() {
       : feedbackFilteredAllCalls,
     [elementFilter, feedbackFilteredAllCalls],
   )
-  const isFetching = portalQuery.isFetching
+  const isFetching = activeView === 'agent-feedback'
+    ? feedbackDashboardQuery.isFetching
+    : portalQuery.isFetching
   const isFeedbackFiltered = feedbackFilters.accent
     || feedbackFilters.backgroundNoise
     || feedbackFilters.connectionIssue
     || feedbackFilters.rating !== null
 
   const refresh = () => {
+    if (activeView === 'agent-feedback') {
+      void feedbackDashboardQuery.refetch()
+      return
+    }
     void portalQuery.refetch()
   }
 
@@ -280,18 +295,25 @@ function AchieveReviewQueue() {
           <div className="min-w-0">
             <p className="text-xs font-semibold uppercase tracking-[0.16em] text-blue-700">Achieve / FDR</p>
             <h1 className="mt-2 min-w-0 [overflow-wrap:anywhere] text-2xl font-semibold tracking-tight text-slate-950 sm:text-3xl">
-              Welcome-call management overview
+              {activeView === 'agent-feedback' ? 'Pennie agent feedback' : 'Welcome-call QA & matching'}
             </h1>
             <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">
-              Leadership view of separate Eavesly AI QA and Pennie-agent observations, with detailed call review retained below.
+              {activeView === 'agent-feedback'
+                ? 'Complete Google Form observations, exact Achieve representative attribution, and visible coverage gaps for leadership review.'
+                : 'Operational Eavesly AI QA, call review, matching exceptions, and historical backfill evidence.'}
             </p>
           </div>
           <div className="flex items-center justify-between gap-3 lg:justify-end">
             <p className="text-xs leading-5 text-slate-500">
-              {analytics.loadedCalls} loaded {analytics.loadedCalls === 1 ? 'call' : 'calls'}
-              {isFeedbackFiltered ? ' after filtering' : ''}
-              {!isFeedbackFiltered && portalQuery.data ? ` of ${portalQuery.data.coverage.total} total` : ''}
-              {portalQuery.data?.coverage.capReached ? ` · capped at ${portalQuery.data.coverage.cap}` : ''}
+              {activeView === 'agent-feedback'
+                ? feedbackDashboardQuery.data
+                  ? `${feedbackDashboardQuery.data.overview.scope.totalSubmissions} complete Form submissions`
+                  : 'Complete Form source'
+                : `${analytics.loadedCalls} loaded ${analytics.loadedCalls === 1 ? 'call' : 'calls'}${
+                    isFeedbackFiltered ? ' after filtering' : ''
+                  }${!isFeedbackFiltered && portalQuery.data ? ` of ${portalQuery.data.coverage.total} total` : ''}${
+                    portalQuery.data?.coverage.capReached ? ` · capped at ${portalQuery.data.coverage.cap}` : ''
+                  }`}
             </p>
             <button
               type="button"
@@ -304,6 +326,46 @@ function AchieveReviewQueue() {
           </div>
         </header>
 
+        <nav aria-label="Achieve portal views" className="grid grid-cols-2 gap-1 rounded-xl border border-slate-200 bg-white p-1 shadow-sm sm:inline-grid sm:w-auto">
+          <button
+            type="button"
+            aria-pressed={activeView === 'agent-feedback'}
+            onClick={() => setActiveView('agent-feedback')}
+            className={`min-h-11 whitespace-nowrap rounded-lg px-4 py-2 text-sm font-semibold outline-none transition-colors focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-1 ${
+              activeView === 'agent-feedback' ? 'bg-slate-950 text-white shadow-sm' : 'text-slate-600 hover:bg-slate-50 hover:text-slate-950'
+            }`}
+          >
+            Agent Feedback
+          </button>
+          <button
+            type="button"
+            aria-pressed={activeView === 'qa-matching'}
+            onClick={() => setActiveView('qa-matching')}
+            className={`min-h-11 whitespace-nowrap rounded-lg px-4 py-2 text-sm font-semibold outline-none transition-colors focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-1 ${
+              activeView === 'qa-matching' ? 'bg-slate-950 text-white shadow-sm' : 'text-slate-600 hover:bg-slate-50 hover:text-slate-950'
+            }`}
+          >
+            QA &amp; Matching
+          </button>
+        </nav>
+
+        {activeView === 'agent-feedback' ? (
+          feedbackDashboardQuery.isError ? (
+            <ErrorState
+              title="Could not load Pennie agent feedback"
+              message="The complete Form aggregate or representative rollup could not be loaded. Retry without relying on the capped QA call list."
+              onRetry={() => { void feedbackDashboardQuery.refetch() }}
+            />
+          ) : feedbackDashboardQuery.isPending ? (
+            <AchieveRowsSkeleton />
+          ) : (
+            <AchieveFeedbackOverview
+              dashboard={feedbackDashboardQuery.data}
+              onOpenQaMatching={() => setActiveView('qa-matching')}
+            />
+          )
+        ) : (
+          <>
         <AchieveFilterBar filters={feedbackFilters} onChange={setFeedbackFilters} />
 
         <Tabs
@@ -453,6 +515,8 @@ function AchieveReviewQueue() {
               ))}
             </div>
           </details>
+        )}
+          </>
         )}
       </div>
     </main>
