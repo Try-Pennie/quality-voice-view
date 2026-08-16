@@ -66,10 +66,9 @@ export function AchieveRepresentativeTable({ representatives, coverage }: {
       <div className="border-b border-slate-200 p-5 sm:p-6">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
           <div className="min-w-0">
-            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Achieve representative review</p>
-            <h2 id="representative-review-heading" className="mt-1 text-lg font-semibold text-slate-950">Pennie feedback by exact representative</h2>
+            <h2 id="representative-review-heading" className="text-lg font-semibold text-slate-950">Feedback by Achieve representative</h2>
             <p className="mt-1 max-w-3xl text-xs leading-5 text-slate-500">
-              {needsReview} of {sampleEligible} loaded representatives with at least five submissions meet the proposed 25% Fair/Poor review threshold. Select a representative to review the individual submissions behind the totals. This is a triage aid, not an employment recommendation.
+              {needsReview} of {sampleEligible} representatives with 5+ submissions meet the proposed 25% Fair/Poor review threshold. Select one to review their submissions. This is a triage aid, not an employment recommendation.
             </p>
           </div>
           <div className="grid gap-2 sm:grid-cols-[minmax(14rem,1fr)_auto] lg:w-auto">
@@ -206,7 +205,7 @@ export function AchieveRepresentativeTable({ representatives, coverage }: {
         </>
       )}
         <p className="border-t border-slate-100 px-5 py-3 text-xs leading-5 text-slate-500 sm:px-6">
-          Showing {filtered.length} of {coverage.loaded} loaded exact representatives. Low-sample rates remain visible only when the minimum-sample filter is cleared.
+          Showing {filtered.length} of {coverage.loaded} representatives.
         </p>
       </section>
       <AchieveRepresentativeFeedbackDrawer

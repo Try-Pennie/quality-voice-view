@@ -36,7 +36,7 @@ assert.ok(queries.includes("invokePortal('list_feedback_for_rep', { agent_email:
 assert.ok(queries.includes('parseAchieveRepresentativeFeedbackDetails(response)'))
 assert.ok(representativeTable.includes('setSelectedRepresentative(representative)'))
 assert.ok(representativeDrawer.includes('fetchAchieveRepresentativeFeedback'))
-assert.ok(representativeDrawer.includes('Details exclude phone numbers, call IDs, and Salesforce identifiers.'))
+assert.ok(representativeDrawer.includes('Phone and internal call identifiers are excluded.'))
 assert.ok(page.includes("useState<'agent-feedback' | 'qa-matching'>('agent-feedback')"))
 assert.ok(page.includes('dashboard={feedbackDashboardQuery.data}'))
 assert.ok(page.includes('QA &amp; Matching'))

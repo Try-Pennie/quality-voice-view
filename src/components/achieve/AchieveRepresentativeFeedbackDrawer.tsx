@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query'
-import { AlertCircle, MessageSquareText } from 'lucide-react'
+import { AlertCircle } from 'lucide-react'
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '@/components/ui/sheet'
 import type {
   AchieveRepresentativeFeedback,
@@ -38,12 +38,10 @@ function FeedbackFlags({ detail }: { detail: AchieveRepresentativeFeedbackDetail
     detail.flags.connectionIssues ? 'Connection issue' : null,
   ].filter((flag): flag is string => flag !== null)
 
-  if (flags.length === 0) {
-    return <p className="text-xs text-slate-500">No issue flags selected</p>
-  }
+  if (flags.length === 0) return null
 
   return (
-    <div className="flex flex-wrap gap-2" aria-label="Reported conditions">
+    <div className="mt-4 flex flex-wrap gap-2" aria-label="Reported conditions">
       {flags.map(flag => (
         <span key={flag} className="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-medium text-slate-700">
           {flag}
@@ -70,20 +68,12 @@ function FeedbackCard({ detail }: { detail: AchieveRepresentativeFeedbackDetail 
           {rating.label}
         </span>
       </div>
-      <div className="mt-4">
-        <FeedbackFlags detail={detail} />
-      </div>
-      <div className="mt-4 border-t border-slate-100 pt-4">
-        <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
-          <MessageSquareText className="h-4 w-4" aria-hidden="true" />
-          Written feedback
-        </div>
-        <p className={`mt-2 whitespace-pre-wrap [overflow-wrap:anywhere] text-sm leading-6 ${
-          detail.notes ? 'text-slate-800' : 'italic text-slate-500'
-        }`}>
-          {detail.notes ?? 'No written note was provided.'}
-        </p>
-      </div>
+      <FeedbackFlags detail={detail} />
+      <p className={`mt-4 whitespace-pre-wrap border-t border-slate-100 pt-4 [overflow-wrap:anywhere] text-sm leading-6 ${
+        detail.notes ? 'text-slate-800' : 'italic text-slate-500'
+      }`}>
+        {detail.notes ?? 'No written note was provided.'}
+      </p>
     </article>
   )
 }
@@ -116,14 +106,13 @@ export function AchieveRepresentativeFeedbackDrawer({ representative, onClose }:
         {representative && (
           <>
             <SheetHeader className="border-b border-slate-200 bg-white px-5 py-5 text-left sm:px-6">
-              <p className="text-xs font-semibold uppercase tracking-[0.16em] text-blue-700">Individual Pennie feedback</p>
-              <SheetTitle className="mt-1 [overflow-wrap:anywhere] text-xl text-slate-950">
-                {representative.agentName}
+              <SheetTitle className="[overflow-wrap:anywhere] text-xl text-slate-950">
+                Feedback for {representative.agentName}
               </SheetTitle>
               <SheetDescription className="text-left">
                 <span className="block [overflow-wrap:anywhere] text-sm text-slate-500">{representative.agentEmail}</span>
                 <span className="block pt-2 text-xs leading-5 text-slate-500">
-                  Exact daily-report attribution only. Details exclude phone numbers, call IDs, and Salesforce identifiers.
+                  Exact daily-report attribution. Phone and internal call identifiers are excluded.
                 </span>
               </SheetDescription>
             </SheetHeader>
@@ -154,12 +143,9 @@ export function AchieveRepresentativeFeedbackDrawer({ representative, onClose }:
                 </div>
               ) : (
                 <>
-                  <div className="mb-4 flex flex-wrap items-baseline justify-between gap-2">
-                    <p className="text-sm font-semibold text-slate-950">
-                      {detailQuery.data.coverage.total} {detailQuery.data.coverage.total === 1 ? 'submission' : 'submissions'}
-                    </p>
-                    <p className="text-xs text-slate-500">Newest first</p>
-                  </div>
+                  <p className="mb-4 text-sm font-semibold text-slate-950">
+                    {detailQuery.data.coverage.total} {detailQuery.data.coverage.total === 1 ? 'submission' : 'submissions'}
+                  </p>
                   {detailQuery.data.coverage.capReached && (
                     <p className="mb-4 rounded-xl bg-amber-50 p-3 text-xs font-semibold leading-5 text-amber-900">
                       Showing {detailQuery.data.coverage.loaded} of {detailQuery.data.coverage.total} submissions.

@@ -303,18 +303,16 @@ function AchieveReviewQueue() {
                 : 'Operational Eavesly AI QA, call review, matching exceptions, and historical backfill evidence.'}
             </p>
           </div>
-          <div className="flex items-center justify-between gap-3 lg:justify-end">
-            <p className="text-xs leading-5 text-slate-500">
-              {activeView === 'agent-feedback'
-                ? feedbackDashboardQuery.data
-                  ? `${feedbackDashboardQuery.data.overview.scope.totalSubmissions} complete Form submissions`
-                  : 'Complete Form source'
-                : `${analytics.loadedCalls} loaded ${analytics.loadedCalls === 1 ? 'call' : 'calls'}${
-                    isFeedbackFiltered ? ' after filtering' : ''
-                  }${!isFeedbackFiltered && portalQuery.data ? ` of ${portalQuery.data.coverage.total} total` : ''}${
-                    portalQuery.data?.coverage.capReached ? ` · capped at ${portalQuery.data.coverage.cap}` : ''
-                  }`}
-            </p>
+          <div className="flex items-center justify-end gap-3">
+            {activeView === 'qa-matching' && (
+              <p className="text-xs leading-5 text-slate-500">
+                {`${analytics.loadedCalls} loaded ${analytics.loadedCalls === 1 ? 'call' : 'calls'}${
+                  isFeedbackFiltered ? ' after filtering' : ''
+                }${!isFeedbackFiltered && portalQuery.data ? ` of ${portalQuery.data.coverage.total} total` : ''}${
+                  portalQuery.data?.coverage.capReached ? ` · capped at ${portalQuery.data.coverage.cap}` : ''
+                }`}
+              </p>
+            )}
             <button
               type="button"
               onClick={refresh}
