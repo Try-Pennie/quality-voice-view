@@ -3,6 +3,7 @@ set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 migration="$repo_root/supabase/migrations/20260816100000_achieve_feedback_leadership_overview.sql"
+optimization="$repo_root/supabase/migrations/20260816101000_optimize_achieve_feedback_attribution_scope.sql"
 container="achieve-feedback-overview-check-$RANDOM-$$"
 
 cleanup() {
@@ -96,6 +97,7 @@ insert into public.achieve_agent_feedback(
   ('2026-08-15 10:00Z', null, false, false, false, null, 'CALL-CONFLICT', 'matched_phone_time_submitter');
 SQL
   cat "$migration"
+  cat "$optimization"
   cat <<'SQL'
 
 do $$
