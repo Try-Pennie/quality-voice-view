@@ -1,12 +1,18 @@
 import { FunctionRegion } from '@supabase/supabase-js'
 import { supabase } from '@/integrations/supabase/client'
-import { parseAchieveFeedbackDashboard, type AchieveFeedbackDashboard } from '@/lib/achieve-feedback-overview'
+import {
+  parseAchieveFeedbackDashboard,
+  parseAchieveRepresentativeFeedbackDetails,
+  type AchieveFeedbackDashboard,
+  type AchieveRepresentativeFeedbackDetails,
+} from '@/lib/achieve-feedback-overview'
 import type { AlertActionTaken, AlertInaccuracyReason, AlertWithFeedback } from '@/types/database'
 
 export const ACHIEVE_MODULE_NAME = 'achieve_welcome_call_qa'
 export const ACHIEVE_PASSWORD_SESSION_KEY = 'achieve_portal_password'
 export const ACHIEVE_LIST_QUERY_KEY = ['achieve-portal-data'] as const
 export const ACHIEVE_FEEDBACK_QUERY_KEY = ['achieve-feedback-dashboard'] as const
+export const ACHIEVE_REPRESENTATIVE_FEEDBACK_QUERY_KEY = ['achieve-representative-feedback'] as const
 
 const showDemoData = import.meta.env.VITE_ACHIEVE_DEMO_DATA === 'true'
 
@@ -393,6 +399,18 @@ export async function fetchAchieveFeedbackDashboard(): Promise<AchieveFeedbackDa
   const response = await invokePortal('get_feedback_overview')
   try {
     return parseAchieveFeedbackDashboard(response)
+  } catch {
+    throw new AchievePortalRequestError('invalid_response', null)
+  }
+}
+
+/** Fetch sanitized individual Form submissions for one exact representative. */
+export async function fetchAchieveRepresentativeFeedback(
+  agentEmail: string,
+): Promise<AchieveRepresentativeFeedbackDetails> {
+  const response = await invokePortal('list_feedback_for_rep', { agent_email: agentEmail })
+  try {
+    return parseAchieveRepresentativeFeedbackDetails(response)
   } catch {
     throw new AchievePortalRequestError('invalid_response', null)
   }

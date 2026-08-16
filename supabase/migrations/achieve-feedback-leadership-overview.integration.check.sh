@@ -4,6 +4,7 @@ set -euo pipefail
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 migration="$repo_root/supabase/migrations/20260816100000_achieve_feedback_leadership_overview.sql"
 optimization="$repo_root/supabase/migrations/20260816101000_optimize_achieve_feedback_attribution_scope.sql"
+detail="$repo_root/supabase/migrations/20260816110000_achieve_representative_feedback_detail.sql"
 container="achieve-feedback-overview-check-$RANDOM-$$"
 
 cleanup() {
@@ -33,6 +34,7 @@ create table public.achieve_agent_feedback (
   background_noise boolean,
   connection_issues boolean,
   notes text,
+  submitted_by text,
   matched_eavesly_call_id text,
   call_match_reason text
 );
@@ -87,17 +89,18 @@ insert into public.welcome_call_agent_log(
 
 insert into public.achieve_agent_feedback(
   submitted_at, call_quality, accent, background_noise, connection_issues,
-  notes, matched_eavesly_call_id, call_match_reason
+  notes, submitted_by, matched_eavesly_call_id, call_match_reason
 ) values
-  ('2026-08-10 10:00Z', 'Good', false, false, false, 'note', 'CALL-A', 'legacy_module_match'),
-  ('2026-08-11 10:00Z', 'Fair', false, true, false, null, 'CALL-A', 'matched_phone_time_submitter'),
-  ('2026-08-12 10:00Z', 'Poor', true, false, false, null, 'CALL-B', 'matched_phone_time_submitter'),
-  ('2026-08-13 10:00Z', 'Poor', true, false, false, null, null, 'call_ambiguous'),
-  ('2026-08-14 10:00Z', 'Good', false, false, true, null, 'CALL-C', 'matched_unique_qa_phone_time'),
-  ('2026-08-15 10:00Z', null, false, false, false, null, 'CALL-CONFLICT', 'matched_phone_time_submitter');
+  ('2026-08-10 10:00Z', 'Good', false, false, false, 'Clear handoff.', 'Pennie Agent One', 'CALL-A', 'legacy_module_match'),
+  ('2026-08-11 10:00Z', 'Fair', false, true, false, null, 'Pennie Agent Two', 'CALL-A', 'matched_phone_time_submitter'),
+  ('2026-08-12 10:00Z', 'Poor', true, false, false, null, 'Pennie Agent Three', 'CALL-B', 'matched_phone_time_submitter'),
+  ('2026-08-13 10:00Z', 'Poor', true, false, false, null, 'Pennie Agent Four', null, 'call_ambiguous'),
+  ('2026-08-14 10:00Z', 'Good', false, false, true, null, 'Pennie Agent Five', 'CALL-C', 'matched_unique_qa_phone_time'),
+  ('2026-08-15 10:00Z', null, false, false, false, null, 'Pennie Agent Six', 'CALL-CONFLICT', 'matched_phone_time_submitter');
 SQL
   cat "$migration"
   cat "$optimization"
+  cat "$detail"
   cat <<'SQL'
 
 do $$
@@ -105,6 +108,7 @@ declare
   dashboard jsonb;
   overview jsonb;
   representatives jsonb;
+  representative_detail jsonb;
   filtered jsonb;
 begin
   select public.get_achieve_agent_feedback_dashboard() into dashboard;
@@ -156,6 +160,33 @@ begin
     where row->>'achieve_agent_email' in ('rep-b1@example.test', 'rep-b2@example.test', 'rep-d@example.test', 'rep-e@example.test')
   ) then
     raise exception 'ambiguous representative attribution leaked: %', representatives;
+  end if;
+
+  select public.list_achieve_agent_feedback_for_rep(' REP-A@EXAMPLE.TEST ') into representative_detail;
+  if representative_detail->'coverage'->>'total' <> '2'
+    or representative_detail->'coverage'->>'loaded' <> '2'
+    or jsonb_array_length(representative_detail->'rows') <> 2 then
+    raise exception 'unexpected representative detail coverage: %', representative_detail;
+  end if;
+  if representative_detail->'rows'->0->>'rating' <> 'fair'
+    or representative_detail->'rows'->0->>'submitted_by' <> 'Pennie Agent Two'
+    or representative_detail->'rows'->1->>'rating' <> 'good'
+    or representative_detail->'rows'->1->>'notes' <> 'Clear handoff.' then
+    raise exception 'representative detail projection or ordering failed: %', representative_detail;
+  end if;
+  if representative_detail->'rows'->0 ? 'call_id'
+    or representative_detail->'rows'->0 ? 'lead_phone_raw'
+    or representative_detail->'rows'->0 ? 'sfdc_lead_id' then
+    raise exception 'internal identifiers leaked into representative detail: %', representative_detail;
+  end if;
+  select public.list_achieve_agent_feedback_for_rep('rep-b1@example.test') into representative_detail;
+  if representative_detail->'coverage'->>'total' <> '0' then
+    raise exception 'ambiguous representative received detail: %', representative_detail;
+  end if;
+  if has_function_privilege('anon', 'public.list_achieve_agent_feedback_for_rep(text,integer,integer)', 'execute')
+    or has_function_privilege('authenticated', 'public.list_achieve_agent_feedback_for_rep(text,integer,integer)', 'execute')
+    or not has_function_privilege('service_role', 'public.list_achieve_agent_feedback_for_rep(text,integer,integer)', 'execute') then
+    raise exception 'representative detail privileges are unsafe';
   end if;
 
   select public.get_achieve_agent_feedback_overview(

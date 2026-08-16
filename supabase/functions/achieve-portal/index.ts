@@ -10,6 +10,7 @@
 //   list_audit                — deferred lightweight audit rows
 //   list_feedback_exceptions  — deferred capped exception lists
 //   get_feedback_overview     — complete Form aggregate + exact representative rollups
+//   list_feedback_for_rep     — individual Form submissions for one exact representative
 //   submit_feedback           — existing validated write semantics
 //
 // Keep verify/list until a separately approved cleanup after the new frontend
@@ -51,6 +52,7 @@ const MAX_CONCURRENT_CHUNKS = 5
 const MAX_CONCURRENT_LEGACY_CHUNKS = 10
 const MAX_UNMATCHED_FEEDBACK = 200
 const MAX_FEEDBACK_REPRESENTATIVES = 200
+const MAX_REPRESENTATIVE_FEEDBACK_ROWS = 200
 const AUDIT_ONLY_MARKER = { backfill: { audit_only: true } }
 const COMPETITOR_TRANSFER_MARKER = { grading_skipped: true, skip_reason: "competitor_transfer" }
 
@@ -78,6 +80,17 @@ function parseRecord(value: unknown): BoundaryRow | null {
   // SAFETY: Runtime checks establish the only record invariant used at this
   // protocol boundary; individual fields are refined before use.
   return value as BoundaryRow
+}
+
+function parseRepresentativeEmail(value: unknown): string | null {
+  if (typeof value !== "string") return null
+  const normalized = value.trim().toLowerCase()
+  if (normalized.length < 3 || normalized.length > 254 || !/^\S+@\S+\.\S+$/.test(normalized)) return null
+  return normalized
+}
+
+function nullableProjectedString(value: unknown): string | null | undefined {
+  return value === null || typeof value === "string" ? value : undefined
 }
 
 function parseFeedbackRow(value: unknown): FeedbackRow | null {
@@ -318,6 +331,55 @@ async function fetchFeedbackLeadership(admin: AdminClient) {
   return { overview, representatives }
 }
 
+async function fetchRepresentativeFeedback(admin: AdminClient, agentEmail: string) {
+  const result = await admin.rpc("list_achieve_agent_feedback_for_rep", {
+    p_agent_email: agentEmail,
+    p_limit: MAX_REPRESENTATIVE_FEEDBACK_ROWS,
+    p_offset: 0,
+  })
+  if (result.error) {
+    console.error("achieve representative feedback detail error", result.error)
+    return null
+  }
+  const payload = parseRecord(result.data)
+  const coverage = parseRecord(payload?.coverage)
+  if (!payload || !coverage || !Array.isArray(payload.rows)) return null
+
+  const rows: BoundaryRow[] = []
+  for (const raw of payload.rows) {
+    const row = parseRecord(raw)
+    const notes = nullableProjectedString(row?.notes)
+    const submittedBy = nullableProjectedString(row?.submitted_by)
+    if (
+      !row
+      || typeof row.feedback_id !== "number"
+      || !Number.isSafeInteger(row.feedback_id)
+      || row.feedback_id < 1
+      || typeof row.submitted_at !== "string"
+      || (row.rating !== "good" && row.rating !== "fair" && row.rating !== "poor" && row.rating !== "other")
+      || typeof row.accent !== "boolean"
+      || typeof row.background_noise !== "boolean"
+      || typeof row.connection_issues !== "boolean"
+      || notes === undefined
+      || submittedBy === undefined
+    ) {
+      console.error("achieve representative feedback detail error", { code: "invalid_detail_shape" })
+      return null
+    }
+    rows.push({
+      feedback_id: row.feedback_id,
+      submitted_at: row.submitted_at,
+      rating: row.rating,
+      accent: row.accent,
+      background_noise: row.background_noise,
+      connection_issues: row.connection_issues,
+      notes,
+      submitted_by: submittedBy,
+    })
+  }
+  return { rows, coverage }
+}
+
 async function fetchFeedbackExceptions(admin: AdminClient) {
   const [totalsResult, qaAbsentResult, unresolvedResult] = await Promise.all([
     admin.rpc("get_achieve_feedback_match_totals"),
@@ -492,6 +554,14 @@ Deno.serve(async (req: Request) => {
     const dashboard = await fetchFeedbackLeadership(admin)
     if (!dashboard) return json({ error: "feedback_overview_failed" }, 500)
     return json(dashboard)
+  }
+
+  if (body.action === "list_feedback_for_rep") {
+    const agentEmail = parseRepresentativeEmail(body.agent_email)
+    if (!agentEmail) return json({ error: "invalid_agent_email" }, 400)
+    const detail = await fetchRepresentativeFeedback(admin, agentEmail)
+    if (!detail) return json({ error: "feedback_detail_failed" }, 500)
+    return json(detail)
   }
 
   if (body.action === "list_overview") {
