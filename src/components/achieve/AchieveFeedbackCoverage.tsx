@@ -56,10 +56,9 @@ export function AchieveFeedbackCoverage({ overview, onOpenQaMatching }: {
     <section aria-labelledby="feedback-coverage-heading" className="rounded-2xl border border-slate-200 bg-white shadow-sm">
       <div className="grid min-w-0 gap-6 p-5 sm:p-6 lg:grid-cols-[minmax(0,1.25fr)_minmax(18rem,0.75fr)]">
         <div className="min-w-0">
-          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Attribution coverage</p>
-          <h2 id="feedback-coverage-heading" className="mt-1 text-lg font-semibold text-slate-950">What can be tied to a call and representative</h2>
+          <h2 id="feedback-coverage-heading" className="text-lg font-semibold text-slate-950">Attribution coverage</h2>
           <p className="mt-1 max-w-2xl text-xs leading-5 text-slate-500">
-            All submissions remain in company totals. Exact-representative conclusions use only the daily-report attribution below.
+            All submissions remain in totals; representative results require exact daily-report attribution.
           </p>
           <div className="mt-5 space-y-4">
             <CoverageRow label="Call associated" count={coverage.callAssociated} total={totalSubmissions} tone="blue" />

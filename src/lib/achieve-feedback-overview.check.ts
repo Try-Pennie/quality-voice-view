@@ -5,6 +5,7 @@ import {
   achieveRepresentativeReviewStatus,
   filterAchieveRepresentatives,
   parseAchieveFeedbackDashboard,
+  parseAchieveRepresentativeFeedbackDetails,
 } from './achieve-feedback-overview'
 
 const validResponse = {
@@ -136,5 +137,59 @@ const empty = parseAchieveFeedbackDashboard({
   },
 })
 assert.strictEqual(empty.overview.scope.totalSubmissions, 0)
+
+const detail = parseAchieveRepresentativeFeedbackDetails({
+  rows: [
+    {
+      feedback_id: 12,
+      submitted_at: '2026-08-11T10:00:00Z',
+      rating: 'fair',
+      accent: false,
+      background_noise: true,
+      connection_issues: false,
+      notes: 'The background was distracting.',
+      submitted_by: 'Pennie Agent',
+    },
+    {
+      feedback_id: 11,
+      submitted_at: '2026-08-10T10:00:00Z',
+      rating: 'good',
+      accent: false,
+      background_noise: false,
+      connection_issues: false,
+      notes: null,
+      submitted_by: null,
+    },
+  ],
+  coverage: { total: 2, loaded: 2, limit: 200, offset: 0, cap_reached: false },
+})
+assert.strictEqual(detail.rows[0]?.id, 12)
+assert.strictEqual(detail.rows[0]?.flags.backgroundNoise, true)
+assert.strictEqual(detail.rows[0]?.submittedBy, 'Pennie Agent')
+assert.strictEqual(detail.rows[1]?.notes, null)
+
+for (const invalidDetail of [
+  {
+    rows: [{ ...detail.rows[0], feedback_id: 12 }],
+    coverage: { total: 1, loaded: 2, limit: 200, offset: 0, cap_reached: false },
+  },
+  {
+    rows: [
+      {
+        feedback_id: 12,
+        submitted_at: '2026-08-11T10:00:00Z',
+        rating: 'excellent',
+        accent: false,
+        background_noise: false,
+        connection_issues: false,
+        notes: null,
+        submitted_by: null,
+      },
+    ],
+    coverage: { total: 1, loaded: 1, limit: 200, offset: 0, cap_reached: false },
+  },
+]) {
+  assert.throws(() => parseAchieveRepresentativeFeedbackDetails(invalidDetail), /invalid_achieve_feedback_response/)
+}
 
 console.log('achieve-feedback-overview: all checks passed')

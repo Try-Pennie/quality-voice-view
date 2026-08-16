@@ -74,6 +74,29 @@ export type AchieveFeedbackDashboard = {
   readonly representativeCoverage: AchieveRepresentativeCoverage
 }
 
+/** Closed rating values for one individual Pennie Form submission. */
+export type AchieveRepresentativeFeedbackRating = 'good' | 'fair' | 'poor' | 'other'
+
+/** Sanitized individual Form submission attributed to one exact representative. */
+export type AchieveRepresentativeFeedbackDetail = {
+  readonly id: number
+  readonly submittedAt: string
+  readonly rating: AchieveRepresentativeFeedbackRating
+  readonly flags: {
+    readonly accent: boolean
+    readonly backgroundNoise: boolean
+    readonly connectionIssues: boolean
+  }
+  readonly notes: string | null
+  readonly submittedBy: string | null
+}
+
+/** Bounded individual feedback page returned by the authenticated boundary. */
+export type AchieveRepresentativeFeedbackDetails = {
+  readonly rows: ReadonlyArray<AchieveRepresentativeFeedbackDetail>
+  readonly coverage: AchieveRepresentativeCoverage
+}
+
 /** Sample-aware review state; it is a triage aid, not an employment decision. */
 export type AchieveRepresentativeReviewStatus = 'needs_review' | 'below_threshold' | 'low_sample'
 
@@ -120,6 +143,21 @@ function nullableTimestamp(record: BoundaryRecord | null, key: string): string |
   if (typeof value !== 'string' || !Number.isFinite(Date.parse(value))) {
     throw new Error('invalid_achieve_feedback_response')
   }
+  return value
+}
+
+function nullableNonEmptyString(record: BoundaryRecord | null, key: string): string | null {
+  const value = record?.[key]
+  if (value === null) return null
+  if (typeof value !== 'string' || value.trim().length === 0) {
+    throw new Error('invalid_achieve_feedback_response')
+  }
+  return value
+}
+
+function requiredBoolean(record: BoundaryRecord | null, key: string): boolean {
+  const value = record?.[key]
+  if (typeof value !== 'boolean') throw new Error('invalid_achieve_feedback_response')
   return value
 }
 
@@ -278,6 +316,42 @@ export function parseAchieveFeedbackDashboard(value: unknown): AchieveFeedbackDa
   }
 
   return { overview, representatives, representativeCoverage }
+}
+
+function parseRepresentativeFeedbackDetail(value: unknown): AchieveRepresentativeFeedbackDetail {
+  const row = recordValue(value)
+  const id = requiredCount(row, 'feedback_id')
+  const rating = row?.rating
+  if (id < 1 || (rating !== 'good' && rating !== 'fair' && rating !== 'poor' && rating !== 'other')) {
+    throw new Error('invalid_achieve_feedback_response')
+  }
+  return {
+    id,
+    submittedAt: requiredTimestamp(row, 'submitted_at'),
+    rating,
+    flags: {
+      accent: requiredBoolean(row, 'accent'),
+      backgroundNoise: requiredBoolean(row, 'background_noise'),
+      connectionIssues: requiredBoolean(row, 'connection_issues'),
+    },
+    notes: nullableNonEmptyString(row, 'notes'),
+    submittedBy: nullableNonEmptyString(row, 'submitted_by'),
+  }
+}
+
+/** Parse and cross-check one exact representative's individual feedback page. */
+export function parseAchieveRepresentativeFeedbackDetails(value: unknown): AchieveRepresentativeFeedbackDetails {
+  const response = recordValue(value)
+  if (!response || !Array.isArray(response.rows)) {
+    throw new Error('invalid_achieve_feedback_response')
+  }
+  const rows = response.rows.map(parseRepresentativeFeedbackDetail)
+  const coverage = parseRepresentativeCoverage(response.coverage)
+  const uniqueIds = new Set(rows.map(row => row.id))
+  if (rows.length !== coverage.loaded || uniqueIds.size !== rows.length) {
+    throw new Error('invalid_achieve_feedback_response')
+  }
+  return { rows, coverage }
 }
 
 /** Return the proposed sample-aware meeting-triage status for one representative. */

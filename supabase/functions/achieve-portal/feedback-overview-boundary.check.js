@@ -7,6 +7,8 @@ import { readFileSync } from 'node:fs'
 const index = readFileSync(new URL('./index.ts', import.meta.url), 'utf8')
 const queries = readFileSync(new URL('../../../src/lib/achieve-queries.ts', import.meta.url), 'utf8')
 const page = readFileSync(new URL('../../../src/pages/AchievePortalPage.tsx', import.meta.url), 'utf8')
+const representativeTable = readFileSync(new URL('../../../src/components/achieve/AchieveRepresentativeTable.tsx', import.meta.url), 'utf8')
+const representativeDrawer = readFileSync(new URL('../../../src/components/achieve/AchieveRepresentativeFeedbackDrawer.tsx', import.meta.url), 'utf8')
 
 for (const required of [
   'body.action === "get_feedback_overview"',
@@ -23,6 +25,18 @@ assert.doesNotMatch(
 )
 assert.ok(queries.includes("invokePortal('get_feedback_overview')"))
 assert.ok(queries.includes('parseAchieveFeedbackDashboard(response)'))
+for (const required of [
+  'body.action === "list_feedback_for_rep"',
+  'list_achieve_agent_feedback_for_rep',
+  'parseRepresentativeEmail(body.agent_email)',
+]) {
+  assert.ok(index.includes(required), `missing representative detail boundary: ${required}`)
+}
+assert.ok(queries.includes("invokePortal('list_feedback_for_rep', { agent_email: agentEmail })"))
+assert.ok(queries.includes('parseAchieveRepresentativeFeedbackDetails(response)'))
+assert.ok(representativeTable.includes('setSelectedRepresentative(representative)'))
+assert.ok(representativeDrawer.includes('fetchAchieveRepresentativeFeedback'))
+assert.ok(representativeDrawer.includes('Phone and internal call identifiers are excluded.'))
 assert.ok(page.includes("useState<'agent-feedback' | 'qa-matching'>('agent-feedback')"))
 assert.ok(page.includes('dashboard={feedbackDashboardQuery.data}'))
 assert.ok(page.includes('QA &amp; Matching'))

@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react'
-import { Search } from 'lucide-react'
+import { ChevronRight, Search } from 'lucide-react'
+import { AchieveRepresentativeFeedbackDrawer } from '@/components/achieve/AchieveRepresentativeFeedbackDrawer'
 import {
   achieveRepresentativeReviewStatus,
   filterAchieveRepresentatives,
@@ -49,6 +50,7 @@ export function AchieveRepresentativeTable({ representatives, coverage }: {
 }) {
   const [search, setSearch] = useState('')
   const [minimumSampleOnly, setMinimumSampleOnly] = useState(true)
+  const [selectedRepresentative, setSelectedRepresentative] = useState<AchieveRepresentativeFeedback | null>(null)
   const filtered = useMemo(
     () => filterAchieveRepresentatives(representatives, search, minimumSampleOnly),
     [representatives, search, minimumSampleOnly],
@@ -59,14 +61,14 @@ export function AchieveRepresentativeTable({ representatives, coverage }: {
   ).length
 
   return (
-    <section aria-labelledby="representative-review-heading" className="rounded-2xl border border-slate-200 bg-white shadow-sm">
+    <>
+      <section aria-labelledby="representative-review-heading" className="rounded-2xl border border-slate-200 bg-white shadow-sm">
       <div className="border-b border-slate-200 p-5 sm:p-6">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
           <div className="min-w-0">
-            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Achieve representative review</p>
-            <h2 id="representative-review-heading" className="mt-1 text-lg font-semibold text-slate-950">Pennie feedback by exact representative</h2>
+            <h2 id="representative-review-heading" className="text-lg font-semibold text-slate-950">Feedback by Achieve representative</h2>
             <p className="mt-1 max-w-3xl text-xs leading-5 text-slate-500">
-              {needsReview} of {sampleEligible} loaded representatives with at least five submissions meet the proposed 25% Fair/Poor review threshold. This is a triage aid, not an employment recommendation.
+              {needsReview} of {sampleEligible} representatives with 5+ submissions meet the proposed 25% Fair/Poor review threshold. Select one to review their submissions. This is a triage aid, not an employment recommendation.
             </p>
           </div>
           <div className="grid gap-2 sm:grid-cols-[minmax(14rem,1fr)_auto] lg:w-auto">
@@ -125,10 +127,27 @@ export function AchieveRepresentativeTable({ representatives, coverage }: {
               </thead>
               <tbody className="divide-y divide-slate-100">
                 {filtered.map(representative => (
-                  <tr key={representative.agentEmail} className="align-middle">
-                    <th scope="row" className="px-5 py-4 font-semibold text-slate-950">
-                      <span className="block">{representative.agentName}</span>
-                      <span className="mt-0.5 block text-xs font-normal text-slate-500">{representative.agentEmail}</span>
+                  <tr
+                    key={representative.agentEmail}
+                    onClick={() => setSelectedRepresentative(representative)}
+                    className="cursor-pointer align-middle transition-colors hover:bg-blue-50/40"
+                  >
+                    <th scope="row" className="p-0 font-semibold text-slate-950">
+                      <button
+                        type="button"
+                        onClick={event => {
+                          event.stopPropagation()
+                          setSelectedRepresentative(representative)
+                        }}
+                        aria-label={`View individual feedback for ${representative.agentName}`}
+                        className="group flex min-h-[4.75rem] w-full items-center justify-between gap-3 px-5 py-4 text-left outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-blue-500"
+                      >
+                        <span className="min-w-0">
+                          <span className="block [overflow-wrap:anywhere] group-hover:text-blue-800">{representative.agentName}</span>
+                          <span className="mt-0.5 block [overflow-wrap:anywhere] text-xs font-normal text-slate-500">{representative.agentEmail}</span>
+                        </span>
+                        <ChevronRight className="h-4 w-4 shrink-0 text-slate-400 transition-transform group-hover:translate-x-0.5 group-hover:text-blue-700" aria-hidden="true" />
+                      </button>
                     </th>
                     <td className="px-3 py-4 text-right font-semibold tabular-nums text-slate-950">{representative.totalSubmissions}</td>
                     <td className="px-3 py-4"><RatingCounts representative={representative} /></td>
@@ -146,13 +165,22 @@ export function AchieveRepresentativeTable({ representatives, coverage }: {
 
           <div className="divide-y divide-slate-100 md:hidden">
             {filtered.map(representative => (
-              <article key={representative.agentEmail} className="p-5">
+              <button
+                key={representative.agentEmail}
+                type="button"
+                onClick={() => setSelectedRepresentative(representative)}
+                aria-label={`View individual feedback for ${representative.agentName}`}
+                className="block w-full p-5 text-left outline-none transition-colors hover:bg-blue-50/40 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-blue-500"
+              >
                 <div className="flex min-w-0 items-start justify-between gap-3">
                   <div className="min-w-0">
-                    <h3 className="[overflow-wrap:anywhere] text-base font-semibold text-slate-950">{representative.agentName}</h3>
+                    <span className="block [overflow-wrap:anywhere] text-base font-semibold text-slate-950">{representative.agentName}</span>
                     <p className="mt-0.5 [overflow-wrap:anywhere] text-xs text-slate-500">{representative.agentEmail}</p>
                   </div>
-                  <ReviewStatus representative={representative} />
+                  <div className="flex shrink-0 items-center gap-2">
+                    <ReviewStatus representative={representative} />
+                    <ChevronRight className="h-4 w-4 text-slate-400" aria-hidden="true" />
+                  </div>
                 </div>
                 <div className="mt-4 grid grid-cols-2 gap-x-4 gap-y-3 text-sm">
                   <div>
@@ -171,14 +199,19 @@ export function AchieveRepresentativeTable({ representatives, coverage }: {
                     Noise {representative.flags.backgroundNoise} · Accent {representative.flags.accent} · Connection {representative.flags.connectionIssues}
                   </div>
                 </div>
-              </article>
+              </button>
             ))}
           </div>
         </>
       )}
-      <p className="border-t border-slate-100 px-5 py-3 text-xs leading-5 text-slate-500 sm:px-6">
-        Showing {filtered.length} of {coverage.loaded} loaded exact representatives. Low-sample rates remain visible only when the minimum-sample filter is cleared.
-      </p>
-    </section>
+        <p className="border-t border-slate-100 px-5 py-3 text-xs leading-5 text-slate-500 sm:px-6">
+          Showing {filtered.length} of {coverage.loaded} representatives.
+        </p>
+      </section>
+      <AchieveRepresentativeFeedbackDrawer
+        representative={selectedRepresentative}
+        onClose={() => setSelectedRepresentative(null)}
+      />
+    </>
   )
 }
