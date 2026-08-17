@@ -6,6 +6,10 @@ import { readFileSync } from 'node:fs'
 
 const migrationUrl = new URL('./20260816101000_optimize_achieve_feedback_attribution_scope.sql', import.meta.url)
 const sql = readFileSync(migrationUrl, 'utf8')
+const summaryScopeSql = readFileSync(
+  new URL('./20260817141000_optimize_achieve_wc_summary_scope.sql', import.meta.url),
+  'utf8',
+)
 
 for (const required of [
   'with filtered_feedback as materialized',
@@ -32,6 +36,17 @@ assert.doesNotMatch(
   sql,
   /from public\.eavesly_module_results as module_result\s+where/,
   'module lookup must be driven by requested feedback call IDs',
+)
+
+assert.equal(
+  (summaryScopeSql.match(/where module_result\.module_name = 'achieve_welcome_call_qa'\s+and private\.achieve_is_ordinary_graded_qa\(/g) ?? []).length,
+  2,
+  'ordinary QA detail and total scans must expose the Achieve module scope to the planner',
+)
+assert.doesNotMatch(
+  summaryScopeSql,
+  /from public\.eavesly_module_results as module_result\s+where private\.achieve_is_ordinary_graded_qa\(/,
+  'ordinary QA scans must not hide module scope inside the SECURITY DEFINER predicate',
 )
 
 console.log('achieve-feedback-leadership-performance.check.js: all assertions passed')

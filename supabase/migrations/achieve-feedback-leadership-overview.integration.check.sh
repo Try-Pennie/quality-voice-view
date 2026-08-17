@@ -6,6 +6,7 @@ base="$repo_root/supabase/migrations/20260816100000_achieve_feedback_leadership_
 optimization="$repo_root/supabase/migrations/20260816101000_optimize_achieve_feedback_attribution_scope.sql"
 detail="$repo_root/supabase/migrations/20260816110000_achieve_representative_feedback_detail.sql"
 ai="$repo_root/supabase/migrations/20260816120000_achieve_wc_agent_summary_ai.sql"
+summary_scope="$repo_root/supabase/migrations/20260817141000_optimize_achieve_wc_summary_scope.sql"
 container="achieve-feedback-overview-check-$RANDOM-$$"
 
 cleanup() { docker rm -f "$container" >/dev/null 2>&1 || true; }
@@ -122,6 +123,7 @@ SQL
   cat "$optimization"
   cat "$detail"
   cat "$ai"
+  cat "$summary_scope"
   cat <<'SQL'
 
 do $$

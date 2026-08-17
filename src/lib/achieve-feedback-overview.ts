@@ -468,6 +468,64 @@ export function achieveRepresentativeReviewStatus(
   return representative.fairPoorRate >= REVIEW_FAIR_POOR_RATE ? 'needs_review' : 'below_threshold'
 }
 
+const CSV_REVIEW_STATUS: Readonly<Record<AchieveRepresentativeReviewStatus, string>> = {
+  needs_review: 'Form review',
+  below_threshold: 'Below Form threshold',
+  low_sample: 'Low Form sample',
+}
+
+const REPRESENTATIVE_CSV_HEADERS = [
+  'Representative', 'Email', 'Latest activity (UTC)', 'Form review status',
+  'Form sample', 'Form good', 'Form fair', 'Form poor', 'Form other', 'Form Fair/Poor count', 'Form Fair/Poor rate',
+  'Background noise', 'Accent / communication', 'Connection issue',
+  'AI QA sample', 'AI QA pass', 'AI QA flagged',
+  'Overlap calls', 'Both clear', 'Both concern', 'Human only', 'AI only',
+] as const
+
+function csvCell(value: string | number): string {
+  const text = String(value)
+  const safe = /^[\t\r ]*[=+\-@]/.test(text) ? `'${text}` : text
+  return `"${safe.replaceAll('"', '""')}"`
+}
+
+/** Serialize the displayed representative rollups without exposing call identifiers. */
+export function achieveRepresentativesCsv(
+  representatives: ReadonlyArray<AchieveRepresentativeFeedback>,
+): string {
+  const rows = representatives.map(representative => {
+    const latestActivity = [representative.latestSubmittedAt, representative.ai.latestGradedAt]
+      .filter((timestamp): timestamp is string => timestamp !== null)
+      .reduce<string | null>((latest, timestamp) => (
+        latest === null || Date.parse(timestamp) > Date.parse(latest) ? timestamp : latest
+      ), null)
+    return [
+      representative.agentName,
+      representative.agentEmail,
+      latestActivity ?? '',
+      CSV_REVIEW_STATUS[achieveRepresentativeReviewStatus(representative)],
+      representative.totalSubmissions,
+      representative.ratings.good,
+      representative.ratings.fair,
+      representative.ratings.poor,
+      representative.ratings.other,
+      representative.fairPoorCount,
+      `${representative.fairPoorRate.toFixed(1)}%`,
+      representative.flags.backgroundNoise,
+      representative.flags.accent,
+      representative.flags.connectionIssues,
+      representative.ai.total,
+      representative.ai.pass,
+      representative.ai.flagged,
+      representative.alignment.overlapCalls,
+      representative.alignment.bothClear,
+      representative.alignment.bothConcern,
+      representative.alignment.humanOnly,
+      representative.alignment.aiOnly,
+    ]
+  })
+  return `\uFEFF${[REPRESENTATIVE_CSV_HEADERS, ...rows].map(row => row.map(csvCell).join(',')).join('\r\n')}\r\n`
+}
+
 /** Search exact representative rollups and optionally require five Form submissions. */
 export function filterAchieveRepresentatives(
   representatives: ReadonlyArray<AchieveRepresentativeFeedback>,
