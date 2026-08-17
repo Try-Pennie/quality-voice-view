@@ -1,8 +1,9 @@
 import { useMemo, useState } from 'react'
-import { ChevronRight, Search } from 'lucide-react'
+import { ChevronRight, Download, Search } from 'lucide-react'
 import { AchieveRepresentativeFeedbackDrawer } from '@/components/achieve/AchieveRepresentativeFeedbackDrawer'
 import {
   achieveRepresentativeReviewStatus,
+  achieveRepresentativesCsv,
   filterAchieveRepresentatives,
   type AchieveRepresentativeCoverage,
   type AchieveRepresentativeFeedback,
@@ -84,6 +85,18 @@ function AiSummary({ representative }: { representative: AchieveRepresentativeFe
   )
 }
 
+function downloadRepresentativesCsv(representatives: ReadonlyArray<AchieveRepresentativeFeedback>) {
+  const url = URL.createObjectURL(new Blob([achieveRepresentativesCsv(representatives)], { type: 'text/csv;charset=utf-8' }))
+  const link = document.createElement('a')
+  link.href = url
+  link.download = `achieve-wc-agent-summary-${new Date().toISOString().slice(0, 10)}.csv`
+  link.hidden = true
+  document.body.append(link)
+  link.click()
+  link.remove()
+  URL.revokeObjectURL(url)
+}
+
 function AlignmentSummary({ representative }: { representative: AchieveRepresentativeFeedback }) {
   const { alignment } = representative
   return (
@@ -124,7 +137,7 @@ export function AchieveRepresentativeTable({ representatives, coverage }: {
                 {needsReview} of {sampleEligible} representatives with 5+ Form submissions meet the 25% Fair/Poor triage threshold. AI samples remain separate and do not change Form-based review status.
               </p>
             </div>
-            <div className="grid gap-2 sm:grid-cols-[minmax(14rem,1fr)_auto]">
+            <div className="grid gap-2 sm:grid-cols-[minmax(14rem,1fr)_auto_auto]">
               <label className="relative min-w-0">
                 <span className="sr-only">Search Achieve representatives</span>
                 <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" aria-hidden="true" />
@@ -145,6 +158,16 @@ export function AchieveRepresentativeTable({ representatives, coverage }: {
                 }`}
               >
                 Form sample: 5+
+              </button>
+              <button
+                type="button"
+                disabled={filtered.length === 0}
+                onClick={() => downloadRepresentativesCsv(filtered)}
+                aria-label={`Export ${filtered.length} displayed representatives to CSV`}
+                className="inline-flex min-h-11 items-center justify-center gap-2 whitespace-nowrap rounded-xl border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 outline-none hover:bg-slate-50 focus-visible:ring-2 focus-visible:ring-blue-500 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                <Download className="h-4 w-4" aria-hidden="true" />
+                Export CSV
               </button>
             </div>
           </div>

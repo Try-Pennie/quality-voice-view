@@ -3,6 +3,7 @@
 import assert from 'node:assert/strict'
 import {
   achieveRepresentativeReviewStatus,
+  achieveRepresentativesCsv,
   filterAchieveRepresentatives,
   parseAchieveFeedbackDashboard,
   parseAchieveRepresentativeFeedbackDetails,
@@ -67,6 +68,15 @@ assert.deepStrictEqual(filterAchieveRepresentatives(parsed.representatives, '', 
 
 const reviewCandidate = { ...parsed.representatives[0], totalSubmissions: 8, fairPoorRate: 25 }
 assert.strictEqual(achieveRepresentativeReviewStatus(reviewCandidate), 'needs_review')
+
+const csv = achieveRepresentativesCsv([{
+  ...parsed.representatives[0],
+  agentName: '\t=Representative, "A"',
+}])
+assert.ok(csv.startsWith('\uFEFF"Representative","Email","Latest activity (UTC)"'))
+assert.ok(csv.includes('"\'\t=Representative, ""A"""'))
+assert.ok(csv.includes('"2026-08-11T10:00:00Z","Low Form sample"'))
+assert.strictEqual(csv.trim().split('\r\n').length, 2)
 
 for (const invalid of [
   { ...validResponse, overview: { ...validResponse.overview, qa: { ...validResponse.overview.qa, coverage: { all_graded: 5, exact_agent_attributed: 4, agent_unavailable: 2 } } } },
