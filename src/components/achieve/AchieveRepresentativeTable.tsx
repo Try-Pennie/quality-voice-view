@@ -137,7 +137,7 @@ export function AchieveRepresentativeTable({ representatives, coverage }: {
                 {needsReview} of {sampleEligible} representatives with 5+ Form submissions meet the 25% Fair/Poor triage threshold. AI samples remain separate and do not change Form-based review status.
               </p>
               <p className="mt-1 max-w-3xl text-xs leading-5 text-slate-500">
-                Alignment overlap means a call has both Form and AI QA. Clear means Form Good or AI Pass; concern means Form Fair/Poor or AI Flagged. Human only and AI only show which source raised the concern.
+                Overlap means a call has both a Good/Fair/Poor Form rating and AI QA. Both clear means Form Good and AI Pass; both concern means Form Fair/Poor and AI Flagged. Human only means Form concern with AI Pass; AI only means Form Good with AI Flagged.
               </p>
             </div>
             <div className="grid gap-2 sm:grid-cols-[minmax(14rem,1fr)_auto_auto]">
