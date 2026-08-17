@@ -23,6 +23,7 @@ import {
   buildPortalListRow,
   buildPortalRow,
   canSubmitPortalFeedback,
+  feedbackLeadershipSnapshotsAgree,
   isAuditOnlyResult,
   isCompetitorTransfer,
   isQueueRow,
@@ -313,22 +314,36 @@ function parseFeedbackTotals(value: unknown) {
 }
 
 async function fetchFeedbackLeadership(admin: AdminClient) {
-  const result = await admin.rpc("get_achieve_agent_feedback_dashboard", {
-    p_representative_limit: MAX_FEEDBACK_REPRESENTATIVES,
-    p_representative_offset: 0,
-  })
-  if (result.error) {
-    console.error("achieve feedback overview error", result.error)
-    return null
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const snapshotEndAt = new Date().toISOString()
+    const [overviewResult, representativesResult] = await Promise.all([
+      admin.rpc("get_achieve_agent_feedback_overview", { p_end_at: snapshotEndAt }),
+      admin.rpc("list_achieve_agent_feedback_by_rep", {
+        p_end_at: snapshotEndAt,
+        p_limit: MAX_FEEDBACK_REPRESENTATIVES,
+        p_offset: 0,
+      }),
+    ])
+    if (overviewResult.error || representativesResult.error) {
+      console.error("achieve feedback aggregate error", {
+        overview: overviewResult.error,
+        representatives: representativesResult.error,
+        attempt: attempt + 1,
+      })
+      continue
+    }
+    const overview = parseRecord(overviewResult.data)
+    const representatives = parseRecord(representativesResult.data)
+    if (
+      overview
+      && representatives
+      && Array.isArray(representatives.rows)
+      && feedbackLeadershipSnapshotsAgree(overview, representatives)
+    ) return { overview, representatives }
+
+    console.warn("achieve feedback aggregate snapshot mismatch", { attempt: attempt + 1 })
   }
-  const dashboard = parseRecord(result.data)
-  const overview = parseRecord(dashboard?.overview)
-  const representatives = parseRecord(dashboard?.representatives)
-  if (!dashboard || !overview || !representatives || !Array.isArray(representatives.rows)) {
-    console.error("achieve feedback overview error", { code: "invalid_aggregate_shape" })
-    return null
-  }
-  return { overview, representatives }
+  return null
 }
 
 async function fetchRepresentativeFeedback(admin: AdminClient, agentEmail: string) {

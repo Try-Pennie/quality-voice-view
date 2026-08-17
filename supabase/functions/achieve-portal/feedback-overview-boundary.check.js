@@ -12,16 +12,19 @@ const representativeDrawer = readFileSync(new URL('../../../src/components/achie
 
 for (const required of [
   'body.action === "get_feedback_overview"',
-  'get_achieve_agent_feedback_dashboard',
-  'p_representative_limit: MAX_FEEDBACK_REPRESENTATIVES',
+  'get_achieve_agent_feedback_overview',
+  'list_achieve_agent_feedback_by_rep',
+  'p_limit: MAX_FEEDBACK_REPRESENTATIVES',
+  'p_end_at: snapshotEndAt',
+  'feedbackLeadershipSnapshotsAgree(overview, representatives)',
 ]) {
   assert.ok(index.includes(required), `missing Edge Function aggregate contract: ${required}`)
 }
 
-assert.doesNotMatch(
+assert.match(
   index,
-  /Promise\.all\([\s\S]{0,400}get_achieve_agent_feedback_(?:overview|by_rep)/,
-  'dashboard aggregates must come from one database RPC snapshot',
+  /Promise\.all\([\s\S]{0,400}get_achieve_agent_feedback_overview[\s\S]{0,400}list_achieve_agent_feedback_by_rep/,
+  'dashboard aggregates must run concurrently to stay below the service-role statement timeout',
 )
 assert.ok(queries.includes("invokePortal('get_feedback_overview')"))
 assert.ok(queries.includes('parseAchieveFeedbackDashboard(response)'))
