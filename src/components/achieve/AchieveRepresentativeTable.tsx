@@ -136,6 +136,9 @@ export function AchieveRepresentativeTable({ representatives, coverage }: {
               <p className="mt-1 max-w-3xl text-xs leading-5 text-slate-500">
                 {needsReview} of {sampleEligible} representatives with 5+ Form submissions meet the 25% Fair/Poor triage threshold. AI samples remain separate and do not change Form-based review status.
               </p>
+              <p className="mt-1 max-w-3xl text-xs leading-5 text-slate-500">
+                Alignment overlap means a call has both Form and AI QA. Clear means Form Good or AI Pass; concern means Form Fair/Poor or AI Flagged. Human only and AI only show which source raised the concern.
+              </p>
             </div>
             <div className="grid gap-2 sm:grid-cols-[minmax(14rem,1fr)_auto_auto]">
               <label className="relative min-w-0">
@@ -179,13 +182,13 @@ export function AchieveRepresentativeTable({ representatives, coverage }: {
         ) : (
           <>
             <div className="hidden overflow-x-auto lg:block">
-              <table className="w-full min-w-[1320px] border-collapse text-left text-sm">
+              <table className="w-full min-w-[1520px] border-collapse text-left text-sm">
                 <thead className="bg-slate-50 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
                   <tr>
                     <th scope="col" rowSpan={2} className="w-[22%] px-5 py-3">Representative</th>
                     <th scope="colgroup" colSpan={6} className="border-l border-slate-200 px-3 py-2 text-center">Form</th>
                     <th scope="colgroup" colSpan={3} className="border-l border-blue-100 bg-blue-50/60 px-3 py-2 text-center text-blue-700">AI QA</th>
-                    <th scope="colgroup" colSpan={3} className="border-l border-slate-200 px-3 py-2 text-center">Call alignment</th>
+                    <th scope="colgroup" colSpan={5} className="border-l border-slate-200 px-3 py-2 text-center">Call alignment</th>
                   </tr>
                   <tr className="border-t border-slate-200">
                     <th scope="col" className="border-l border-slate-200 px-2 py-2 text-center">Sample</th>
@@ -198,8 +201,10 @@ export function AchieveRepresentativeTable({ representatives, coverage }: {
                     <th scope="col" className="bg-blue-50/60 px-2 py-2 text-center">Pass</th>
                     <th scope="col" className="bg-blue-50/60 px-2 py-2 text-center">Flagged</th>
                     <th scope="col" className="border-l border-slate-200 px-2 py-2 text-center">Overlap</th>
-                    <th scope="col" className="px-2 py-2 text-center">Both clear / concern</th>
-                    <th scope="col" className="px-2 py-2 text-center">Human / AI only</th>
+                    <th scope="col" className="px-2 py-2 text-center">Both clear</th>
+                    <th scope="col" className="px-2 py-2 text-center">Both concern</th>
+                    <th scope="col" className="px-2 py-2 text-center">Human only</th>
+                    <th scope="col" className="px-2 py-2 text-center">AI only</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
@@ -231,8 +236,10 @@ export function AchieveRepresentativeTable({ representatives, coverage }: {
                       <td className="bg-blue-50/30 px-2 py-4 text-center"><Count value={representative.ai.pass} tone="good" /></td>
                       <td className="bg-blue-50/30 px-2 py-4 text-center"><Count value={representative.ai.flagged} tone="poor" /></td>
                       <td className="border-l border-slate-100 px-2 py-4 text-center tabular-nums">{representative.alignment.overlapCalls}</td>
-                      <td className="px-2 py-4 text-center tabular-nums">{representative.alignment.bothClear} / {representative.alignment.bothConcern}</td>
-                      <td className="px-2 py-4 text-center tabular-nums">{representative.alignment.humanOnly} / {representative.alignment.aiOnly}</td>
+                      <td className="px-2 py-4 text-center tabular-nums">{representative.alignment.bothClear}</td>
+                      <td className="px-2 py-4 text-center tabular-nums">{representative.alignment.bothConcern}</td>
+                      <td className="px-2 py-4 text-center tabular-nums">{representative.alignment.humanOnly}</td>
+                      <td className="px-2 py-4 text-center tabular-nums">{representative.alignment.aiOnly}</td>
                     </tr>
                   ))}
                 </tbody>
