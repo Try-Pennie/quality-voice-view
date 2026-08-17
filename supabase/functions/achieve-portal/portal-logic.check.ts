@@ -8,6 +8,7 @@ import {
   buildPortalListRow,
   buildPortalRow,
   canSubmitPortalFeedback,
+  feedbackLeadershipSnapshotsAgree,
   isAuditOnlyResult,
   isCompetitorTransfer,
   isQueueRow,
@@ -477,6 +478,57 @@ const rowWithAgentFeedback = buildPortalRow(
 assert.strictEqual(rowWithAgentFeedback.agent_feedback.length, 1)
 assert.strictEqual(rowWithAgentFeedback.agent_feedback[0].call_quality, 'Fair')
 assert.strictEqual(rowWithAgentFeedback.agent_feedback[0].lead_phone_raw, undefined)
+
+// --- feedbackLeadershipSnapshotsAgree ------------------------------------------
+
+const feedbackOverview = {
+  coverage: { exact_agent_attributed: 2 },
+  distinct_exact_agents: 1,
+  distinct_any_agents: 2,
+  qa: {
+    coverage: { exact_agent_attributed: 2 },
+    outcomes: { pass: 1, flagged: 1 },
+    alignment: { overlap_calls: 1, both_clear: 0, both_concern: 1, human_only: 0, ai_only: 0 },
+    distinct_exact_agents: 2,
+  },
+}
+const feedbackRepresentatives = {
+  coverage: { total: 2, loaded: 2, limit: 200, offset: 0, cap_reached: false },
+  rows: [
+    {
+      achieve_agent_email: 'rep-a@example.test',
+      total_submissions: 2,
+      ai_total: 1,
+      ai_pass: 1,
+      ai_flagged: 0,
+      overlap_calls: 1,
+      both_clear: 0,
+      both_concern: 1,
+      human_only: 0,
+      ai_only: 0,
+    },
+    {
+      achieve_agent_email: 'rep-b@example.test',
+      total_submissions: 0,
+      ai_total: 1,
+      ai_pass: 0,
+      ai_flagged: 1,
+      overlap_calls: 0,
+      both_clear: 0,
+      both_concern: 0,
+      human_only: 0,
+      ai_only: 0,
+    },
+  ],
+}
+assert.strictEqual(feedbackLeadershipSnapshotsAgree(feedbackOverview, feedbackRepresentatives), true)
+assert.strictEqual(
+  feedbackLeadershipSnapshotsAgree(feedbackOverview, {
+    ...feedbackRepresentatives,
+    rows: feedbackRepresentatives.rows.map((row, index) => index === 0 ? { ...row, ai_total: 2 } : row),
+  }),
+  false,
+)
 
 // --- validateFeedback -----------------------------------------------------------
 

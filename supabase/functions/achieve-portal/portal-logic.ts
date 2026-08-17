@@ -445,6 +445,95 @@ export function buildPortalListRow(
   }
 }
 
+function aggregateRecord(value: unknown): Record<string, unknown> | null {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : null
+}
+
+function aggregateCount(row: Record<string, unknown> | null, key: string): number | null {
+  const value = row?.[key]
+  return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0 ? value : null
+}
+
+// The timeout-safe Edge path reads these aggregates in concurrent transactions.
+// Reconcile the same invariants as the browser before returning either snapshot.
+export function feedbackLeadershipSnapshotsAgree(overviewValue: unknown, representativesValue: unknown): boolean {
+  const overview = aggregateRecord(overviewValue)
+  const representatives = aggregateRecord(representativesValue)
+  const coverage = aggregateRecord(representatives?.coverage)
+  const rows = representatives?.rows
+  const overviewCoverage = aggregateRecord(overview?.coverage)
+  const qa = aggregateRecord(overview?.qa)
+  const qaCoverage = aggregateRecord(qa?.coverage)
+  const qaOutcomes = aggregateRecord(qa?.outcomes)
+  const qaAlignment = aggregateRecord(qa?.alignment)
+  if (!overview || !representatives || !coverage || !Array.isArray(rows)) return false
+
+  const loaded = aggregateCount(coverage, 'loaded')
+  const total = aggregateCount(coverage, 'total')
+  const offset = aggregateCount(coverage, 'offset')
+  const distinctAnyAgents = aggregateCount(overview, 'distinct_any_agents')
+  if (
+    loaded !== rows.length
+    || total === null
+    || total !== distinctAnyAgents
+    || typeof coverage.cap_reached !== 'boolean'
+    || offset === null
+  ) return false
+
+  const emails = new Set<string>()
+  const formEmails = new Set<string>()
+  const aiEmails = new Set<string>()
+  let formTotal = 0
+  let aiTotal = 0
+  let aiPass = 0
+  let aiFlagged = 0
+  const alignment = {
+    overlap_calls: 0,
+    both_clear: 0,
+    both_concern: 0,
+    human_only: 0,
+    ai_only: 0,
+  }
+
+  for (const value of rows) {
+    const row = aggregateRecord(value)
+    const email = typeof row?.achieve_agent_email === 'string'
+      ? row.achieve_agent_email.trim().toLowerCase()
+      : ''
+    const rowFormTotal = aggregateCount(row, 'total_submissions')
+    const rowAiTotal = aggregateCount(row, 'ai_total')
+    const rowAiPass = aggregateCount(row, 'ai_pass')
+    const rowAiFlagged = aggregateCount(row, 'ai_flagged')
+    if (!email || emails.has(email) || [rowFormTotal, rowAiTotal, rowAiPass, rowAiFlagged].includes(null)) {
+      return false
+    }
+    emails.add(email)
+    if (rowFormTotal! > 0) formEmails.add(email)
+    if (rowAiTotal! > 0) aiEmails.add(email)
+    formTotal += rowFormTotal!
+    aiTotal += rowAiTotal!
+    aiPass += rowAiPass!
+    aiFlagged += rowAiFlagged!
+    for (const key of Object.keys(alignment) as Array<keyof typeof alignment>) {
+      const count = aggregateCount(row, key)
+      if (count === null) return false
+      alignment[key] += count
+    }
+  }
+
+  if (coverage.cap_reached || offset !== 0) return true
+
+  return formTotal === aggregateCount(overviewCoverage, 'exact_agent_attributed')
+    && aiTotal === aggregateCount(qaCoverage, 'exact_agent_attributed')
+    && aiPass === aggregateCount(qaOutcomes, 'pass')
+    && aiFlagged === aggregateCount(qaOutcomes, 'flagged')
+    && formEmails.size === aggregateCount(overview, 'distinct_exact_agents')
+    && aiEmails.size === aggregateCount(qa, 'distinct_exact_agents')
+    && Object.entries(alignment).every(([key, value]) => value === aggregateCount(qaAlignment, key))
+}
+
 export type ValidatedFeedback = {
   call_id: string
   module_name: string
