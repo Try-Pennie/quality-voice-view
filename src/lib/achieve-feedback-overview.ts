@@ -14,7 +14,7 @@ export type AchieveFeedbackFlags = {
   readonly withNotes: number
 }
 
-/** Coverage of call association and exact daily-report representative attribution. */
+/** Coverage of Form call association and exact representative attribution. */
 export type AchieveFeedbackCoverage = {
   readonly callAssociated: number
   readonly exactAgentAttributed: number
@@ -31,7 +31,37 @@ export type AchieveUnresolvedReasons = {
   readonly other: number
 }
 
-/** Complete aggregate for a selected Pennie-agent Form period. */
+/** Ordinary AI QA coverage, with attribution gaps kept in its own denominator. */
+export type AchieveAiCoverage = {
+  readonly allGraded: number
+  readonly exactAgentAttributed: number
+  readonly agentUnavailable: number
+}
+
+/** Exactly attributed ordinary AI QA outcomes. */
+export type AchieveAiOutcomes = {
+  readonly pass: number
+  readonly flagged: number
+}
+
+/** Call-level human/AI comparison after excluding Other-only Form feedback. */
+export type AchieveFeedbackAlignment = {
+  readonly overlapCalls: number
+  readonly bothClear: number
+  readonly bothConcern: number
+  readonly humanOnly: number
+  readonly aiOnly: number
+}
+
+/** Global ordinary AI QA metrics. */
+export type AchieveAiOverview = {
+  readonly coverage: AchieveAiCoverage
+  readonly outcomes: AchieveAiOutcomes
+  readonly alignment: AchieveFeedbackAlignment
+  readonly distinctExactAgents: number
+}
+
+/** Complete Form and AI aggregate for the WC Agent Summary. */
 export type AchieveFeedbackOverview = {
   readonly generatedAt: string
   readonly scope: {
@@ -44,21 +74,28 @@ export type AchieveFeedbackOverview = {
   readonly coverage: AchieveFeedbackCoverage
   readonly unresolvedReasons: AchieveUnresolvedReasons
   readonly distinctExactAgents: number
+  readonly distinctAnyAgents: number
+  readonly qa: AchieveAiOverview
 }
 
-/** Submission-level feedback rollup for one exact Achieve representative. */
+/** Form and AI rollup for one exactly attributed Achieve representative. */
 export type AchieveRepresentativeFeedback = {
   readonly agentName: string
   readonly agentEmail: string
   readonly totalSubmissions: number
   readonly ratings: AchieveFeedbackRatings
   readonly flags: Omit<AchieveFeedbackFlags, 'withNotes'>
-  readonly latestSubmittedAt: string
+  readonly latestSubmittedAt: string | null
   readonly fairPoorCount: number
   readonly fairPoorRate: number
+  readonly ai: AchieveAiOutcomes & {
+    readonly total: number
+    readonly latestGradedAt: string | null
+  }
+  readonly alignment: AchieveFeedbackAlignment
 }
 
-/** Coverage metadata for the bounded representative list. */
+/** Coverage metadata for a bounded representative or detail list. */
 export type AchieveRepresentativeCoverage = {
   readonly total: number
   readonly loaded: number
@@ -91,26 +128,40 @@ export type AchieveRepresentativeFeedbackDetail = {
   readonly submittedBy: string | null
 }
 
-/** Bounded individual feedback page returned by the authenticated boundary. */
+/** Lightweight ordinary QA call summary; detail is loaded separately by result ID. */
+export type AchieveRepresentativeQaSummary = {
+  readonly moduleResultId: number
+  readonly gradedAt: string
+  readonly outcome: 'pass' | 'flagged'
+}
+
+/** Bounded Form notes and AI call summaries returned by the authenticated boundary. */
 export type AchieveRepresentativeFeedbackDetails = {
   readonly rows: ReadonlyArray<AchieveRepresentativeFeedbackDetail>
   readonly coverage: AchieveRepresentativeCoverage
+  readonly qaRows: ReadonlyArray<AchieveRepresentativeQaSummary>
+  readonly qaCoverage: AchieveRepresentativeCoverage
 }
 
-/** Sample-aware review state; it is a triage aid, not an employment decision. */
+/** Sample-aware Form review state; AI never changes this triage status. */
 export type AchieveRepresentativeReviewStatus = 'needs_review' | 'below_threshold' | 'low_sample'
 
 const REVIEW_MINIMUM_SAMPLE = 5
 const REVIEW_FAIR_POOR_RATE = 25
+const INVALID_RESPONSE = 'invalid_achieve_feedback_response'
 
 type BoundaryRecord = Readonly<Record<string, unknown>>
 
 function recordValue(value: unknown): BoundaryRecord | null {
-  // SAFETY: The object/array/null checks establish the only indexable-record
-  // invariant used by this boundary parser. Every field is parsed separately.
+  // SAFETY: The object/array/null checks establish the indexable-record
+  // invariant. Every boundary field is parsed separately below.
   return typeof value === 'object' && value !== null && !Array.isArray(value)
     ? value as BoundaryRecord
     : null
+}
+
+function invalidResponse(): never {
+  throw new Error(INVALID_RESPONSE)
 }
 
 function nonNegativeInteger(value: unknown): number | null {
@@ -118,46 +169,38 @@ function nonNegativeInteger(value: unknown): number | null {
 }
 
 function requiredCount(record: BoundaryRecord | null, key: string): number {
-  const value = nonNegativeInteger(record?.[key])
-  if (value === null) throw new Error('invalid_achieve_feedback_response')
-  return value
+  return nonNegativeInteger(record?.[key]) ?? invalidResponse()
 }
 
 function requiredString(record: BoundaryRecord | null, key: string): string {
   const value = record?.[key]
-  if (typeof value !== 'string' || value.trim().length === 0) {
-    throw new Error('invalid_achieve_feedback_response')
-  }
+  if (typeof value !== 'string' || value.trim().length === 0) invalidResponse()
   return value
 }
 
 function requiredTimestamp(record: BoundaryRecord | null, key: string): string {
   const value = requiredString(record, key)
-  if (!Number.isFinite(Date.parse(value))) throw new Error('invalid_achieve_feedback_response')
+  if (!Number.isFinite(Date.parse(value))) invalidResponse()
   return value
 }
 
 function nullableTimestamp(record: BoundaryRecord | null, key: string): string | null {
   const value = record?.[key]
   if (value === null) return null
-  if (typeof value !== 'string' || !Number.isFinite(Date.parse(value))) {
-    throw new Error('invalid_achieve_feedback_response')
-  }
+  if (typeof value !== 'string' || !Number.isFinite(Date.parse(value))) invalidResponse()
   return value
 }
 
 function nullableNonEmptyString(record: BoundaryRecord | null, key: string): string | null {
   const value = record?.[key]
   if (value === null) return null
-  if (typeof value !== 'string' || value.trim().length === 0) {
-    throw new Error('invalid_achieve_feedback_response')
-  }
+  if (typeof value !== 'string' || value.trim().length === 0) invalidResponse()
   return value
 }
 
 function requiredBoolean(record: BoundaryRecord | null, key: string): boolean {
   const value = record?.[key]
-  if (typeof value !== 'boolean') throw new Error('invalid_achieve_feedback_response')
+  if (typeof value !== 'boolean') invalidResponse()
   return value
 }
 
@@ -171,12 +214,30 @@ function parseRatings(value: unknown): AchieveFeedbackRatings {
   }
 }
 
+function parseAlignment(value: unknown): AchieveFeedbackAlignment {
+  const alignment = recordValue(value)
+  const parsed = {
+    overlapCalls: requiredCount(alignment, 'overlap_calls'),
+    bothClear: requiredCount(alignment, 'both_clear'),
+    bothConcern: requiredCount(alignment, 'both_concern'),
+    humanOnly: requiredCount(alignment, 'human_only'),
+    aiOnly: requiredCount(alignment, 'ai_only'),
+  }
+  if (parsed.bothClear + parsed.bothConcern + parsed.humanOnly + parsed.aiOnly !== parsed.overlapCalls) {
+    invalidResponse()
+  }
+  return parsed
+}
+
 function parseOverview(value: unknown): AchieveFeedbackOverview {
   const overview = recordValue(value)
   const scope = recordValue(overview?.scope)
   const flags = recordValue(overview?.flags)
   const coverage = recordValue(overview?.coverage)
   const unresolved = recordValue(overview?.unresolved_reasons)
+  const qa = recordValue(overview?.qa)
+  const qaCoverage = recordValue(qa?.coverage)
+  const qaOutcomes = recordValue(qa?.outcomes)
   const totalSubmissions = requiredCount(scope, 'total_submissions')
   const firstSubmittedAt = nullableTimestamp(scope, 'first_submitted_at')
   const lastSubmittedAt = nullableTimestamp(scope, 'last_submitted_at')
@@ -200,22 +261,37 @@ function parseOverview(value: unknown): AchieveFeedbackOverview {
     submitterNotFound: requiredCount(unresolved, 'submitter_not_found'),
     other: requiredCount(unresolved, 'other'),
   }
+  const aiCoverage: AchieveAiCoverage = {
+    allGraded: requiredCount(qaCoverage, 'all_graded'),
+    exactAgentAttributed: requiredCount(qaCoverage, 'exact_agent_attributed'),
+    agentUnavailable: requiredCount(qaCoverage, 'agent_unavailable'),
+  }
+  const outcomes: AchieveAiOutcomes = {
+    pass: requiredCount(qaOutcomes, 'pass'),
+    flagged: requiredCount(qaOutcomes, 'flagged'),
+  }
+  const alignment = parseAlignment(qa?.alignment)
   const distinctExactAgents = requiredCount(overview, 'distinct_exact_agents')
+  const distinctAnyAgents = requiredCount(overview, 'distinct_any_agents')
+  const distinctAiAgents = requiredCount(qa, 'distinct_exact_agents')
 
-  const ratingTotal = ratings.good + ratings.fair + ratings.poor + ratings.other
-  const unresolvedTotal = unresolvedReasons.callAmbiguous + unresolvedReasons.noCallInWindow
-    + unresolvedReasons.invalidPhone + unresolvedReasons.submitterNotFound + unresolvedReasons.other
+  const unresolvedTotal = Object.values(unresolvedReasons).reduce((total, count) => total + count, 0)
   if (
-    ratingTotal !== totalSubmissions
+    Object.values(ratings).reduce((total, count) => total + count, 0) !== totalSubmissions
     || parsedCoverage.callAssociated + parsedCoverage.unresolved !== totalSubmissions
     || parsedCoverage.exactAgentAttributed + parsedCoverage.agentUnavailable !== parsedCoverage.callAssociated
     || unresolvedTotal !== parsedCoverage.unresolved
     || Object.values(parsedFlags).some(count => count > totalSubmissions)
+    || aiCoverage.exactAgentAttributed + aiCoverage.agentUnavailable !== aiCoverage.allGraded
+    || outcomes.pass + outcomes.flagged !== aiCoverage.exactAgentAttributed
+    || alignment.overlapCalls > aiCoverage.exactAgentAttributed
+    || distinctExactAgents > parsedCoverage.exactAgentAttributed
+    || distinctAiAgents > aiCoverage.exactAgentAttributed
+    || distinctAnyAgents < Math.max(distinctExactAgents, distinctAiAgents)
+    || distinctAnyAgents > distinctExactAgents + distinctAiAgents
     || (totalSubmissions === 0 && (firstSubmittedAt !== null || lastSubmittedAt !== null))
     || (totalSubmissions > 0 && (firstSubmittedAt === null || lastSubmittedAt === null))
-  ) {
-    throw new Error('invalid_achieve_feedback_response')
-  }
+  ) invalidResponse()
 
   return {
     generatedAt: requiredTimestamp(overview, 'generated_at'),
@@ -225,30 +301,44 @@ function parseOverview(value: unknown): AchieveFeedbackOverview {
     coverage: parsedCoverage,
     unresolvedReasons,
     distinctExactAgents,
+    distinctAnyAgents,
+    qa: { coverage: aiCoverage, outcomes, alignment, distinctExactAgents: distinctAiAgents },
   }
 }
 
 function parseRepresentative(value: unknown): AchieveRepresentativeFeedback {
   const row = recordValue(value)
   const totalSubmissions = requiredCount(row, 'total_submissions')
-  if (totalSubmissions === 0) throw new Error('invalid_achieve_feedback_response')
-  const ratings: AchieveFeedbackRatings = {
-    good: requiredCount(row, 'good'),
-    fair: requiredCount(row, 'fair'),
-    poor: requiredCount(row, 'poor'),
-    other: requiredCount(row, 'other'),
-  }
+  const ratings = parseRatings({
+    good: row?.good,
+    fair: row?.fair,
+    poor: row?.poor,
+    other: row?.other,
+  })
   const flags = {
     accent: requiredCount(row, 'accent'),
     backgroundNoise: requiredCount(row, 'background_noise'),
     connectionIssues: requiredCount(row, 'connection_issues'),
   }
-  if (
-    ratings.good + ratings.fair + ratings.poor + ratings.other !== totalSubmissions
-    || Object.values(flags).some(count => count > totalSubmissions)
-  ) {
-    throw new Error('invalid_achieve_feedback_response')
+  const latestSubmittedAt = nullableTimestamp(row, 'latest_submitted_at')
+  const ai = {
+    total: requiredCount(row, 'ai_total'),
+    pass: requiredCount(row, 'ai_pass'),
+    flagged: requiredCount(row, 'ai_flagged'),
+    latestGradedAt: nullableTimestamp(row, 'latest_ai_graded_at'),
   }
+  const alignment = parseAlignment(row)
+  if (
+    Object.values(ratings).reduce((total, count) => total + count, 0) !== totalSubmissions
+    || Object.values(flags).some(count => count > totalSubmissions)
+    || ai.pass + ai.flagged !== ai.total
+    || totalSubmissions + ai.total === 0
+    || alignment.overlapCalls > totalSubmissions
+    || alignment.overlapCalls > ai.total
+    || (totalSubmissions === 0) !== (latestSubmittedAt === null)
+    || (ai.total === 0) !== (ai.latestGradedAt === null)
+  ) invalidResponse()
+
   const fairPoorCount = ratings.fair + ratings.poor
   return {
     agentName: requiredString(row, 'achieve_agent_name'),
@@ -256,9 +346,11 @@ function parseRepresentative(value: unknown): AchieveRepresentativeFeedback {
     totalSubmissions,
     ratings,
     flags,
-    latestSubmittedAt: requiredTimestamp(row, 'latest_submitted_at'),
+    latestSubmittedAt,
     fairPoorCount,
-    fairPoorRate: (fairPoorCount / totalSubmissions) * 100,
+    fairPoorRate: totalSubmissions === 0 ? 0 : (fairPoorCount / totalSubmissions) * 100,
+    ai,
+    alignment,
   }
 }
 
@@ -275,23 +367,15 @@ function parseRepresentativeCoverage(value: unknown): AchieveRepresentativeCover
     || loaded > limit
     || offset + loaded > total
     || capReached !== (offset + loaded < total)
-  ) {
-    throw new Error('invalid_achieve_feedback_response')
-  }
+  ) invalidResponse()
   return { total, loaded, limit, offset, capReached }
 }
 
-/**
- * Parse and cross-check the complete leadership response before UI code sees
- * it. Contradictory counts fail atomically so the dashboard never shows a
- * plausible-looking partial denominator.
- */
+/** Parse and reconcile the complete Form + AI leadership response. */
 export function parseAchieveFeedbackDashboard(value: unknown): AchieveFeedbackDashboard {
   const response = recordValue(value)
   const representativePayload = recordValue(response?.representatives)
-  if (!response || !representativePayload || !Array.isArray(representativePayload.rows)) {
-    throw new Error('invalid_achieve_feedback_response')
-  }
+  if (!response || !representativePayload || !Array.isArray(representativePayload.rows)) invalidResponse()
 
   const overview = parseOverview(response.overview)
   const representatives = representativePayload.rows.map(parseRepresentative)
@@ -300,19 +384,33 @@ export function parseAchieveFeedbackDashboard(value: unknown): AchieveFeedbackDa
   if (
     representatives.length !== representativeCoverage.loaded
     || uniqueEmails.size !== representatives.length
-    || representativeCoverage.total !== overview.distinctExactAgents
-  ) {
-    throw new Error('invalid_achieve_feedback_response')
-  }
+    || representativeCoverage.total !== overview.distinctAnyAgents
+  ) invalidResponse()
 
   if (!representativeCoverage.capReached && representativeCoverage.offset === 0) {
-    const attributedSubmissions = representatives.reduce(
-      (total, representative) => total + representative.totalSubmissions,
-      0,
-    )
-    if (attributedSubmissions !== overview.coverage.exactAgentAttributed) {
-      throw new Error('invalid_achieve_feedback_response')
-    }
+    const formEmails = new Set(representatives.filter(row => row.totalSubmissions > 0).map(row => row.agentEmail))
+    const aiEmails = new Set(representatives.filter(row => row.ai.total > 0).map(row => row.agentEmail))
+    const formTotal = representatives.reduce((total, row) => total + row.totalSubmissions, 0)
+    const aiTotal = representatives.reduce((total, row) => total + row.ai.total, 0)
+    const aiPass = representatives.reduce((total, row) => total + row.ai.pass, 0)
+    const aiFlagged = representatives.reduce((total, row) => total + row.ai.flagged, 0)
+    const alignment = representatives.reduce<AchieveFeedbackAlignment>((total, row) => ({
+      overlapCalls: total.overlapCalls + row.alignment.overlapCalls,
+      bothClear: total.bothClear + row.alignment.bothClear,
+      bothConcern: total.bothConcern + row.alignment.bothConcern,
+      humanOnly: total.humanOnly + row.alignment.humanOnly,
+      aiOnly: total.aiOnly + row.alignment.aiOnly,
+    }), { overlapCalls: 0, bothClear: 0, bothConcern: 0, humanOnly: 0, aiOnly: 0 })
+    if (
+      formTotal !== overview.coverage.exactAgentAttributed
+      || aiTotal !== overview.qa.coverage.exactAgentAttributed
+      || aiPass !== overview.qa.outcomes.pass
+      || aiFlagged !== overview.qa.outcomes.flagged
+      || formEmails.size !== overview.distinctExactAgents
+      || aiEmails.size !== overview.qa.distinctExactAgents
+      || uniqueEmails.size !== overview.distinctAnyAgents
+      || Object.keys(alignment).some(key => alignment[key as keyof AchieveFeedbackAlignment] !== overview.qa.alignment[key as keyof AchieveFeedbackAlignment])
+    ) invalidResponse()
   }
 
   return { overview, representatives, representativeCoverage }
@@ -322,9 +420,7 @@ function parseRepresentativeFeedbackDetail(value: unknown): AchieveRepresentativ
   const row = recordValue(value)
   const id = requiredCount(row, 'feedback_id')
   const rating = row?.rating
-  if (id < 1 || (rating !== 'good' && rating !== 'fair' && rating !== 'poor' && rating !== 'other')) {
-    throw new Error('invalid_achieve_feedback_response')
-  }
+  if (id < 1 || (rating !== 'good' && rating !== 'fair' && rating !== 'poor' && rating !== 'other')) invalidResponse()
   return {
     id,
     submittedAt: requiredTimestamp(row, 'submitted_at'),
@@ -339,22 +435,32 @@ function parseRepresentativeFeedbackDetail(value: unknown): AchieveRepresentativ
   }
 }
 
-/** Parse and cross-check one exact representative's individual feedback page. */
-export function parseAchieveRepresentativeFeedbackDetails(value: unknown): AchieveRepresentativeFeedbackDetails {
-  const response = recordValue(value)
-  if (!response || !Array.isArray(response.rows)) {
-    throw new Error('invalid_achieve_feedback_response')
-  }
-  const rows = response.rows.map(parseRepresentativeFeedbackDetail)
-  const coverage = parseRepresentativeCoverage(response.coverage)
-  const uniqueIds = new Set(rows.map(row => row.id))
-  if (rows.length !== coverage.loaded || uniqueIds.size !== rows.length) {
-    throw new Error('invalid_achieve_feedback_response')
-  }
-  return { rows, coverage }
+function parseRepresentativeQaSummary(value: unknown): AchieveRepresentativeQaSummary {
+  const row = recordValue(value)
+  const moduleResultId = requiredCount(row, 'module_result_id')
+  const outcome = row?.outcome
+  if (moduleResultId < 1 || (outcome !== 'pass' && outcome !== 'flagged')) invalidResponse()
+  return { moduleResultId, gradedAt: requiredTimestamp(row, 'graded_at'), outcome }
 }
 
-/** Return the proposed sample-aware meeting-triage status for one representative. */
+/** Parse one representative's bounded Form notes and ordinary QA summaries. */
+export function parseAchieveRepresentativeFeedbackDetails(value: unknown): AchieveRepresentativeFeedbackDetails {
+  const response = recordValue(value)
+  if (!response || !Array.isArray(response.rows) || !Array.isArray(response.qa_rows)) invalidResponse()
+  const rows = response.rows.map(parseRepresentativeFeedbackDetail)
+  const qaRows = response.qa_rows.map(parseRepresentativeQaSummary)
+  const coverage = parseRepresentativeCoverage(response.coverage)
+  const qaCoverage = parseRepresentativeCoverage(response.qa_coverage)
+  if (
+    rows.length !== coverage.loaded
+    || new Set(rows.map(row => row.id)).size !== rows.length
+    || qaRows.length !== qaCoverage.loaded
+    || new Set(qaRows.map(row => row.moduleResultId)).size !== qaRows.length
+  ) invalidResponse()
+  return { rows, coverage, qaRows, qaCoverage }
+}
+
+/** Return the Form-only sample-aware meeting-triage status. */
 export function achieveRepresentativeReviewStatus(
   representative: AchieveRepresentativeFeedback,
 ): AchieveRepresentativeReviewStatus {
@@ -362,7 +468,7 @@ export function achieveRepresentativeReviewStatus(
   return representative.fairPoorRate >= REVIEW_FAIR_POOR_RATE ? 'needs_review' : 'below_threshold'
 }
 
-/** Search exact representative rollups and optionally require the five-submission sample floor. */
+/** Search exact representative rollups and optionally require five Form submissions. */
 export function filterAchieveRepresentatives(
   representatives: ReadonlyArray<AchieveRepresentativeFeedback>,
   search: string,

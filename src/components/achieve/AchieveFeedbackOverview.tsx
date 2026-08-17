@@ -72,7 +72,7 @@ function FlagMetric({ label, count, total }: {
   )
 }
 
-/** Complete Form-based leadership view, independent of the capped QA call list. */
+/** Complete Form + ordinary AI QA leadership view, independent of the capped call list. */
 export function AchieveFeedbackOverview({ dashboard, onOpenQaMatching }: {
   dashboard: AchieveFeedbackDashboard
   onOpenQaMatching: () => void
@@ -84,12 +84,12 @@ export function AchieveFeedbackOverview({ dashboard, onOpenQaMatching }: {
     ? `${scopeDate.format(new Date(scope.firstSubmittedAt))}–${scopeDate.format(new Date(scope.lastSubmittedAt))}`
     : 'No submissions in this period'
 
-  if (scope.totalSubmissions === 0) {
+  if (scope.totalSubmissions === 0 && overview.qa.coverage.allGraded === 0) {
     return (
       <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-        <h2 className="text-lg font-semibold text-slate-950">No Pennie-agent feedback yet</h2>
+        <h2 className="text-lg font-semibold text-slate-950">No WC Agent Summary data yet</h2>
         <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-600">
-          The complete Form aggregate returned no submissions for this period. QA calls remain available in the operational view.
+          The complete Form and ordinary AI QA aggregates returned no records for this period.
         </p>
         <button
           type="button"
@@ -119,6 +119,29 @@ export function AchieveFeedbackOverview({ dashboard, onOpenQaMatching }: {
             <RatingMetric label="Other / not supplied" count={ratings.other} total={scope.totalSubmissions} tone="other" />
           </dl>
         </div>
+      </section>
+
+      <section aria-labelledby="ai-qa-heading" className="rounded-2xl border border-slate-200 bg-white shadow-sm">
+        <div className="border-b border-slate-200 p-5 sm:p-6">
+          <h2 id="ai-qa-heading" className="text-lg font-semibold text-slate-950">AI QA</h2>
+          <p className="mt-1 text-xs leading-5 text-slate-500">
+            Ordinary graded welcome calls only. This denominator is separate from Form submissions.
+          </p>
+        </div>
+        <dl className="grid grid-cols-2 sm:grid-cols-5">
+          {[
+            ['All graded', overview.qa.coverage.allGraded],
+            ['Exact attributed', overview.qa.coverage.exactAgentAttributed],
+            ['Unavailable', overview.qa.coverage.agentUnavailable],
+            ['Pass', overview.qa.outcomes.pass],
+            ['Flagged', overview.qa.outcomes.flagged],
+          ].map(([label, count]) => (
+            <div key={label} className="border-t border-slate-100 p-4 first:border-t-0 sm:border-l sm:border-t-0 sm:first:border-l-0 sm:p-5">
+              <dt className="text-xs font-medium text-slate-500">{label}</dt>
+              <dd className="mt-1 text-2xl font-semibold tabular-nums text-slate-950">{count}</dd>
+            </div>
+          ))}
+        </dl>
       </section>
 
       <section aria-labelledby="reported-conditions-heading" className="rounded-2xl border border-slate-200 bg-white shadow-sm">

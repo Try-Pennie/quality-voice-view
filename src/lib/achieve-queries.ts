@@ -394,7 +394,7 @@ export async function fetchAchievePortalData(): Promise<AchievePortalData> {
   }
 }
 
-/** Fetch complete Form aggregates and exact Achieve-representative rollups. */
+/** Fetch complete Form + ordinary AI QA exact-representative rollups. */
 export async function fetchAchieveFeedbackDashboard(): Promise<AchieveFeedbackDashboard> {
   const response = await invokePortal('get_feedback_overview')
   try {
@@ -404,7 +404,7 @@ export async function fetchAchieveFeedbackDashboard(): Promise<AchieveFeedbackDa
   }
 }
 
-/** Fetch sanitized individual Form submissions for one exact representative. */
+/** Fetch sanitized Form notes and AI call summaries for one exact representative. */
 export async function fetchAchieveRepresentativeFeedback(
   agentEmail: string,
 ): Promise<AchieveRepresentativeFeedbackDetails> {

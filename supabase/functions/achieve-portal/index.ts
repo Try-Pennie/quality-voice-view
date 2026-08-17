@@ -9,8 +9,8 @@
 //   detail                    — one full drawer row
 //   list_audit                — deferred lightweight audit rows
 //   list_feedback_exceptions  — deferred capped exception lists
-//   get_feedback_overview     — complete Form aggregate + exact representative rollups
-//   list_feedback_for_rep     — individual Form submissions for one exact representative
+//   get_feedback_overview     — complete Form + ordinary AI QA representative rollups
+//   list_feedback_for_rep     — Form notes + AI call summaries for one exact representative
 //   submit_feedback           — existing validated write semantics
 //
 // Keep verify/list until a separately approved cleanup after the new frontend
@@ -343,7 +343,14 @@ async function fetchRepresentativeFeedback(admin: AdminClient, agentEmail: strin
   }
   const payload = parseRecord(result.data)
   const coverage = parseRecord(payload?.coverage)
-  if (!payload || !coverage || !Array.isArray(payload.rows)) return null
+  const qaCoverage = parseRecord(payload?.qa_coverage)
+  if (
+    !payload
+    || !coverage
+    || !qaCoverage
+    || !Array.isArray(payload.rows)
+    || !Array.isArray(payload.qa_rows)
+  ) return null
 
   const rows: BoundaryRow[] = []
   for (const raw of payload.rows) {
@@ -377,7 +384,28 @@ async function fetchRepresentativeFeedback(admin: AdminClient, agentEmail: strin
       submitted_by: submittedBy,
     })
   }
-  return { rows, coverage }
+
+  const qaRows: BoundaryRow[] = []
+  for (const raw of payload.qa_rows) {
+    const row = parseRecord(raw)
+    if (
+      !row
+      || typeof row.module_result_id !== "number"
+      || !Number.isSafeInteger(row.module_result_id)
+      || row.module_result_id < 1
+      || typeof row.graded_at !== "string"
+      || (row.outcome !== "pass" && row.outcome !== "flagged")
+    ) {
+      console.error("achieve representative QA detail error", { code: "invalid_qa_summary_shape" })
+      return null
+    }
+    qaRows.push({
+      module_result_id: row.module_result_id,
+      graded_at: row.graded_at,
+      outcome: row.outcome,
+    })
+  }
+  return { rows, coverage, qa_rows: qaRows, qa_coverage: qaCoverage }
 }
 
 async function fetchFeedbackExceptions(admin: AdminClient) {

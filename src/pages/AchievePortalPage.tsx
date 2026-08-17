@@ -295,11 +295,11 @@ function AchieveReviewQueue() {
           <div className="min-w-0">
             <p className="text-xs font-semibold uppercase tracking-[0.16em] text-blue-700">Achieve / FDR</p>
             <h1 className="mt-2 min-w-0 [overflow-wrap:anywhere] text-2xl font-semibold tracking-tight text-slate-950 sm:text-3xl">
-              {activeView === 'agent-feedback' ? 'Pennie agent feedback' : 'Welcome-call QA & matching'}
+              {activeView === 'agent-feedback' ? 'WC Agent Summary' : 'Welcome-call QA & matching'}
             </h1>
             <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">
               {activeView === 'agent-feedback'
-                ? 'Complete Google Form observations, exact Achieve representative attribution, and visible coverage gaps for leadership review.'
+                ? 'Separate Form observations and AI QA, with exact Achieve representative attribution and call-level alignment.'
                 : 'Operational Eavesly AI QA, call review, matching exceptions, and historical backfill evidence.'}
             </p>
           </div>
@@ -333,7 +333,7 @@ function AchieveReviewQueue() {
               activeView === 'agent-feedback' ? 'bg-slate-950 text-white shadow-sm' : 'text-slate-600 hover:bg-slate-50 hover:text-slate-950'
             }`}
           >
-            Agent Feedback
+            WC Agent Summary
           </button>
           <button
             type="button"
