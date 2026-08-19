@@ -290,7 +290,7 @@ function AchieveReviewQueue() {
 
   return (
     <main className="min-h-screen overflow-x-clip bg-slate-50 px-3 py-5 text-slate-950 sm:px-6 sm:py-8">
-      <div className="mx-auto min-w-0 max-w-7xl space-y-5 sm:space-y-6">
+      <div className="mx-auto min-w-0 max-w-[1600px] space-y-5 sm:space-y-6">
         <header className="grid min-w-0 gap-5 border-b border-slate-200 pb-5 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-end">
           <div className="min-w-0">
             <p className="text-xs font-semibold uppercase tracking-[0.16em] text-blue-700">Achieve / FDR</p>
