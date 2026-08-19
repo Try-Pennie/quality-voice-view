@@ -29,7 +29,6 @@ import {
   submitAchieveReviewFeedback,
   unlockAchievePortal,
   type AchieveAgentFeedback,
-  type AchievePortalData,
   type AchievePortalRow,
 } from '@/lib/achieve-queries'
 import { humanizeTransferReason, parseTransferExperience, transferExperienceSummary, type TransferExperience } from '@/lib/achieve-transfer-experience'
@@ -131,13 +130,11 @@ const INACCURACY_OPTIONS: { value: AlertInaccuracyReason; label: string }[] = [
 ]
 
 export default function AchievePortalPage() {
-  const queryClient = useQueryClient()
   const [unlocked, setUnlocked] = useState(() => !!sessionStorage.getItem(ACHIEVE_PASSWORD_SESSION_KEY))
 
   if (!unlocked) {
-    return <AchievePasswordGate onUnlock={(password, data) => {
+    return <AchievePasswordGate onUnlock={password => {
       sessionStorage.setItem(ACHIEVE_PASSWORD_SESSION_KEY, password)
-      queryClient.setQueryData(ACHIEVE_LIST_QUERY_KEY, data)
       setUnlocked(true)
     }} />
   }
@@ -145,7 +142,7 @@ export default function AchievePortalPage() {
   return <AchieveReviewQueue />
 }
 
-function AchievePasswordGate({ onUnlock }: { onUnlock: (password: string, data: AchievePortalData) => void }) {
+function AchievePasswordGate({ onUnlock }: { onUnlock: (password: string) => void }) {
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
   const [checking, setChecking] = useState(false)
@@ -155,11 +152,9 @@ function AchievePasswordGate({ onUnlock }: { onUnlock: (password: string, data: 
     if (!password || checking) return
     setChecking(true)
     setError('')
-    // The authenticated lightweight list is the unlock operation. This avoids
-    // a verify-then-list waterfall and seeds the repository QueryClient.
     try {
-      const data = await unlockAchievePortal(password)
-      onUnlock(password, data)
+      await unlockAchievePortal(password)
+      onUnlock(password)
     } catch (cause: unknown) {
       if (cause instanceof AchievePortalRequestError && cause.code === 'invalid_password') {
         setError('Incorrect password.')
@@ -218,6 +213,7 @@ function AchieveReviewQueue() {
   const portalQuery = useQuery({
     queryKey: ACHIEVE_LIST_QUERY_KEY,
     queryFn: fetchAchievePortalData,
+    enabled: activeView === 'qa-matching',
     staleTime: 60_000,
   })
   const feedbackDashboardQuery = useQuery({

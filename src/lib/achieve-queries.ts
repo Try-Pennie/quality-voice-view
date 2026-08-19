@@ -373,14 +373,11 @@ function canUseDemoFallback(error: unknown): boolean {
   return !(error instanceof AchievePortalRequestError && error.code === 'invalid_password')
 }
 
-// The new frontend uses list_overview; legacy list remains reserved for the
-// already-deployed frontend during the backend-first compatibility rollout.
-export async function unlockAchievePortal(password: string): Promise<AchievePortalData> {
+export async function unlockAchievePortal(password: string): Promise<void> {
   try {
-    return withDemoFallback(parseListResponse(await invokePortal('list_overview', {}, password)))
+    await invokePortal('verify', {}, password)
   } catch (error) {
-    if (showDemoData && canUseDemoFallback(error)) return demoPortalData()
-    throw error
+    if (!showDemoData || !canUseDemoFallback(error)) throw error
   }
 }
 
