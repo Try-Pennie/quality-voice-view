@@ -264,7 +264,7 @@ export default function DashboardPage() {
   const handleExportPDF = async () => {
     setExporting(true)
     try {
-      // Lazy-load jspdf + html2canvas only when the user actually exports —
+      // Lazy-load jsPDF only when the user actually exports —
       // keeps ~400KB out of the main bundle.
       const { exportDashboardToPDF } = await import('../lib/pdf-export')
       await exportDashboardToPDF(
