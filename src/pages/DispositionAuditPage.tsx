@@ -19,7 +19,12 @@ import { PageHero } from '../components/PageHero'
 import { ErrorState } from '@/components/states/ErrorState'
 import { EmptyState } from '@/components/states/EmptyState'
 import { RefreshingHint } from '@/components/ui/refreshing-hint'
-import { aggregateDispositionAuditByAgent, type DispositionAuditAgentStat } from './disposition-audit-agent-stats'
+import {
+  aggregateDispositionAuditByAgent,
+  dispositionTimingFlag,
+  type DispositionAuditAgentStat,
+  type DispositionTimingFlag,
+} from './disposition-audit-agent-stats'
 import { ChevronRight, Inbox } from 'lucide-react'
 
 // 'phantom_conversation' is held (see migration 20260702160000): its correct
@@ -27,6 +32,7 @@ import { ChevronRight, Inbox } from 'lucide-react'
 // yet. Re-add it here when the CRM gains a human no-contact/voicemail disposition.
 const TABS: (AuditCategory | 'all')[] = ['all', 'ended_live_lead']
 type StatusView = 'all' | 'new' | 'reviewed'
+type PriorityView = 'all' | 'early' | 'severe'
 
 function todayStart() {
   const [y, m, d] = ymdInBusinessTZ(new Date()).split('-').map(Number)
@@ -56,6 +62,7 @@ export default function DispositionAuditPage() {
     return t === 'ended_live_lead' ? t : 'all'
   })
   const [statusView, setStatusView] = useState<StatusView>('new')
+  const [priorityView, setPriorityView] = useState<PriorityView>('all')
   const [drawerRow, setDrawerRow] = useState<DispositionAuditRow | null>(null)
 
   const filters = useMemo<AuditFilters>(
@@ -76,11 +83,30 @@ export default function DispositionAuditPage() {
     setSearchParams(params, { replace: true })
   }, [startDate, endDate, tab, setSearchParams])
 
-  const rows = useMemo(() => {
+  const statusRows = useMemo(() => {
     if (statusView === 'new') return allRows.filter(r => !r.is_reviewed)
     if (statusView === 'reviewed') return allRows.filter(r => r.is_reviewed)
     return allRows
   }, [allRows, statusView])
+
+  const priorityCounts = useMemo(() => {
+    let early = 0
+    let severe = 0
+    for (const row of statusRows) {
+      const flag = dispositionTimingFlag(row.current_disposition, row.talk_time)
+      if (flag !== null) early += 1
+      if (flag === 'severe') severe += 1
+    }
+    return { early, severe }
+  }, [statusRows])
+
+  const rows = useMemo(() => {
+    if (priorityView === 'all') return statusRows
+    return statusRows.filter(row => {
+      const flag = dispositionTimingFlag(row.current_disposition, row.talk_time)
+      return priorityView === 'early' ? flag !== null : flag === 'severe'
+    })
+  }, [priorityView, statusRows])
 
   const openDrawer = useCallback((row: DispositionAuditRow) => {
     setDrawerRow(row)
@@ -166,6 +192,22 @@ export default function DispositionAuditPage() {
             ))}
           </div>
         </fieldset>
+        <fieldset className="flex flex-col gap-1.5">
+          <legend className="pennie-label">Priority</legend>
+          <div className="flex flex-wrap gap-1" role="radiogroup" aria-label="Filter by early 1.5 priority">
+            {(['all', 'early', 'severe'] as const).map(priority => (
+              <button key={priority} type="button" role="radio" aria-checked={priorityView === priority} onClick={() => setPriorityView(priority)}
+                className={`min-h-[40px] px-4 py-2 rounded-full text-sm font-semibold border transition-all ${
+                  priorityView === priority ? 'bg-pennie-navy text-pennie-white border-pennie-navy' : 'bg-pennie-white border-border text-pennie-graphite hover:bg-pennie-beige'
+                }`}>
+                {priority === 'all' ? 'All' : priority === 'early' ? `Early 1.5s (${priorityCounts.early})` : `Under 2m (${priorityCounts.severe})`}
+              </button>
+            ))}
+          </div>
+        </fieldset>
+        <p className="basis-full text-xs leading-5 text-pennie-graphite/70">
+          <strong className="text-pennie-navy">Early 1.5:</strong> Not Interested selected before 10 minutes. Calls under 2 minutes receive the highest-priority flag. These are review signals, not confirmed issues.
+        </p>
       </section>
 
       {!isError && agentStats.length > 0 && (
@@ -191,18 +233,27 @@ export default function DispositionAuditPage() {
                 </tr>
               </thead>
               <tbody>
-                {rows.map((r, i) => (
-                  <tr key={r.call_id} role="button" tabIndex={0}
-                    className={`pennie-focus-ring-inset group cursor-pointer transition-colors hover:bg-pennie-blue-light/40 ${i !== 0 ? 'border-t border-border/60' : ''}`}
-                    onClick={() => openDrawer(r)}
-                    onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openDrawer(r) } }}>
+                {rows.map((r, i) => {
+                  const timingFlag = dispositionTimingFlag(r.current_disposition, r.talk_time)
+                  return (
+                    <tr key={r.call_id} role="button" tabIndex={0}
+                      className={`pennie-focus-ring-inset group cursor-pointer transition-colors ${
+                        timingFlag === 'severe' ? 'bg-red-50/70 hover:bg-red-100/70'
+                          : timingFlag === 'early' ? 'bg-pennie-peach-light/20 hover:bg-pennie-peach-light/35'
+                          : 'hover:bg-pennie-blue-light/40'
+                      } ${i !== 0 ? 'border-t border-border/60' : ''}`}
+                      onClick={() => openDrawer(r)}
+                      onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openDrawer(r) } }}>
                     <Td><span className="text-sm text-muted-foreground tabular-nums">{formatDateTime(r.alert_created_at)}</span></Td>
                     <Td><span className="text-sm font-semibold text-pennie-navy">{r.agent_email || '—'}</span></Td>
                     <Td>
                       <div className="text-sm text-pennie-graphite font-medium">{r.contact_name || '—'}</div>
                       <div className="text-xs text-muted-foreground tabular-nums">{formatPhoneNumber(r.contact_phone)}</div>
                     </Td>
-                    <Td><span className="text-sm font-semibold text-pennie-navy tabular-nums">{formatAuditTalkTime(r.talk_time)}</span></Td>
+                    <Td>
+                      <span className="block text-sm font-semibold text-pennie-navy tabular-nums">{formatAuditTalkTime(r.talk_time)}</span>
+                      <DispositionTimingBadge flag={timingFlag} />
+                    </Td>
                     <Td><span className="text-sm text-pennie-graphite">{r.current_disposition || '—'}</span></Td>
                     <Td><span className="text-sm font-semibold text-pennie-navy">{r.suggested_disposition || '—'}</span></Td>
                     <Td><span className="text-sm tabular-nums text-pennie-graphite/70">{r.model_confidence != null ? `${Math.round(r.model_confidence * 100)}%` : '—'}</span></Td>
@@ -218,8 +269,9 @@ export default function DispositionAuditPage() {
                     <td className="pl-2 pr-5 py-3 w-10 text-right">
                       <ChevronRight aria-hidden="true" className="inline-block w-4 h-4 text-pennie-graphite/35 group-hover:text-pennie-blue-deeper group-hover:translate-x-0.5 transition-all" />
                     </td>
-                  </tr>
-                ))}
+                    </tr>
+                  )
+                })}
               </tbody>
             </table>
           </div>
@@ -255,7 +307,7 @@ function AgentDispositionSummary({ stats, refreshing }: {
             Audit findings by agent
           </h2>
           <p className="mt-1 max-w-3xl text-sm leading-6 text-pennie-graphite/70">
-            Model-flagged calls for this date range and category. Status only filters the review queue below; reviewed false alarms are excluded from potential issues, recurring patterns, and median talk time.
+            Model-flagged calls for this date range and category. Status and priority only filter the review queue below; reviewed false alarms are excluded from potential issues, early 1.5 counts, recurring patterns, and median talk time.
           </p>
         </div>
         <RefreshingHint active={refreshing} />
@@ -266,13 +318,14 @@ function AgentDispositionSummary({ stats, refreshing }: {
           <caption className="sr-only">Disposition audit findings grouped by agent</caption>
           <thead className="bg-pennie-beige/60">
             <tr>
-              <AgentSummaryTh className="w-[20%]">Agent</AgentSummaryTh>
-              <AgentSummaryTh className="w-[11%] text-center">Potential issues</AgentSummaryTh>
-              <AgentSummaryTh className="w-[9%] text-center">To review</AgentSummaryTh>
-              <AgentSummaryTh className="w-[9%] text-center">Confirmed</AgentSummaryTh>
-              <AgentSummaryTh className="w-[9%] text-center">False alarms</AgentSummaryTh>
-              <AgentSummaryTh className="w-[10%] text-center">Median talk</AgentSummaryTh>
-              <AgentSummaryTh className="w-[32%]">Most common mismatch</AgentSummaryTh>
+              <AgentSummaryTh className="w-[18%]">Agent</AgentSummaryTh>
+              <AgentSummaryTh className="w-[10%] text-center">Potential issues</AgentSummaryTh>
+              <AgentSummaryTh className="w-[8%] text-center">To review</AgentSummaryTh>
+              <AgentSummaryTh className="w-[8%] text-center">Confirmed</AgentSummaryTh>
+              <AgentSummaryTh className="w-[8%] text-center">False alarms</AgentSummaryTh>
+              <AgentSummaryTh className="w-[9%] text-center">Median talk</AgentSummaryTh>
+              <AgentSummaryTh className="w-[12%] text-center">Early 1.5s</AgentSummaryTh>
+              <AgentSummaryTh className="w-[27%]">Most common mismatch</AgentSummaryTh>
             </tr>
           </thead>
           <tbody className="divide-y divide-border/60">
@@ -286,6 +339,7 @@ function AgentDispositionSummary({ stats, refreshing }: {
                 <AgentSummaryCount value={stat.confirmedIssues} />
                 <AgentSummaryCount value={stat.falseAlarms} />
                 <AgentSummaryDuration seconds={stat.medianTalkTimeSeconds} />
+                <AgentSummaryPriority total={stat.earlyOnePointFiveCalls} severe={stat.severeOnePointFiveCalls} />
                 <td className="px-6 py-4 align-top">
                   <MismatchPattern stat={stat} />
                 </td>
@@ -306,11 +360,22 @@ function AgentDispositionSummary({ stats, refreshing }: {
               <AgentSummaryMetric label="To review" value={stat.toReview} />
               <AgentSummaryMetric label="Confirmed" value={stat.confirmedIssues} />
               <AgentSummaryMetric label="False alarms" value={stat.falseAlarms} />
-              <div className="col-span-2">
+              <div>
                 <dt className="pennie-label">Median talk time</dt>
                 <dd className="mt-1 text-xl font-semibold text-pennie-navy tabular-nums">
                   {formatAuditTalkTime(stat.medianTalkTimeSeconds)}
                 </dd>
+              </div>
+              <div>
+                <dt className="pennie-label">Early 1.5s</dt>
+                <dd className="mt-1 text-xl font-semibold text-pennie-navy tabular-nums">
+                  {stat.earlyOnePointFiveCalls.toLocaleString()}
+                </dd>
+                {stat.severeOnePointFiveCalls > 0 && (
+                  <p className="mt-0.5 text-xs font-semibold text-red-700 tabular-nums">
+                    {stat.severeOnePointFiveCalls.toLocaleString()} under 2m
+                  </p>
+                )}
               </div>
             </dl>
             <div className="mt-4 border-t border-border/60 pt-4">
@@ -321,6 +386,21 @@ function AgentDispositionSummary({ stats, refreshing }: {
         ))}
       </ul>
     </section>
+  )
+}
+
+function DispositionTimingBadge({ flag }: { flag: DispositionTimingFlag }) {
+  if (flag === null) return null
+
+  const severe = flag === 'severe'
+  return (
+    <span
+      className={`mt-1 inline-flex whitespace-nowrap rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide ${
+        severe ? 'bg-red-100 text-red-800' : 'bg-pennie-peach-light text-pennie-peach-deeper'
+      }`}
+    >
+      {severe ? 'Severe · 1.5 under 2m' : 'Early · 1.5 under 10m'}
+    </span>
   )
 }
 
@@ -362,6 +442,17 @@ function AgentSummaryCount({ value }: { value: number }) {
 
 function AgentSummaryDuration({ seconds }: { seconds: number | null }) {
   return <td className="px-3 py-4 text-center align-top text-sm font-semibold text-pennie-navy tabular-nums">{formatAuditTalkTime(seconds)}</td>
+}
+
+function AgentSummaryPriority({ total, severe }: { total: number; severe: number }) {
+  return (
+    <td className="px-3 py-4 text-center align-top tabular-nums">
+      <span className="block text-sm font-semibold text-pennie-navy">{total.toLocaleString()}</span>
+      {severe > 0 && (
+        <span className="mt-0.5 block text-xs font-semibold text-red-700">{severe.toLocaleString()} under 2m</span>
+      )}
+    </td>
+  )
 }
 
 function Th({ children }: { children: React.ReactNode }) {
