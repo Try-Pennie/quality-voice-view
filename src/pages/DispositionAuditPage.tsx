@@ -25,14 +25,19 @@ import {
   type DispositionAuditAgentStat,
   type DispositionTimingFlag,
 } from './disposition-audit-agent-stats'
-import { ChevronRight, Inbox } from 'lucide-react'
+import { paginate, type PageSlice } from './disposition-audit-pagination'
+import { ChevronLeft, ChevronRight, Inbox } from 'lucide-react'
 
 // 'phantom_conversation' is held (see migration 20260702160000): its correct
 // disposition is AI/dialer-only, so there's no human-applicable target to suggest
 // yet. Re-add it here when the CRM gains a human no-contact/voicemail disposition.
 const TABS: (AuditCategory | 'all')[] = ['all', 'ended_live_lead']
+const AGENT_PAGE_SIZE = 10
+const ALERT_PAGE_SIZES = [25, 50] as const
+
 type StatusView = 'all' | 'new' | 'reviewed'
 type PriorityView = 'all' | 'early' | 'severe'
+type AlertPageSize = typeof ALERT_PAGE_SIZES[number]
 
 function todayStart() {
   const [y, m, d] = ymdInBusinessTZ(new Date()).split('-').map(Number)
@@ -63,6 +68,9 @@ export default function DispositionAuditPage() {
   })
   const [statusView, setStatusView] = useState<StatusView>('new')
   const [priorityView, setPriorityView] = useState<PriorityView>('all')
+  const [agentPage, setAgentPage] = useState(1)
+  const [alertPage, setAlertPage] = useState(1)
+  const [alertPageSize, setAlertPageSize] = useState<AlertPageSize>(25)
   const [drawerRow, setDrawerRow] = useState<DispositionAuditRow | null>(null)
 
   const filters = useMemo<AuditFilters>(
@@ -108,6 +116,31 @@ export default function DispositionAuditPage() {
     })
   }, [priorityView, statusRows])
 
+  const agentPagination = useMemo(
+    () => paginate(agentStats, agentPage, AGENT_PAGE_SIZE),
+    [agentPage, agentStats],
+  )
+  const alertPagination = useMemo(
+    () => paginate(rows, alertPage, alertPageSize),
+    [alertPage, alertPageSize, rows],
+  )
+
+  useEffect(() => {
+    if (agentPage !== agentPagination.page) setAgentPage(agentPagination.page)
+  }, [agentPage, agentPagination.page])
+  useEffect(() => {
+    if (alertPage !== alertPagination.page) setAlertPage(alertPagination.page)
+  }, [alertPage, alertPagination.page])
+
+  const changeAgentPage = useCallback((page: number) => {
+    setAgentPage(page)
+    document.getElementById('agent-disposition-summary-heading')?.scrollIntoView({ block: 'start' })
+  }, [])
+  const changeAlertPage = useCallback((page: number) => {
+    setAlertPage(page)
+    document.getElementById('disposition-review-queue-heading')?.scrollIntoView({ block: 'start' })
+  }, [])
+
   const openDrawer = useCallback((row: DispositionAuditRow) => {
     setDrawerRow(row)
     if (!row.result_json) {
@@ -120,10 +153,10 @@ export default function DispositionAuditPage() {
 
   const advance = useCallback((delta: 1 | -1) => {
     if (!drawerRow) return
-    const idx = rows.findIndex(r => r.call_id === drawerRow.call_id)
-    const next = rows[idx + delta]
+    const idx = alertPagination.items.findIndex(r => r.call_id === drawerRow.call_id)
+    const next = alertPagination.items[idx + delta]
     if (next) openDrawer(next)
-  }, [rows, drawerRow, openDrawer])
+  }, [alertPagination.items, drawerRow, openDrawer])
 
   const onSubmitted = useCallback((updated: Partial<DispositionAuditRow>) => {
     if (!drawerRow) return
@@ -150,7 +183,7 @@ export default function DispositionAuditPage() {
     )
   }
 
-  const idx = drawerRow ? rows.findIndex(r => r.call_id === drawerRow.call_id) : -1
+  const idx = drawerRow ? alertPagination.items.findIndex(r => r.call_id === drawerRow.call_id) : -1
 
   const headlineLabel =
     statusView === 'new' ? 'to review' : statusView === 'reviewed' ? 'reviewed' : 'in window'
@@ -167,7 +200,7 @@ export default function DispositionAuditPage() {
       {/* Category tabs */}
       <div className="flex flex-wrap gap-2" role="tablist" aria-label="Audit category">
         {TABS.map(t => (
-          <button key={t} type="button" role="tab" aria-selected={tab === t} onClick={() => setTab(t)}
+          <button key={t} type="button" role="tab" aria-selected={tab === t} onClick={() => { setTab(t); setAgentPage(1); setAlertPage(1) }}
             className={`min-h-[40px] px-4 py-2 rounded-full text-sm font-semibold border transition-all ${
               tab === t ? 'bg-pennie-navy text-pennie-white border-pennie-navy' : 'bg-pennie-white border-border text-pennie-graphite hover:bg-pennie-beige'
             }`}>
@@ -178,12 +211,12 @@ export default function DispositionAuditPage() {
 
       {/* Filters */}
       <section className="pennie-card-tight flex flex-wrap gap-3 sm:gap-5 items-end">
-        <DateRangePicker startDate={startDate} endDate={endDate} onRangeChange={(s, e) => { setStartDate(s); setEndDate(e) }} />
+        <DateRangePicker startDate={startDate} endDate={endDate} onRangeChange={(s, e) => { setStartDate(s); setEndDate(e); setAgentPage(1); setAlertPage(1) }} />
         <fieldset className="flex flex-col gap-1.5">
           <legend className="pennie-label">Status</legend>
           <div className="flex gap-1" role="radiogroup" aria-label="Filter by status">
             {(['new', 'reviewed', 'all'] as const).map(s => (
-              <button key={s} type="button" role="radio" aria-checked={statusView === s} onClick={() => setStatusView(s)}
+              <button key={s} type="button" role="radio" aria-checked={statusView === s} onClick={() => { setStatusView(s); setAlertPage(1) }}
                 className={`min-h-[40px] px-4 py-2 rounded-full text-sm font-semibold border transition-all ${
                   statusView === s ? 'bg-pennie-navy text-pennie-white border-pennie-navy' : 'bg-pennie-white border-border text-pennie-graphite hover:bg-pennie-beige'
                 }`}>
@@ -196,7 +229,7 @@ export default function DispositionAuditPage() {
           <legend className="pennie-label">Priority</legend>
           <div className="flex flex-wrap gap-1" role="radiogroup" aria-label="Filter by early 1.5 priority">
             {(['all', 'early', 'severe'] as const).map(priority => (
-              <button key={priority} type="button" role="radio" aria-checked={priorityView === priority} onClick={() => setPriorityView(priority)}
+              <button key={priority} type="button" role="radio" aria-checked={priorityView === priority} onClick={() => { setPriorityView(priority); setAlertPage(1) }}
                 className={`min-h-[40px] px-4 py-2 rounded-full text-sm font-semibold border transition-all ${
                   priorityView === priority ? 'bg-pennie-navy text-pennie-white border-pennie-navy' : 'bg-pennie-white border-border text-pennie-graphite hover:bg-pennie-beige'
                 }`}>
@@ -211,12 +244,31 @@ export default function DispositionAuditPage() {
       </section>
 
       {!isError && agentStats.length > 0 && (
-        <AgentDispositionSummary stats={agentStats} refreshing={isFetching} />
+        <AgentDispositionSummary
+          pagination={agentPagination}
+          refreshing={isFetching}
+          onPageChange={changeAgentPage}
+        />
       )}
 
       {/* Table */}
       <section aria-labelledby="disposition-review-queue-heading" className="bg-pennie-white rounded-3xl shadow-resting overflow-hidden">
-        <h2 id="disposition-review-queue-heading" className="sr-only">Disposition review queue</h2>
+        <div className="flex flex-col gap-3 border-b border-border/60 px-5 py-5 sm:flex-row sm:items-end sm:justify-between sm:px-6">
+          <div>
+            <h2 id="disposition-review-queue-heading" className="text-xl font-semibold text-pennie-navy">Disposition review queue</h2>
+            <p className="mt-1 text-sm text-pennie-graphite/70">Newest matching alerts first.</p>
+          </div>
+          <label className="flex items-center gap-2 text-sm font-semibold text-pennie-graphite">
+            Alerts per page
+            <select
+              value={alertPageSize}
+              onChange={event => { setAlertPageSize(Number(event.target.value) === 50 ? 50 : 25); setAlertPage(1) }}
+              className="min-h-[40px] rounded-full border border-border bg-pennie-white px-3 text-sm font-semibold text-pennie-navy focus:outline-none focus:ring-2 focus:ring-pennie-blue-deeper/40"
+            >
+              {ALERT_PAGE_SIZES.map(size => <option key={size} value={size}>{size}</option>)}
+            </select>
+          </label>
+        </div>
         {loading ? (
           <div className="p-10 text-center text-muted-foreground">Loading…</div>
         ) : isError ? (
@@ -224,6 +276,7 @@ export default function DispositionAuditPage() {
         ) : rows.length === 0 ? (
           <EmptyState title={statusView === 'new' ? 'Nothing to review.' : 'No calls match.'} message="Try widening the date range or switching tabs." />
         ) : (
+          <>
           <div className="overflow-x-auto">
             <table className="min-w-full">
               <thead className="bg-pennie-beige/60">
@@ -233,7 +286,7 @@ export default function DispositionAuditPage() {
                 </tr>
               </thead>
               <tbody>
-                {rows.map((r, i) => {
+                {alertPagination.items.map((r, i) => {
                   const timingFlag = dispositionTimingFlag(r.current_disposition, r.talk_time)
                   return (
                     <tr key={r.call_id} role="button" tabIndex={0}
@@ -275,6 +328,17 @@ export default function DispositionAuditPage() {
               </tbody>
             </table>
           </div>
+          <PaginationControls
+            page={alertPagination.page}
+            pageCount={alertPagination.pageCount}
+            start={alertPagination.start}
+            end={alertPagination.end}
+            total={alertPagination.total}
+            itemLabel="alert"
+            ariaLabel="Disposition alert pages"
+            onPageChange={changeAlertPage}
+          />
+          </>
         )}
       </section>
 
@@ -284,17 +348,19 @@ export default function DispositionAuditPage() {
         onClose={() => setDrawerRow(null)}
         onSubmitted={onSubmitted}
         onAdvance={advance}
-        hasNext={idx > -1 && idx < rows.length - 1}
+        hasNext={idx > -1 && idx < alertPagination.items.length - 1}
         hasPrev={idx > 0}
       />
     </div>
   )
 }
 
-function AgentDispositionSummary({ stats, refreshing }: {
-  stats: ReadonlyArray<DispositionAuditAgentStat>
+function AgentDispositionSummary({ pagination, refreshing, onPageChange }: {
+  pagination: PageSlice<DispositionAuditAgentStat>
   refreshing: boolean
+  onPageChange: (page: number) => void
 }) {
+  const stats = pagination.items
   return (
     <section
       aria-labelledby="agent-disposition-summary-heading"
@@ -307,7 +373,7 @@ function AgentDispositionSummary({ stats, refreshing }: {
             Audit findings by agent
           </h2>
           <p className="mt-1 max-w-3xl text-sm leading-6 text-pennie-graphite/70">
-            Model-flagged calls for this date range and category. Status and priority only filter the review queue below; reviewed false alarms are excluded from potential issues, early 1.5 counts, recurring patterns, and median talk time.
+            Agents are ranked by potential issues and shown 10 at a time. Status and priority only filter the review queue below; reviewed false alarms are excluded from potential issues, early 1.5 counts, recurring patterns, and median talk time.
           </p>
         </div>
         <RefreshingHint active={refreshing} />
@@ -385,7 +451,58 @@ function AgentDispositionSummary({ stats, refreshing }: {
           </li>
         ))}
       </ul>
+
+      <PaginationControls
+        page={pagination.page}
+        pageCount={pagination.pageCount}
+        start={pagination.start}
+        end={pagination.end}
+        total={pagination.total}
+        itemLabel="agent"
+        ariaLabel="Agent summary pages"
+        onPageChange={onPageChange}
+      />
     </section>
+  )
+}
+
+function PaginationControls({ page, pageCount, start, end, total, itemLabel, ariaLabel, onPageChange }: {
+  page: number
+  pageCount: number
+  start: number
+  end: number
+  total: number
+  itemLabel: string
+  ariaLabel: string
+  onPageChange: (page: number) => void
+}) {
+  return (
+    <nav aria-label={ariaLabel} className="flex flex-col gap-3 border-t border-border/60 px-5 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-6">
+      <p className="text-sm text-pennie-graphite/70 tabular-nums">
+        Showing <span className="font-semibold text-pennie-navy">{start.toLocaleString()}–{end.toLocaleString()}</span> of {total.toLocaleString()} {itemLabel}{total === 1 ? '' : 's'}
+      </p>
+      {pageCount > 1 && (
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => onPageChange(page - 1)}
+            disabled={page === 1}
+            className="pennie-focus-ring inline-flex min-h-[40px] items-center gap-1 rounded-full border border-border px-3 text-sm font-semibold text-pennie-graphite transition-colors hover:bg-pennie-beige disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            <ChevronLeft aria-hidden="true" className="h-4 w-4" /> Previous
+          </button>
+          <span className="min-w-20 text-center text-sm font-semibold text-pennie-navy tabular-nums">Page {page} of {pageCount}</span>
+          <button
+            type="button"
+            onClick={() => onPageChange(page + 1)}
+            disabled={page === pageCount}
+            className="pennie-focus-ring inline-flex min-h-[40px] items-center gap-1 rounded-full border border-border px-3 text-sm font-semibold text-pennie-graphite transition-colors hover:bg-pennie-beige disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            Next <ChevronRight aria-hidden="true" className="h-4 w-4" />
+          </button>
+        </div>
+      )}
+    </nav>
   )
 }
 
