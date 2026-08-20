@@ -14,7 +14,7 @@ import { DispositionAuditDrawer } from '../components/alerts/DispositionAuditDra
 import { DateRangePicker } from '../components/dashboard/DateRangePicker'
 import { parseDateParam, formatDateParam } from '../lib/url-filters'
 import { ymdInBusinessTZ } from '../lib/time-zone'
-import { formatDateTime, formatPhoneNumber } from '../lib/utils'
+import { formatDateTime, formatDuration, formatPhoneNumber } from '../lib/utils'
 import { PageHero } from '../components/PageHero'
 import { ErrorState } from '@/components/states/ErrorState'
 import { EmptyState } from '@/components/states/EmptyState'
@@ -35,6 +35,12 @@ function todayStart() {
 function todayEnd() {
   const [y, m, d] = ymdInBusinessTZ(new Date()).split('-').map(Number)
   const local = new Date(y, m - 1, d); local.setHours(23, 59, 59, 999); return local
+}
+
+function formatAuditTalkTime(seconds: number | null): string {
+  if (seconds === null || !Number.isFinite(seconds) || seconds < 0) return '—'
+  if (seconds === 0) return '0:00'
+  return formatDuration(Math.round(seconds))
 }
 
 export default function DispositionAuditPage() {
@@ -180,7 +186,7 @@ export default function DispositionAuditPage() {
             <table className="min-w-full">
               <thead className="bg-pennie-beige/60">
                 <tr>
-                  <Th>Time (ET)</Th><Th>Agent</Th><Th>Contact</Th><Th>Agent set</Th><Th>Model suggests</Th><Th>Conf</Th><Th>Status</Th>
+                  <Th>Time (ET)</Th><Th>Agent</Th><Th>Contact</Th><Th>Talk time</Th><Th>Agent set</Th><Th>Model suggests</Th><Th>Conf</Th><Th>Status</Th>
                   <th aria-hidden="true" className="w-10" />
                 </tr>
               </thead>
@@ -196,6 +202,7 @@ export default function DispositionAuditPage() {
                       <div className="text-sm text-pennie-graphite font-medium">{r.contact_name || '—'}</div>
                       <div className="text-xs text-muted-foreground tabular-nums">{formatPhoneNumber(r.contact_phone)}</div>
                     </Td>
+                    <Td><span className="text-sm font-semibold text-pennie-navy tabular-nums">{formatAuditTalkTime(r.talk_time)}</span></Td>
                     <Td><span className="text-sm text-pennie-graphite">{r.current_disposition || '—'}</span></Td>
                     <Td><span className="text-sm font-semibold text-pennie-navy">{r.suggested_disposition || '—'}</span></Td>
                     <Td><span className="text-sm tabular-nums text-pennie-graphite/70">{r.model_confidence != null ? `${Math.round(r.model_confidence * 100)}%` : '—'}</span></Td>
@@ -248,7 +255,7 @@ function AgentDispositionSummary({ stats, refreshing }: {
             Audit findings by agent
           </h2>
           <p className="mt-1 max-w-3xl text-sm leading-6 text-pennie-graphite/70">
-            Model-flagged calls for this date range and category. Status only filters the review queue below; reviewed false alarms are excluded from potential issues and recurring patterns.
+            Model-flagged calls for this date range and category. Status only filters the review queue below; reviewed false alarms are excluded from potential issues, recurring patterns, and median talk time.
           </p>
         </div>
         <RefreshingHint active={refreshing} />
@@ -259,12 +266,13 @@ function AgentDispositionSummary({ stats, refreshing }: {
           <caption className="sr-only">Disposition audit findings grouped by agent</caption>
           <thead className="bg-pennie-beige/60">
             <tr>
-              <AgentSummaryTh className="w-[24%]">Agent</AgentSummaryTh>
-              <AgentSummaryTh className="w-[12%] text-center">Potential issues</AgentSummaryTh>
-              <AgentSummaryTh className="w-[10%] text-center">To review</AgentSummaryTh>
-              <AgentSummaryTh className="w-[10%] text-center">Confirmed</AgentSummaryTh>
-              <AgentSummaryTh className="w-[10%] text-center">False alarms</AgentSummaryTh>
-              <AgentSummaryTh className="w-[34%]">Most common mismatch</AgentSummaryTh>
+              <AgentSummaryTh className="w-[20%]">Agent</AgentSummaryTh>
+              <AgentSummaryTh className="w-[11%] text-center">Potential issues</AgentSummaryTh>
+              <AgentSummaryTh className="w-[9%] text-center">To review</AgentSummaryTh>
+              <AgentSummaryTh className="w-[9%] text-center">Confirmed</AgentSummaryTh>
+              <AgentSummaryTh className="w-[9%] text-center">False alarms</AgentSummaryTh>
+              <AgentSummaryTh className="w-[10%] text-center">Median talk</AgentSummaryTh>
+              <AgentSummaryTh className="w-[32%]">Most common mismatch</AgentSummaryTh>
             </tr>
           </thead>
           <tbody className="divide-y divide-border/60">
@@ -277,6 +285,7 @@ function AgentDispositionSummary({ stats, refreshing }: {
                 <AgentSummaryCount value={stat.toReview} />
                 <AgentSummaryCount value={stat.confirmedIssues} />
                 <AgentSummaryCount value={stat.falseAlarms} />
+                <AgentSummaryDuration seconds={stat.medianTalkTimeSeconds} />
                 <td className="px-6 py-4 align-top">
                   <MismatchPattern stat={stat} />
                 </td>
@@ -297,6 +306,12 @@ function AgentDispositionSummary({ stats, refreshing }: {
               <AgentSummaryMetric label="To review" value={stat.toReview} />
               <AgentSummaryMetric label="Confirmed" value={stat.confirmedIssues} />
               <AgentSummaryMetric label="False alarms" value={stat.falseAlarms} />
+              <div className="col-span-2">
+                <dt className="pennie-label">Median talk time</dt>
+                <dd className="mt-1 text-xl font-semibold text-pennie-navy tabular-nums">
+                  {formatAuditTalkTime(stat.medianTalkTimeSeconds)}
+                </dd>
+              </div>
             </dl>
             <div className="mt-4 border-t border-border/60 pt-4">
               <p className="pennie-label">Most common mismatch</p>
@@ -343,6 +358,10 @@ function AgentSummaryTh({ children, className = '' }: { children: React.ReactNod
 
 function AgentSummaryCount({ value }: { value: number }) {
   return <td className="px-3 py-4 text-center align-top text-sm font-semibold text-pennie-navy tabular-nums">{value.toLocaleString()}</td>
+}
+
+function AgentSummaryDuration({ seconds }: { seconds: number | null }) {
+  return <td className="px-3 py-4 text-center align-top text-sm font-semibold text-pennie-navy tabular-nums">{formatAuditTalkTime(seconds)}</td>
 }
 
 function Th({ children }: { children: React.ReactNode }) {

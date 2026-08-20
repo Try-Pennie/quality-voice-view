@@ -2,7 +2,7 @@ import type { DispositionAuditRow } from '../lib/disposition-audit-queries'
 
 type AgentStatRow = Pick<
   DispositionAuditRow,
-  'agent_email' | 'current_disposition' | 'suggested_disposition' | 'is_reviewed' | 'accurate'
+  'agent_email' | 'current_disposition' | 'suggested_disposition' | 'talk_time' | 'is_reviewed' | 'accurate'
 >
 
 export type DispositionMismatchPattern = {
@@ -17,6 +17,7 @@ export type DispositionAuditAgentStat = {
   readonly toReview: number
   readonly confirmedIssues: number
   readonly falseAlarms: number
+  readonly medianTalkTimeSeconds: number | null
   readonly topMismatch: DispositionMismatchPattern | null
 }
 
@@ -26,11 +27,20 @@ type MutableAgentStat = {
   toReview: number
   confirmedIssues: number
   falseAlarms: number
+  talkTimes: number[]
   mismatches: Map<string, DispositionMismatchPattern>
 }
 
 const UNKNOWN_AGENT_KEY = '\u0000unknown-agent'
 const UNKNOWN_DISPOSITION = 'Unknown disposition'
+
+function median(values: ReadonlyArray<number>): number | null {
+  if (values.length === 0) return null
+  const sorted = [...values].sort((a, b) => a - b)
+  const middle = Math.floor(sorted.length / 2)
+  if (sorted.length % 2 === 1) return sorted[middle]
+  return (sorted[middle - 1] + sorted[middle]) / 2
+}
 
 /**
  * Summarizes the page's already-scoped audit findings by agent.
@@ -50,6 +60,7 @@ export function aggregateDispositionAuditByAgent(
       toReview: 0,
       confirmedIssues: 0,
       falseAlarms: 0,
+      talkTimes: [],
       mismatches: new Map<string, DispositionMismatchPattern>(),
     }
 
@@ -59,6 +70,9 @@ export function aggregateDispositionAuditByAgent(
     } else {
       stat.potentialIssues += 1
       if (row.accurate === true) stat.confirmedIssues += 1
+      if (row.talk_time !== null && Number.isFinite(row.talk_time) && row.talk_time >= 0) {
+        stat.talkTimes.push(row.talk_time)
+      }
 
       const currentDisposition = row.current_disposition?.trim() || UNKNOWN_DISPOSITION
       const suggestedDisposition = row.suggested_disposition?.trim() || UNKNOWN_DISPOSITION
@@ -80,6 +94,7 @@ export function aggregateDispositionAuditByAgent(
     toReview: stat.toReview,
     confirmedIssues: stat.confirmedIssues,
     falseAlarms: stat.falseAlarms,
+    medianTalkTimeSeconds: median(stat.talkTimes),
     topMismatch: Array.from(stat.mismatches.values()).sort(
       (a, b) =>
         b.count - a.count ||
