@@ -14,10 +14,12 @@ import { DispositionAuditDrawer } from '../components/alerts/DispositionAuditDra
 import { DateRangePicker } from '../components/dashboard/DateRangePicker'
 import { parseDateParam, formatDateParam } from '../lib/url-filters'
 import { ymdInBusinessTZ } from '../lib/time-zone'
-import { formatDateTime, formatPhoneNumber } from '../lib/utils'
+import { formatDateTime, formatDuration, formatPhoneNumber } from '../lib/utils'
 import { PageHero } from '../components/PageHero'
 import { ErrorState } from '@/components/states/ErrorState'
 import { EmptyState } from '@/components/states/EmptyState'
+import { RefreshingHint } from '@/components/ui/refreshing-hint'
+import { aggregateDispositionAuditByAgent, type DispositionAuditAgentStat } from './disposition-audit-agent-stats'
 import { ChevronRight, Inbox } from 'lucide-react'
 
 // 'phantom_conversation' is held (see migration 20260702160000): its correct
@@ -33,6 +35,12 @@ function todayStart() {
 function todayEnd() {
   const [y, m, d] = ymdInBusinessTZ(new Date()).split('-').map(Number)
   const local = new Date(y, m - 1, d); local.setHours(23, 59, 59, 999); return local
+}
+
+function formatAuditTalkTime(seconds: number | null): string {
+  if (seconds === null || !Number.isFinite(seconds) || seconds < 0) return '—'
+  if (seconds === 0) return '0:00'
+  return formatDuration(Math.round(seconds))
 }
 
 export default function DispositionAuditPage() {
@@ -54,8 +62,9 @@ export default function DispositionAuditPage() {
     () => ({ startDate, endDate, category: tab === 'all' ? undefined : tab }),
     [startDate, endDate, tab],
   )
-  const { data, isPending, isError, refetch } = useDispositionAudit(filters, scope)
+  const { data, isPending, isFetching, isError, refetch } = useDispositionAudit(filters, scope)
   const allRows = useMemo(() => data ?? [], [data])
+  const agentStats = useMemo(() => aggregateDispositionAuditByAgent(allRows), [allRows])
   const loading = isPending && !data
 
   // Sync filter state to the URL (shareable view).
@@ -159,8 +168,13 @@ export default function DispositionAuditPage() {
         </fieldset>
       </section>
 
+      {!isError && agentStats.length > 0 && (
+        <AgentDispositionSummary stats={agentStats} refreshing={isFetching} />
+      )}
+
       {/* Table */}
-      <section className="bg-pennie-white rounded-3xl shadow-resting overflow-hidden">
+      <section aria-labelledby="disposition-review-queue-heading" className="bg-pennie-white rounded-3xl shadow-resting overflow-hidden">
+        <h2 id="disposition-review-queue-heading" className="sr-only">Disposition review queue</h2>
         {loading ? (
           <div className="p-10 text-center text-muted-foreground">Loading…</div>
         ) : isError ? (
@@ -172,7 +186,7 @@ export default function DispositionAuditPage() {
             <table className="min-w-full">
               <thead className="bg-pennie-beige/60">
                 <tr>
-                  <Th>Time (ET)</Th><Th>Agent</Th><Th>Contact</Th><Th>Agent set</Th><Th>Model suggests</Th><Th>Conf</Th><Th>Status</Th>
+                  <Th>Time (ET)</Th><Th>Agent</Th><Th>Contact</Th><Th>Talk time</Th><Th>Agent set</Th><Th>Model suggests</Th><Th>Conf</Th><Th>Status</Th>
                   <th aria-hidden="true" className="w-10" />
                 </tr>
               </thead>
@@ -188,6 +202,7 @@ export default function DispositionAuditPage() {
                       <div className="text-sm text-pennie-graphite font-medium">{r.contact_name || '—'}</div>
                       <div className="text-xs text-muted-foreground tabular-nums">{formatPhoneNumber(r.contact_phone)}</div>
                     </Td>
+                    <Td><span className="text-sm font-semibold text-pennie-navy tabular-nums">{formatAuditTalkTime(r.talk_time)}</span></Td>
                     <Td><span className="text-sm text-pennie-graphite">{r.current_disposition || '—'}</span></Td>
                     <Td><span className="text-sm font-semibold text-pennie-navy">{r.suggested_disposition || '—'}</span></Td>
                     <Td><span className="text-sm tabular-nums text-pennie-graphite/70">{r.model_confidence != null ? `${Math.round(r.model_confidence * 100)}%` : '—'}</span></Td>
@@ -222,6 +237,131 @@ export default function DispositionAuditPage() {
       />
     </div>
   )
+}
+
+function AgentDispositionSummary({ stats, refreshing }: {
+  stats: ReadonlyArray<DispositionAuditAgentStat>
+  refreshing: boolean
+}) {
+  return (
+    <section
+      aria-labelledby="agent-disposition-summary-heading"
+      aria-busy={refreshing}
+      className="bg-pennie-white rounded-3xl shadow-resting overflow-hidden"
+    >
+      <div className="flex flex-col gap-3 border-b border-border/60 px-5 py-5 sm:px-6 lg:flex-row lg:items-start lg:justify-between">
+        <div className="min-w-0">
+          <h2 id="agent-disposition-summary-heading" className="text-xl font-semibold text-pennie-navy">
+            Audit findings by agent
+          </h2>
+          <p className="mt-1 max-w-3xl text-sm leading-6 text-pennie-graphite/70">
+            Model-flagged calls for this date range and category. Status only filters the review queue below; reviewed false alarms are excluded from potential issues, recurring patterns, and median talk time.
+          </p>
+        </div>
+        <RefreshingHint active={refreshing} />
+      </div>
+
+      <div className="hidden lg:block">
+        <table className="w-full table-fixed">
+          <caption className="sr-only">Disposition audit findings grouped by agent</caption>
+          <thead className="bg-pennie-beige/60">
+            <tr>
+              <AgentSummaryTh className="w-[20%]">Agent</AgentSummaryTh>
+              <AgentSummaryTh className="w-[11%] text-center">Potential issues</AgentSummaryTh>
+              <AgentSummaryTh className="w-[9%] text-center">To review</AgentSummaryTh>
+              <AgentSummaryTh className="w-[9%] text-center">Confirmed</AgentSummaryTh>
+              <AgentSummaryTh className="w-[9%] text-center">False alarms</AgentSummaryTh>
+              <AgentSummaryTh className="w-[10%] text-center">Median talk</AgentSummaryTh>
+              <AgentSummaryTh className="w-[32%]">Most common mismatch</AgentSummaryTh>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-border/60">
+            {stats.map(stat => (
+              <tr key={stat.agentEmail ?? 'unknown-agent'}>
+                <th scope="row" className="px-6 py-4 text-left align-top [overflow-wrap:anywhere] text-sm font-semibold text-pennie-navy">
+                  {stat.agentEmail ?? 'Unknown agent'}
+                </th>
+                <AgentSummaryCount value={stat.potentialIssues} />
+                <AgentSummaryCount value={stat.toReview} />
+                <AgentSummaryCount value={stat.confirmedIssues} />
+                <AgentSummaryCount value={stat.falseAlarms} />
+                <AgentSummaryDuration seconds={stat.medianTalkTimeSeconds} />
+                <td className="px-6 py-4 align-top">
+                  <MismatchPattern stat={stat} />
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      <ul className="divide-y divide-border/60 lg:hidden">
+        {stats.map(stat => (
+          <li key={stat.agentEmail ?? 'unknown-agent'} className="px-5 py-5 sm:px-6">
+            <p className="[overflow-wrap:anywhere] text-sm font-semibold text-pennie-navy">
+              {stat.agentEmail ?? 'Unknown agent'}
+            </p>
+            <dl className="mt-4 grid grid-cols-2 gap-x-5 gap-y-4">
+              <AgentSummaryMetric label="Potential issues" value={stat.potentialIssues} />
+              <AgentSummaryMetric label="To review" value={stat.toReview} />
+              <AgentSummaryMetric label="Confirmed" value={stat.confirmedIssues} />
+              <AgentSummaryMetric label="False alarms" value={stat.falseAlarms} />
+              <div className="col-span-2">
+                <dt className="pennie-label">Median talk time</dt>
+                <dd className="mt-1 text-xl font-semibold text-pennie-navy tabular-nums">
+                  {formatAuditTalkTime(stat.medianTalkTimeSeconds)}
+                </dd>
+              </div>
+            </dl>
+            <div className="mt-4 border-t border-border/60 pt-4">
+              <p className="pennie-label">Most common mismatch</p>
+              <div className="mt-1"><MismatchPattern stat={stat} /></div>
+            </div>
+          </li>
+        ))}
+      </ul>
+    </section>
+  )
+}
+
+function MismatchPattern({ stat }: { stat: DispositionAuditAgentStat }) {
+  const pattern = stat.topMismatch
+  if (!pattern) return <span className="text-sm text-muted-foreground">—</span>
+
+  return (
+    <div className="min-w-0 text-sm leading-5">
+      <span className="block [overflow-wrap:anywhere] text-pennie-graphite">
+        <span className="sr-only">Agent selected: </span>{pattern.currentDisposition}
+      </span>
+      <span className="block [overflow-wrap:anywhere] font-semibold text-pennie-navy">
+        <span className="sr-only">Model suggested: </span><span aria-hidden="true">→ </span>{pattern.suggestedDisposition}
+      </span>
+      <span className="mt-1 block text-xs text-muted-foreground tabular-nums">
+        {pattern.count.toLocaleString()} {pattern.count === 1 ? 'call' : 'calls'}
+      </span>
+    </div>
+  )
+}
+
+function AgentSummaryMetric({ label, value }: { label: string; value: number }) {
+  return (
+    <div>
+      <dt className="pennie-label">{label}</dt>
+      <dd className="mt-1 text-xl font-semibold text-pennie-navy tabular-nums">{value.toLocaleString()}</dd>
+    </div>
+  )
+}
+
+function AgentSummaryTh({ children, className = '' }: { children: React.ReactNode; className?: string }) {
+  return <th scope="col" className={`px-6 py-3 text-left text-[11px] font-bold text-pennie-graphite/70 uppercase tracking-[0.06em] ${className}`}>{children}</th>
+}
+
+function AgentSummaryCount({ value }: { value: number }) {
+  return <td className="px-3 py-4 text-center align-top text-sm font-semibold text-pennie-navy tabular-nums">{value.toLocaleString()}</td>
+}
+
+function AgentSummaryDuration({ seconds }: { seconds: number | null }) {
+  return <td className="px-3 py-4 text-center align-top text-sm font-semibold text-pennie-navy tabular-nums">{formatAuditTalkTime(seconds)}</td>
 }
 
 function Th({ children }: { children: React.ReactNode }) {

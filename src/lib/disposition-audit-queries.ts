@@ -25,6 +25,7 @@ export type DispositionAuditRow = AlertWithFeedback & {
   model_conversation_happened: string | null
   model_confidence: number | null
   audit_category: AuditCategory
+  talk_time: number | null
 }
 
 export type AuditFilters = {
@@ -50,6 +51,7 @@ const AUDIT_LIST_COLUMNS = [
   'model_conversation_happened',
   'model_confidence',
   'audit_category',
+  'talk_time',
   'is_reviewed',
   'accurate',
   'action_taken',
