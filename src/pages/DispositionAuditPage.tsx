@@ -79,7 +79,6 @@ export default function DispositionAuditPage() {
   )
   const { data, isPending, isFetching, isError, refetch } = useDispositionAudit(filters, scope)
   const allRows = useMemo(() => data ?? [], [data])
-  const agentStats = useMemo(() => aggregateDispositionAuditByAgent(allRows), [allRows])
   const loading = isPending && !data
 
   // Sync filter state to the URL (shareable view).
@@ -115,6 +114,7 @@ export default function DispositionAuditPage() {
       return priorityView === 'early' ? flag !== null : flag === 'severe'
     })
   }, [priorityView, statusRows])
+  const agentStats = useMemo(() => aggregateDispositionAuditByAgent(rows), [rows])
 
   const agentPagination = useMemo(
     () => paginate(agentStats, agentPage, AGENT_PAGE_SIZE),
@@ -216,7 +216,7 @@ export default function DispositionAuditPage() {
           <legend className="pennie-label">Status</legend>
           <div className="flex gap-1" role="radiogroup" aria-label="Filter by status">
             {(['new', 'reviewed', 'all'] as const).map(s => (
-              <button key={s} type="button" role="radio" aria-checked={statusView === s} onClick={() => { setStatusView(s); setAlertPage(1) }}
+              <button key={s} type="button" role="radio" aria-checked={statusView === s} onClick={() => { setStatusView(s); setAgentPage(1); setAlertPage(1) }}
                 className={`min-h-[40px] px-4 py-2 rounded-full text-sm font-semibold border transition-all ${
                   statusView === s ? 'bg-pennie-navy text-pennie-white border-pennie-navy' : 'bg-pennie-white border-border text-pennie-graphite hover:bg-pennie-beige'
                 }`}>
@@ -229,7 +229,7 @@ export default function DispositionAuditPage() {
           <legend className="pennie-label">Priority</legend>
           <div className="flex flex-wrap gap-1" role="radiogroup" aria-label="Filter by early 1.5 priority">
             {(['all', 'early', 'severe'] as const).map(priority => (
-              <button key={priority} type="button" role="radio" aria-checked={priorityView === priority} onClick={() => { setPriorityView(priority); setAlertPage(1) }}
+              <button key={priority} type="button" role="radio" aria-checked={priorityView === priority} onClick={() => { setPriorityView(priority); setAgentPage(1); setAlertPage(1) }}
                 className={`min-h-[40px] px-4 py-2 rounded-full text-sm font-semibold border transition-all ${
                   priorityView === priority ? 'bg-pennie-navy text-pennie-white border-pennie-navy' : 'bg-pennie-white border-border text-pennie-graphite hover:bg-pennie-beige'
                 }`}>
@@ -373,7 +373,7 @@ function AgentDispositionSummary({ pagination, refreshing, onPageChange }: {
             Audit findings by agent
           </h2>
           <p className="mt-1 max-w-3xl text-sm leading-6 text-pennie-graphite/70">
-            Agents are ranked by potential issues and shown 10 at a time. Status and priority only filter the review queue below; reviewed false alarms are excluded from potential issues, early 1.5 counts, recurring patterns, and median talk time.
+            Agents are ranked by potential issues and shown 10 at a time. Date range, category, status, and priority apply to both tables; reviewed false alarms are excluded from potential issues, early 1.5 counts, recurring patterns, and median talk time.
           </p>
         </div>
         <RefreshingHint active={refreshing} />
