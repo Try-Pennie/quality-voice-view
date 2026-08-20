@@ -1,7 +1,7 @@
 // Self-check for disposition-audit-agent-stats — this repo has no test runner.
 // Run: npx tsx src/pages/disposition-audit-agent-stats.check.ts
 import assert from 'node:assert/strict'
-import { aggregateDispositionAuditByAgent } from './disposition-audit-agent-stats'
+import { aggregateDispositionAuditByAgent, dispositionTimingFlag } from './disposition-audit-agent-stats'
 
 type Row = Parameters<typeof aggregateDispositionAuditByAgent>[0][number]
 
@@ -37,6 +37,8 @@ assert.deepEqual(stats[0], {
   toReview: 2,
   confirmedIssues: 1,
   falseAlarms: 1,
+  earlyOnePointFiveCalls: 3,
+  severeOnePointFiveCalls: 1,
   medianTalkTimeSeconds: 120,
   topMismatch: {
     currentDisposition: '1.5 - Not Interested',
@@ -58,6 +60,8 @@ const falseAlarmOnly = aggregateDispositionAuditByAgent([
 ])[0]
 assert.equal(falseAlarmOnly.potentialIssues, 0)
 assert.equal(falseAlarmOnly.falseAlarms, 1)
+assert.equal(falseAlarmOnly.earlyOnePointFiveCalls, 0)
+assert.equal(falseAlarmOnly.severeOnePointFiveCalls, 0)
 assert.equal(falseAlarmOnly.medianTalkTimeSeconds, null)
 assert.equal(falseAlarmOnly.topMismatch, null)
 
@@ -83,6 +87,14 @@ const evenMedian = aggregateDispositionAuditByAgent([
   row({ talk_time: 120 }),
 ])[0]
 assert.equal(evenMedian.medianTalkTimeSeconds, 90)
+
+assert.equal(dispositionTimingFlag('1.5 - Not Interested', 119), 'severe')
+assert.equal(dispositionTimingFlag('1.5 - Not Interested', 120), 'early')
+assert.equal(dispositionTimingFlag('1.5 - Not Interested', 599), 'early')
+assert.equal(dispositionTimingFlag('1.5 - Not Interested', 600), null)
+assert.equal(dispositionTimingFlag('1.3 - Interested', 30), null)
+assert.equal(dispositionTimingFlag('1.5 - Not Interested', null), null)
+assert.equal(dispositionTimingFlag('1.5 - Not Interested', -1), null)
 
 assert.deepEqual(aggregateDispositionAuditByAgent([]), [])
 console.log('disposition-audit-agent-stats checks passed')
