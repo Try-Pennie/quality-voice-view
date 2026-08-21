@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useId, useMemo, useState } from 'react'
 import { ChevronRight, Download, Search } from 'lucide-react'
 import { AchieveRepresentativeFeedbackDrawer } from '@/components/achieve/AchieveRepresentativeFeedbackDrawer'
 import {
@@ -9,6 +9,7 @@ import {
   type AchieveRepresentativeFeedback,
   type AchieveRepresentativeReviewStatus,
 } from '@/lib/achieve-feedback-overview'
+import type { AchievePeriodRanks } from '@/lib/achieve-management'
 
 const activityDate = new Intl.DateTimeFormat('en-US', {
   timeZone: 'UTC', month: 'short', day: 'numeric', year: 'numeric',
@@ -85,11 +86,14 @@ function AiSummary({ representative }: { representative: AchieveRepresentativeFe
   )
 }
 
-function downloadRepresentativesCsv(representatives: ReadonlyArray<AchieveRepresentativeFeedback>) {
+function downloadRepresentativesCsv(
+  representatives: ReadonlyArray<AchieveRepresentativeFeedback>,
+  filenamePrefix: string,
+) {
   const url = URL.createObjectURL(new Blob([achieveRepresentativesCsv(representatives)], { type: 'text/csv;charset=utf-8' }))
   const link = document.createElement('a')
   link.href = url
-  link.download = `achieve-wc-agent-summary-${new Date().toISOString().slice(0, 10)}.csv`
+  link.download = `${filenamePrefix}-${new Date().toISOString().slice(0, 10)}.csv`
   link.hidden = true
   document.body.append(link)
   link.click()
@@ -109,11 +113,36 @@ function AlignmentSummary({ representative }: { representative: AchieveRepresent
   )
 }
 
+function PeriodRanks({ ranks }: { ranks: AchievePeriodRanks | undefined }) {
+  if (!ranks) return null
+  return (
+    <span className="mt-2 flex flex-wrap gap-1.5 text-[11px] font-semibold text-blue-800">
+      <span className="rounded-full bg-blue-50 px-2 py-0.5">2w #{ranks[2]}</span>
+      <span className="rounded-full bg-blue-50 px-2 py-0.5">4w #{ranks[4]}</span>
+      <span className="rounded-full bg-blue-50 px-2 py-0.5">6w #{ranks[6]}</span>
+    </span>
+  )
+}
+
 /** Searchable union of exact Form and exact ordinary-AI representatives. */
-export function AchieveRepresentativeTable({ representatives, coverage }: {
+export function AchieveRepresentativeTable({
+  representatives,
+  coverage,
+  title = 'WC Agent Summary by representative',
+  description,
+  showControls = true,
+  periodRanks,
+  exportFilenamePrefix = 'achieve-wc-agent-summary',
+}: {
   representatives: ReadonlyArray<AchieveRepresentativeFeedback>
   coverage: AchieveRepresentativeCoverage
+  title?: string
+  description?: string
+  showControls?: boolean
+  periodRanks?: ReadonlyMap<string, AchievePeriodRanks>
+  exportFilenamePrefix?: string
 }) {
+  const headingId = useId()
   const [search, setSearch] = useState('')
   const [minimumSampleOnly, setMinimumSampleOnly] = useState(false)
   const [selectedRepresentative, setSelectedRepresentative] = useState<AchieveRepresentativeFeedback | null>(null)
@@ -128,19 +157,19 @@ export function AchieveRepresentativeTable({ representatives, coverage }: {
 
   return (
     <>
-      <section aria-labelledby="representative-review-heading" className="rounded-2xl border border-slate-200 bg-white shadow-sm">
+      <section aria-labelledby={headingId} className="rounded-2xl border border-slate-200 bg-white shadow-sm">
         <div className="border-b border-slate-200 p-5 sm:p-6">
           <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
             <div className="min-w-0">
-              <h2 id="representative-review-heading" className="text-lg font-semibold text-slate-950">WC Agent Summary by representative</h2>
+              <h2 id={headingId} className="text-lg font-semibold text-slate-950">{title}</h2>
               <p className="mt-1 max-w-3xl text-xs leading-5 text-slate-500">
-                {needsReview} of {sampleEligible} representatives with 5+ Form submissions meet the 25% Fair/Poor triage threshold. AI samples remain separate and do not change Form-based review status.
+                {description ?? `${needsReview} of ${sampleEligible} representatives with 5+ Form submissions meet the 25% Fair/Poor triage threshold. AI samples remain separate and do not change Form-based review status.`}
               </p>
               <p className="mt-1 max-w-3xl text-xs leading-5 text-slate-500">
                 Overlap means a call has both a Good/Fair/Poor Form rating and AI QA. Both clear means Form Good and AI Pass; both concern means Form Fair/Poor and AI Flagged. Human only means Form concern with AI Pass; AI only means Form Good with AI Flagged.
               </p>
             </div>
-            <div className="grid gap-2 sm:grid-cols-[minmax(14rem,1fr)_auto_auto]">
+            {showControls && <div className="grid gap-2 sm:grid-cols-[minmax(14rem,1fr)_auto_auto]">
               <label className="relative min-w-0">
                 <span className="sr-only">Search Achieve representatives</span>
                 <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" aria-hidden="true" />
@@ -165,14 +194,14 @@ export function AchieveRepresentativeTable({ representatives, coverage }: {
               <button
                 type="button"
                 disabled={filtered.length === 0}
-                onClick={() => downloadRepresentativesCsv(filtered)}
+                onClick={() => downloadRepresentativesCsv(filtered, exportFilenamePrefix)}
                 aria-label={`Export ${filtered.length} displayed representatives to CSV`}
                 className="inline-flex min-h-11 items-center justify-center gap-2 whitespace-nowrap rounded-xl border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 outline-none hover:bg-slate-50 focus-visible:ring-2 focus-visible:ring-blue-500 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 <Download className="h-4 w-4" aria-hidden="true" />
                 Export CSV
               </button>
-            </div>
+            </div>}
           </div>
           {coverage.capReached && <p className="mt-3 text-xs font-semibold text-amber-800">Showing {coverage.loaded} of {coverage.total} representatives.</p>}
         </div>
@@ -221,6 +250,7 @@ export function AchieveRepresentativeTable({ representatives, coverage }: {
                             <span className="block [overflow-wrap:anywhere] font-semibold text-slate-950 group-hover:text-blue-800">{representative.agentName}</span>
                             <span className="mt-0.5 block [overflow-wrap:anywhere] text-xs font-normal text-slate-500">{representative.agentEmail}</span>
                             <LatestActivity representative={representative} />
+                            <PeriodRanks ranks={periodRanks?.get(representative.agentEmail)} />
                             <span className="mt-2 block"><ReviewStatus representative={representative} /></span>
                           </span>
                           <ChevronRight className="h-4 w-4 shrink-0 text-slate-400" aria-hidden="true" />
@@ -259,6 +289,7 @@ export function AchieveRepresentativeTable({ representatives, coverage }: {
                       <span className="block [overflow-wrap:anywhere] font-semibold text-slate-950">{representative.agentName}</span>
                       <span className="block [overflow-wrap:anywhere] text-xs text-slate-500">{representative.agentEmail}</span>
                       <LatestActivity representative={representative} />
+                      <PeriodRanks ranks={periodRanks?.get(representative.agentEmail)} />
                     </span>
                     <ChevronRight className="h-4 w-4 shrink-0 text-slate-400" aria-hidden="true" />
                   </div>

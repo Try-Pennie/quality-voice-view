@@ -20,6 +20,7 @@
 //   GOOGLE_SA_PRIVATE_KEY        — service-account PKCS8 private key (PEM, \n-escaped ok)
 import "jsr:@supabase/functions-js/edge-runtime.d.ts"
 import { createClient } from "jsr:@supabase/supabase-js@2"
+import { googleServiceAccountAccessToken } from "../_shared/google-service-account.ts"
 
 const SHEET_RANGE = "'Form Responses'!A2:I"
 
@@ -28,60 +29,6 @@ function json(body: unknown, status = 200) {
     status,
     headers: { "Content-Type": "application/json" },
   })
-}
-
-// --- Google service-account auth (RS256 JWT -> access token) -----------------
-
-function base64url(bytes: Uint8Array): string {
-  let str = ""
-  for (const b of bytes) str += String.fromCharCode(b)
-  return btoa(str).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "")
-}
-
-async function importPrivateKey(pem: string): Promise<CryptoKey> {
-  const normalized = pem.replace(/\\n/g, "\n")
-  const body = normalized
-    .replace("-----BEGIN PRIVATE KEY-----", "")
-    .replace("-----END PRIVATE KEY-----", "")
-    .replace(/\s+/g, "")
-  const der = Uint8Array.from(atob(body), c => c.charCodeAt(0))
-  return crypto.subtle.importKey(
-    "pkcs8",
-    der,
-    { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" },
-    false,
-    ["sign"],
-  )
-}
-
-async function googleAccessToken(saEmail: string, privateKeyPem: string): Promise<string> {
-  const enc = new TextEncoder()
-  const now = Math.floor(Date.now() / 1000)
-  const header = base64url(enc.encode(JSON.stringify({ alg: "RS256", typ: "JWT" })))
-  const claims = base64url(enc.encode(JSON.stringify({
-    iss: saEmail,
-    scope: "https://www.googleapis.com/auth/spreadsheets.readonly",
-    aud: "https://oauth2.googleapis.com/token",
-    iat: now,
-    exp: now + 3600,
-  })))
-  const unsigned = `${header}.${claims}`
-  const key = await importPrivateKey(privateKeyPem)
-  const sig = await crypto.subtle.sign("RSASSA-PKCS1-v1_5", key, enc.encode(unsigned))
-  const jwt = `${unsigned}.${base64url(new Uint8Array(sig))}`
-
-  const res = await fetch("https://oauth2.googleapis.com/token", {
-    method: "POST",
-    headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body: new URLSearchParams({
-      grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer",
-      assertion: jwt,
-    }),
-  })
-  if (!res.ok) throw new Error(`google token exchange failed: ${res.status} ${await res.text()}`)
-  const data = await res.json()
-  if (!data.access_token) throw new Error("google token exchange returned no access_token")
-  return data.access_token
 }
 
 // --- Sheet row parsing --------------------------------------------------------
@@ -174,7 +121,11 @@ Deno.serve(async (req: Request) => {
   if (!sheetId || !saEmail || !saKey) return json({ error: "google_not_configured" }, 503)
 
   try {
-    const token = await googleAccessToken(saEmail, saKey)
+    const token = await googleServiceAccountAccessToken({
+      serviceAccountEmail: saEmail,
+      privateKeyPem: saKey,
+      scope: "https://www.googleapis.com/auth/spreadsheets.readonly",
+    })
     const res = await fetch(
       `https://sheets.googleapis.com/v4/spreadsheets/${sheetId}/values/${encodeURIComponent(SHEET_RANGE)}`,
       { headers: { Authorization: `Bearer ${token}` } },

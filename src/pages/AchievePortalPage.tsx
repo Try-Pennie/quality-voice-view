@@ -3,7 +3,7 @@
 import { FormEvent, useEffect, useMemo, useState, type ReactNode } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Check, ChevronRight, ExternalLink, HelpCircle, RefreshCcw, X } from 'lucide-react'
-import { AchieveFeedbackOverview } from '@/components/achieve/AchieveFeedbackOverview'
+import { AchieveManagementOverview } from '@/components/achieve/AchieveManagementOverview'
 import { AchieveFilterBar } from '@/components/achieve/AchieveFilterBar'
 import { AchieveOverview } from '@/components/achieve/AchieveOverview'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
@@ -17,12 +17,12 @@ import {
   type AchieveAnalyticsFilters,
 } from '@/lib/achieve-analytics'
 import {
-  ACHIEVE_FEEDBACK_QUERY_KEY,
   ACHIEVE_LIST_QUERY_KEY,
+  ACHIEVE_MANAGEMENT_QUERY_KEY,
   ACHIEVE_PASSWORD_SESSION_KEY,
   AchievePortalRequestError,
   fetchAchieveAuditData,
-  fetchAchieveFeedbackDashboard,
+  fetchAchieveManagementReport,
   fetchAchieveFeedbackExceptions,
   fetchAchievePortalData,
   fetchAchievePortalDetail,
@@ -31,6 +31,7 @@ import {
   type AchieveAgentFeedback,
   type AchievePortalRow,
 } from '@/lib/achieve-queries'
+import type { AchieveManagementWeeks } from '@/lib/achieve-management'
 import { humanizeTransferReason, parseTransferExperience, transferExperienceSummary, type TransferExperience } from '@/lib/achieve-transfer-experience'
 import type { AlertActionTaken, AlertInaccuracyReason, AlertWithFeedback } from '@/types/database'
 import { formatDateTime } from '@/lib/utils'
@@ -206,6 +207,7 @@ function AchievePasswordGate({ onUnlock }: { onUnlock: (password: string) => voi
 
 function AchieveReviewQueue() {
   const [activeView, setActiveView] = useState<'agent-feedback' | 'qa-matching'>('agent-feedback')
+  const [selectedWeeks, setSelectedWeeks] = useState<AchieveManagementWeeks>(6)
   const [activeTab, setActiveTab] = useState<'overview' | 'alerts' | 'all-calls' | 'backfill-audit'>('overview')
   const [elementFilter, setElementFilter] = useState<string | null>(null)
   const [feedbackFilters, setFeedbackFilters] = useState<AchieveAnalyticsFilters>(EMPTY_ACHIEVE_FILTERS)
@@ -216,9 +218,9 @@ function AchieveReviewQueue() {
     enabled: activeView === 'qa-matching',
     staleTime: 60_000,
   })
-  const feedbackDashboardQuery = useQuery({
-    queryKey: ACHIEVE_FEEDBACK_QUERY_KEY,
-    queryFn: fetchAchieveFeedbackDashboard,
+  const managementQuery = useQuery({
+    queryKey: ACHIEVE_MANAGEMENT_QUERY_KEY,
+    queryFn: fetchAchieveManagementReport,
     staleTime: 60_000,
   })
   const auditQuery = useQuery({
@@ -269,7 +271,7 @@ function AchieveReviewQueue() {
     [elementFilter, feedbackFilteredAllCalls],
   )
   const isFetching = activeView === 'agent-feedback'
-    ? feedbackDashboardQuery.isFetching
+    ? managementQuery.isFetching
     : portalQuery.isFetching
   const isFeedbackFiltered = feedbackFilters.accent
     || feedbackFilters.backgroundNoise
@@ -278,7 +280,7 @@ function AchieveReviewQueue() {
 
   const refresh = () => {
     if (activeView === 'agent-feedback') {
-      void feedbackDashboardQuery.refetch()
+      void managementQuery.refetch()
       return
     }
     void portalQuery.refetch()
@@ -344,17 +346,19 @@ function AchieveReviewQueue() {
         </nav>
 
         {activeView === 'agent-feedback' ? (
-          feedbackDashboardQuery.isError ? (
+          managementQuery.isError ? (
             <ErrorState
               title="Could not load Pennie agent feedback"
-              message="The complete Form aggregate or representative rollup could not be loaded. Retry without relying on the capped QA call list."
-              onRetry={() => { void feedbackDashboardQuery.refetch() }}
+              message="The completed 2-, 4-, and 6-week Form and AI rollups could not be loaded."
+              onRetry={() => { void managementQuery.refetch() }}
             />
-          ) : feedbackDashboardQuery.isPending ? (
+          ) : managementQuery.isPending ? (
             <AchieveRowsSkeleton />
           ) : (
-            <AchieveFeedbackOverview
-              dashboard={feedbackDashboardQuery.data}
+            <AchieveManagementOverview
+              report={managementQuery.data}
+              selectedWeeks={selectedWeeks}
+              onSelectedWeeksChange={setSelectedWeeks}
               onOpenQaMatching={() => setActiveView('qa-matching')}
             />
           )
