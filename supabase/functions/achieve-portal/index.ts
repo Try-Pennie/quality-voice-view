@@ -10,6 +10,7 @@
 //   list_audit                — deferred lightweight audit rows
 //   list_feedback_exceptions  — deferred capped exception lists
 //   get_feedback_overview     — complete Form + ordinary AI QA representative rollups
+//   get_management_report     — completed 2/4/6-week Form-led rankings and dashboards
 //   list_feedback_for_rep     — Form notes + AI call summaries for one exact representative
 //   submit_feedback           — existing validated write semantics
 //
@@ -17,6 +18,10 @@
 // is deployed; the function must remain a superset during rollout.
 import "jsr:@supabase/functions-js/edge-runtime.d.ts"
 import { createClient } from "jsr:@supabase/supabase-js@2"
+import {
+  ACHIEVE_REPORT_REPRESENTATIVE_LIMIT,
+  loadAchieveManagementReport,
+} from "../_shared/achieve-management-report.ts"
 import {
   ACHIEVE_MODULE_NAME,
   buildAgentFeedbackView,
@@ -597,6 +602,30 @@ Deno.serve(async (req: Request) => {
     const dashboard = await fetchFeedbackLeadership(admin)
     if (!dashboard) return json({ error: "feedback_overview_failed" }, 500)
     return json(dashboard)
+  }
+
+  if (body.action === "get_management_report") {
+    try {
+      const result = await loadAchieveManagementReport(
+        async range => admin.rpc("get_achieve_agent_feedback_dashboard", {
+          p_start_at: range.startAt,
+          p_end_at: range.endAt,
+          p_representative_limit: ACHIEVE_REPORT_REPRESENTATIVE_LIMIT,
+          p_representative_offset: 0,
+        }),
+        new Date(),
+      )
+      if (!result.ok) {
+        console.error("achieve management report error", { reason: result.reason })
+        return json({ error: result.reason }, 500)
+      }
+      return json(result.report)
+    } catch (cause: unknown) {
+      console.error("achieve management report error", {
+        reason: cause instanceof Error ? cause.name : "unknown",
+      })
+      return json({ error: "management_report_failed" }, 500)
+    }
   }
 
   if (body.action === "list_feedback_for_rep") {

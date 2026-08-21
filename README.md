@@ -82,3 +82,5 @@ A few load-bearing details (see [`CLAUDE.md`](./CLAUDE.md) for the full version)
 Migrations live in `supabase/migrations/`. The `migo-coverage` edge function (`supabase/functions/migo-coverage/`) answers "did agents who got a Migo pre-call briefing perform better?" by joining Eavesly calls against the Migo project without exposing cross-project credentials to the browser.
 
 The Supabase anon key is intentionally inlined in `src/integrations/supabase/client.ts` — it's the public anon key, RLS-gated.
+
+Google Workspace and Supabase configuration for the Monday Achieve report is documented in [`docs/achieve-weekly-email-setup.md`](./docs/achieve-weekly-email-setup.md).

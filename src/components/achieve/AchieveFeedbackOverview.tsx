@@ -73,9 +73,10 @@ function FlagMetric({ label, count, total }: {
 }
 
 /** Complete Form + ordinary AI QA leadership view, independent of the capped call list. */
-export function AchieveFeedbackOverview({ dashboard, onOpenQaMatching }: {
+export function AchieveFeedbackOverview({ dashboard, onOpenQaMatching, exportFilenamePrefix }: {
   dashboard: AchieveFeedbackDashboard
   onOpenQaMatching: () => void
+  exportFilenamePrefix?: string
 }) {
   const { overview, representatives, representativeCoverage } = dashboard
   const { scope, ratings, flags } = overview
@@ -159,7 +160,11 @@ export function AchieveFeedbackOverview({ dashboard, onOpenQaMatching }: {
       </section>
 
       <AchieveFeedbackCoverage overview={overview} onOpenQaMatching={onOpenQaMatching} />
-      <AchieveRepresentativeTable representatives={representatives} coverage={representativeCoverage} />
+      <AchieveRepresentativeTable
+        representatives={representatives}
+        coverage={representativeCoverage}
+        exportFilenamePrefix={exportFilenamePrefix}
+      />
     </div>
   )
 }

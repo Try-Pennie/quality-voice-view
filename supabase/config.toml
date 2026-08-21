@@ -1,1 +1,5 @@
 project_id = "miikotqnovnixpeqtqnd"
+
+[functions.achieve-weekly-report]
+# pg_cron authenticates with a dedicated shared secret validated by the handler.
+verify_jwt = false
