@@ -328,8 +328,14 @@ export function achieveReportWeekEnding(report: AchieveManagementReport): string
 /** Serialize every period's full representative list for the weekly attachment. */
 export function achieveManagementReportCsv(report: AchieveManagementReport): string {
   const persistent = new Set(report.persistentAgentEmails)
+  const bottomFiveTwoWeek = new Set(
+    report.periods.find(period => period.weeks === 2)?.representatives
+      .filter(representative => representative.riskRank !== null && representative.riskRank <= 5)
+      .map(representative => representative.agentEmail) ?? [],
+  )
   const headers = [
-    'Period', 'Period start (UTC)', 'Period end (UTC)', 'Persistent high risk', 'Risk rank',
+    'Period', 'Period start (UTC)', 'Period end (UTC)', 'Persistent high risk',
+    'Bottom 5 last 2 weeks', 'Risk rank',
     'Representative', 'Email', 'Adjusted Form risk', 'Form sample', 'Form good', 'Form fair',
     'Form poor', 'Form other', 'Form Fair/Poor rate', 'Background noise', 'Accent / communication',
     'Connection issue', 'AI QA sample', 'AI QA pass', 'AI QA flagged', 'Overlap', 'Both clear',
@@ -340,6 +346,7 @@ export function achieveManagementReportCsv(report: AchieveManagementReport): str
     period.startAt,
     period.endAt,
     persistent.has(representative.agentEmail) ? 'Yes' : 'No',
+    bottomFiveTwoWeek.has(representative.agentEmail) ? 'Yes' : 'No',
     representative.riskRank ?? '',
     representative.agentName,
     representative.agentEmail,

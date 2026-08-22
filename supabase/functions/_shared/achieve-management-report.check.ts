@@ -94,6 +94,7 @@ assert.ok((oneOfOne?.adjustedFormRisk ?? 0) > (oneOfTwo?.adjustedFormRisk ?? 0))
 assert.strictEqual(achieveReportWeekEnding(loaded.report), '2026-08-16')
 const csv = achieveManagementReportCsv(loaded.report)
 assert.ok(csv.startsWith('\uFEFF"Period","Period start (UTC)"'))
+assert.ok(csv.includes('"Bottom 5 last 2 weeks"'))
 assert.ok(csv.includes('"\'=Representative 0"'))
 assert.strictEqual(csv.trim().split('\r\n').length, 1 + 12 * 3)
 
