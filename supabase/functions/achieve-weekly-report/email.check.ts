@@ -29,6 +29,12 @@ const representative = {
   humanOnly: 1,
   aiOnly: 0,
 }
+const emergingRepresentative = {
+  ...representative,
+  agentName: 'Emerging Representative',
+  agentEmail: 'emerging@example.test',
+  riskRank: 2,
+}
 const report: AchieveManagementReport = {
   generatedAt: '2026-08-17T13:00:00.000Z',
   completedThrough: '2026-08-17T04:00:00.000Z',
@@ -38,7 +44,9 @@ const report: AchieveManagementReport = {
     startAt: '2026-07-06T04:00:00.000Z',
     endAt: '2026-08-17T04:00:00.000Z',
     dashboard: {},
-    representatives: [{ ...representative, riskRank: weeks / 2 }],
+    representatives: weeks === 2
+      ? [{ ...representative, riskRank: 1 }, emergingRepresentative]
+      : [{ ...representative, riskRank: weeks / 2 }],
   })),
 }
 
@@ -84,6 +92,11 @@ assert.ok(decoded.split('\r\n').every(line => new TextEncoder().encode(line).len
 assert.ok(decodedHtml.includes('&lt;Representative &amp; One&gt;'))
 assert.ok(!decodedHtml.includes('<Representative & One>'))
 assert.ok(decodedHtml.includes('WC Agent Summary by representative'))
+assert.ok(decodedHtml.includes('Bottom 5 — Last 2 Completed Weeks'))
+assert.ok(decodedHtml.includes('Bottom 5 · 2w #1 · Also persistent'))
+assert.ok(decodedHtml.includes('Bottom 5 · 2w #2'))
+assert.ok(decodedHtml.includes('Emerging Representative'))
+assert.ok(!decodedHtml.includes('Bottom 5 · 2w #2 · Also persistent'))
 assert.ok(decodedHtml.includes('Reported conditions'))
 assert.ok(decodedHtml.includes('Noise 2 · Accent 1 · Connection 0'))
 assert.ok(decodedHtml.includes('2w #1 · 4w #2 · 6w #3'))

@@ -140,8 +140,9 @@ Confirm that:
 
 - the sender, To list, and Cc list match the configured allowlists;
 - both HTML and plain-text content are present;
+- the Bottom 5 section matches the completed two-week adjusted Form ranking;
 - the persistent-risk table matches `/achieve`;
-- the CSV contains all 2/4/6-week representative rows;
+- the CSV contains all 2/4/6-week representative rows and both risk indicators;
 - no customer names, notes, call IDs, or transcripts appear.
 
 ## 8. Verify scheduling and delivery
