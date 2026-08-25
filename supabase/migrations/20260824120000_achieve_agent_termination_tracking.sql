@@ -21,7 +21,7 @@ revoke all on table public.achieve_agent_terminations from public, anon, authent
 grant select, insert, update, delete on table public.achieve_agent_terminations to service_role;
 
 insert into public.achieve_agent_terminations(agent_email, agent_name, terminated_at) values
-  ('aadigun@achieve.com', 'Aliyu Adigun', '2026-08-24 04:00:00+00'),
+  ('aadigun@achieve.com', 'Aliyu Adigun', '2026-08-25 04:00:00+00'),
   ('ddesravines@achieve.com', 'Darios Desravines', '2026-08-24 04:00:00+00'),
   ('whall@achieve.com', 'Wilma Hall', '2026-08-24 04:00:00+00');
 
@@ -271,40 +271,16 @@ begin
     from public.achieve_agent_terminations as termination
     where termination.terminated_at < p_end_at
   ),
-  feedback as materialized (
-    select attributed.*
-    from private.achieve_agent_feedback_attributed_including_terminated(
-      (select min(terminated_at) from effective_terminations),
-      p_end_at
-    ) as attributed
-  ),
-  qa as materialized (
-    select attributed.*
-    from private.achieve_ordinary_qa_attributed_including_terminated(
-      (select min(terminated_at) from effective_terminations),
-      p_end_at
-    ) as attributed
-  ),
-  form_rollup as (
+  report_activity as (
     select
       termination.agent_email,
-      count(feedback.feedback_id) as post_termination_form_submissions,
-      max(feedback.submitted_at) as latest_post_termination_form_at
+      max(log.last_seen_on) filter (
+        where log.last_seen_on >= (termination.terminated_at at time zone 'America/New_York')::date
+          and log.last_seen_on <= (p_end_at at time zone 'America/New_York')::date
+      ) as latest_activity_on
     from effective_terminations as termination
-    left join feedback
-      on feedback.achieve_agent_email = termination.agent_email
-     and feedback.submitted_at >= termination.terminated_at
-    group by termination.agent_email
-  ),
-  qa_rollup as (
-    select
-      termination.agent_email,
-      count(qa.module_result_id) as post_termination_ai_calls,
-      max(qa.graded_at) as latest_post_termination_ai_at
-    from effective_terminations as termination
-    left join qa
-      on qa.achieve_agent_email = termination.agent_email
-     and qa.graded_at >= termination.terminated_at
+    left join public.welcome_call_agent_log as log
+      on lower(btrim(log.welcome_call_agent_email)) = termination.agent_email
     group by termination.agent_email
   ),
   monitoring as (
@@ -312,13 +288,10 @@ begin
       termination.agent_name,
       termination.agent_email,
       termination.terminated_at,
-      form_rollup.post_termination_form_submissions,
-      form_rollup.latest_post_termination_form_at,
-      qa_rollup.post_termination_ai_calls,
-      qa_rollup.latest_post_termination_ai_at
+      report_activity.latest_activity_on is not null as activity,
+      report_activity.latest_activity_on
     from effective_terminations as termination
-    join form_rollup using (agent_email)
-    join qa_rollup using (agent_email)
+    join report_activity using (agent_email)
   )
   select coalesce(jsonb_agg(to_jsonb(monitoring) order by monitoring.agent_name, monitoring.agent_email), '[]'::jsonb)
   into result

@@ -25,6 +25,10 @@ const activityTime = new Intl.DateTimeFormat('en-US', {
   timeZoneName: 'short',
 })
 
+const reportDate = new Intl.DateTimeFormat('en-US', {
+  timeZone: 'UTC', month: 'short', day: 'numeric', year: 'numeric',
+})
+
 /** Existing Achieve table layout with persistent risk and completed-week controls. */
 export function AchieveManagementOverview({
   report,
@@ -78,63 +82,26 @@ export function AchieveManagementOverview({
       </section>
 
       <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
-        <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
-          <div>
-            <h2 className="text-lg font-semibold text-slate-950">Termination follow-through</h2>
-            <p className="mt-1 text-xs leading-5 text-slate-500">
-              Normal Form and AI reporting stops at the effective time. Any exactly attributed activity after it is tracked here.
-            </p>
-          </div>
-          <p className={`text-xs font-semibold ${
-            report.terminations.some(termination => termination.postTerminationFormSubmissions + termination.postTerminationAiCalls > 0)
-              ? 'text-red-700'
-              : 'text-emerald-700'
-          }`}>
-            {report.terminations.some(termination => termination.postTerminationFormSubmissions + termination.postTerminationAiCalls > 0)
-              ? 'Post-termination activity detected'
-              : 'No post-termination activity'}
-          </p>
-        </div>
+        <h2 className="text-lg font-semibold text-slate-950">Termination follow-through</h2>
+        <p className="mt-1 text-xs leading-5 text-slate-500">
+          Activity means the representative appeared in the Achieve daily report on or after the effective date.
+        </p>
         {report.terminations.length === 0 ? (
           <p className="mt-4 text-sm text-slate-600">No effective terminations to monitor.</p>
         ) : (
-          <div className="mt-4 grid gap-3 lg:grid-cols-3">
-            {report.terminations.map(termination => {
-              const activityCount = termination.postTerminationFormSubmissions + termination.postTerminationAiCalls
-              const latestActivity = [termination.latestPostTerminationFormAt, termination.latestPostTerminationAiAt]
-                .filter((value): value is string => value !== null)
-                .sort((left, right) => Date.parse(right) - Date.parse(left))[0]
-              return (
-                <article
-                  key={termination.agentEmail}
-                  className={`rounded-xl border p-4 ${activityCount > 0 ? 'border-red-200 bg-red-50/60' : 'border-emerald-200 bg-emerald-50/50'}`}
-                >
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="min-w-0">
-                      <h3 className="[overflow-wrap:anywhere] text-sm font-semibold text-slate-950">{termination.agentName}</h3>
-                      <p className="[overflow-wrap:anywhere] text-xs text-slate-500">{termination.agentEmail}</p>
-                    </div>
-                    <span className={`shrink-0 rounded-full px-2 py-1 text-[11px] font-semibold ${
-                      activityCount > 0 ? 'bg-red-100 text-red-800' : 'bg-emerald-100 text-emerald-800'
-                    }`}>
-                      {activityCount > 0 ? 'Check activity' : 'Clear'}
-                    </span>
-                  </div>
-                  <p className="mt-3 text-xs text-slate-600">Effective {activityTime.format(new Date(termination.terminatedAt))}</p>
-                  <dl className="mt-3 grid grid-cols-2 gap-2">
-                    <div className="rounded-lg bg-white/80 p-2">
-                      <dt className="text-[11px] text-slate-500">Forms after</dt>
-                      <dd className="mt-1 font-semibold tabular-nums text-slate-950">{termination.postTerminationFormSubmissions}</dd>
-                    </div>
-                    <div className="rounded-lg bg-white/80 p-2">
-                      <dt className="text-[11px] text-slate-500">AI calls after</dt>
-                      <dd className="mt-1 font-semibold tabular-nums text-slate-950">{termination.postTerminationAiCalls}</dd>
-                    </div>
-                  </dl>
-                  {latestActivity && <p className="mt-3 text-[11px] font-medium text-red-700">Latest {activityTime.format(new Date(latestActivity))}</p>}
-                </article>
-              )
-            })}
+          <div className="mt-4 divide-y divide-slate-200 rounded-xl border border-slate-200">
+            {report.terminations.map(termination => (
+              <div key={termination.agentEmail} className="flex flex-col gap-1 px-4 py-3 text-sm sm:flex-row sm:items-center sm:justify-between sm:gap-4">
+                <p className="font-semibold text-slate-950">
+                  {termination.agentName}
+                  <span className="ml-2 font-normal text-slate-500">Effective {activityTime.format(new Date(termination.terminatedAt))}</span>
+                </p>
+                <p className={`font-semibold ${termination.activity ? 'text-red-700' : 'text-emerald-700'}`}>
+                  Activity: {termination.activity ? 'Yes' : 'No'}
+                  {termination.latestActivityOn && <span className="font-normal"> · Listed {reportDate.format(new Date(termination.latestActivityOn))}</span>}
+                </p>
+              </div>
+            ))}
           </div>
         )}
       </section>

@@ -10,14 +10,14 @@ for (const required of [
   'alter table public.achieve_agent_terminations enable row level security',
   'alter table public.achieve_agent_terminations force row level security',
   'revoke all on table public.achieve_agent_terminations from public, anon, authenticated',
-  "('aadigun@achieve.com', 'Aliyu Adigun', '2026-08-24 04:00:00+00')",
+  "('aadigun@achieve.com', 'Aliyu Adigun', '2026-08-25 04:00:00+00')",
   "('ddesravines@achieve.com', 'Darios Desravines', '2026-08-24 04:00:00+00')",
   "('whall@achieve.com', 'Wilma Hall', '2026-08-24 04:00:00+00')",
   'or attributed.submitted_at < termination.terminated_at',
   'or attributed.graded_at < termination.terminated_at',
   'create function public.list_achieve_agent_termination_monitoring',
-  'post_termination_form_submissions',
-  'post_termination_ai_calls',
+  "log.last_seen_on >= (termination.terminated_at at time zone 'America/New_York')::date",
+  'report_activity.latest_activity_on is not null as activity',
   'revoke execute on function public.list_achieve_agent_termination_monitoring(timestamptz)',
 ]) {
   assert.ok(sql.includes(required), `missing termination invariant: ${required}`)

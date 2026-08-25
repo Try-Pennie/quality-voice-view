@@ -250,12 +250,19 @@ begin
   if not exists (
     select 1 from jsonb_array_elements(termination_monitoring) as row
     where row->>'agent_email' = 'rep-a@example.test'
-      and row->>'post_termination_form_submissions' = '1'
-      and row->>'post_termination_ai_calls' = '1'
-      and row->>'latest_post_termination_form_at' = '2026-08-11T11:00:00+00:00'
-      and row->>'latest_post_termination_ai_at' = '2026-08-11T11:00:00+00:00'
+      and row->>'activity' = 'false'
+      and row->'latest_activity_on' = 'null'::jsonb
   ) then
-    raise exception 'post-termination monitoring failed: %', termination_monitoring;
+    raise exception 'internal activity leaked into report monitoring: %', termination_monitoring;
+  end if;
+  select public.list_achieve_agent_termination_monitoring('2026-08-16 04:00:00+00') into termination_monitoring;
+  if not exists (
+    select 1 from jsonb_array_elements(termination_monitoring) as row
+    where row->>'agent_email' = 'rep-a@example.test'
+      and row->>'activity' = 'true'
+      and row->>'latest_activity_on' = '2026-08-15'
+  ) then
+    raise exception 'daily-report activity monitoring failed: %', termination_monitoring;
   end if;
 
   if has_function_privilege('anon', 'private.achieve_is_ordinary_graded_qa(text,jsonb)', 'execute')

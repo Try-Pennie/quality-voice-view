@@ -58,10 +58,8 @@ const raw = {
     agentName: 'Representative A',
     agentEmail: 'rep-a@example.test',
     terminatedAt: '2026-08-16T04:00:00Z',
-    postTerminationFormSubmissions: 1,
-    latestPostTerminationFormAt: '2026-08-17T01:00:00Z',
-    postTerminationAiCalls: 0,
-    latestPostTerminationAiAt: null,
+    activity: true,
+    latestActivityOn: '2026-08-17',
   }],
 }
 
@@ -70,7 +68,7 @@ assert.strictEqual(achieveManagementPeriod(parsed, 4).weeks, 4)
 assert.deepStrictEqual(persistentAchieveRepresentatives(parsed, 6).map(row => row.agentEmail), ['rep-a@example.test'])
 assert.deepStrictEqual(persistentAchieveRanks(parsed).get('rep-a@example.test'), { 2: 1, 4: 1, 6: 1 })
 assert.strictEqual(achieveManagementPeriod(parsed, 2).dashboard.representatives[0]?.terminatedAt, '2026-08-16T04:00:00Z')
-assert.strictEqual(parsed.terminations[0]?.postTerminationFormSubmissions, 1)
+assert.strictEqual(parsed.terminations[0]?.activity, true)
 assert.throws(
   () => parseAchieveManagementReport({ ...raw, persistentAgentEmails: ['missing@example.test'] }),
   /invalid_achieve_management_response/,

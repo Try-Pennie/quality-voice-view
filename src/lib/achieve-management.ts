@@ -12,10 +12,8 @@ export type AchieveManagementTermination = {
   readonly agentName: string
   readonly agentEmail: string
   readonly terminatedAt: string
-  readonly postTerminationFormSubmissions: number
-  readonly latestPostTerminationFormAt: string | null
-  readonly postTerminationAiCalls: number
-  readonly latestPostTerminationAiAt: string | null
+  readonly activity: boolean
+  readonly latestActivityOn: string | null
 }
 
 /** Form-led risk metadata for one representative and period. */
@@ -82,11 +80,6 @@ function nullableRank(value: unknown): number | null {
   return value
 }
 
-function count(value: unknown): number {
-  if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < 0) invalidResponse()
-  return value
-}
-
 function nullableTimestamp(value: unknown): string | null {
   if (value === null) return null
   return timestamp(value)
@@ -96,26 +89,19 @@ function parseTermination(value: unknown): AchieveManagementTermination {
   const row = record(value)
   if (!row || typeof row.agentName !== 'string' || typeof row.agentEmail !== 'string') invalidResponse()
   const agentEmail = row.agentEmail.trim().toLowerCase()
-  const postTerminationFormSubmissions = count(row.postTerminationFormSubmissions)
-  const latestPostTerminationFormAt = nullableTimestamp(row.latestPostTerminationFormAt)
-  const postTerminationAiCalls = count(row.postTerminationAiCalls)
-  const latestPostTerminationAiAt = nullableTimestamp(row.latestPostTerminationAiAt)
+  const latestActivityOn = nullableTimestamp(row.latestActivityOn)
   const terminatedAt = timestamp(row.terminatedAt)
   if (
     !agentEmail.includes('@')
-    || (postTerminationFormSubmissions === 0) !== (latestPostTerminationFormAt === null)
-    || (postTerminationAiCalls === 0) !== (latestPostTerminationAiAt === null)
-    || (latestPostTerminationFormAt !== null && Date.parse(latestPostTerminationFormAt) < Date.parse(terminatedAt))
-    || (latestPostTerminationAiAt !== null && Date.parse(latestPostTerminationAiAt) < Date.parse(terminatedAt))
+    || typeof row.activity !== 'boolean'
+    || row.activity !== (latestActivityOn !== null)
   ) invalidResponse()
   return {
     agentName: row.agentName.trim() || agentEmail,
     agentEmail,
     terminatedAt,
-    postTerminationFormSubmissions,
-    latestPostTerminationFormAt,
-    postTerminationAiCalls,
-    latestPostTerminationAiAt,
+    activity: row.activity,
+    latestActivityOn,
   }
 }
 

@@ -45,10 +45,8 @@ const report: AchieveManagementReport = {
     agentName: representative.agentName,
     agentEmail: representative.agentEmail,
     terminatedAt: representative.terminatedAt,
-    postTerminationFormSubmissions: 2,
-    latestPostTerminationFormAt: '2026-08-17T12:00:00Z',
-    postTerminationAiCalls: 1,
-    latestPostTerminationAiAt: '2026-08-17T11:00:00Z',
+    activity: true,
+    latestActivityOn: '2026-08-17',
   }],
   periods: ([2, 4, 6] as const).map(weeks => ({
     weeks,
@@ -110,9 +108,14 @@ assert.ok(decodedHtml.includes('role="presentation"'))
 assert.ok(!decodedHtml.includes('min-width:1420px'))
 assert.ok(!decodedHtml.includes('overflow-x:auto'))
 assert.ok(new TextEncoder().encode(decodedHtml).length < 102_400)
-assert.ok(decodedHtml.includes('Termination follow-through · Activity detected'))
-assert.ok(decodedHtml.includes('Forms after'))
-assert.ok(decodedHtml.includes('AI calls after'))
+assert.ok(decodedHtml.includes('Termination follow-through'))
+assert.ok(decodedHtml.indexOf('Termination follow-through') > decodedHtml.indexOf('Persistent High Risk'))
+const terminationSection = decodedHtml.slice(decodedHtml.indexOf('Termination follow-through'))
+assert.ok(terminationSection.includes('Activity: Yes'))
+assert.ok(terminationSection.includes('Listed Aug 17, 2026'))
+assert.ok(!terminationSection.includes('rep-one@example.test'))
+assert.ok(!decodedHtml.includes('Forms after'))
+assert.ok(!decodedHtml.includes('AI calls after'))
 assert.ok(decodedHtml.includes('Terminated · Aug 16, 2026'))
 assert.ok(decodedHtml.includes('Bottom 5 — Last 2 Completed Weeks'))
 assert.ok(decodedHtml.includes('Bottom 5 · 2w #1 · Also persistent'))

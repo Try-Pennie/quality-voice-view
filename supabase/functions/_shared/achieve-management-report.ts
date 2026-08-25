@@ -25,10 +25,8 @@ export type AchieveManagementTermination = {
   readonly agentName: string
   readonly agentEmail: string
   readonly terminatedAt: string
-  readonly postTerminationFormSubmissions: number
-  readonly latestPostTerminationFormAt: string | null
-  readonly postTerminationAiCalls: number
-  readonly latestPostTerminationAiAt: string | null
+  readonly activity: boolean
+  readonly latestActivityOn: string | null
 }
 
 /** Exactly attributed representative metrics and Form-led risk rank for one period. */
@@ -177,29 +175,20 @@ function parseTermination(value: unknown): AchieveManagementTermination | null {
   const row = record(value)
   if (!row || typeof row.agent_name !== 'string' || typeof row.agent_email !== 'string') return null
   const terminatedAt = optionalTimestamp(row.terminated_at)
-  const formSubmissions = count(row.post_termination_form_submissions)
-  const latestFormAt = optionalTimestamp(row.latest_post_termination_form_at)
-  const aiCalls = count(row.post_termination_ai_calls)
-  const latestAiAt = optionalTimestamp(row.latest_post_termination_ai_at)
+  const latestActivityOn = optionalTimestamp(row.latest_activity_on)
   const agentEmail = row.agent_email.trim().toLowerCase()
   if (
     terminatedAt === null || terminatedAt === undefined
-    || formSubmissions === null || latestFormAt === undefined
-    || aiCalls === null || latestAiAt === undefined
+    || typeof row.activity !== 'boolean' || latestActivityOn === undefined
     || !agentEmail || !agentEmail.includes('@')
-    || (formSubmissions === 0) !== (latestFormAt === null)
-    || (aiCalls === 0) !== (latestAiAt === null)
-    || (latestFormAt !== null && Date.parse(latestFormAt) < Date.parse(terminatedAt))
-    || (latestAiAt !== null && Date.parse(latestAiAt) < Date.parse(terminatedAt))
+    || row.activity !== (latestActivityOn !== null)
   ) return null
   return {
     agentName: row.agent_name.trim() || agentEmail,
     agentEmail,
     terminatedAt,
-    postTerminationFormSubmissions: formSubmissions,
-    latestPostTerminationFormAt: latestFormAt,
-    postTerminationAiCalls: aiCalls,
-    latestPostTerminationAiAt: latestAiAt,
+    activity: row.activity,
+    latestActivityOn,
   }
 }
 
@@ -400,7 +389,7 @@ export function achieveManagementReportCsv(report: AchieveManagementReport): str
   const headers = [
     'Period', 'Period start (UTC)', 'Period end (UTC)', 'Persistent high risk',
     'Bottom 5 last 2 weeks', 'Risk rank', 'Terminated at (UTC)',
-    'Post-termination Forms', 'Post-termination AI calls',
+    'Activity after termination', 'Latest activity report date',
     'Representative', 'Email', 'Adjusted Form risk', 'Form sample', 'Form good', 'Form fair',
     'Form poor', 'Form other', 'Form Fair/Poor rate', 'Background noise', 'Accent / communication',
     'Connection issue', 'AI QA sample', 'AI QA pass', 'AI QA flagged', 'Overlap', 'Both clear',
@@ -416,8 +405,8 @@ export function achieveManagementReportCsv(report: AchieveManagementReport): str
       bottomFiveTwoWeek.has(representative.agentEmail) ? 'Yes' : 'No',
       representative.riskRank ?? '',
       representative.terminatedAt ?? '',
-      termination?.postTerminationFormSubmissions ?? 0,
-      termination?.postTerminationAiCalls ?? 0,
+      termination?.activity ? 'Yes' : 'No',
+      termination?.latestActivityOn ?? '',
       representative.agentName,
       representative.agentEmail,
       representative.adjustedFormRisk === null ? '' : `${representative.adjustedFormRisk.toFixed(1)}%`,
