@@ -3,6 +3,7 @@
 import assert from 'node:assert/strict'
 import {
   achieveManagementPeriod,
+  achieveOutcomeSignal,
   parseAchieveManagementReport,
   persistentAchieveRanks,
   persistentAchieveRepresentatives,
@@ -51,18 +52,68 @@ const raw = {
     representatives: [{ agentEmail: 'rep-a@example.test', adjustedFormRisk: 75 - index, riskRank: 1 }],
   })),
   persistentAgentEmails: ['rep-a@example.test'],
+  outcomes: {
+    sourceAsOf: '2026-08-17',
+    refreshedAt: '2026-08-17T12:00:00Z',
+    maturityCutoff: '2026-08-07',
+    periods: ['all_time', 'mature_4_weeks', 'mature_6_weeks'].map(key => ({
+      key,
+      startDate: key === 'all_time' ? null : key === 'mature_4_weeks' ? '2026-07-11' : '2026-06-27',
+      endDate: '2026-08-07',
+      agents: [{
+        agentName: 'Representative A', agentEmail: 'rep-a@example.test', n: 20,
+        failures: 8, failureRate: 40, expectedFailures: 5, expectedSuccesses: 15,
+        expectedRate: 25, deltaPp: 15, z: 2.5, rescinded: 3, neverPaid: 5,
+        sampleQualified: true, rank: 1,
+      }],
+    })),
+  },
 }
 
 const parsed = parseAchieveManagementReport(raw)
 assert.strictEqual(achieveManagementPeriod(parsed, 4).weeks, 4)
 assert.deepStrictEqual(persistentAchieveRepresentatives(parsed, 6).map(row => row.agentEmail), ['rep-a@example.test'])
 assert.deepStrictEqual(persistentAchieveRanks(parsed).get('rep-a@example.test'), { 2: 1, 4: 1, 6: 1 })
+assert.strictEqual(parsed.outcomes.periods[2]?.agents[0]?.z, 2.5)
+const outcomeAgent = parsed.outcomes.periods[2]?.agents[0]
+assert.ok(outcomeAgent)
+assert.strictEqual(achieveOutcomeSignal(outcomeAgent), 'Flag')
+assert.strictEqual(achieveOutcomeSignal({ ...outcomeAgent, z: -1 }), 'Below roster')
+assert.strictEqual(achieveOutcomeSignal({ ...outcomeAgent, sampleQualified: false, rank: null }), 'Low sample')
 assert.throws(
   () => parseAchieveManagementReport({ ...raw, persistentAgentEmails: ['missing@example.test'] }),
   /invalid_achieve_management_response/,
 )
 assert.throws(
   () => parseAchieveManagementReport({ ...raw, periods: raw.periods.slice(1) }),
+  /invalid_achieve_management_response/,
+)
+assert.throws(
+  () => parseAchieveManagementReport({ ...raw, outcomes: { ...raw.outcomes, maturityCutoff: '2026-08-08' } }),
+  /invalid_achieve_management_response/,
+)
+assert.throws(
+  () => parseAchieveManagementReport({
+    ...raw,
+    outcomes: {
+      ...raw.outcomes,
+      periods: raw.outcomes.periods.map((period, index) => index === 2
+        ? { ...period, agents: [{ ...period.agents[0], expectedFailures: null, expectedSuccesses: null, expectedRate: null, deltaPp: null }] }
+        : period),
+    },
+  }),
+  /invalid_achieve_management_response/,
+)
+assert.throws(
+  () => parseAchieveManagementReport({
+    ...raw,
+    outcomes: {
+      ...raw.outcomes,
+      periods: raw.outcomes.periods.map((period, index) => index === 2
+        ? { ...period, agents: [{ ...period.agents[0], failures: 9 }] }
+        : period),
+    },
+  }),
   /invalid_achieve_management_response/,
 )
 

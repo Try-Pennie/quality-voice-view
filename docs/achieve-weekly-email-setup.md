@@ -93,9 +93,11 @@ unset REPORT_SECRET
 
 ## 6. Deploy the code
 
-From the `quality-voice-view` repository after this branch is merged:
+From the `quality-voice-view` repository after this branch is merged, apply the database changes before deploying functions that call the new outcome RPC:
 
 ```sh
+npx supabase db push --project-ref miikotqnovnixpeqtqnd
+
 npx supabase functions deploy achieve-portal \
   --project-ref miikotqnovnixpeqtqnd
 
@@ -107,8 +109,6 @@ npx supabase functions deploy achieve-weekly-report \
 npx supabase functions deploy achieve-feedback-sync \
   --project-ref miikotqnovnixpeqtqnd \
   --no-verify-jwt
-
-npx supabase db push --project-ref miikotqnovnixpeqtqnd
 ```
 
 Deploy the frontend through the repository's normal release process so `/achieve` can call the new `get_management_report` action.
@@ -142,8 +142,10 @@ Confirm that:
 - both HTML and plain-text content are present;
 - the Bottom 5 section matches the completed two-week adjusted Form ranking;
 - the persistent-risk table matches `/achieve`;
-- the CSV contains all 2/4/6-week representative rows and both risk indicators;
-- no customer names, notes, call IDs, or transcripts appear.
+- the mature six-week first-pay section matches `/achieve` and identifies its Snowflake source-as-of date;
+- the original management CSV contains all 2/4/6-week representative rows and both risk indicators;
+- a second `achieve-first-pay-outcomes-*.csv` attachment contains the all-time, mature four-week, and mature six-week roster comparisons;
+- no customer names, notes, call IDs, raw Enrollment rows, or transcripts appear.
 
 ## 8. Verify scheduling and delivery
 

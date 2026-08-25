@@ -48,6 +48,22 @@ const report: AchieveManagementReport = {
       ? [{ ...representative, riskRank: 1 }, emergingRepresentative]
       : [{ ...representative, riskRank: weeks / 2 }],
   })),
+  outcomes: {
+    sourceAsOf: '2026-08-17',
+    refreshedAt: '2026-08-17T12:00:00Z',
+    maturityCutoff: '2026-08-07',
+    periods: (['all_time', 'mature_4_weeks', 'mature_6_weeks'] as const).map(key => ({
+      key,
+      startDate: key === 'all_time' ? null : key === 'mature_4_weeks' ? '2026-07-11' : '2026-06-27',
+      endDate: '2026-08-07',
+      agents: [{
+        agentName: 'Outcome Watch', agentEmail: 'outcome@example.test', n: 40,
+        failures: 14, failureRate: 35, expectedFailures: 8, expectedSuccesses: 32,
+        expectedRate: 20, deltaPp: 15, z: 2.5, rescinded: 5, neverPaid: 9,
+        sampleQualified: true, rank: 1,
+      }],
+    })),
+  },
 }
 
 const previousRepresentative = {
@@ -74,6 +90,7 @@ const email = buildAchieveWeeklyEmail(
   'https://eavesly.example.test/achieve',
 )
 assert.strictEqual(email.attachmentFilename, 'achieve-management-2026-08-16.csv')
+assert.strictEqual(email.outcomeAttachmentFilename, 'achieve-first-pay-outcomes-2026-08-16.csv')
 assert.ok(email.subject.endsWith('2026-08-16'))
 const padded = email.raw.replace(/-/g, '+').replace(/_/g, '/') + '='.repeat((4 - email.raw.length % 4) % 4)
 const decoded = new TextDecoder().decode(Uint8Array.from(atob(padded), character => character.charCodeAt(0)))
@@ -87,11 +104,19 @@ const decodedHtml = new TextDecoder().decode(Uint8Array.from(
 ))
 assert.ok(decoded.includes('To: leader-one@example.test, leader-two@example.test'))
 assert.ok(decoded.includes('Cc: observer@example.test'))
-assert.ok(decoded.includes('Content-Type: text/csv'))
+assert.strictEqual(decoded.match(/Content-Type: text\/csv/g)?.length, 2)
+assert.ok(decoded.includes('filename="achieve-management-2026-08-16.csv"'))
+assert.ok(decoded.includes('filename="achieve-first-pay-outcomes-2026-08-16.csv"'))
 assert.ok(decoded.split('\r\n').every(line => new TextEncoder().encode(line).length <= 998))
 assert.ok(decodedHtml.includes('&lt;Representative &amp; One&gt;'))
 assert.ok(!decodedHtml.includes('<Representative & One>'))
 assert.ok(decodedHtml.includes('WC Agent Summary by representative'))
+assert.ok(decodedHtml.includes('Mature 6-week first-pay screening'))
+assert.ok(decodedHtml.includes('Outcome Watch'))
+assert.ok(decodedHtml.includes('z 2.50'))
+assert.ok(decodedHtml.includes('screening signal, not causal proof'))
+assert.ok(decodedHtml.includes('<strong>Review:</strong>'))
+assert.ok(!decodedHtml.includes('<strong>Act on:</strong>'))
 assert.ok(decodedHtml.includes('Bottom 5 — Last 2 Completed Weeks'))
 assert.ok(decodedHtml.includes('Bottom 5 · 2w #1 · Also persistent'))
 assert.ok(decodedHtml.includes('Bottom 5 · 2w #2'))

@@ -349,7 +349,7 @@ function AchieveReviewQueue() {
           managementQuery.isError ? (
             <ErrorState
               title="Could not load Pennie agent feedback"
-              message="The completed 2-, 4-, and 6-week Form and AI rollups could not be loaded."
+              message="The completed Form, AI, and mature first-pay rollups could not be loaded."
               onRetry={() => { void managementQuery.refetch() }}
             />
           ) : managementQuery.isPending ? (

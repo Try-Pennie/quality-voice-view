@@ -613,6 +613,7 @@ Deno.serve(async (req: Request) => {
           p_representative_limit: ACHIEVE_REPORT_REPRESENTATIVE_LIMIT,
           p_representative_offset: 0,
         }),
+        async () => admin.rpc("get_achieve_first_pay_outcomes"),
         new Date(),
       )
       if (!result.ok) {

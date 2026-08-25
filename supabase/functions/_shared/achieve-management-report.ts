@@ -14,10 +14,45 @@ export type AchieveReportRange = {
   readonly endAt: string
 }
 
-/** Result returned by the existing Achieve dashboard RPC. */
+/** Result returned by an Achieve report RPC. */
 export type AchieveDashboardLoadResult = {
   readonly data: unknown
   readonly error: unknown
+}
+
+export type AchieveOutcomePeriodKey = 'all_time' | 'mature_4_weeks' | 'mature_6_weeks'
+
+/** One mature first-pay screening result compared with the same weeks' roster. */
+export type AchieveFirstPayOutcomeAgent = {
+  readonly agentName: string
+  readonly agentEmail: string
+  readonly n: number
+  readonly failures: number
+  readonly failureRate: number
+  readonly expectedFailures: number | null
+  readonly expectedSuccesses: number | null
+  readonly expectedRate: number | null
+  readonly deltaPp: number | null
+  readonly z: number | null
+  readonly rescinded: number
+  readonly neverPaid: number
+  readonly sampleQualified: boolean
+  readonly rank: number | null
+}
+
+export type AchieveFirstPayOutcomePeriod = {
+  readonly key: AchieveOutcomePeriodKey
+  readonly startDate: string | null
+  readonly endDate: string
+  readonly agents: ReadonlyArray<AchieveFirstPayOutcomeAgent>
+}
+
+/** Fresh mature outcome snapshot shared unchanged by the portal and email. */
+export type AchieveFirstPayOutcomes = {
+  readonly sourceAsOf: string
+  readonly refreshedAt: string
+  readonly maturityCutoff: string
+  readonly periods: ReadonlyArray<AchieveFirstPayOutcomePeriod>
 }
 
 /** Exactly attributed representative metrics and Form-led risk rank for one period. */
@@ -59,12 +94,15 @@ export type AchieveManagementReport = {
   readonly completedThrough: string
   readonly periods: ReadonlyArray<AchieveManagementPeriod>
   readonly persistentAgentEmails: ReadonlyArray<string>
+  readonly outcomes: AchieveFirstPayOutcomes
 }
 
 /** Expected report-loading failures safe to expose as protocol error codes. */
 export type AchieveManagementReportFailure =
   | 'dashboard_query_failed'
   | 'invalid_dashboard_response'
+  | 'outcomes_query_failed'
+  | 'invalid_outcomes_response'
 
 /** Typed result for loading the canonical management report. */
 export type AchieveManagementReportResult =
@@ -80,6 +118,28 @@ function record(value: unknown): BoundaryRecord | null {
 
 function count(value: unknown): number | null {
   return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0 ? value : null
+}
+
+function metric(value: unknown, minimum = 0): number | null {
+  return typeof value === 'number' && Number.isFinite(value) && value >= minimum ? value : null
+}
+
+function optionalMetric(value: unknown, minimum = 0): number | null | undefined {
+  if (value === null) return null
+  const parsed = metric(value, minimum)
+  return parsed === null ? undefined : parsed
+}
+
+function isoDate(value: unknown): string | null {
+  if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return null
+  const parsed = new Date(`${value}T00:00:00Z`)
+  return Number.isFinite(parsed.getTime()) && parsed.toISOString().slice(0, 10) === value ? value : null
+}
+
+function addUtcDays(value: string, days: number): string {
+  const date = new Date(`${value}T00:00:00Z`)
+  date.setUTCDate(date.getUTCDate() + days)
+  return date.toISOString().slice(0, 10)
 }
 
 function optionalTimestamp(value: unknown): string | null | undefined {
@@ -219,6 +279,94 @@ function parseRepresentative(value: unknown): Omit<AchieveManagementRepresentati
   }
 }
 
+function parseOutcomeAgent(value: unknown): AchieveFirstPayOutcomeAgent | null {
+  const row = record(value)
+  if (!row || typeof row.agent_name !== 'string' || typeof row.agent_email !== 'string') return null
+  const n = count(row.n)
+  const failures = count(row.failures)
+  const failureRate = metric(row.failure_rate)
+  const expectedFailures = optionalMetric(row.expected_failures)
+  const expectedSuccesses = optionalMetric(row.expected_successes)
+  const expectedRate = optionalMetric(row.expected_rate)
+  const deltaPp = optionalMetric(row.delta_pp, Number.NEGATIVE_INFINITY)
+  const z = optionalMetric(row.z, Number.NEGATIVE_INFINITY)
+  const rescinded = count(row.rescinded)
+  const neverPaid = count(row.never_paid)
+  const rank = row.rank === null ? null : count(row.rank)
+  const agentEmail = row.agent_email.trim().toLowerCase()
+  if (
+    n === null || n === 0 || failures === null || failureRate === null
+    || expectedFailures === undefined || expectedSuccesses === undefined || expectedRate === undefined
+    || deltaPp === undefined || z === undefined || rescinded === null || neverPaid === null
+    || typeof row.sample_qualified !== 'boolean'
+    || (rank !== null && rank < 1)
+    || !agentEmail || !agentEmail.includes('@')
+    || failures !== rescinded + neverPaid || failures > n
+    || Math.abs(failureRate - failures * 100 / n) > 0.001
+    || (!row.sample_qualified && rank !== null)
+  ) return null
+  const expectedValues = [expectedFailures, expectedSuccesses, expectedRate, deltaPp]
+  if (
+    expectedValues.some(item => item === null) && expectedValues.some(item => item !== null)
+    || (z !== null && expectedRate === null)
+    || failureRate > 100 || (expectedRate !== null && expectedRate > 100)
+    || row.sample_qualified !== (expectedFailures !== null && expectedSuccesses !== null && expectedFailures >= 5 && expectedSuccesses >= 5)
+  ) return null
+  return {
+    agentName: row.agent_name.trim() || agentEmail,
+    agentEmail,
+    n,
+    failures,
+    failureRate,
+    expectedFailures,
+    expectedSuccesses,
+    expectedRate,
+    deltaPp,
+    z,
+    rescinded,
+    neverPaid,
+    sampleQualified: row.sample_qualified,
+    rank,
+  }
+}
+
+function parseFirstPayOutcomes(value: unknown): AchieveFirstPayOutcomes | null {
+  const payload = record(value)
+  const sourceAsOf = isoDate(payload?.source_as_of)
+  const maturityCutoff = isoDate(payload?.maturity_cutoff)
+  const refreshedAt = optionalTimestamp(payload?.refreshed_at)
+  if (!payload || sourceAsOf === null || maturityCutoff === null || refreshedAt === undefined || refreshedAt === null || !Array.isArray(payload.periods)) return null
+  const periods = payload.periods.map(raw => {
+    const period = record(raw)
+    const startDate = period?.start_date === null ? null : isoDate(period?.start_date)
+    const endDate = isoDate(period?.end_date)
+    if (
+      !period || !Array.isArray(period.agents) || endDate === null
+      || (period.key !== 'all_time' && period.key !== 'mature_4_weeks' && period.key !== 'mature_6_weeks')
+      || (period.key === 'all_time' ? startDate !== null : startDate === null)
+    ) return null
+    const agents = period.agents.map(parseOutcomeAgent)
+    if (agents.some(agent => agent === null)) return null
+    const validAgents = agents.flatMap(agent => agent === null ? [] : [agent])
+    const ranks = validAgents.flatMap(agent => agent.rank === null ? [] : [agent.rank]).sort((left, right) => left - right)
+    if (new Set(validAgents.map(agent => agent.agentEmail)).size !== validAgents.length || ranks.some((rank, index) => rank !== index + 1)) return null
+    return { key: period.key, startDate, endDate, agents: validAgents }
+  })
+  if (periods.some(period => period === null)) return null
+  const validPeriods = periods.flatMap(period => period === null ? [] : [period])
+  const expectedKeys: ReadonlyArray<AchieveOutcomePeriodKey> = ['all_time', 'mature_4_weeks', 'mature_6_weeks']
+  if (
+    validPeriods.length !== 3
+    || expectedKeys.some(key => !validPeriods.some(period => period.key === key))
+    || maturityCutoff !== addUtcDays(sourceAsOf, -10)
+    || validPeriods.some(period => (
+      period.endDate !== maturityCutoff
+      || period.startDate !== (period.key === 'all_time' ? null : addUtcDays(maturityCutoff, period.key === 'mature_4_weeks' ? -27 : -41))
+    ))
+  ) return null
+  return { sourceAsOf, refreshedAt, maturityCutoff, periods: expectedKeys.map(key => validPeriods.find(period => period.key === key)).flatMap(period => period ? [period] : []) }
+}
+
 function scoreDashboard(
   range: AchieveReportRange,
   dashboardValue: unknown,
@@ -272,13 +420,20 @@ function scoreDashboard(
 /** Load, validate, score, and intersect the three completed-week dashboards. */
 export async function loadAchieveManagementReport(
   loadDashboard: (range: AchieveReportRange) => Promise<AchieveDashboardLoadResult>,
+  loadOutcomes: () => Promise<AchieveDashboardLoadResult>,
   now: Date,
 ): Promise<AchieveManagementReportResult> {
   const ranges = completedAchieveReportRanges(now)
-  const loaded = await Promise.all(ranges.map(async range => ({ range, result: await loadDashboard(range) })))
+  const [loaded, outcomeResult] = await Promise.all([
+    Promise.all(ranges.map(async range => ({ range, result: await loadDashboard(range) }))),
+    loadOutcomes(),
+  ])
   if (loaded.some(item => item.result.error !== null)) {
     return { ok: false, reason: 'dashboard_query_failed' }
   }
+  if (outcomeResult.error !== null) return { ok: false, reason: 'outcomes_query_failed' }
+  const outcomes = parseFirstPayOutcomes(outcomeResult.data)
+  if (!outcomes) return { ok: false, reason: 'invalid_outcomes_response' }
 
   const periods = loaded.map(item => scoreDashboard(item.range, item.result.data))
   if (periods.some(period => period === null)) {
@@ -302,6 +457,7 @@ export async function loadAchieveManagementReport(
       completedThrough: ranges[0]?.endAt ?? now.toISOString(),
       periods: validPeriods,
       persistentAgentEmails,
+      outcomes,
     },
   }
 }
@@ -368,6 +524,36 @@ export function achieveManagementReportCsv(report: AchieveManagementReport): str
     representative.bothConcern,
     representative.humanOnly,
     representative.aiOnly,
+  ]))
+  return `\uFEFF${[headers, ...rows].map(row => row.map(csvCell).join(',')).join('\r\n')}\r\n`
+}
+
+/** Screening label; negative z means below roster, never a top-performer claim. */
+export function achieveFirstPayOutcomeSignal(agent: AchieveFirstPayOutcomeAgent): string {
+  if (!agent.sampleQualified) return 'Low sample'
+  if (agent.z === null) return 'Normal'
+  if (agent.z >= 3) return 'Extreme'
+  if (agent.z >= 2) return 'Flag'
+  if (agent.z >= 1.5) return 'Watch'
+  if (agent.z < 0) return 'Below roster'
+  return 'Normal'
+}
+
+/** Serialize all first-pay periods for the dedicated weekly attachment. */
+export function achieveFirstPayOutcomesCsv(outcomes: AchieveFirstPayOutcomes): string {
+  const headers = [
+    'Period', 'Cohort start', 'Maturity cutoff', 'Source as of', 'Refreshed at', 'Rank', 'Signal',
+    'Representative', 'Email', 'Mature enrollments', 'No deposit', 'No-deposit rate',
+    'Roster expected failures', 'Roster expected successes', 'Roster expected rate', 'Delta pp', 'Z',
+    'Rescinded', 'Never paid', 'Sample qualified',
+  ]
+  const rows = outcomes.periods.flatMap(period => period.agents.map(agent => [
+    period.key, period.startDate ?? '', outcomes.maturityCutoff, outcomes.sourceAsOf, outcomes.refreshedAt,
+    agent.rank ?? '', achieveFirstPayOutcomeSignal(agent), agent.agentName, agent.agentEmail, agent.n,
+    agent.failures, `${agent.failureRate.toFixed(1)}%`, agent.expectedFailures?.toFixed(4) ?? '',
+    agent.expectedSuccesses?.toFixed(4) ?? '', agent.expectedRate === null ? '' : `${agent.expectedRate.toFixed(1)}%`,
+    agent.deltaPp?.toFixed(4) ?? '', agent.z?.toFixed(4) ?? '', agent.rescinded, agent.neverPaid,
+    agent.sampleQualified,
   ]))
   return `\uFEFF${[headers, ...rows].map(row => row.map(csvCell).join(',')).join('\r\n')}\r\n`
 }

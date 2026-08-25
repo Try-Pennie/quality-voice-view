@@ -6,6 +6,38 @@ import {
 
 /** Supported completed-week windows in the Achieve management view. */
 export type AchieveManagementWeeks = 2 | 4 | 6
+export type AchieveOutcomePeriodKey = 'all_time' | 'mature_4_weeks' | 'mature_6_weeks'
+
+export type AchieveFirstPayOutcomeAgent = {
+  readonly agentName: string
+  readonly agentEmail: string
+  readonly n: number
+  readonly failures: number
+  readonly failureRate: number
+  readonly expectedFailures: number | null
+  readonly expectedSuccesses: number | null
+  readonly expectedRate: number | null
+  readonly deltaPp: number | null
+  readonly z: number | null
+  readonly rescinded: number
+  readonly neverPaid: number
+  readonly sampleQualified: boolean
+  readonly rank: number | null
+}
+
+export type AchieveFirstPayOutcomePeriod = {
+  readonly key: AchieveOutcomePeriodKey
+  readonly startDate: string | null
+  readonly endDate: string
+  readonly agents: ReadonlyArray<AchieveFirstPayOutcomeAgent>
+}
+
+export type AchieveFirstPayOutcomes = {
+  readonly sourceAsOf: string
+  readonly refreshedAt: string
+  readonly maturityCutoff: string
+  readonly periods: ReadonlyArray<AchieveFirstPayOutcomePeriod>
+}
 
 /** Form-led risk metadata for one representative and period. */
 export type AchieveRepresentativeRisk = {
@@ -29,6 +61,7 @@ export type AchieveManagementReport = {
   readonly completedThrough: string
   readonly periods: ReadonlyArray<AchieveManagementPeriod>
   readonly persistentAgentEmails: ReadonlyArray<string>
+  readonly outcomes: AchieveFirstPayOutcomes
 }
 
 /** Three period ranks shown beside a persistent high-risk representative. */
@@ -67,6 +100,106 @@ function nullableRank(value: unknown): number | null {
   if (value === null) return null
   if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < 1) invalidResponse()
   return value
+}
+
+function count(value: unknown): number {
+  if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < 0) invalidResponse()
+  return value
+}
+
+function finite(value: unknown): number {
+  if (typeof value !== 'number' || !Number.isFinite(value)) invalidResponse()
+  return value
+}
+
+function nullableFinite(value: unknown): number | null {
+  return value === null ? null : finite(value)
+}
+
+function date(value: unknown): string {
+  if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value)) invalidResponse()
+  const parsed = new Date(`${value}T00:00:00Z`)
+  if (!Number.isFinite(parsed.getTime()) || parsed.toISOString().slice(0, 10) !== value) invalidResponse()
+  return value
+}
+
+function addUtcDays(value: string, days: number): string {
+  const parsed = new Date(`${value}T00:00:00Z`)
+  parsed.setUTCDate(parsed.getUTCDate() + days)
+  return parsed.toISOString().slice(0, 10)
+}
+
+function parseOutcomeAgent(value: unknown): AchieveFirstPayOutcomeAgent {
+  const agent = record(value)
+  if (!agent || typeof agent.agentName !== 'string' || typeof agent.agentEmail !== 'string' || typeof agent.sampleQualified !== 'boolean') invalidResponse()
+  const parsed = {
+    agentName: agent.agentName.trim(),
+    agentEmail: agent.agentEmail.trim().toLowerCase(),
+    n: count(agent.n),
+    failures: count(agent.failures),
+    failureRate: finite(agent.failureRate),
+    expectedFailures: nullableFinite(agent.expectedFailures),
+    expectedSuccesses: nullableFinite(agent.expectedSuccesses),
+    expectedRate: nullableFinite(agent.expectedRate),
+    deltaPp: nullableFinite(agent.deltaPp),
+    z: nullableFinite(agent.z),
+    rescinded: count(agent.rescinded),
+    neverPaid: count(agent.neverPaid),
+    sampleQualified: agent.sampleQualified,
+    rank: nullableRank(agent.rank),
+  }
+  if (
+    !parsed.agentName || !parsed.agentEmail.includes('@') || parsed.n === 0
+    || parsed.failures !== parsed.rescinded + parsed.neverPaid || parsed.failures > parsed.n
+    || Math.abs(parsed.failureRate - parsed.failures * 100 / parsed.n) > 0.001
+    || (!parsed.sampleQualified && parsed.rank !== null)
+  ) invalidResponse()
+  const expected = [parsed.expectedFailures, parsed.expectedSuccesses, parsed.expectedRate, parsed.deltaPp]
+  if (
+    expected.some(item => item === null) && expected.some(item => item !== null)
+    || (parsed.z !== null && parsed.expectedRate === null)
+    || parsed.failureRate < 0 || parsed.failureRate > 100
+    || (parsed.expectedFailures !== null && parsed.expectedFailures < 0)
+    || (parsed.expectedSuccesses !== null && parsed.expectedSuccesses < 0)
+    || (parsed.expectedRate !== null && (parsed.expectedRate < 0 || parsed.expectedRate > 100))
+    || parsed.sampleQualified !== (parsed.expectedFailures !== null && parsed.expectedSuccesses !== null && parsed.expectedFailures >= 5 && parsed.expectedSuccesses >= 5)
+  ) invalidResponse()
+  return parsed
+}
+
+function parseOutcomes(value: unknown): AchieveFirstPayOutcomes {
+  const outcomes = record(value)
+  if (!outcomes || !Array.isArray(outcomes.periods)) invalidResponse()
+  const periods = outcomes.periods.map((raw): AchieveFirstPayOutcomePeriod => {
+    const period = record(raw)
+    if (!period || !Array.isArray(period.agents)) invalidResponse()
+    const key = period.key
+    if (key !== 'all_time' && key !== 'mature_4_weeks' && key !== 'mature_6_weeks') invalidResponse()
+    const startDate = period.startDate === null ? null : date(period.startDate)
+    if ((key === 'all_time') !== (startDate === null)) invalidResponse()
+    const agents = period.agents.map(parseOutcomeAgent)
+    const ranks = agents.flatMap(agent => agent.rank === null ? [] : [agent.rank]).sort((left, right) => left - right)
+    if (new Set(agents.map(agent => agent.agentEmail)).size !== agents.length || ranks.some((rank, index) => rank !== index + 1)) invalidResponse()
+    return { key, startDate, endDate: date(period.endDate), agents }
+  })
+  const keys: ReadonlyArray<AchieveOutcomePeriodKey> = ['all_time', 'mature_4_weeks', 'mature_6_weeks']
+  const sourceAsOf = date(outcomes.sourceAsOf)
+  const maturityCutoff = date(outcomes.maturityCutoff)
+  if (
+    periods.length !== keys.length
+    || keys.some(key => !periods.some(period => period.key === key))
+    || maturityCutoff !== addUtcDays(sourceAsOf, -10)
+    || periods.some(period => (
+      period.endDate !== maturityCutoff
+      || period.startDate !== (period.key === 'all_time' ? null : addUtcDays(maturityCutoff, period.key === 'mature_4_weeks' ? -27 : -41))
+    ))
+  ) invalidResponse()
+  return {
+    sourceAsOf,
+    refreshedAt: timestamp(outcomes.refreshedAt),
+    maturityCutoff,
+    periods: keys.map(key => periods.find(period => period.key === key)).flatMap(period => period ? [period] : []),
+  }
 }
 
 function parsePeriod(value: unknown): AchieveManagementPeriod {
@@ -139,7 +272,29 @@ export function parseAchieveManagementReport(value: unknown): AchieveManagementR
     completedThrough: timestamp(report.completedThrough),
     periods,
     persistentAgentEmails,
+    outcomes: parseOutcomes(report.outcomes),
   }
+}
+
+/** Return the requested first-pay period from the canonical report. */
+export function achieveOutcomePeriod(
+  outcomes: AchieveFirstPayOutcomes,
+  key: AchieveOutcomePeriodKey,
+): AchieveFirstPayOutcomePeriod {
+  const period = outcomes.periods.find(candidate => candidate.key === key)
+  if (!period) throw new Error('missing_achieve_outcome_period')
+  return period
+}
+
+/** Label a screening signal without treating negative z as performance proof. */
+export function achieveOutcomeSignal(agent: AchieveFirstPayOutcomeAgent): string {
+  if (!agent.sampleQualified) return 'Low sample'
+  if (agent.z === null) return 'Normal'
+  if (agent.z >= 3) return 'Extreme'
+  if (agent.z >= 2) return 'Flag'
+  if (agent.z >= 1.5) return 'Watch'
+  if (agent.z < 0) return 'Below roster'
+  return 'Normal'
 }
 
 /** Return one required period from an already parsed management report. */

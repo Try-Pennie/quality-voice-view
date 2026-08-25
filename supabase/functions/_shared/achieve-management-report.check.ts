@@ -2,6 +2,7 @@
 // Run: npx tsx supabase/functions/_shared/achieve-management-report.check.ts
 import assert from 'node:assert/strict'
 import {
+  achieveFirstPayOutcomesCsv,
   achieveManagementReportCsv,
   achieveReportWeekEnding,
   completedAchieveReportRanges,
@@ -69,8 +70,26 @@ function dashboard(range: AchieveReportRange) {
   }
 }
 
+const rawOutcomes = {
+  source_as_of: '2026-08-19',
+  refreshed_at: '2026-08-19T11:00:00Z',
+  maturity_cutoff: '2026-08-09',
+  periods: ['all_time', 'mature_4_weeks', 'mature_6_weeks'].map(key => ({
+    key,
+    start_date: key === 'all_time' ? null : key === 'mature_4_weeks' ? '2026-07-13' : '2026-06-29',
+    end_date: '2026-08-09',
+    agents: [{
+      agent_name: 'Outcome Agent', agent_email: 'outcome@example.test', n: 20,
+      failures: 8, failure_rate: 40, expected_failures: 5, expected_successes: 15,
+      expected_rate: 25, delta_pp: 15, z: 2.5, rescinded: 3, never_paid: 5,
+      sample_qualified: true, rank: 1,
+    }],
+  })),
+}
+
 const loaded = await loadAchieveManagementReport(
   async range => ({ data: dashboard(range), error: null }),
+  async () => ({ data: rawOutcomes, error: null }),
   new Date('2026-08-19T12:00:00Z'),
 )
 assert.strictEqual(loaded.ok, true)
@@ -91,15 +110,27 @@ const oneOfOne = firstPeriod?.representatives.find(row => row.agentEmail === 're
 const oneOfTwo = firstPeriod?.representatives.find(row => row.agentEmail === 'rep-9@example.test')
 assert.ok((oneOfOne?.adjustedFormRisk ?? 0) > (oneOfTwo?.adjustedFormRisk ?? 0))
 
+assert.strictEqual(loaded.report.outcomes.periods[2]?.agents[0]?.z, 2.5)
 assert.strictEqual(achieveReportWeekEnding(loaded.report), '2026-08-16')
 const csv = achieveManagementReportCsv(loaded.report)
 assert.ok(csv.startsWith('\uFEFF"Period","Period start (UTC)"'))
 assert.ok(csv.includes('"Bottom 5 last 2 weeks"'))
 assert.ok(csv.includes('"\'=Representative 0"'))
 assert.strictEqual(csv.trim().split('\r\n').length, 1 + 12 * 3)
+const outcomeCsv = achieveFirstPayOutcomesCsv(loaded.report.outcomes)
+assert.ok(outcomeCsv.includes('"Outcome Agent"'))
+assert.ok(outcomeCsv.includes('"2.5000"'))
+assert.ok(outcomeCsv.includes('"all_time"'))
+assert.ok(outcomeCsv.includes('"mature_4_weeks"'))
+assert.ok(outcomeCsv.includes('"mature_6_weeks"'))
+assert.strictEqual(outcomeCsv.trim().split('\r\n').length, 4)
 
 assert.deepStrictEqual(
-  await loadAchieveManagementReport(async () => ({ data: null, error: { code: 'db' } }), new Date()),
+  await loadAchieveManagementReport(
+    async () => ({ data: null, error: { code: 'db' } }),
+    async () => ({ data: rawOutcomes, error: null }),
+    new Date(),
+  ),
   { ok: false, reason: 'dashboard_query_failed' },
 )
 

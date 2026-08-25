@@ -1,4 +1,6 @@
 import {
+  achieveFirstPayOutcomeSignal,
+  achieveFirstPayOutcomesCsv,
   achieveManagementReportCsv,
   achieveReportWeekEnding,
   type AchieveManagementReport,
@@ -10,6 +12,7 @@ export type AchieveWeeklyEmail = {
   readonly raw: string
   readonly subject: string
   readonly attachmentFilename: string
+  readonly outcomeAttachmentFilename: string
 }
 
 function html(value: string): string {
@@ -141,6 +144,19 @@ function emailBody(
     representative,
     `Bottom 5 · 2w #${representative.riskRank}${currentEmails.has(representative.agentEmail) ? ' · Also persistent' : ''}`,
   )).join('')
+  const matureSixWeek = report.outcomes.periods.find(period => period.key === 'mature_6_weeks')
+  const outcomeFlags = (matureSixWeek?.agents ?? [])
+    .filter(agent => agent.sampleQualified && agent.z !== null && agent.z >= 1.5)
+    .sort((left, right) => (right.z ?? 0) - (left.z ?? 0) || right.n - left.n)
+  const outcomeNames = outcomeFlags.length === 0
+    ? 'No sample-qualified Watch, Flag, or Extreme signals.'
+    : outcomeFlags.map(agent => `${agent.agentName} (${achieveFirstPayOutcomeSignal(agent)}, z ${agent.z?.toFixed(2)})`).join(', ')
+  const outcomeRows = outcomeFlags.map(agent => `<div style="margin:10px 0;padding:14px;border:1px solid #e2e8f0;border-radius:10px;background:#fff">
+    <strong>${html(agent.agentName)}</strong> <span style="display:inline-block;margin-left:4px;padding:3px 7px;border-radius:999px;background:#fef3c7;color:#92400e;font-size:11px;font-weight:700">${html(achieveFirstPayOutcomeSignal(agent))} · z ${agent.z?.toFixed(2) ?? '—'}</span><br>
+    <span style="color:#64748b;font-size:12px;overflow-wrap:anywhere">${html(agent.agentEmail)}</span>
+    <p style="margin:10px 0 0;color:#334155;font-size:13px;line-height:1.6"><strong>${agent.failures} no deposit (${agent.failureRate.toFixed(1)}%)</strong> of ${agent.n} mature · roster expected ${agent.expectedFailures?.toFixed(1) ?? '—'} (${agent.expectedRate?.toFixed(1) ?? '—'}%) · delta ${agent.deltaPp !== null && agent.deltaPp > 0 ? '+' : ''}${agent.deltaPp?.toFixed(1) ?? '—'} pp<br>Rescinded ${agent.rescinded} · never paid ${agent.neverPaid}</p>
+  </div>`).join('')
+  const outcomeSection = `<h2 style="margin:32px 0 4px;font-size:20px">Mature 6-week first-pay screening</h2><p style="margin:0;color:#64748b;font-size:13px">Original scheduled first drafts through ${html(report.outcomes.maturityCutoff)}; leave-one-agent-out roster expectation for the same active cohort weeks. This is a screening signal, not causal proof. Source as of ${html(report.outcomes.sourceAsOf)}.</p><p style="color:#334155;font-size:13px"><strong>Review:</strong> ${html(outcomeNames)}</p>${outcomeRows === '' ? `<p style="color:#64748b">${html(outcomeNames)}</p>` : outcomeRows}`
   const heading = 'padding:11px 10px;border:1px solid #e2e8f0;color:#64748b;font-size:11px;text-transform:uppercase;letter-spacing:.04em;white-space:nowrap'
   const table = (rows: string) => rows === '' ? '' : `<div style="margin:20px 0;overflow-x:auto;border:1px solid #e2e8f0;border-radius:12px"><table style="width:100%;min-width:1420px;border-collapse:collapse;background:#fff;font-size:13px">
     <thead style="background:#f8fafc"><tr><th rowspan="2" style="${heading};text-align:left">Representative</th><th colspan="6" style="${heading}">Form</th><th colspan="3" style="${heading};color:#1d4ed8;background:#eff6ff">AI QA</th><th colspan="5" style="${heading}">Call alignment</th></tr>
@@ -148,12 +164,12 @@ function emailBody(
     <tbody>${rows}</tbody>
   </table></div>`
   return {
-    text: `Achieve weekly management report — week ending ${endingLabel}\n\nBottom 5 — last 2 completed weeks: ${names(bottomFiveRepresentatives)}\n\n${summary}\n\nNew since last Monday: ${names(newRepresentatives)}\nRemoved since last Monday: ${names(removedRepresentatives)}\n\nForm feedback drives the risk ranking. AI QA is supporting context only.\n\nOpen the Achieve portal: ${portalUrl}\n\nThe full 2/4/6-week representative export is attached.`,
-    html: `<!doctype html><html><body style="margin:0;background:#f8fafc;font-family:Arial,sans-serif;color:#0f172a"><div style="max-width:1540px;margin:0 auto;padding:32px 20px"><div style="background:#fff;border:1px solid #e2e8f0;border-radius:16px;padding:28px"><p style="margin:0;color:#1d4ed8;font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.08em">Achieve / FDR</p><h1 style="margin:8px 0 4px;font-size:24px">WC Agent Summary by representative</h1><p style="margin:0;color:#64748b">Completed 2/4/6-week management report through ${html(endingLabel)}</p><p style="margin:20px 0 0">${html(summary)}</p>${changes}<h2 style="margin:28px 0 4px;font-size:20px">Bottom 5 — Last 2 Completed Weeks</h2><p style="margin:0;color:#64748b;font-size:13px">Highest sample-adjusted Form Fair/Poor scores in the completed two-week window. AI QA remains supporting context only.</p>${bottomFiveRows === '' ? '<p style="color:#64748b">No representatives had eligible Form feedback.</p>' : table(bottomFiveRows)}<h2 style="margin:32px 0 4px;font-size:20px">Persistent High Risk</h2><p style="margin:0;color:#64748b;font-size:13px">Representatives ranked in the Form-feedback top 10 across all completed 2-, 4-, and 6-week periods.</p>${table(persistentRows)}<p style="color:#475569;font-size:13px">Form feedback drives the risk ranking. AI QA is supporting context only.</p><p style="margin:24px 0 0"><a href="${html(portalUrl)}" style="display:inline-block;background:#0f172a;color:#fff;text-decoration:none;border-radius:999px;padding:11px 18px;font-weight:700">Open Achieve portal</a></p><p style="margin:20px 0 0;color:#64748b;font-size:12px">The full completed 2/4/6-week representative export is attached.</p></div></div></body></html>`,
+    text: `Achieve weekly management report — week ending ${endingLabel}\n\nMature 6-week first-pay screening: ${outcomeNames}\nSource as of ${report.outcomes.sourceAsOf}; screening signal, not causal proof.\n\nBottom 5 — last 2 completed weeks: ${names(bottomFiveRepresentatives)}\n\n${summary}\n\nNew since last Monday: ${names(newRepresentatives)}\nRemoved since last Monday: ${names(removedRepresentatives)}\n\nForm feedback drives the risk ranking. AI QA is supporting context only.\n\nOpen the Achieve portal: ${portalUrl}\n\nThe full management and all-time/4-week/6-week mature outcome exports are attached.`,
+    html: `<!doctype html><html><body style="margin:0;background:#f8fafc;font-family:Arial,sans-serif;color:#0f172a"><div style="max-width:1540px;margin:0 auto;padding:32px 20px"><div style="background:#fff;border:1px solid #e2e8f0;border-radius:16px;padding:28px"><p style="margin:0;color:#1d4ed8;font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.08em">Achieve / FDR</p><h1 style="margin:8px 0 4px;font-size:24px">WC Agent Summary by representative</h1><p style="margin:0;color:#64748b">Completed 2/4/6-week management report through ${html(endingLabel)}</p>${outcomeSection}<p style="margin:20px 0 0">${html(summary)}</p>${changes}<h2 style="margin:28px 0 4px;font-size:20px">Bottom 5 — Last 2 Completed Weeks</h2><p style="margin:0;color:#64748b;font-size:13px">Highest sample-adjusted Form Fair/Poor scores in the completed two-week window. AI QA remains supporting context only.</p>${bottomFiveRows === '' ? '<p style="color:#64748b">No representatives had eligible Form feedback.</p>' : table(bottomFiveRows)}<h2 style="margin:32px 0 4px;font-size:20px">Persistent High Risk</h2><p style="margin:0;color:#64748b;font-size:13px">Representatives ranked in the Form-feedback top 10 across all completed 2-, 4-, and 6-week periods.</p>${table(persistentRows)}<p style="color:#475569;font-size:13px">Form feedback drives the risk ranking. AI QA is supporting context only.</p><p style="margin:24px 0 0"><a href="${html(portalUrl)}" style="display:inline-block;background:#0f172a;color:#fff;text-decoration:none;border-radius:999px;padding:11px 18px;font-weight:700">Open Achieve portal</a></p><p style="margin:20px 0 0;color:#64748b;font-size:12px">The full completed 2/4/6-week representative export is attached.</p></div></div></body></html>`,
   }
 }
 
-/** Build the HTML summary and full CSV attachment as a Gmail raw message. */
+/** Build the HTML summary plus management and all-period mature-outcome CSV attachments. */
 export function buildAchieveWeeklyEmail(
   report: AchieveManagementReport,
   previousReport: AchieveManagementReport,
@@ -165,10 +181,12 @@ export function buildAchieveWeeklyEmail(
   const completedDate = achieveReportWeekEnding(report)
   const subject = `Achieve weekly management report - week ending ${completedDate}`
   const attachmentFilename = `achieve-management-${completedDate}.csv`
+  const outcomeAttachmentFilename = `achieve-first-pay-outcomes-${completedDate}.csv`
   const mixedBoundary = `achieve_mixed_${completedDate.replaceAll('-', '')}`
   const alternativeBoundary = `achieve_alt_${completedDate.replaceAll('-', '')}`
   const body = emailBody(report, previousReport, portalUrl)
   const csv = achieveManagementReportCsv(report)
+  const outcomeCsv = achieveFirstPayOutcomesCsv(report.outcomes)
   const message = [
     `From: Eavesly Reports <${sender}>`,
     `To: ${recipients.join(', ')}`,
@@ -201,8 +219,15 @@ export function buildAchieveWeeklyEmail(
     '',
     encodeMimeBody(csv),
     '',
+    `--${mixedBoundary}`,
+    `Content-Type: text/csv; charset="UTF-8"; name="${outcomeAttachmentFilename}"`,
+    `Content-Disposition: attachment; filename="${outcomeAttachmentFilename}"`,
+    'Content-Transfer-Encoding: base64',
+    '',
+    encodeMimeBody(outcomeCsv),
+    '',
     `--${mixedBoundary}--`,
     '',
   ].join('\r\n')
-  return { raw: base64url(message), subject, attachmentFilename }
+  return { raw: base64url(message), subject, attachmentFilename, outcomeAttachmentFilename }
 }

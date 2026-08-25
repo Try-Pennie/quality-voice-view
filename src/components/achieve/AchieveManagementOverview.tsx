@@ -1,4 +1,5 @@
 import { AchieveFeedbackOverview } from '@/components/achieve/AchieveFeedbackOverview'
+import { AchieveFirstPayOutcomes } from '@/components/achieve/AchieveFirstPayOutcomes'
 import { AchieveRepresentativeTable } from '@/components/achieve/AchieveRepresentativeTable'
 import {
   achieveManagementPeriod,
@@ -66,6 +67,8 @@ export function AchieveManagementOverview({
           </div>
         </div>
       </section>
+
+      <AchieveFirstPayOutcomes outcomes={report.outcomes} />
 
       {persistentRepresentatives.length === 0 ? (
         <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
