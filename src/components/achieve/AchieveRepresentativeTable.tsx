@@ -23,7 +23,16 @@ const statusContent: Readonly<Record<AchieveRepresentativeReviewStatus, { label:
 
 function ReviewStatus({ representative }: { representative: AchieveRepresentativeFeedback }) {
   const content = statusContent[achieveRepresentativeReviewStatus(representative)]
-  return <span className={`inline-flex rounded-full px-2 py-0.5 text-[11px] font-semibold ${content.className}`}>{content.label}</span>
+  return (
+    <span className="flex flex-wrap gap-1.5">
+      {representative.terminatedAt !== null && (
+        <span className="inline-flex rounded-full bg-slate-900 px-2 py-0.5 text-[11px] font-semibold text-white">
+          Terminated · {activityDate.format(new Date(representative.terminatedAt))}
+        </span>
+      )}
+      <span className={`inline-flex rounded-full px-2 py-0.5 text-[11px] font-semibold ${content.className}`}>{content.label}</span>
+    </span>
+  )
 }
 
 function Count({ value, tone = 'plain' }: { value: number; tone?: 'plain' | 'good' | 'fair' | 'poor' }) {

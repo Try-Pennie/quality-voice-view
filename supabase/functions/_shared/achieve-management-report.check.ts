@@ -71,6 +71,18 @@ function dashboard(range: AchieveReportRange) {
 
 const loaded = await loadAchieveManagementReport(
   async range => ({ data: dashboard(range), error: null }),
+  async () => ({
+    data: [{
+      agent_name: 'Representative 3',
+      agent_email: 'rep-3@example.test',
+      terminated_at: '2026-08-18T04:00:00Z',
+      post_termination_form_submissions: 1,
+      latest_post_termination_form_at: '2026-08-19T10:00:00Z',
+      post_termination_ai_calls: 0,
+      latest_post_termination_ai_at: null,
+    }],
+    error: null,
+  }),
   new Date('2026-08-19T12:00:00Z'),
 )
 assert.strictEqual(loaded.ok, true)
@@ -87,6 +99,8 @@ assert.deepStrictEqual(loaded.report.persistentAgentEmails, [
 ])
 const firstPeriod = loaded.report.periods[0]
 assert.strictEqual(firstPeriod?.representatives.find(row => row.agentEmail === 'ai-only@example.test')?.riskRank, null)
+assert.strictEqual(firstPeriod?.representatives.find(row => row.agentEmail === 'rep-3@example.test')?.terminatedAt, '2026-08-18T04:00:00Z')
+assert.strictEqual(loaded.report.terminations[0]?.postTerminationFormSubmissions, 1)
 const oneOfOne = firstPeriod?.representatives.find(row => row.agentEmail === 'rep-10@example.test')
 const oneOfTwo = firstPeriod?.representatives.find(row => row.agentEmail === 'rep-9@example.test')
 assert.ok((oneOfOne?.adjustedFormRisk ?? 0) > (oneOfTwo?.adjustedFormRisk ?? 0))
@@ -95,11 +109,17 @@ assert.strictEqual(achieveReportWeekEnding(loaded.report), '2026-08-16')
 const csv = achieveManagementReportCsv(loaded.report)
 assert.ok(csv.startsWith('\uFEFF"Period","Period start (UTC)"'))
 assert.ok(csv.includes('"Bottom 5 last 2 weeks"'))
+assert.ok(csv.includes('"Post-termination Forms"'))
+assert.ok(csv.includes('"2026-08-18T04:00:00Z"'))
 assert.ok(csv.includes('"\'=Representative 0"'))
 assert.strictEqual(csv.trim().split('\r\n').length, 1 + 12 * 3)
 
 assert.deepStrictEqual(
-  await loadAchieveManagementReport(async () => ({ data: null, error: { code: 'db' } }), new Date()),
+  await loadAchieveManagementReport(
+    async () => ({ data: null, error: { code: 'db' } }),
+    async () => ({ data: [], error: null }),
+    new Date(),
+  ),
   { ok: false, reason: 'dashboard_query_failed' },
 )
 

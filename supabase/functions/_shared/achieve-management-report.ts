@@ -14,10 +14,21 @@ export type AchieveReportRange = {
   readonly endAt: string
 }
 
-/** Result returned by the existing Achieve dashboard RPC. */
-export type AchieveDashboardLoadResult = {
+/** Result returned by an Achieve reporting RPC. */
+export type AchieveReportLoadResult = {
   readonly data: unknown
   readonly error: unknown
+}
+
+/** One effective termination and any exactly attributed activity after it. */
+export type AchieveManagementTermination = {
+  readonly agentName: string
+  readonly agentEmail: string
+  readonly terminatedAt: string
+  readonly postTerminationFormSubmissions: number
+  readonly latestPostTerminationFormAt: string | null
+  readonly postTerminationAiCalls: number
+  readonly latestPostTerminationAiAt: string | null
 }
 
 /** Exactly attributed representative metrics and Form-led risk rank for one period. */
@@ -45,6 +56,7 @@ export type AchieveManagementRepresentative = {
   readonly bothConcern: number
   readonly humanOnly: number
   readonly aiOnly: number
+  readonly terminatedAt: string | null
 }
 
 /** One period's existing dashboard plus management ranking metadata. */
@@ -59,12 +71,15 @@ export type AchieveManagementReport = {
   readonly completedThrough: string
   readonly periods: ReadonlyArray<AchieveManagementPeriod>
   readonly persistentAgentEmails: ReadonlyArray<string>
+  readonly terminations: ReadonlyArray<AchieveManagementTermination>
 }
 
 /** Expected report-loading failures safe to expose as protocol error codes. */
 export type AchieveManagementReportFailure =
   | 'dashboard_query_failed'
   | 'invalid_dashboard_response'
+  | 'termination_query_failed'
+  | 'invalid_termination_response'
 
 /** Typed result for loading the canonical management report. */
 export type AchieveManagementReportResult =
@@ -158,7 +173,37 @@ export function isAchieveReportDeliveryHour(now: Date): boolean {
   return eastern.weekday === 'Mon' && eastern.hour === 9
 }
 
-function parseRepresentative(value: unknown): Omit<AchieveManagementRepresentative, 'adjustedFormRisk' | 'riskRank'> | null {
+function parseTermination(value: unknown): AchieveManagementTermination | null {
+  const row = record(value)
+  if (!row || typeof row.agent_name !== 'string' || typeof row.agent_email !== 'string') return null
+  const terminatedAt = optionalTimestamp(row.terminated_at)
+  const formSubmissions = count(row.post_termination_form_submissions)
+  const latestFormAt = optionalTimestamp(row.latest_post_termination_form_at)
+  const aiCalls = count(row.post_termination_ai_calls)
+  const latestAiAt = optionalTimestamp(row.latest_post_termination_ai_at)
+  const agentEmail = row.agent_email.trim().toLowerCase()
+  if (
+    terminatedAt === null || terminatedAt === undefined
+    || formSubmissions === null || latestFormAt === undefined
+    || aiCalls === null || latestAiAt === undefined
+    || !agentEmail || !agentEmail.includes('@')
+    || (formSubmissions === 0) !== (latestFormAt === null)
+    || (aiCalls === 0) !== (latestAiAt === null)
+    || (latestFormAt !== null && Date.parse(latestFormAt) < Date.parse(terminatedAt))
+    || (latestAiAt !== null && Date.parse(latestAiAt) < Date.parse(terminatedAt))
+  ) return null
+  return {
+    agentName: row.agent_name.trim() || agentEmail,
+    agentEmail,
+    terminatedAt,
+    postTerminationFormSubmissions: formSubmissions,
+    latestPostTerminationFormAt: latestFormAt,
+    postTerminationAiCalls: aiCalls,
+    latestPostTerminationAiAt: latestAiAt,
+  }
+}
+
+function parseRepresentative(value: unknown): Omit<AchieveManagementRepresentative, 'adjustedFormRisk' | 'riskRank' | 'terminatedAt'> | null {
   const row = record(value)
   if (!row || typeof row.achieve_agent_name !== 'string' || typeof row.achieve_agent_email !== 'string') return null
   const totalSubmissions = count(row.total_submissions)
@@ -222,6 +267,7 @@ function parseRepresentative(value: unknown): Omit<AchieveManagementRepresentati
 function scoreDashboard(
   range: AchieveReportRange,
   dashboardValue: unknown,
+  terminationByEmail: ReadonlyMap<string, AchieveManagementTermination>,
 ): AchieveManagementPeriod | null {
   const dashboard = record(dashboardValue)
   const representativePayload = record(dashboard?.representatives)
@@ -244,6 +290,7 @@ function scoreDashboard(
 
   const scored = representatives.map(representative => ({
     ...representative,
+    terminatedAt: terminationByEmail.get(representative.agentEmail)?.terminatedAt ?? null,
     adjustedFormRisk: representative.totalSubmissions === 0
       ? null
       : ((representative.fair + representative.poor + FORM_PRIOR_SAMPLE * overallConcernRate)
@@ -271,16 +318,31 @@ function scoreDashboard(
 
 /** Load, validate, score, and intersect the three completed-week dashboards. */
 export async function loadAchieveManagementReport(
-  loadDashboard: (range: AchieveReportRange) => Promise<AchieveDashboardLoadResult>,
+  loadDashboard: (range: AchieveReportRange) => Promise<AchieveReportLoadResult>,
+  loadTerminations: (endAt: string) => Promise<AchieveReportLoadResult>,
   now: Date,
 ): Promise<AchieveManagementReportResult> {
   const ranges = completedAchieveReportRanges(now)
-  const loaded = await Promise.all(ranges.map(async range => ({ range, result: await loadDashboard(range) })))
+  const [loaded, terminationResult] = await Promise.all([
+    Promise.all(ranges.map(async range => ({ range, result: await loadDashboard(range) }))),
+    loadTerminations(now.toISOString()),
+  ])
   if (loaded.some(item => item.result.error !== null)) {
     return { ok: false, reason: 'dashboard_query_failed' }
   }
+  if (terminationResult.error !== null) return { ok: false, reason: 'termination_query_failed' }
+  if (!Array.isArray(terminationResult.data)) return { ok: false, reason: 'invalid_termination_response' }
+  const parsedTerminations = terminationResult.data.map(parseTermination)
+  if (parsedTerminations.some(termination => termination === null)) {
+    return { ok: false, reason: 'invalid_termination_response' }
+  }
+  const terminations = parsedTerminations.flatMap(termination => termination === null ? [] : [termination])
+  if (new Set(terminations.map(termination => termination.agentEmail)).size !== terminations.length) {
+    return { ok: false, reason: 'invalid_termination_response' }
+  }
+  const terminationByEmail = new Map(terminations.map(termination => [termination.agentEmail, termination]))
 
-  const periods = loaded.map(item => scoreDashboard(item.range, item.result.data))
+  const periods = loaded.map(item => scoreDashboard(item.range, item.result.data, terminationByEmail))
   if (periods.some(period => period === null)) {
     return { ok: false, reason: 'invalid_dashboard_response' }
   }
@@ -302,6 +364,7 @@ export async function loadAchieveManagementReport(
       completedThrough: ranges[0]?.endAt ?? now.toISOString(),
       periods: validPeriods,
       persistentAgentEmails,
+      terminations,
     },
   }
 }
@@ -333,42 +396,50 @@ export function achieveManagementReportCsv(report: AchieveManagementReport): str
       .filter(representative => representative.riskRank !== null && representative.riskRank <= 5)
       .map(representative => representative.agentEmail) ?? [],
   )
+  const terminationByEmail = new Map(report.terminations.map(termination => [termination.agentEmail, termination]))
   const headers = [
     'Period', 'Period start (UTC)', 'Period end (UTC)', 'Persistent high risk',
-    'Bottom 5 last 2 weeks', 'Risk rank',
+    'Bottom 5 last 2 weeks', 'Risk rank', 'Terminated at (UTC)',
+    'Post-termination Forms', 'Post-termination AI calls',
     'Representative', 'Email', 'Adjusted Form risk', 'Form sample', 'Form good', 'Form fair',
     'Form poor', 'Form other', 'Form Fair/Poor rate', 'Background noise', 'Accent / communication',
     'Connection issue', 'AI QA sample', 'AI QA pass', 'AI QA flagged', 'Overlap', 'Both clear',
     'Both concern', 'Human only', 'AI only',
   ]
-  const rows = report.periods.flatMap(period => period.representatives.map(representative => [
-    `${period.weeks} weeks`,
-    period.startAt,
-    period.endAt,
-    persistent.has(representative.agentEmail) ? 'Yes' : 'No',
-    bottomFiveTwoWeek.has(representative.agentEmail) ? 'Yes' : 'No',
-    representative.riskRank ?? '',
-    representative.agentName,
-    representative.agentEmail,
-    representative.adjustedFormRisk === null ? '' : `${representative.adjustedFormRisk.toFixed(1)}%`,
-    representative.totalSubmissions,
-    representative.good,
-    representative.fair,
-    representative.poor,
-    representative.other,
-    `${representative.fairPoorRate.toFixed(1)}%`,
-    representative.backgroundNoise,
-    representative.accent,
-    representative.connectionIssues,
-    representative.aiTotal,
-    representative.aiPass,
-    representative.aiFlagged,
-    representative.overlapCalls,
-    representative.bothClear,
-    representative.bothConcern,
-    representative.humanOnly,
-    representative.aiOnly,
-  ]))
+  const rows = report.periods.flatMap(period => period.representatives.map(representative => {
+    const termination = terminationByEmail.get(representative.agentEmail)
+    return [
+      `${period.weeks} weeks`,
+      period.startAt,
+      period.endAt,
+      persistent.has(representative.agentEmail) ? 'Yes' : 'No',
+      bottomFiveTwoWeek.has(representative.agentEmail) ? 'Yes' : 'No',
+      representative.riskRank ?? '',
+      representative.terminatedAt ?? '',
+      termination?.postTerminationFormSubmissions ?? 0,
+      termination?.postTerminationAiCalls ?? 0,
+      representative.agentName,
+      representative.agentEmail,
+      representative.adjustedFormRisk === null ? '' : `${representative.adjustedFormRisk.toFixed(1)}%`,
+      representative.totalSubmissions,
+      representative.good,
+      representative.fair,
+      representative.poor,
+      representative.other,
+      `${representative.fairPoorRate.toFixed(1)}%`,
+      representative.backgroundNoise,
+      representative.accent,
+      representative.connectionIssues,
+      representative.aiTotal,
+      representative.aiPass,
+      representative.aiFlagged,
+      representative.overlapCalls,
+      representative.bothClear,
+      representative.bothConcern,
+      representative.humanOnly,
+      representative.aiOnly,
+    ]
+  }))
   return `\uFEFF${[headers, ...rows].map(row => row.map(csvCell).join(',')).join('\r\n')}\r\n`
 }
 

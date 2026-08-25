@@ -28,17 +28,28 @@ const representative = {
   bothConcern: 1,
   humanOnly: 1,
   aiOnly: 0,
+  terminatedAt: '2026-08-16T04:00:00Z',
 }
 const emergingRepresentative = {
   ...representative,
   agentName: 'Emerging Representative',
   agentEmail: 'emerging@example.test',
   riskRank: 2,
+  terminatedAt: null,
 }
 const report: AchieveManagementReport = {
   generatedAt: '2026-08-17T13:00:00.000Z',
   completedThrough: '2026-08-17T04:00:00.000Z',
   persistentAgentEmails: [representative.agentEmail],
+  terminations: [{
+    agentName: representative.agentName,
+    agentEmail: representative.agentEmail,
+    terminatedAt: representative.terminatedAt,
+    postTerminationFormSubmissions: 2,
+    latestPostTerminationFormAt: '2026-08-17T12:00:00Z',
+    postTerminationAiCalls: 1,
+    latestPostTerminationAiAt: '2026-08-17T11:00:00Z',
+  }],
   periods: ([2, 4, 6] as const).map(weeks => ({
     weeks,
     startAt: '2026-07-06T04:00:00.000Z',
@@ -54,11 +65,13 @@ const previousRepresentative = {
   ...representative,
   agentName: 'Removed Representative',
   agentEmail: 'removed@example.test',
+  terminatedAt: null,
 }
 const previousReport: AchieveManagementReport = {
   ...report,
   completedThrough: '2026-08-10T04:00:00.000Z',
   persistentAgentEmails: [previousRepresentative.agentEmail],
+  terminations: [],
   periods: report.periods.map(period => ({
     ...period,
     representatives: [{ ...previousRepresentative, riskRank: period.weeks / 2 }],
@@ -92,6 +105,10 @@ assert.ok(decoded.split('\r\n').every(line => new TextEncoder().encode(line).len
 assert.ok(decodedHtml.includes('&lt;Representative &amp; One&gt;'))
 assert.ok(!decodedHtml.includes('<Representative & One>'))
 assert.ok(decodedHtml.includes('WC Agent Summary by representative'))
+assert.ok(decodedHtml.includes('Termination follow-through · Activity detected'))
+assert.ok(decodedHtml.includes('Forms after'))
+assert.ok(decodedHtml.includes('AI calls after'))
+assert.ok(decodedHtml.includes('Terminated · Aug 16, 2026'))
 assert.ok(decodedHtml.includes('Bottom 5 — Last 2 Completed Weeks'))
 assert.ok(decodedHtml.includes('Bottom 5 · 2w #1 · Also persistent'))
 assert.ok(decodedHtml.includes('Bottom 5 · 2w #2'))

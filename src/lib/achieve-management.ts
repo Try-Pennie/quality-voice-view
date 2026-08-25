@@ -7,11 +7,23 @@ import {
 /** Supported completed-week windows in the Achieve management view. */
 export type AchieveManagementWeeks = 2 | 4 | 6
 
+/** One effective termination and any exactly attributed activity after it. */
+export type AchieveManagementTermination = {
+  readonly agentName: string
+  readonly agentEmail: string
+  readonly terminatedAt: string
+  readonly postTerminationFormSubmissions: number
+  readonly latestPostTerminationFormAt: string | null
+  readonly postTerminationAiCalls: number
+  readonly latestPostTerminationAiAt: string | null
+}
+
 /** Form-led risk metadata for one representative and period. */
 export type AchieveRepresentativeRisk = {
   readonly agentEmail: string
   readonly adjustedFormRisk: number | null
   readonly riskRank: number | null
+  readonly terminatedAt: string | null
 }
 
 /** One completed reporting period and its existing dashboard. */
@@ -29,6 +41,7 @@ export type AchieveManagementReport = {
   readonly completedThrough: string
   readonly periods: ReadonlyArray<AchieveManagementPeriod>
   readonly persistentAgentEmails: ReadonlyArray<string>
+  readonly terminations: ReadonlyArray<AchieveManagementTermination>
 }
 
 /** Three period ranks shown beside a persistent high-risk representative. */
@@ -69,17 +82,61 @@ function nullableRank(value: unknown): number | null {
   return value
 }
 
-function parsePeriod(value: unknown): AchieveManagementPeriod {
+function count(value: unknown): number {
+  if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < 0) invalidResponse()
+  return value
+}
+
+function nullableTimestamp(value: unknown): string | null {
+  if (value === null) return null
+  return timestamp(value)
+}
+
+function parseTermination(value: unknown): AchieveManagementTermination {
+  const row = record(value)
+  if (!row || typeof row.agentName !== 'string' || typeof row.agentEmail !== 'string') invalidResponse()
+  const agentEmail = row.agentEmail.trim().toLowerCase()
+  const postTerminationFormSubmissions = count(row.postTerminationFormSubmissions)
+  const latestPostTerminationFormAt = nullableTimestamp(row.latestPostTerminationFormAt)
+  const postTerminationAiCalls = count(row.postTerminationAiCalls)
+  const latestPostTerminationAiAt = nullableTimestamp(row.latestPostTerminationAiAt)
+  const terminatedAt = timestamp(row.terminatedAt)
+  if (
+    !agentEmail.includes('@')
+    || (postTerminationFormSubmissions === 0) !== (latestPostTerminationFormAt === null)
+    || (postTerminationAiCalls === 0) !== (latestPostTerminationAiAt === null)
+    || (latestPostTerminationFormAt !== null && Date.parse(latestPostTerminationFormAt) < Date.parse(terminatedAt))
+    || (latestPostTerminationAiAt !== null && Date.parse(latestPostTerminationAiAt) < Date.parse(terminatedAt))
+  ) invalidResponse()
+  return {
+    agentName: row.agentName.trim() || agentEmail,
+    agentEmail,
+    terminatedAt,
+    postTerminationFormSubmissions,
+    latestPostTerminationFormAt,
+    postTerminationAiCalls,
+    latestPostTerminationAiAt,
+  }
+}
+
+function parsePeriod(
+  value: unknown,
+  terminationByEmail: ReadonlyMap<string, AchieveManagementTermination>,
+): AchieveManagementPeriod {
   const period = record(value)
   if (!period || !Array.isArray(period.representatives)) invalidResponse()
   const dashboard = parseAchieveFeedbackDashboard(period.dashboard)
   const risks = period.representatives.map(raw => {
     const representative = record(raw)
     if (!representative || typeof representative.agentEmail !== 'string') invalidResponse()
+    const agentEmail = representative.agentEmail.trim().toLowerCase()
+    const terminatedAt = nullableTimestamp(representative.terminatedAt)
+    if (terminatedAt !== (terminationByEmail.get(agentEmail)?.terminatedAt ?? null)) invalidResponse()
     return {
-      agentEmail: representative.agentEmail.trim().toLowerCase(),
+      agentEmail,
       adjustedFormRisk: nullableNumber(representative.adjustedFormRisk),
       riskRank: nullableRank(representative.riskRank),
+      terminatedAt,
     }
   })
   const dashboardEmails = dashboard.representatives.map(representative => representative.agentEmail).sort()
@@ -104,7 +161,13 @@ function parsePeriod(value: unknown): AchieveManagementPeriod {
     weeks: weeks(period.weeks),
     startAt: timestamp(period.startAt),
     endAt: timestamp(period.endAt),
-    dashboard,
+    dashboard: {
+      ...dashboard,
+      representatives: dashboard.representatives.map(representative => ({
+        ...representative,
+        terminatedAt: riskByEmail.get(representative.agentEmail)?.terminatedAt ?? null,
+      })),
+    },
     risks,
   }
 }
@@ -112,8 +175,16 @@ function parsePeriod(value: unknown): AchieveManagementPeriod {
 /** Parse and reconcile all periods and the persistent top-ten intersection. */
 export function parseAchieveManagementReport(value: unknown): AchieveManagementReport {
   const report = record(value)
-  if (!report || !Array.isArray(report.periods) || !Array.isArray(report.persistentAgentEmails)) invalidResponse()
-  const periods = report.periods.map(parsePeriod).sort((left, right) => left.weeks - right.weeks)
+  if (
+    !report || !Array.isArray(report.periods) || !Array.isArray(report.persistentAgentEmails)
+    || !Array.isArray(report.terminations)
+  ) invalidResponse()
+  const terminations = report.terminations.map(parseTermination)
+  if (new Set(terminations.map(termination => termination.agentEmail)).size !== terminations.length) invalidResponse()
+  const terminationByEmail = new Map(terminations.map(termination => [termination.agentEmail, termination]))
+  const periods = report.periods
+    .map(period => parsePeriod(period, terminationByEmail))
+    .sort((left, right) => left.weeks - right.weeks)
   if (periods.length !== 3 || periods.some((period, index) => period.weeks !== ([2, 4, 6] as const)[index])) {
     invalidResponse()
   }
@@ -139,6 +210,7 @@ export function parseAchieveManagementReport(value: unknown): AchieveManagementR
     completedThrough: timestamp(report.completedThrough),
     periods,
     persistentAgentEmails,
+    terminations,
   }
 }
 

@@ -158,6 +158,7 @@ Deno.serve(async (request: Request) => {
         p_representative_limit: ACHIEVE_REPORT_REPRESENTATIVE_LIMIT,
         p_representative_offset: 0,
       }),
+      async endAt => admin.rpc('list_achieve_agent_termination_monitoring', { p_end_at: endAt }),
       at,
     )
     const reportResult = await loadReport(now)

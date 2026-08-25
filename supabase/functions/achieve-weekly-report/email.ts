@@ -97,6 +97,34 @@ function emailBody(
   const summary = representatives.length === 0
     ? 'No representative ranked in the Form-feedback top 10 across all three completed periods.'
     : `${representatives.length} representative${representatives.length === 1 ? '' : 's'} ranked in the Form-feedback top 10 across all three completed periods.`
+  const terminationActivity = report.terminations.some(
+    termination => termination.postTerminationFormSubmissions + termination.postTerminationAiCalls > 0,
+  )
+  const timestamp = (value: string) => new Intl.DateTimeFormat('en-US', {
+    timeZone: 'America/New_York', month: 'short', day: 'numeric', year: 'numeric',
+    hour: 'numeric', minute: '2-digit', timeZoneName: 'short',
+  }).format(new Date(value))
+  const terminationText = report.terminations.length === 0
+    ? 'No effective terminations to monitor.'
+    : report.terminations.map(termination => (
+      `${termination.agentName}: effective ${timestamp(termination.terminatedAt)}; `
+      + `${termination.postTerminationFormSubmissions} Forms after; ${termination.postTerminationAiCalls} AI calls after.`
+    )).join('\n')
+  const terminationRows = report.terminations.map(termination => {
+    const activity = termination.postTerminationFormSubmissions + termination.postTerminationAiCalls
+    const latest = [termination.latestPostTerminationFormAt, termination.latestPostTerminationAiAt]
+      .filter((value): value is string => value !== null)
+      .sort((left, right) => Date.parse(right) - Date.parse(left))[0]
+    return `<tr>
+      <td style="padding:12px;border-bottom:1px solid #e2e8f0"><strong>${html(termination.agentName)}</strong><br><span style="color:#64748b;font-size:12px">${html(termination.agentEmail)}</span><br><span style="color:#64748b;font-size:11px">Effective ${html(timestamp(termination.terminatedAt))}</span></td>
+      <td style="padding:12px;border-bottom:1px solid #e2e8f0;text-align:center;font-weight:700">${termination.postTerminationFormSubmissions}</td>
+      <td style="padding:12px;border-bottom:1px solid #e2e8f0;text-align:center;font-weight:700">${termination.postTerminationAiCalls}</td>
+      <td style="padding:12px;border-bottom:1px solid #e2e8f0;color:${activity > 0 ? '#b42318' : '#166534'};font-weight:700">${activity > 0 ? `Check activity${latest ? ` · Latest ${html(timestamp(latest))}` : ''}` : 'No post-termination activity'}</td>
+    </tr>`
+  }).join('')
+  const terminationTable = report.terminations.length === 0
+    ? '<p style="color:#64748b">No effective terminations to monitor.</p>'
+    : `<div style="margin:16px 0 24px;overflow-x:auto;border:1px solid #e2e8f0;border-radius:12px"><table style="width:100%;min-width:720px;border-collapse:collapse;background:#fff;font-size:13px"><thead style="background:#f8fafc"><tr><th style="padding:10px;text-align:left;color:#64748b">Representative</th><th style="padding:10px;color:#64748b">Forms after</th><th style="padding:10px;color:#64748b">AI calls after</th><th style="padding:10px;text-align:left;color:#64748b">Status</th></tr></thead><tbody>${terminationRows}</tbody></table></div>`
   const names = (values: ReadonlyArray<AchieveManagementRepresentative>) => (
     values.length === 0 ? 'None' : values.map(representative => representative.agentName).join(', ')
   )
@@ -111,8 +139,11 @@ function emailBody(
     const latest = representative.latestSubmittedAt === null ? 'No Form activity' : `Latest ${new Intl.DateTimeFormat('en-US', {
       timeZone: 'UTC', month: 'short', day: 'numeric', year: 'numeric',
     }).format(new Date(representative.latestSubmittedAt))} UTC`
+    const terminationStatus = representative.terminatedAt === null
+      ? ''
+      : ` <span style="display:inline-block;padding:3px 7px;border-radius:999px;background:#0f172a;color:#fff;font-size:10px;font-weight:700">Terminated · ${html(timestamp(representative.terminatedAt))}</span>`
     return `<tr>
-      <td style="min-width:220px;padding:14px;border-bottom:1px solid #e2e8f0"><strong style="font-size:15px">${html(representative.agentName)}</strong>${status}<br><span style="color:#64748b;font-size:12px">${html(representative.agentEmail)}</span><br><span style="color:#64748b;font-size:11px">${latest}</span><br><span style="display:inline-block;margin-top:8px;padding:5px 9px;border-radius:999px;background:#fef3c7;color:#92400e;font-size:11px;font-weight:700">${badge}</span></td>
+      <td style="min-width:220px;padding:14px;border-bottom:1px solid #e2e8f0"><strong style="font-size:15px">${html(representative.agentName)}</strong>${status}${terminationStatus}<br><span style="color:#64748b;font-size:12px">${html(representative.agentEmail)}</span><br><span style="color:#64748b;font-size:11px">${latest}</span><br><span style="display:inline-block;margin-top:8px;padding:5px 9px;border-radius:999px;background:#fef3c7;color:#92400e;font-size:11px;font-weight:700">${badge}</span></td>
       ${numberCell(representative.totalSubmissions)}
       ${numberCell(representative.good, '#166534', '#ecfdf5')}
       ${numberCell(representative.fair, '#92400e', '#fffbeb')}
@@ -148,8 +179,8 @@ function emailBody(
     <tbody>${rows}</tbody>
   </table></div>`
   return {
-    text: `Achieve weekly management report — week ending ${endingLabel}\n\nBottom 5 — last 2 completed weeks: ${names(bottomFiveRepresentatives)}\n\n${summary}\n\nNew since last Monday: ${names(newRepresentatives)}\nRemoved since last Monday: ${names(removedRepresentatives)}\n\nForm feedback drives the risk ranking. AI QA is supporting context only.\n\nOpen the Achieve portal: ${portalUrl}\n\nThe full 2/4/6-week representative export is attached.`,
-    html: `<!doctype html><html><body style="margin:0;background:#f8fafc;font-family:Arial,sans-serif;color:#0f172a"><div style="max-width:1540px;margin:0 auto;padding:32px 20px"><div style="background:#fff;border:1px solid #e2e8f0;border-radius:16px;padding:28px"><p style="margin:0;color:#1d4ed8;font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.08em">Achieve / FDR</p><h1 style="margin:8px 0 4px;font-size:24px">WC Agent Summary by representative</h1><p style="margin:0;color:#64748b">Completed 2/4/6-week management report through ${html(endingLabel)}</p><p style="margin:20px 0 0">${html(summary)}</p>${changes}<h2 style="margin:28px 0 4px;font-size:20px">Bottom 5 — Last 2 Completed Weeks</h2><p style="margin:0;color:#64748b;font-size:13px">Highest sample-adjusted Form Fair/Poor scores in the completed two-week window. AI QA remains supporting context only.</p>${bottomFiveRows === '' ? '<p style="color:#64748b">No representatives had eligible Form feedback.</p>' : table(bottomFiveRows)}<h2 style="margin:32px 0 4px;font-size:20px">Persistent High Risk</h2><p style="margin:0;color:#64748b;font-size:13px">Representatives ranked in the Form-feedback top 10 across all completed 2-, 4-, and 6-week periods.</p>${table(persistentRows)}<p style="color:#475569;font-size:13px">Form feedback drives the risk ranking. AI QA is supporting context only.</p><p style="margin:24px 0 0"><a href="${html(portalUrl)}" style="display:inline-block;background:#0f172a;color:#fff;text-decoration:none;border-radius:999px;padding:11px 18px;font-weight:700">Open Achieve portal</a></p><p style="margin:20px 0 0;color:#64748b;font-size:12px">The full completed 2/4/6-week representative export is attached.</p></div></div></body></html>`,
+    text: `Achieve weekly management report — week ending ${endingLabel}\n\nTermination follow-through${terminationActivity ? ' — ACTIVITY DETECTED' : ''}\n${terminationText}\n\nBottom 5 — last 2 completed weeks: ${names(bottomFiveRepresentatives)}\n\n${summary}\n\nNew since last Monday: ${names(newRepresentatives)}\nRemoved since last Monday: ${names(removedRepresentatives)}\n\nForm feedback drives the risk ranking. AI QA is supporting context only.\n\nOpen the Achieve portal: ${portalUrl}\n\nThe full 2/4/6-week representative export is attached.`,
+    html: `<!doctype html><html><body style="margin:0;background:#f8fafc;font-family:Arial,sans-serif;color:#0f172a"><div style="max-width:1540px;margin:0 auto;padding:32px 20px"><div style="background:#fff;border:1px solid #e2e8f0;border-radius:16px;padding:28px"><p style="margin:0;color:#1d4ed8;font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.08em">Achieve / FDR</p><h1 style="margin:8px 0 4px;font-size:24px">WC Agent Summary by representative</h1><p style="margin:0;color:#64748b">Completed 2/4/6-week management report through ${html(endingLabel)}</p><p style="margin:20px 0 0">${html(summary)}</p>${changes}<h2 style="margin:28px 0 4px;font-size:20px">Termination follow-through${terminationActivity ? ' · Activity detected' : ''}</h2><p style="margin:0;color:#64748b;font-size:13px">Normal Form and AI reporting stops at each effective time. Exactly attributed activity after it remains visible here.</p>${terminationTable}<h2 style="margin:28px 0 4px;font-size:20px">Bottom 5 — Last 2 Completed Weeks</h2><p style="margin:0;color:#64748b;font-size:13px">Highest sample-adjusted Form Fair/Poor scores in the completed two-week window. AI QA remains supporting context only.</p>${bottomFiveRows === '' ? '<p style="color:#64748b">No representatives had eligible Form feedback.</p>' : table(bottomFiveRows)}<h2 style="margin:32px 0 4px;font-size:20px">Persistent High Risk</h2><p style="margin:0;color:#64748b;font-size:13px">Representatives ranked in the Form-feedback top 10 across all completed 2-, 4-, and 6-week periods.</p>${table(persistentRows)}<p style="color:#475569;font-size:13px">Form feedback drives the risk ranking. AI QA is supporting context only.</p><p style="margin:24px 0 0"><a href="${html(portalUrl)}" style="display:inline-block;background:#0f172a;color:#fff;text-decoration:none;border-radius:999px;padding:11px 18px;font-weight:700">Open Achieve portal</a></p><p style="margin:20px 0 0;color:#64748b;font-size:12px">The full completed 2/4/6-week representative export is attached.</p></div></div></body></html>`,
   }
 }
 
