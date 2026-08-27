@@ -38,6 +38,8 @@ export function planOutcomeSnapshot(value) {
   const sourceDates = new Set()
   const expectedAggregateRows = new Set()
   const expectedEnrollments = new Set()
+  const sourceRawRows = new Set()
+  const sourceDistinctEnrollments = new Set()
   const keys = new Set()
   const rows = source.map((raw, index) => {
     const sourceAsOf = isoDate(field(raw, 'source_as_of'), `row ${index + 1} source_as_of`)
@@ -51,6 +53,8 @@ export function planOutcomeSnapshot(value) {
     const neverPaid = count(field(raw, 'never_paid'), `row ${index + 1} never_paid`)
     const sourceAggregateRows = count(field(raw, 'source_aggregate_rows'), `row ${index + 1} source_aggregate_rows`)
     const sourceEnrollments = count(field(raw, 'source_enrollments'), `row ${index + 1} source_enrollments`)
+    const rawRows = count(field(raw, 'source_raw_rows'), `row ${index + 1} source_raw_rows`)
+    const distinctEnrollments = count(field(raw, 'source_distinct_enrollments'), `row ${index + 1} source_distinct_enrollments`)
     if (!agentName || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(agentEmail) || n === 0 || noDeposit > n) {
       throw new Error(`row ${index + 1} has invalid agent or enrollment counts`)
     }
@@ -65,6 +69,8 @@ export function planOutcomeSnapshot(value) {
     sourceDates.add(sourceAsOf)
     expectedAggregateRows.add(sourceAggregateRows)
     expectedEnrollments.add(sourceEnrollments)
+    sourceRawRows.add(rawRows)
+    sourceDistinctEnrollments.add(distinctEnrollments)
     return {
       cohort_date: cohortDate,
       agent_name: agentName,
@@ -84,10 +90,19 @@ export function planOutcomeSnapshot(value) {
   if (expectedEnrollments.size !== 1 || [...expectedEnrollments][0] !== enrollmentTotal) {
     throw new Error('Snowflake snapshot enrollment count does not reconcile')
   }
+  if (sourceRawRows.size !== 1 || sourceDistinctEnrollments.size !== 1) {
+    throw new Error('Snowflake source controls must be consistent')
+  }
+  const rawRows = [...sourceRawRows][0]
+  const distinctEnrollments = [...sourceDistinctEnrollments][0]
+  if (rawRows !== distinctEnrollments) throw new Error('Snowflake source contains duplicate enrollment IDs')
+  if (distinctEnrollments !== enrollmentTotal) throw new Error('Snowflake distinct enrollment count does not reconcile')
   return {
     sourceAsOf: [...sourceDates][0],
     expectedAggregateRows: rows.length,
     expectedEnrollments: enrollmentTotal,
+    sourceRawRows: rawRows,
+    sourceDistinctEnrollments: distinctEnrollments,
     rows,
   }
 }
@@ -132,7 +147,14 @@ export default define({
   async run({ $ }) {
     const plan = planOutcomeSnapshot(this.snowflakeRowsInput)
     const result = this.dryRun
-      ? { dryRun: true, sourceAsOf: plan.sourceAsOf, aggregateRows: plan.expectedAggregateRows, enrollments: plan.expectedEnrollments }
+      ? {
+          dryRun: true,
+          sourceAsOf: plan.sourceAsOf,
+          aggregateRows: plan.expectedAggregateRows,
+          enrollments: plan.expectedEnrollments,
+          sourceRawRows: plan.sourceRawRows,
+          sourceDistinctEnrollments: plan.sourceDistinctEnrollments,
+        }
       : await ingestOutcomeSnapshot(this.supabaseUrl, this.supabaseServiceRoleKey, plan)
     $.export('outcomeSnapshot', result)
     return result

@@ -7,7 +7,32 @@ Extend the existing daily Achieve Pipedream workflow. Snowflake remains the only
 Add **Snowflake — Execute Query** after the existing Snowflake step. Set the step key to `fetch_achieve_first_pay_outcomes` and use this exact SQL:
 
 ```sql
-with aggregates as (
+with population as (
+  select *
+  from AIRBYTE_SFDC_DATABASE.AIRBYTE_SFDC_SCHEMA.ENROLLMENT__C
+  where SERVICER__C = 'Achieve'
+    and STATUS__C <> 'Pre-Enrollment'
+    and ORIGINAL_SCHEDULED_FIRST_DRAFT_DATE__C is not null
+    and to_date(ORIGINAL_SCHEDULED_FIRST_DRAFT_DATE__C) <= dateadd(day, -10, current_date())
+    and nullif(trim(WELCOME_CALL_AGENT_EMAIL_AER__C), '') is not null
+    and trim(WELCOME_CALL_AGENT_AER__C) <> 'Services Interface'
+),
+source_control as (
+  -- Keep this on the pre-dedup population: it is the fan-out canary.
+  select
+    count(*)::integer as raw_rows,
+    count(distinct ID)::integer as distinct_enrollments
+  from population
+),
+deduped as (
+  select *
+  from population
+  qualify row_number() over (
+    partition by ID
+    order by SYSTEMMODSTAMP desc nulls last, LASTMODIFIEDDATE desc nulls last
+  ) = 1
+),
+aggregates as (
   select
     to_date(ORIGINAL_SCHEDULED_FIRST_DRAFT_DATE__C) as cohort_date,
     max(trim(WELCOME_CALL_AGENT_AER__C)) as agent_name,
@@ -23,13 +48,7 @@ with aggregates as (
       CLIENT_DEPOSIT_FLAG__C = false
       and TERMINATION_BEFORE_FIRST_PAY_FLAG__C = false
     )::integer as never_paid
-  from AIRBYTE_SFDC_DATABASE.AIRBYTE_SFDC_SCHEMA.ENROLLMENT__C
-  where SERVICER__C = 'Achieve'
-    and STATUS__C <> 'Pre-Enrollment'
-    and ORIGINAL_SCHEDULED_FIRST_DRAFT_DATE__C is not null
-    and to_date(ORIGINAL_SCHEDULED_FIRST_DRAFT_DATE__C) <= dateadd(day, -10, current_date())
-    and nullif(trim(WELCOME_CALL_AGENT_EMAIL_AER__C), '') is not null
-    and trim(WELCOME_CALL_AGENT_AER__C) <> 'Services Interface'
+  from deduped
   group by
     to_date(ORIGINAL_SCHEDULED_FIRST_DRAFT_DATE__C),
     lower(trim(WELCOME_CALL_AGENT_EMAIL_AER__C))
@@ -45,12 +64,15 @@ select
   rescinded as "rescinded",
   never_paid as "never_paid",
   count(*) over ()::integer as "source_aggregate_rows",
-  sum(n) over ()::integer as "source_enrollments"
+  sum(n) over ()::integer as "source_enrollments",
+  source_control.raw_rows as "source_raw_rows",
+  source_control.distinct_enrollments as "source_distinct_enrollments"
 from aggregates
+cross join source_control
 order by cohort_date, agent_email;
 ```
 
-This intentionally uses only `ORIGINAL_SCHEDULED_FIRST_DRAFT_DATE__C` for cohort assignment and the Achieve AER welcome-agent fields. A false deposit flag is the failure population. Null deposit flags make `n != paid + no_deposit`; null termination flags on failed enrollments make `no_deposit != rescinded + never_paid`. Either condition blocks the full replacement.
+This intentionally uses only `ORIGINAL_SCHEDULED_FIRST_DRAFT_DATE__C` for cohort assignment and the Achieve AER welcome-agent fields. It deduplicates by Salesforce enrollment `ID` before aggregation, then reports raw and distinct source counts so the action rejects any upstream fan-out instead of publishing inflated z-scores. A false deposit flag is the failure population. Null deposit flags make `n != paid + no_deposit`; null termination flags on failed enrollments make `no_deposit != rescinded + never_paid`. Any source duplication or outcome reconciliation failure blocks the full replacement.
 
 ## 2. Add the validated Supabase action
 
@@ -61,13 +83,13 @@ Publish [`achieve-first-pay-outcomes-pipedream.js`](./achieve-first-pay-outcomes
 - **Supabase service-role key:** reuse the workflow's existing secret prop; never use the anon key
 - **Dry run:** `true` for activation, then `false`
 
-The action validates dates, normalized emails, mature cohorts, unique daily agent keys, integer counts, `n = paid + no_deposit`, `no_deposit = rescinded + never_paid`, and Snowflake's full-snapshot row/enrollment controls before calling `ingest_achieve_first_pay_outcome_snapshot`. The RPC repeats validation, rejects an older watermark, and replaces the complete snapshot transactionally.
+The action validates dates, normalized emails, mature cohorts, unique daily agent keys, integer counts, `n = paid + no_deposit`, `no_deposit = rescinded + never_paid`, raw source rows equal distinct Salesforce enrollment IDs, and Snowflake's full-snapshot row/enrollment controls before calling `ingest_achieve_first_pay_outcome_snapshot`. The RPC repeats validation, rejects an older watermark, and replaces the complete snapshot transactionally.
 
 ## Activation and operations
 
 1. Apply `supabase/migrations/20260822120000_achieve_first_pay_outcomes.sql`.
 2. Publish/configure the action above and run once with **Dry run** enabled.
-3. Confirm `aggregateRows` and `enrollments` are plausible and the source date is today in Snowflake.
+3. Confirm `aggregateRows` and `enrollments` are plausible, `sourceRawRows = sourceDistinctEnrollments = enrollments`, and the source date is today in Snowflake.
 4. Disable **Dry run** and run once.
 5. Call `get_achieve_first_pay_outcomes` with service-role authorization and verify `source_as_of`, `refreshed_at`, the three periods, and `failures = rescinded + never_paid` on a sample.
 6. Keep the existing daily workflow schedule. The existing Gmail Edge Function remains on its Monday schedule and sends the outcome section itself; do not add Pipedream email delivery.
