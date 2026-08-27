@@ -39,11 +39,21 @@ export type AchieveFirstPayOutcomes = {
   readonly periods: ReadonlyArray<AchieveFirstPayOutcomePeriod>
 }
 
+/** One effective termination and any exactly attributed activity after it. */
+export type AchieveManagementTermination = {
+  readonly agentName: string
+  readonly agentEmail: string
+  readonly terminatedAt: string
+  readonly activity: boolean
+  readonly latestActivityOn: string | null
+}
+
 /** Form-led risk metadata for one representative and period. */
 export type AchieveRepresentativeRisk = {
   readonly agentEmail: string
   readonly adjustedFormRisk: number | null
   readonly riskRank: number | null
+  readonly terminatedAt: string | null
 }
 
 /** One completed reporting period and its existing dashboard. */
@@ -62,6 +72,7 @@ export type AchieveManagementReport = {
   readonly periods: ReadonlyArray<AchieveManagementPeriod>
   readonly persistentAgentEmails: ReadonlyArray<string>
   readonly outcomes: AchieveFirstPayOutcomes
+  readonly terminations: ReadonlyArray<AchieveManagementTermination>
 }
 
 /** Three period ranks shown beside a persistent high-risk representative. */
@@ -202,17 +213,49 @@ function parseOutcomes(value: unknown): AchieveFirstPayOutcomes {
   }
 }
 
-function parsePeriod(value: unknown): AchieveManagementPeriod {
+function nullableTimestamp(value: unknown): string | null {
+  if (value === null) return null
+  return timestamp(value)
+}
+
+function parseTermination(value: unknown): AchieveManagementTermination {
+  const row = record(value)
+  if (!row || typeof row.agentName !== 'string' || typeof row.agentEmail !== 'string') invalidResponse()
+  const agentEmail = row.agentEmail.trim().toLowerCase()
+  const latestActivityOn = nullableTimestamp(row.latestActivityOn)
+  const terminatedAt = timestamp(row.terminatedAt)
+  if (
+    !agentEmail.includes('@')
+    || typeof row.activity !== 'boolean'
+    || row.activity !== (latestActivityOn !== null)
+  ) invalidResponse()
+  return {
+    agentName: row.agentName.trim() || agentEmail,
+    agentEmail,
+    terminatedAt,
+    activity: row.activity,
+    latestActivityOn,
+  }
+}
+
+function parsePeriod(
+  value: unknown,
+  terminationByEmail: ReadonlyMap<string, AchieveManagementTermination>,
+): AchieveManagementPeriod {
   const period = record(value)
   if (!period || !Array.isArray(period.representatives)) invalidResponse()
   const dashboard = parseAchieveFeedbackDashboard(period.dashboard)
   const risks = period.representatives.map(raw => {
     const representative = record(raw)
     if (!representative || typeof representative.agentEmail !== 'string') invalidResponse()
+    const agentEmail = representative.agentEmail.trim().toLowerCase()
+    const terminatedAt = nullableTimestamp(representative.terminatedAt)
+    if (terminatedAt !== (terminationByEmail.get(agentEmail)?.terminatedAt ?? null)) invalidResponse()
     return {
-      agentEmail: representative.agentEmail.trim().toLowerCase(),
+      agentEmail,
       adjustedFormRisk: nullableNumber(representative.adjustedFormRisk),
       riskRank: nullableRank(representative.riskRank),
+      terminatedAt,
     }
   })
   const dashboardEmails = dashboard.representatives.map(representative => representative.agentEmail).sort()
@@ -237,7 +280,13 @@ function parsePeriod(value: unknown): AchieveManagementPeriod {
     weeks: weeks(period.weeks),
     startAt: timestamp(period.startAt),
     endAt: timestamp(period.endAt),
-    dashboard,
+    dashboard: {
+      ...dashboard,
+      representatives: dashboard.representatives.map(representative => ({
+        ...representative,
+        terminatedAt: riskByEmail.get(representative.agentEmail)?.terminatedAt ?? null,
+      })),
+    },
     risks,
   }
 }
@@ -245,8 +294,16 @@ function parsePeriod(value: unknown): AchieveManagementPeriod {
 /** Parse and reconcile all periods and the persistent top-ten intersection. */
 export function parseAchieveManagementReport(value: unknown): AchieveManagementReport {
   const report = record(value)
-  if (!report || !Array.isArray(report.periods) || !Array.isArray(report.persistentAgentEmails)) invalidResponse()
-  const periods = report.periods.map(parsePeriod).sort((left, right) => left.weeks - right.weeks)
+  if (
+    !report || !Array.isArray(report.periods) || !Array.isArray(report.persistentAgentEmails)
+    || !Array.isArray(report.terminations)
+  ) invalidResponse()
+  const terminations = report.terminations.map(parseTermination)
+  if (new Set(terminations.map(termination => termination.agentEmail)).size !== terminations.length) invalidResponse()
+  const terminationByEmail = new Map(terminations.map(termination => [termination.agentEmail, termination]))
+  const periods = report.periods
+    .map(period => parsePeriod(period, terminationByEmail))
+    .sort((left, right) => left.weeks - right.weeks)
   if (periods.length !== 3 || periods.some((period, index) => period.weeks !== ([2, 4, 6] as const)[index])) {
     invalidResponse()
   }
@@ -273,6 +330,7 @@ export function parseAchieveManagementReport(value: unknown): AchieveManagementR
     periods,
     persistentAgentEmails,
     outcomes: parseOutcomes(report.outcomes),
+    terminations,
   }
 }
 

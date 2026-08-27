@@ -16,6 +16,20 @@ const periodEnd = new Intl.DateTimeFormat('en-US', {
   year: 'numeric',
 })
 
+const activityTime = new Intl.DateTimeFormat('en-US', {
+  timeZone: 'America/New_York',
+  month: 'short',
+  day: 'numeric',
+  year: 'numeric',
+  hour: 'numeric',
+  minute: '2-digit',
+  timeZoneName: 'short',
+})
+
+const reportDate = new Intl.DateTimeFormat('en-US', {
+  timeZone: 'UTC', month: 'short', day: 'numeric', year: 'numeric',
+})
+
 /** Existing Achieve table layout with persistent risk and completed-week controls. */
 export function AchieveManagementOverview({
   report,
@@ -69,6 +83,31 @@ export function AchieveManagementOverview({
       </section>
 
       <AchieveFirstPayOutcomes outcomes={report.outcomes} />
+
+      <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
+        <h2 className="text-lg font-semibold text-slate-950">Termination follow-through</h2>
+        <p className="mt-1 text-xs leading-5 text-slate-500">
+          Activity means the representative appeared in the Achieve daily report on or after the effective date.
+        </p>
+        {report.terminations.length === 0 ? (
+          <p className="mt-4 text-sm text-slate-600">No effective terminations to monitor.</p>
+        ) : (
+          <div className="mt-4 divide-y divide-slate-200 rounded-xl border border-slate-200">
+            {report.terminations.map(termination => (
+              <div key={termination.agentEmail} className="flex flex-col gap-1 px-4 py-3 text-sm sm:flex-row sm:items-center sm:justify-between sm:gap-4">
+                <p className="font-semibold text-slate-950">
+                  {termination.agentName}
+                  <span className="ml-2 font-normal text-slate-500">Effective {activityTime.format(new Date(termination.terminatedAt))}</span>
+                </p>
+                <p className={`font-semibold ${termination.activity ? 'text-red-700' : 'text-emerald-700'}`}>
+                  Activity: {termination.activity ? 'Yes' : 'No'}
+                  {termination.latestActivityOn && <span className="font-normal"> · Listed {reportDate.format(new Date(termination.latestActivityOn))}</span>}
+                </p>
+              </div>
+            ))}
+          </div>
+        )}
+      </section>
 
       {persistentRepresentatives.length === 0 ? (
         <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">

@@ -49,7 +49,10 @@ const raw = {
     startAt: `2026-0${8 - index}-01T04:00:00Z`,
     endAt: '2026-08-17T04:00:00Z',
     dashboard: dashboard(weeks),
-    representatives: [{ agentEmail: 'rep-a@example.test', adjustedFormRisk: 75 - index, riskRank: 1 }],
+    representatives: [{
+      agentEmail: 'rep-a@example.test', adjustedFormRisk: 75 - index, riskRank: 1,
+      terminatedAt: '2026-08-16T04:00:00Z',
+    }],
   })),
   persistentAgentEmails: ['rep-a@example.test'],
   outcomes: {
@@ -68,6 +71,13 @@ const raw = {
       }],
     })),
   },
+  terminations: [{
+    agentName: 'Representative A',
+    agentEmail: 'rep-a@example.test',
+    terminatedAt: '2026-08-16T04:00:00Z',
+    activity: true,
+    latestActivityOn: '2026-08-17',
+  }],
 }
 
 const parsed = parseAchieveManagementReport(raw)
@@ -80,6 +90,8 @@ assert.ok(outcomeAgent)
 assert.strictEqual(achieveOutcomeSignal(outcomeAgent), 'Flag')
 assert.strictEqual(achieveOutcomeSignal({ ...outcomeAgent, z: -1 }), 'Below roster')
 assert.strictEqual(achieveOutcomeSignal({ ...outcomeAgent, sampleQualified: false, rank: null }), 'Low sample')
+assert.strictEqual(achieveManagementPeriod(parsed, 2).dashboard.representatives[0]?.terminatedAt, '2026-08-16T04:00:00Z')
+assert.strictEqual(parsed.terminations[0]?.activity, true)
 assert.throws(
   () => parseAchieveManagementReport({ ...raw, persistentAgentEmails: ['missing@example.test'] }),
   /invalid_achieve_management_response/,

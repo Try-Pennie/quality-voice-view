@@ -28,17 +28,26 @@ const representative = {
   bothConcern: 1,
   humanOnly: 1,
   aiOnly: 0,
+  terminatedAt: '2026-08-16T04:00:00Z',
 }
 const emergingRepresentative = {
   ...representative,
   agentName: 'Emerging Representative',
   agentEmail: 'emerging@example.test',
   riskRank: 2,
+  terminatedAt: null,
 }
 const report: AchieveManagementReport = {
   generatedAt: '2026-08-17T13:00:00.000Z',
   completedThrough: '2026-08-17T04:00:00.000Z',
   persistentAgentEmails: [representative.agentEmail],
+  terminations: [{
+    agentName: representative.agentName,
+    agentEmail: representative.agentEmail,
+    terminatedAt: representative.terminatedAt,
+    activity: true,
+    latestActivityOn: '2026-08-17',
+  }],
   periods: ([2, 4, 6] as const).map(weeks => ({
     weeks,
     startAt: '2026-07-06T04:00:00.000Z',
@@ -70,11 +79,13 @@ const previousRepresentative = {
   ...representative,
   agentName: 'Removed Representative',
   agentEmail: 'removed@example.test',
+  terminatedAt: null,
 }
 const previousReport: AchieveManagementReport = {
   ...report,
   completedThrough: '2026-08-10T04:00:00.000Z',
   persistentAgentEmails: [previousRepresentative.agentEmail],
+  terminations: [],
   periods: report.periods.map(period => ({
     ...period,
     representatives: [{ ...previousRepresentative, riskRank: period.weeks / 2 }],
@@ -117,6 +128,20 @@ assert.ok(decodedHtml.includes('z 2.50'))
 assert.ok(decodedHtml.includes('screening signal, not causal proof'))
 assert.ok(decodedHtml.includes('<strong>Review:</strong>'))
 assert.ok(!decodedHtml.includes('<strong>Act on:</strong>'))
+assert.ok(decodedHtml.includes('width="680"'))
+assert.ok(decodedHtml.includes('role="presentation"'))
+assert.ok(!decodedHtml.includes('min-width:1420px'))
+assert.ok(!decodedHtml.includes('overflow-x:auto'))
+assert.ok(new TextEncoder().encode(decodedHtml).length < 102_400)
+assert.ok(decodedHtml.includes('Termination follow-through'))
+assert.ok(decodedHtml.indexOf('Termination follow-through') > decodedHtml.indexOf('Persistent High Risk'))
+const terminationSection = decodedHtml.slice(decodedHtml.indexOf('Termination follow-through'))
+assert.ok(terminationSection.includes('Activity: Yes'))
+assert.ok(terminationSection.includes('Listed Aug 17, 2026'))
+assert.ok(!terminationSection.includes('rep-one@example.test'))
+assert.ok(!decodedHtml.includes('Forms after'))
+assert.ok(!decodedHtml.includes('AI calls after'))
+assert.ok(decodedHtml.includes('Terminated · Aug 16, 2026'))
 assert.ok(decodedHtml.includes('Bottom 5 — Last 2 Completed Weeks'))
 assert.ok(decodedHtml.includes('Bottom 5 · 2w #1 · Also persistent'))
 assert.ok(decodedHtml.includes('Bottom 5 · 2w #2'))

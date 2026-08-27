@@ -614,6 +614,7 @@ Deno.serve(async (req: Request) => {
           p_representative_offset: 0,
         }),
         async () => admin.rpc("get_achieve_first_pay_outcomes"),
+        async endAt => admin.rpc("list_achieve_agent_termination_monitoring", { p_end_at: endAt }),
         new Date(),
       )
       if (!result.ok) {
