@@ -675,34 +675,25 @@ export type ManagerRollup = {
   needs_attention: boolean
 }
 
-// Look up display names for a set of manager emails by checking whether each
-// manager also appears as an agent in eavesly_calls (most do — managers often
-// take calls themselves). Returns a Map<email, full_name>.
+// Look up canonical display names for manager emails. God-mode access to the
+// directory is RLS-gated; regular managers never call this query.
 export async function fetchManagerNames(
   emails: string[],
 ): Promise<Map<string, string>> {
-  const result = new Map<string, string>()
-  if (emails.length === 0) return result
-  const CHUNK = 100
-  for (let i = 0; i < emails.length; i += CHUNK) {
-    const chunk = emails.slice(i, i + CHUNK)
-    const { data, error } = await sb
-      .from('eavesly_calls')
-      .select('agent_email, agent_full_name')
-      .in('agent_email', chunk)
-      .not('agent_full_name', 'is', null)
-      .limit(2000)
-    if (error) {
-      console.error('Error fetching manager names:', error)
-      throw error
-    }
-    for (const row of (data || []) as any[]) {
-      if (!result.has(row.agent_email) && row.agent_full_name) {
-        result.set(row.agent_email, row.agent_full_name)
-      }
-    }
+  if (emails.length === 0) return new Map()
+  const { data, error } = await sb
+    .from('agent_directory')
+    .select('agent_email, agent_full_name')
+    .in('agent_email', emails.map(email => email.toLowerCase()))
+  if (error) {
+    console.error('Error fetching manager names:', error)
+    throw error
   }
-  return result
+  const rows = (data || []) as {
+    agent_email: string
+    agent_full_name: string
+  }[]
+  return new Map(rows.map(row => [row.agent_email, row.agent_full_name]))
 }
 
 // Pull manager → agent mapping. Cheap (a few hundred rows). Returns the raw
