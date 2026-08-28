@@ -6,7 +6,7 @@ import {
 
 /** Supported completed-week windows in the Achieve management view. */
 export type AchieveManagementWeeks = 2 | 4 | 6
-export type AchieveOutcomePeriodKey = 'all_time' | 'mature_4_weeks' | 'mature_6_weeks'
+export type AchieveOutcomePeriodKey = 'all_time' | 'mature_2_weeks' | 'mature_4_weeks' | 'mature_6_weeks'
 
 export type AchieveFirstPayOutcomeAgent = {
   readonly agentName: string
@@ -29,6 +29,12 @@ export type AchieveFirstPayOutcomePeriod = {
   readonly key: AchieveOutcomePeriodKey
   readonly startDate: string | null
   readonly endDate: string
+  readonly n: number
+  readonly paid: number
+  readonly previousStartDate: string | null
+  readonly previousEndDate: string | null
+  readonly previousN: number | null
+  readonly previousPaid: number | null
   readonly agents: ReadonlyArray<AchieveFirstPayOutcomeAgent>
 }
 
@@ -39,13 +45,13 @@ export type AchieveFirstPayOutcomes = {
   readonly periods: ReadonlyArray<AchieveFirstPayOutcomePeriod>
 }
 
-/** One effective termination and any exactly attributed activity after it. */
+/** One effective termination with last activity and distinct new assignments. */
 export type AchieveManagementTermination = {
   readonly agentName: string
   readonly agentEmail: string
   readonly terminatedAt: string
-  readonly activity: boolean
-  readonly latestActivityOn: string | null
+  readonly lastActivityOn: string | null
+  readonly activityPostTermination: number
 }
 
 /** Form-led risk metadata for one representative and period. */
@@ -65,18 +71,33 @@ export type AchieveManagementPeriod = {
   readonly risks: ReadonlyArray<AchieveRepresentativeRisk>
 }
 
+export type AchieveNegativeReviewTrend = {
+  readonly weeks: AchieveManagementWeeks
+  readonly startAt: string
+  readonly endAt: string
+  readonly reviews: number
+  readonly negativeReviews: number
+  readonly previousStartAt: string
+  readonly previousEndAt: string
+  readonly previousReviews: number
+  readonly previousNegativeReviews: number
+}
+
 /** Parsed canonical management report returned by the Achieve boundary. */
 export type AchieveManagementReport = {
   readonly generatedAt: string
   readonly completedThrough: string
   readonly periods: ReadonlyArray<AchieveManagementPeriod>
-  readonly persistentAgentEmails: ReadonlyArray<string>
+  readonly reviewTrends: ReadonlyArray<AchieveNegativeReviewTrend>
+  readonly allTimeReviews: number
+  readonly allTimeNegativeReviews: number
+  readonly highRiskAgentEmails: ReadonlyArray<string>
+  readonly bottomTenNegativeReviewAgentEmails: ReadonlyArray<string>
+  readonly bottomTenIntelligibilityAgentEmails: ReadonlyArray<string>
+  readonly bottomTenFirstPayAgentEmails: ReadonlyArray<string>
   readonly outcomes: AchieveFirstPayOutcomes
   readonly terminations: ReadonlyArray<AchieveManagementTermination>
 }
-
-/** Three period ranks shown beside a persistent high-risk representative. */
-export type AchievePeriodRanks = Readonly<Record<AchieveManagementWeeks, number>>
 
 type BoundaryRecord = Readonly<Record<string, unknown>>
 
@@ -185,15 +206,32 @@ function parseOutcomes(value: unknown): AchieveFirstPayOutcomes {
     const period = record(raw)
     if (!period || !Array.isArray(period.agents)) invalidResponse()
     const key = period.key
-    if (key !== 'all_time' && key !== 'mature_4_weeks' && key !== 'mature_6_weeks') invalidResponse()
+    if (key !== 'all_time' && key !== 'mature_2_weeks' && key !== 'mature_4_weeks' && key !== 'mature_6_weeks') invalidResponse()
     const startDate = period.startDate === null ? null : date(period.startDate)
-    if ((key === 'all_time') !== (startDate === null)) invalidResponse()
+    const previousStartDate = period.previousStartDate === null ? null : date(period.previousStartDate)
+    const previousEndDate = period.previousEndDate === null ? null : date(period.previousEndDate)
+    const n = count(period.n)
+    const paid = count(period.paid)
+    const previousN = period.previousN === null ? null : count(period.previousN)
+    const previousPaid = period.previousPaid === null ? null : count(period.previousPaid)
+    if (
+      paid > n
+      || (key === 'all_time'
+        ? startDate !== null || previousStartDate !== null || previousEndDate !== null || previousN !== null || previousPaid !== null
+        : startDate === null || previousStartDate === null || previousEndDate === null
+          || (previousN === null) !== (previousPaid === null)
+          || (previousN !== null && previousPaid !== null && previousPaid > previousN))
+    ) invalidResponse()
     const agents = period.agents.map(parseOutcomeAgent)
     const ranks = agents.flatMap(agent => agent.rank === null ? [] : [agent.rank]).sort((left, right) => left - right)
     if (new Set(agents.map(agent => agent.agentEmail)).size !== agents.length || ranks.some((rank, index) => rank !== index + 1)) invalidResponse()
-    return { key, startDate, endDate: date(period.endDate), agents }
+    if (
+      agents.reduce((total, agent) => total + agent.n, 0) !== n
+      || agents.reduce((total, agent) => total + agent.n - agent.failures, 0) !== paid
+    ) invalidResponse()
+    return { key, startDate, endDate: date(period.endDate), n, paid, previousStartDate, previousEndDate, previousN, previousPaid, agents }
   })
-  const keys: ReadonlyArray<AchieveOutcomePeriodKey> = ['all_time', 'mature_4_weeks', 'mature_6_weeks']
+  const keys: ReadonlyArray<AchieveOutcomePeriodKey> = ['all_time', 'mature_2_weeks', 'mature_4_weeks', 'mature_6_weeks']
   const sourceAsOf = date(outcomes.sourceAsOf)
   const maturityCutoff = date(outcomes.maturityCutoff)
   if (
@@ -202,7 +240,18 @@ function parseOutcomes(value: unknown): AchieveFirstPayOutcomes {
     || maturityCutoff !== addUtcDays(sourceAsOf, -10)
     || periods.some(period => (
       period.endDate !== maturityCutoff
-      || period.startDate !== (period.key === 'all_time' ? null : addUtcDays(maturityCutoff, period.key === 'mature_4_weeks' ? -27 : -41))
+      || period.startDate !== (period.key === 'all_time' ? null : addUtcDays(
+        maturityCutoff,
+        period.key === 'mature_2_weeks' ? -13 : period.key === 'mature_4_weeks' ? -27 : -41,
+      ))
+      || period.previousStartDate !== (period.key === 'all_time' ? null : addUtcDays(
+        maturityCutoff,
+        period.key === 'mature_2_weeks' ? -27 : period.key === 'mature_4_weeks' ? -55 : -83,
+      ))
+      || period.previousEndDate !== (period.key === 'all_time' ? null : addUtcDays(
+        maturityCutoff,
+        period.key === 'mature_2_weeks' ? -14 : period.key === 'mature_4_weeks' ? -28 : -42,
+      ))
     ))
   ) invalidResponse()
   return {
@@ -222,19 +271,16 @@ function parseTermination(value: unknown): AchieveManagementTermination {
   const row = record(value)
   if (!row || typeof row.agentName !== 'string' || typeof row.agentEmail !== 'string') invalidResponse()
   const agentEmail = row.agentEmail.trim().toLowerCase()
-  const latestActivityOn = nullableTimestamp(row.latestActivityOn)
+  const lastActivityOn = nullableTimestamp(row.lastActivityOn)
   const terminatedAt = timestamp(row.terminatedAt)
-  if (
-    !agentEmail.includes('@')
-    || typeof row.activity !== 'boolean'
-    || row.activity !== (latestActivityOn !== null)
-  ) invalidResponse()
+  const activityPostTermination = count(row.activityPostTermination)
+  if (!agentEmail.includes('@')) invalidResponse()
   return {
     agentName: row.agentName.trim() || agentEmail,
     agentEmail,
     terminatedAt,
-    activity: row.activity,
-    latestActivityOn,
+    lastActivityOn,
+    activityPostTermination,
   }
 }
 
@@ -270,9 +316,10 @@ function parsePeriod(
     || dashboard.representatives.some(representative => {
       const risk = riskByEmail.get(representative.agentEmail)
       if (!risk) return true
-      return representative.totalSubmissions === 0
-        ? risk.riskRank !== null || risk.adjustedFormRisk !== null
-        : risk.riskRank === null || risk.adjustedFormRisk === null
+      if (representative.totalSubmissions === 0) return risk.riskRank !== null || risk.adjustedFormRisk !== null
+      return risk.terminatedAt === null
+        ? risk.riskRank === null || risk.adjustedFormRisk === null
+        : risk.riskRank !== null || risk.adjustedFormRisk === null
     })
   ) invalidResponse()
 
@@ -291,45 +338,132 @@ function parsePeriod(
   }
 }
 
-/** Parse and reconcile all periods and the persistent top-ten intersection. */
+function parseEmailList(value: unknown): ReadonlyArray<string> {
+  if (!Array.isArray(value)) invalidResponse()
+  const emails = value.map(item => {
+    if (typeof item !== 'string' || !item.includes('@')) invalidResponse()
+    return item.trim().toLowerCase()
+  })
+  if (new Set(emails).size !== emails.length) invalidResponse()
+  return emails
+}
+
+function rawNegativeOrder(left: AchieveRepresentativeFeedback, right: AchieveRepresentativeFeedback): number {
+  return right.fairPoorRate - left.fairPoorRate
+    || right.fairPoorCount - left.fairPoorCount
+    || left.agentEmail.localeCompare(right.agentEmail)
+}
+
+function sameEmails(actual: ReadonlyArray<string>, expected: ReadonlyArray<string>): boolean {
+  return actual.length === expected.length && actual.every((email, index) => email === expected[index])
+}
+
+/** Parse and reconcile all canonical report selectors and comparison lanes. */
 export function parseAchieveManagementReport(value: unknown): AchieveManagementReport {
   const report = record(value)
-  if (
-    !report || !Array.isArray(report.periods) || !Array.isArray(report.persistentAgentEmails)
-    || !Array.isArray(report.terminations)
-  ) invalidResponse()
+  if (!report || !Array.isArray(report.periods) || !Array.isArray(report.reviewTrends) || !Array.isArray(report.terminations)) {
+    invalidResponse()
+  }
   const terminations = report.terminations.map(parseTermination)
   if (new Set(terminations.map(termination => termination.agentEmail)).size !== terminations.length) invalidResponse()
   const terminationByEmail = new Map(terminations.map(termination => [termination.agentEmail, termination]))
-  const periods = report.periods
-    .map(period => parsePeriod(period, terminationByEmail))
-    .sort((left, right) => left.weeks - right.weeks)
-  if (periods.length !== 3 || periods.some((period, index) => period.weeks !== ([2, 4, 6] as const)[index])) {
-    invalidResponse()
-  }
-  const persistentAgentEmails = report.persistentAgentEmails.map(value => {
-    if (typeof value !== 'string' || !value.includes('@')) invalidResponse()
-    return value.trim().toLowerCase()
-  })
-  if (new Set(persistentAgentEmails).size !== persistentAgentEmails.length) invalidResponse()
-  const expectedPersistent = periods[0].risks
-    .filter(risk => risk.riskRank !== null && risk.riskRank <= 10)
-    .map(risk => risk.agentEmail)
-    .filter(email => periods.every(period => period.risks.some(
-      risk => risk.agentEmail === email && risk.riskRank !== null && risk.riskRank <= 10,
-    )))
-    .sort()
+  const periods = report.periods.map(period => parsePeriod(period, terminationByEmail)).sort((left, right) => left.weeks - right.weeks)
+  if (periods.length !== 3 || periods.some((period, index) => period.weeks !== ([2, 4, 6] as const)[index])) invalidResponse()
+  const reviewTrends = report.reviewTrends.map((raw): AchieveNegativeReviewTrend => {
+    const trend = record(raw)
+    if (!trend) invalidResponse()
+    const parsed = {
+      weeks: weeks(trend.weeks),
+      startAt: timestamp(trend.startAt),
+      endAt: timestamp(trend.endAt),
+      reviews: count(trend.reviews),
+      negativeReviews: count(trend.negativeReviews),
+      previousStartAt: timestamp(trend.previousStartAt),
+      previousEndAt: timestamp(trend.previousEndAt),
+      previousReviews: count(trend.previousReviews),
+      previousNegativeReviews: count(trend.previousNegativeReviews),
+    }
+    if (
+      parsed.negativeReviews > parsed.reviews || parsed.previousNegativeReviews > parsed.previousReviews
+      || parsed.previousEndAt !== parsed.startAt
+    ) invalidResponse()
+    return parsed
+  }).sort((left, right) => left.weeks - right.weeks)
   if (
-    expectedPersistent.length !== persistentAgentEmails.length
-    || expectedPersistent.some((email, index) => email !== [...persistentAgentEmails].sort()[index])
+    reviewTrends.length !== 3
+    || reviewTrends.some((trend, index) => {
+      const period = periods[index]
+      if (!period || trend.weeks !== period.weeks || trend.startAt !== period.startAt || trend.endAt !== period.endAt) return true
+      const reviews = period.dashboard.representatives.reduce((total, representative) => total + representative.totalSubmissions, 0)
+      const negative = period.dashboard.representatives.reduce((total, representative) => total + representative.fairPoorCount, 0)
+      return trend.reviews !== reviews || trend.negativeReviews !== negative
+    })
   ) invalidResponse()
-
+  const allTimeReviews = count(report.allTimeReviews)
+  const allTimeNegativeReviews = count(report.allTimeNegativeReviews)
+  if (allTimeNegativeReviews > allTimeReviews) invalidResponse()
+  const highRiskAgentEmails = parseEmailList(report.highRiskAgentEmails)
+  const bottomTenNegativeReviewAgentEmails = parseEmailList(report.bottomTenNegativeReviewAgentEmails)
+  const bottomTenIntelligibilityAgentEmails = parseEmailList(report.bottomTenIntelligibilityAgentEmails)
+  const bottomTenFirstPayAgentEmails = parseEmailList(report.bottomTenFirstPayAgentEmails)
+  const four = periods.find(period => period.weeks === 4)
+  if (!four) invalidResponse()
+  const outcomes = parseOutcomes(report.outcomes)
+  const matureSix = outcomes.periods.find(period => period.key === 'mature_6_weeks')
+  if (!matureSix) invalidResponse()
+  const expectedBottomTenNegative = four.dashboard.representatives
+    .filter(representative => representative.terminatedAt === null && representative.totalSubmissions >= 3)
+    .sort(rawNegativeOrder)
+    .slice(0, 10)
+    .map(representative => representative.agentEmail)
+  const expectedBottomTenIntelligibility = four.dashboard.representatives
+    .filter(representative => representative.terminatedAt === null && representative.flags.accent > 0)
+    .sort((left, right) => right.flags.accent - left.flags.accent
+      || right.fairPoorCount - left.fairPoorCount
+      || left.agentEmail.localeCompare(right.agentEmail))
+    .slice(0, 10)
+    .map(representative => representative.agentEmail)
+  const expectedBottomTenFirstPay = [...matureSix.agents]
+    .filter(agent => agent.z !== null)
+    .sort((left, right) => (right.z ?? Number.NEGATIVE_INFINITY) - (left.z ?? Number.NEGATIVE_INFINITY)
+      || right.failures - left.failures
+      || left.agentEmail.localeCompare(right.agentEmail))
+    .slice(0, 10)
+    .map(agent => agent.agentEmail)
+  const negativeReviewSet = new Set(expectedBottomTenNegative)
+  const intelligibilitySet = new Set(expectedBottomTenIntelligibility)
+  const firstPaySet = new Set(expectedBottomTenFirstPay)
+  const outcomeByEmail = new Map(matureSix.agents.map(agent => [agent.agentEmail, agent]))
+  const listCount = (email: string) => Number(negativeReviewSet.has(email))
+    + Number(intelligibilitySet.has(email)) + Number(firstPaySet.has(email))
+  const expectedHighRisk = four.dashboard.representatives
+    .filter(representative => representative.terminatedAt === null && (
+      listCount(representative.agentEmail) >= 2
+      || (firstPaySet.has(representative.agentEmail) && (outcomeByEmail.get(representative.agentEmail)?.z ?? Number.NEGATIVE_INFINITY) > 1.5)
+    ))
+    .sort((left, right) => listCount(right.agentEmail) - listCount(left.agentEmail)
+      || (outcomeByEmail.get(right.agentEmail)?.z ?? Number.NEGATIVE_INFINITY)
+        - (outcomeByEmail.get(left.agentEmail)?.z ?? Number.NEGATIVE_INFINITY)
+      || left.agentEmail.localeCompare(right.agentEmail))
+    .map(representative => representative.agentEmail)
+  if (
+    !sameEmails(highRiskAgentEmails, expectedHighRisk)
+    || !sameEmails(bottomTenNegativeReviewAgentEmails, expectedBottomTenNegative)
+    || !sameEmails(bottomTenIntelligibilityAgentEmails, expectedBottomTenIntelligibility)
+    || !sameEmails(bottomTenFirstPayAgentEmails, expectedBottomTenFirstPay)
+  ) invalidResponse()
   return {
     generatedAt: timestamp(report.generatedAt),
     completedThrough: timestamp(report.completedThrough),
     periods,
-    persistentAgentEmails,
-    outcomes: parseOutcomes(report.outcomes),
+    reviewTrends,
+    allTimeReviews,
+    allTimeNegativeReviews,
+    highRiskAgentEmails,
+    bottomTenNegativeReviewAgentEmails,
+    bottomTenIntelligibilityAgentEmails,
+    bottomTenFirstPayAgentEmails,
+    outcomes,
     terminations,
   }
 }
@@ -365,36 +499,16 @@ export function achieveManagementPeriod(
   return period
 }
 
-/** Return the persistent representatives in selected-period rank order. */
-export function persistentAchieveRepresentatives(
+/** Return selected representatives in the report selector's stable order. */
+export function selectedAchieveRepresentatives(
   report: AchieveManagementReport,
-  selectedWeeks: AchieveManagementWeeks,
+  agentEmails: ReadonlyArray<string>,
+  selectedWeeks: AchieveManagementWeeks = 4,
 ): ReadonlyArray<AchieveRepresentativeFeedback> {
-  const period = achieveManagementPeriod(report, selectedWeeks)
-  const persistent = new Set(report.persistentAgentEmails)
-  const rankByEmail = new Map(period.risks.map(risk => [risk.agentEmail, risk.riskRank]))
-  return period.dashboard.representatives
-    .filter(representative => persistent.has(representative.agentEmail))
-    .sort((left, right) => (
-      (rankByEmail.get(left.agentEmail) ?? Number.MAX_SAFE_INTEGER)
-      - (rankByEmail.get(right.agentEmail) ?? Number.MAX_SAFE_INTEGER)
-    ))
-}
-
-/** Return 2/4/6 ranks for each persistent representative. */
-export function persistentAchieveRanks(
-  report: AchieveManagementReport,
-): ReadonlyMap<string, AchievePeriodRanks> {
-  const byPeriod = new Map(report.periods.map(period => [
-    period.weeks,
-    new Map(period.risks.flatMap(risk => risk.riskRank === null ? [] : [[risk.agentEmail, risk.riskRank] as const])),
-  ]))
-  return new Map(report.persistentAgentEmails.flatMap(email => {
-    const two = byPeriod.get(2)?.get(email)
-    const four = byPeriod.get(4)?.get(email)
-    const six = byPeriod.get(6)?.get(email)
-    return two === undefined || four === undefined || six === undefined
-      ? []
-      : [[email, { 2: two, 4: four, 6: six }] as const]
-  }))
+  const byEmail = new Map(achieveManagementPeriod(report, selectedWeeks).dashboard.representatives
+    .map(representative => [representative.agentEmail, representative]))
+  return agentEmails.flatMap(email => {
+    const representative = byEmail.get(email)
+    return representative ? [representative] : []
+  })
 }

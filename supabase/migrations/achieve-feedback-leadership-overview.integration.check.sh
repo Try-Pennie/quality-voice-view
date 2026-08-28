@@ -8,6 +8,7 @@ detail="$repo_root/supabase/migrations/20260816110000_achieve_representative_fee
 ai="$repo_root/supabase/migrations/20260816120000_achieve_wc_agent_summary_ai.sql"
 summary_scope="$repo_root/supabase/migrations/20260817141000_optimize_achieve_wc_summary_scope.sql"
 termination="$repo_root/supabase/migrations/20260824120000_achieve_agent_termination_tracking.sql"
+termination_counts="$repo_root/supabase/migrations/20260827122000_achieve_report_termination_counts.sql"
 container="achieve-feedback-overview-check-$RANDOM-$$"
 
 cleanup() { docker rm -f "$container" >/dev/null 2>&1 || true; }
@@ -57,6 +58,7 @@ create table public.welcome_call_agent_log (
   client_id text not null,
   welcome_call_agent_name text not null,
   welcome_call_agent_email text not null,
+  first_seen_on date not null,
   last_seen_on date not null
 );
 
@@ -96,17 +98,17 @@ insert into public.achieve_client_sfdc_map(sfdc_lead_id, client_id) values
   ('LEAD-F', 'CLIENT-F'), ('LEAD-F', 'CLIENT-F2');
 
 insert into public.welcome_call_agent_log(
-  client_id, welcome_call_agent_name, welcome_call_agent_email, last_seen_on
+  client_id, welcome_call_agent_name, welcome_call_agent_email, first_seen_on, last_seen_on
 ) values
-  ('CLIENT-A', 'Representative A', 'REP-A@EXAMPLE.TEST', '2026-08-15'),
-  ('CLIENT-B', 'Representative B1', 'rep-b1@example.test', '2026-08-15'),
-  ('CLIENT-B', 'Representative B2', 'rep-b2@example.test', '2026-08-15'),
-  ('CLIENT-C', 'Representative C', 'rep-c@example.test', '2026-08-15'),
-  ('CLIENT-QA', 'Representative QA', 'rep-qa@example.test', '2026-08-15'),
-  ('CLIENT-D', 'Representative D', 'rep-d@example.test', '2026-08-15'),
-  ('CLIENT-E', 'Representative E', 'rep-e@example.test', '2026-08-15'),
-  ('CLIENT-F', 'Representative F', 'rep-f@example.test', '2026-08-15'),
-  ('CLIENT-F2', 'Representative F2', 'rep-f2@example.test', '2026-08-15');
+  ('CLIENT-A', 'Representative A', 'REP-A@EXAMPLE.TEST', '2026-08-10', '2026-08-15'),
+  ('CLIENT-B', 'Representative B1', 'rep-b1@example.test', '2026-08-15', '2026-08-15'),
+  ('CLIENT-B', 'Representative B2', 'rep-b2@example.test', '2026-08-15', '2026-08-15'),
+  ('CLIENT-C', 'Representative C', 'rep-c@example.test', '2026-08-15', '2026-08-15'),
+  ('CLIENT-QA', 'Representative QA', 'rep-qa@example.test', '2026-08-15', '2026-08-15'),
+  ('CLIENT-D', 'Representative D', 'rep-d@example.test', '2026-08-15', '2026-08-15'),
+  ('CLIENT-E', 'Representative E', 'rep-e@example.test', '2026-08-15', '2026-08-15'),
+  ('CLIENT-F', 'Representative F', 'rep-f@example.test', '2026-08-15', '2026-08-15'),
+  ('CLIENT-F2', 'Representative F2', 'rep-f2@example.test', '2026-08-15', '2026-08-15');
 
 insert into public.achieve_agent_feedback(
   submitted_at, call_quality, accent, background_noise, connection_issues,
@@ -127,10 +129,20 @@ SQL
   cat "$ai"
   cat "$summary_scope"
   cat "$termination"
+  cat "$termination_counts"
   cat <<'SQL'
 
 insert into public.achieve_agent_terminations(agent_email, agent_name, terminated_at) values
-  ('rep-a@example.test', 'Representative A', '2026-08-11 10:30:00+00');
+  ('rep-a@example.test', 'Representative A', '2026-08-11 10:30:00+00'),
+  ('boundary@example.test', 'Boundary Representative', '2026-08-10 04:00:00+00');
+
+insert into public.welcome_call_agent_log(
+  client_id, welcome_call_agent_name, welcome_call_agent_email, first_seen_on, last_seen_on
+) values
+  ('CLIENT-POST', 'Representative A', 'rep-a@example.test', '2026-08-12', '2026-08-14'),
+  ('SEEDED-A', 'Aliyu Adigun', 'aadigun@achieve.com', '2026-08-20', '2026-08-27'),
+  ('SEEDED-D', 'Darios Desravines', 'ddesravines@achieve.com', '2026-08-20', '2026-08-27'),
+  ('SEEDED-W', 'Wilma Hall', 'whall@achieve.com', '2026-08-20', '2026-08-27');
 
 do $$
 declare
@@ -246,23 +258,40 @@ begin
   if public.list_achieve_agent_termination_monitoring('2026-08-01 00:00:00+00') <> '[]'::jsonb then
     raise exception 'future terminations leaked into monitoring';
   end if;
+  if public.list_achieve_agent_termination_monitoring('2026-08-20 00:00:00+00') <> '[]'::jsonb then
+    raise exception 'terminations outside the reporting week leaked into monitoring';
+  end if;
   select public.list_achieve_agent_termination_monitoring('2026-08-12 00:00:00+00') into termination_monitoring;
   if not exists (
     select 1 from jsonb_array_elements(termination_monitoring) as row
     where row->>'agent_email' = 'rep-a@example.test'
-      and row->>'activity' = 'false'
-      and row->'latest_activity_on' = 'null'::jsonb
+      and row->>'activity_post_termination' = '0'
   ) then
-    raise exception 'internal activity leaked into report monitoring: %', termination_monitoring;
+    raise exception 'pre-termination first-seen activity was counted after termination: %', termination_monitoring;
   end if;
   select public.list_achieve_agent_termination_monitoring('2026-08-16 04:00:00+00') into termination_monitoring;
   if not exists (
     select 1 from jsonb_array_elements(termination_monitoring) as row
     where row->>'agent_email' = 'rep-a@example.test'
-      and row->>'activity' = 'true'
-      and row->>'latest_activity_on' = '2026-08-15'
+      and row->>'activity_post_termination' = '1'
+      and row->>'last_activity_on' = '2026-08-15'
   ) then
-    raise exception 'daily-report activity monitoring failed: %', termination_monitoring;
+    raise exception 'distinct first-seen post-termination monitoring failed: %', termination_monitoring;
+  end if;
+  select public.list_achieve_agent_termination_monitoring('2026-08-17 13:00:00+00') into termination_monitoring;
+  if not exists (
+    select 1 from jsonb_array_elements(termination_monitoring) as row
+    where row->>'agent_email' = 'boundary@example.test'
+  ) then
+    raise exception 'prior Monday Eastern boundary was excluded: %', termination_monitoring;
+  end if;
+  select public.list_achieve_agent_termination_monitoring('2026-08-28 04:00:00+00') into termination_monitoring;
+  if exists (
+    select 1 from jsonb_array_elements(termination_monitoring) as row
+    where row->>'agent_email' in ('aadigun@achieve.com', 'ddesravines@achieve.com', 'whall@achieve.com')
+      and row->>'activity_post_termination' <> '0'
+  ) then
+    raise exception 'seeded agents counted activity first seen before termination: %', termination_monitoring;
   end if;
 
   if has_function_privilege('anon', 'private.achieve_is_ordinary_graded_qa(text,jsonb)', 'execute')

@@ -140,11 +140,16 @@ Confirm that:
 
 - the sender, To list, and Cc list match the configured allowlists;
 - both HTML and plain-text content are present;
-- the Bottom 5 section matches the completed two-week adjusted Form ranking;
-- the persistent-risk table matches `/achieve`;
-- the mature six-week first-pay section matches `/achieve` and identifies its Snowflake source-as-of date;
-- the original management CSV contains all 2/4/6-week representative rows and both risk indicators;
-- a second `achieve-first-pay-outcomes-*.csv` attachment contains the all-time, mature four-week, and mature six-week roster comparisons;
+- the HTML uses inline literal styles and table-based trend tiles with no stylesheet, CSS variables, grid, or JavaScript;
+- first-pay tiles show mature 2/4/6-week and all-time totals, and each `vs PP` value uses the immediately preceding same-length window;
+- negative-review tiles use true non-overlapping 2/4/6-week predecessors and render unavailable comparisons as an em dash;
+- High Risk Triangulation contains active agents on at least two Bottom 10 lists, or on mature six-week first-pay screening with z above 1.5;
+- Bottom 10 Negative Reviews requires at least three Form reviews and ranks raw negative-review rate;
+- Bottom 10 Intelligibility ranks Speech Clarity counts and shows Background Noise and Connection only as context;
+- mature six-week first-pay screening shows the top ten plus roster and identifies its source-as-of date;
+- termination rows show Last WC Activity and distinct Activity Post Term counts based on assignment `first_seen_on`;
+- the management CSV contains all 2/4/6-week representative rows, all four report selectors, intelligibility counts, and termination count/date fields;
+- `achieve-first-pay-outcomes-*.csv` contains all-time plus mature 2/4/6-week agent comparisons;
 - no customer names, notes, call IDs, raw Enrollment rows, or transcripts appear.
 
 ## 8. Verify scheduling and delivery

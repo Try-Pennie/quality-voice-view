@@ -167,14 +167,6 @@ Deno.serve(async (request: Request) => {
       console.error('achieve weekly report load failed', { reason: reportResult.reason })
       return json({ error: reportResult.reason }, 500)
     }
-    const previousMonday = new Date(now)
-    previousMonday.setUTCDate(previousMonday.getUTCDate() - 7)
-    const previousReportResult = await loadReport(previousMonday)
-    if (!previousReportResult.ok) {
-      console.error('previous achieve weekly report load failed', { reason: previousReportResult.reason })
-      return json({ error: previousReportResult.reason }, 500)
-    }
-
     const weekEnding = achieveReportWeekEnding(reportResult.report)
     if (action === 'scheduled') {
       const claim = await admin
@@ -190,7 +182,6 @@ Deno.serve(async (request: Request) => {
 
     const email = buildAchieveWeeklyEmail(
       reportResult.report,
-      previousReportResult.report,
       config.gmailSender,
       config.recipients,
       config.ccRecipients,

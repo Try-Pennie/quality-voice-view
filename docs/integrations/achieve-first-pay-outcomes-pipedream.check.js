@@ -23,6 +23,10 @@ assert.deepStrictEqual(plan, {
 assert.throws(() => planOutcomeSnapshot([{ ...rows[0], never_paid: 4, source_aggregate_rows: 1, source_enrollments: 30 }]), /does not reconcile/)
 assert.throws(() => planOutcomeSnapshot([{ ...rows[0], paid: 14, source_aggregate_rows: 1, source_enrollments: 30 }]), /paid and no_deposit/)
 assert.throws(() => planOutcomeSnapshot([rows[0]]), /row count does not reconcile/)
+assert.throws(
+  () => planOutcomeSnapshot([{ ...rows[0], agent_name: 'Automated Underwriting001', source_aggregate_rows: 1, source_enrollments: 30 }]),
+  /system account/,
+)
 assert.throws(() => planOutcomeSnapshot([rows[0], { ...rows[1], SOURCE_AS_OF: '2026-08-31' }]), /one source_as_of/)
 assert.throws(
   () => planOutcomeSnapshot([{ ...rows[0], source_aggregate_rows: 1, source_enrollments: 30, source_raw_rows: 31, source_distinct_enrollments: 30 }]),

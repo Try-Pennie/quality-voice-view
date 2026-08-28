@@ -9,9 +9,10 @@ import {
 } from '@/lib/achieve-management'
 
 const controls: ReadonlyArray<{ readonly key: AchieveOutcomePeriodKey; readonly label: string }> = [
-  { key: 'all_time', label: 'All time' },
+  { key: 'mature_2_weeks', label: '2 weeks' },
   { key: 'mature_4_weeks', label: '4 weeks' },
   { key: 'mature_6_weeks', label: '6 weeks' },
+  { key: 'all_time', label: 'All time' },
 ]
 
 function signalClass(signal: string): string {
@@ -43,7 +44,7 @@ export function AchieveFirstPayOutcomes({ outcomes }: { readonly outcomes: First
           </p>
           <p className="mt-1 text-xs text-slate-400">Source as of {outcomes.sourceAsOf} · refreshed {new Date(outcomes.refreshedAt).toLocaleString()}</p>
         </div>
-        <div className="grid grid-cols-3 gap-1 rounded-xl border border-slate-200 bg-slate-50 p-1" aria-label="First-pay outcome period">
+        <div className="grid grid-cols-4 gap-1 rounded-xl border border-slate-200 bg-slate-50 p-1" aria-label="First-pay outcome period">
           {controls.map(control => (
             <button
               key={control.key}

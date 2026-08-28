@@ -3,6 +3,7 @@ set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 migration="$repo_root/supabase/migrations/20260822120000_achieve_first_pay_outcomes.sql"
+report_template="$repo_root/supabase/migrations/20260827120000_achieve_report_template.sql"
 container="achieve-first-pay-outcomes-check-$RANDOM-$$"
 
 cleanup() { docker rm -f "$container" >/dev/null 2>&1 || true; }
@@ -22,6 +23,7 @@ create role authenticated nologin;
 create role service_role nologin;
 SQL
   cat "$migration"
+  cat "$report_template"
   cat <<'SQL'
 
 select public.ingest_achieve_first_pay_outcome_snapshot(
@@ -31,10 +33,11 @@ select public.ingest_achieve_first_pay_outcome_snapshot(
 
 set role service_role;
 select public.ingest_achieve_first_pay_outcome_snapshot(
-  '2026-09-01', 5, 72,
+  '2026-09-01', 6, 82,
   '[
     {"cohort_date":"2026-08-18","agent_name":"Agent A","agent_email":"a@example.test","n":30,"paid":15,"no_deposit":15,"rescinded":10,"never_paid":5},
     {"cohort_date":"2026-08-18","agent_name":"Agent B","agent_email":"b@example.test","n":30,"paid":24,"no_deposit":6,"rescinded":1,"never_paid":5},
+    {"cohort_date":"2026-08-01","agent_name":"Agent E","agent_email":"e@example.test","n":10,"paid":8,"no_deposit":2,"rescinded":1,"never_paid":1},
     {"cohort_date":"2026-07-15","agent_name":"Agent C","agent_email":"c@example.test","n":1,"paid":1,"no_deposit":0,"rescinded":0,"never_paid":0},
     {"cohort_date":"2026-07-15","agent_name":"Agent D","agent_email":"d@example.test","n":1,"paid":0,"no_deposit":1,"rescinded":0,"never_paid":1},
     {"cohort_date":"2026-07-01","agent_name":"Solo Agent","agent_email":"solo@example.test","n":10,"paid":8,"no_deposit":2,"rescinded":1,"never_paid":1}
@@ -52,7 +55,7 @@ declare
   boundary_agent jsonb;
   before_rows bigint;
 begin
-  if (select count(*) from public.achieve_first_pay_outcome_daily) <> 5
+  if (select count(*) from public.achieve_first_pay_outcome_daily) <> 6
     or exists (select 1 from public.achieve_first_pay_outcome_daily where agent_email = 'old@example.test') then
     raise exception 'full snapshot was not replaced';
   end if;
@@ -121,8 +124,25 @@ begin
     or nullif(report->>'refreshed_at', '') is null then
     raise exception 'freshness metadata missing: %', report;
   end if;
-  if jsonb_array_length(report->'periods') <> 3 then
-    raise exception 'expected three reporting periods: %', report;
+  if jsonb_array_length(report->'periods') <> 4 then
+    raise exception 'expected mature 2/4/6-week plus all-time periods: %', report;
+  end if;
+  if not exists (
+    select 1 from jsonb_array_elements(report->'periods') period
+    where period->>'key' = 'mature_2_weeks'
+      and period->>'n' = '60' and period->>'paid' = '39'
+      and period->>'previous_n' = '10' and period->>'previous_paid' = '8'
+      and period->>'previous_start_date' = '2026-07-26'
+      and period->>'previous_end_date' = '2026-08-08'
+  ) then
+    raise exception 'true non-overlapping 2-week comparison missing: %', report->'periods';
+  end if;
+  if not exists (
+    select 1 from jsonb_array_elements(report->'periods') period
+    where period->>'key' = 'mature_6_weeks'
+      and period->>'previous_n' = '10' and period->>'previous_paid' = '8'
+  ) then
+    raise exception 'true non-overlapping 6-week comparison missing: %', report->'periods';
   end if;
   if exists (
       select 1

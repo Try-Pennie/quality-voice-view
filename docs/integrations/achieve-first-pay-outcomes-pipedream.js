@@ -2,6 +2,7 @@
 // aggregate query documented in achieve-first-pay-outcomes.md.
 
 const RPC_NAME = 'ingest_achieve_first_pay_outcome_snapshot'
+const SYSTEM_AGENT_NAMES = new Set(['services interface', 'automated underwriting001'])
 
 function rowsFrom(value) {
   let parsed = value
@@ -55,6 +56,7 @@ export function planOutcomeSnapshot(value) {
     const sourceEnrollments = count(field(raw, 'source_enrollments'), `row ${index + 1} source_enrollments`)
     const rawRows = count(field(raw, 'source_raw_rows'), `row ${index + 1} source_raw_rows`)
     const distinctEnrollments = count(field(raw, 'source_distinct_enrollments'), `row ${index + 1} source_distinct_enrollments`)
+    if (SYSTEM_AGENT_NAMES.has(agentName.toLowerCase())) throw new Error(`row ${index + 1} is a system account`)
     if (!agentName || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(agentEmail) || n === 0 || noDeposit > n) {
       throw new Error(`row ${index + 1} has invalid agent or enrollment counts`)
     }

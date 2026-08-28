@@ -15,7 +15,7 @@ with population as (
     and ORIGINAL_SCHEDULED_FIRST_DRAFT_DATE__C is not null
     and to_date(ORIGINAL_SCHEDULED_FIRST_DRAFT_DATE__C) <= dateadd(day, -10, current_date())
     and nullif(trim(WELCOME_CALL_AGENT_EMAIL_AER__C), '') is not null
-    and trim(WELCOME_CALL_AGENT_AER__C) <> 'Services Interface'
+    and lower(trim(WELCOME_CALL_AGENT_AER__C)) not in ('services interface', 'automated underwriting001')
 ),
 source_control as (
   -- Keep this on the pre-dedup population: it is the fan-out canary.
@@ -83,7 +83,7 @@ Publish [`achieve-first-pay-outcomes-pipedream.js`](./achieve-first-pay-outcomes
 - **Supabase service-role key:** reuse the workflow's existing secret prop; never use the anon key
 - **Dry run:** `true` for activation, then `false`
 
-The action validates dates, normalized emails, mature cohorts, unique daily agent keys, integer counts, `n = paid + no_deposit`, `no_deposit = rescinded + never_paid`, raw source rows equal distinct Salesforce enrollment IDs, and Snowflake's full-snapshot row/enrollment controls before calling `ingest_achieve_first_pay_outcome_snapshot`. The RPC repeats validation, rejects an older watermark, and replaces the complete snapshot transactionally.
+The action rejects the `Services Interface` and `Automated Underwriting001` system accounts and validates dates, normalized emails, mature cohorts, unique daily agent keys, integer counts, `n = paid + no_deposit`, `no_deposit = rescinded + never_paid`, raw source rows equal distinct Salesforce enrollment IDs, and Snowflake's full-snapshot row/enrollment controls before calling `ingest_achieve_first_pay_outcome_snapshot`. The RPC repeats validation, rejects an older watermark, and replaces the complete snapshot transactionally.
 
 ## Reviewer enrollment-detail CSV
 
@@ -100,7 +100,7 @@ with population as (
       dateadd(day, -41, dateadd(day, -10, current_date()))
       and dateadd(day, -10, current_date())
     and nullif(trim(WELCOME_CALL_AGENT_EMAIL_AER__C), '') is not null
-    and trim(WELCOME_CALL_AGENT_AER__C) <> 'Services Interface'
+    and lower(trim(WELCOME_CALL_AGENT_AER__C)) not in ('services interface', 'automated underwriting001')
 ),
 source_control as (
   select count(*)::integer as raw_rows, count(distinct ID)::integer as distinct_enrollments
@@ -144,11 +144,11 @@ Before sharing, require `source_raw_rows = source_distinct_enrollments = exporte
 
 ## Activation and operations
 
-1. Apply `supabase/migrations/20260822120000_achieve_first_pay_outcomes.sql`.
+1. Apply `supabase/migrations/20260822120000_achieve_first_pay_outcomes.sql` and `supabase/migrations/20260827120000_achieve_report_template.sql`.
 2. Publish/configure the action above and run once with **Dry run** enabled.
 3. Confirm `aggregateRows` and `enrollments` are plausible, `sourceRawRows = sourceDistinctEnrollments = enrollments`, and the source date is today in Snowflake.
 4. Disable **Dry run** and run once.
-5. Call `get_achieve_first_pay_outcomes` with service-role authorization and verify `source_as_of`, `refreshed_at`, the three periods, and `failures = rescinded + never_paid` on a sample.
+5. Call `get_achieve_first_pay_outcomes` with service-role authorization and verify `source_as_of`, `refreshed_at`, all-time plus mature 2/4/6-week periods, true same-length previous windows, and `failures = rescinded + never_paid` on a sample.
 6. Keep the existing daily workflow schedule. The existing Gmail Edge Function remains on its Monday schedule and sends the outcome section itself; do not add Pipedream email delivery.
 
 A failed query, validation, or RPC leaves the prior complete snapshot intact. Alert on a stale `source_as_of` or `refreshed_at` in the report.
