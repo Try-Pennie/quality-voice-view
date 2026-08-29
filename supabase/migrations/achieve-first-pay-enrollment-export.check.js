@@ -8,6 +8,7 @@ for (const expected of [
   'having count(distinct candidate.normalized_client_id) = 1',
   "lower(btrim(feedback.call_quality)) in ('good', 'fair', 'poor')",
   'private.achieve_is_ordinary_graded_qa',
+  "set statement_timeout = '60s'",
   'bool_or(module_result.has_violation is true)',
   "when 'poor' then 3",
   'grant execute on function public.get_achieve_first_pay_export_qa_rollups()',

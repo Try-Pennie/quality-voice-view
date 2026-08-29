@@ -64,6 +64,7 @@ language sql
 stable
 security definer
 set search_path = ''
+set statement_timeout = '60s'
 as $$
   with review_calls as materialized (
     select feedback.matched_eavesly_call_id as call_id
