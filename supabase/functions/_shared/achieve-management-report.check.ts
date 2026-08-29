@@ -139,8 +139,16 @@ const rawOutcomes = {
   }),
 }
 
+let activeDashboardLoads = 0
+let maxDashboardLoads = 0
 const loaded = await loadAchieveManagementReport(
-  async range => ({ data: dashboard(range), error: null }),
+  async range => {
+    activeDashboardLoads++
+    maxDashboardLoads = Math.max(maxDashboardLoads, activeDashboardLoads)
+    await new Promise(resolve => setTimeout(resolve, 1))
+    activeDashboardLoads--
+    return { data: dashboard(range), error: null }
+  },
   async () => ({ data: rawOutcomes, error: null }),
   async () => ({
     data: [{
@@ -155,6 +163,7 @@ const loaded = await loadAchieveManagementReport(
   new Date('2026-08-19T12:00:00Z'),
 )
 assert.strictEqual(loaded.ok, true)
+assert.strictEqual(maxDashboardLoads, 1)
 if (!loaded.ok) throw new Error('expected report')
 assert.deepStrictEqual(loaded.report.highRiskAgentEmails, [
   'activity-count@example.test', 'activity-rate@example.test', 'persistent@example.test',

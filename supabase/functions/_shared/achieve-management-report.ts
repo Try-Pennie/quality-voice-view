@@ -536,10 +536,12 @@ export async function loadAchieveManagementReport(
   const ranges = completedAchieveReportRanges(now)
   const priorRanges = ranges.map(previousRange)
   const completedThrough = ranges[0]?.endAt ?? now.toISOString()
-  const [loaded, loadedPrior, loadedAllTime, outcomeResult, terminationResult] = await Promise.all([
-    Promise.all(ranges.map(async range => ({ range, result: await loadDashboard(range) }))),
-    Promise.all(priorRanges.map(async range => ({ range, result: await loadDashboard(range) }))),
-    loadDashboard({ startAt: null, endAt: completedThrough }),
+  const loaded = []
+  for (const range of ranges) loaded.push({ range, result: await loadDashboard(range) })
+  const loadedPrior = []
+  for (const range of priorRanges) loadedPrior.push({ range, result: await loadDashboard(range) })
+  const loadedAllTime = await loadDashboard({ startAt: null, endAt: completedThrough })
+  const [outcomeResult, terminationResult] = await Promise.all([
     loadOutcomes(),
     loadTerminations(now.toISOString()),
   ])
