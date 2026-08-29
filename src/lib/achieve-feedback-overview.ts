@@ -93,6 +93,7 @@ export type AchieveRepresentativeFeedback = {
     readonly latestGradedAt: string | null
   }
   readonly alignment: AchieveFeedbackAlignment
+  readonly terminatedAt: string | null
 }
 
 /** Coverage metadata for a bounded representative or detail list. */
@@ -351,6 +352,7 @@ function parseRepresentative(value: unknown): AchieveRepresentativeFeedback {
     fairPoorRate: totalSubmissions === 0 ? 0 : (fairPoorCount / totalSubmissions) * 100,
     ai,
     alignment,
+    terminatedAt: null,
   }
 }
 

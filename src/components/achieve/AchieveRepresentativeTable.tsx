@@ -9,7 +9,6 @@ import {
   type AchieveRepresentativeFeedback,
   type AchieveRepresentativeReviewStatus,
 } from '@/lib/achieve-feedback-overview'
-import type { AchievePeriodRanks } from '@/lib/achieve-management'
 
 const activityDate = new Intl.DateTimeFormat('en-US', {
   timeZone: 'UTC', month: 'short', day: 'numeric', year: 'numeric',
@@ -23,7 +22,16 @@ const statusContent: Readonly<Record<AchieveRepresentativeReviewStatus, { label:
 
 function ReviewStatus({ representative }: { representative: AchieveRepresentativeFeedback }) {
   const content = statusContent[achieveRepresentativeReviewStatus(representative)]
-  return <span className={`inline-flex rounded-full px-2 py-0.5 text-[11px] font-semibold ${content.className}`}>{content.label}</span>
+  return (
+    <span className="flex flex-wrap gap-1.5">
+      {representative.terminatedAt !== null && (
+        <span className="inline-flex rounded-full bg-slate-900 px-2 py-0.5 text-[11px] font-semibold text-white">
+          Terminated · {activityDate.format(new Date(representative.terminatedAt))}
+        </span>
+      )}
+      <span className={`inline-flex rounded-full px-2 py-0.5 text-[11px] font-semibold ${content.className}`}>{content.label}</span>
+    </span>
+  )
 }
 
 function Count({ value, tone = 'plain' }: { value: number; tone?: 'plain' | 'good' | 'fair' | 'poor' }) {
@@ -52,7 +60,7 @@ function LatestActivity({ representative }: { representative: AchieveRepresentat
 function ReportedConditions({ representative }: { representative: AchieveRepresentativeFeedback }) {
   return (
     <span className="whitespace-nowrap tabular-nums text-slate-600">
-      Noise {representative.flags.backgroundNoise} · Accent {representative.flags.accent} · Connection {representative.flags.connectionIssues}
+      Speech Clarity {representative.flags.accent} · Noise {representative.flags.backgroundNoise} · Connection {representative.flags.connectionIssues}
     </span>
   )
 }
@@ -113,17 +121,6 @@ function AlignmentSummary({ representative }: { representative: AchieveRepresent
   )
 }
 
-function PeriodRanks({ ranks }: { ranks: AchievePeriodRanks | undefined }) {
-  if (!ranks) return null
-  return (
-    <span className="mt-2 flex flex-wrap gap-1.5 text-[11px] font-semibold text-blue-800">
-      <span className="rounded-full bg-blue-50 px-2 py-0.5">2w #{ranks[2]}</span>
-      <span className="rounded-full bg-blue-50 px-2 py-0.5">4w #{ranks[4]}</span>
-      <span className="rounded-full bg-blue-50 px-2 py-0.5">6w #{ranks[6]}</span>
-    </span>
-  )
-}
-
 /** Searchable union of exact Form and exact ordinary-AI representatives. */
 export function AchieveRepresentativeTable({
   representatives,
@@ -131,7 +128,6 @@ export function AchieveRepresentativeTable({
   title = 'WC Agent Summary by representative',
   description,
   showControls = true,
-  periodRanks,
   exportFilenamePrefix = 'achieve-wc-agent-summary',
 }: {
   representatives: ReadonlyArray<AchieveRepresentativeFeedback>
@@ -139,7 +135,6 @@ export function AchieveRepresentativeTable({
   title?: string
   description?: string
   showControls?: boolean
-  periodRanks?: ReadonlyMap<string, AchievePeriodRanks>
   exportFilenamePrefix?: string
 }) {
   const headingId = useId()
@@ -250,7 +245,6 @@ export function AchieveRepresentativeTable({
                             <span className="block [overflow-wrap:anywhere] font-semibold text-slate-950 group-hover:text-blue-800">{representative.agentName}</span>
                             <span className="mt-0.5 block [overflow-wrap:anywhere] text-xs font-normal text-slate-500">{representative.agentEmail}</span>
                             <LatestActivity representative={representative} />
-                            <PeriodRanks ranks={periodRanks?.get(representative.agentEmail)} />
                             <span className="mt-2 block"><ReviewStatus representative={representative} /></span>
                           </span>
                           <ChevronRight className="h-4 w-4 shrink-0 text-slate-400" aria-hidden="true" />
@@ -289,7 +283,6 @@ export function AchieveRepresentativeTable({
                       <span className="block [overflow-wrap:anywhere] font-semibold text-slate-950">{representative.agentName}</span>
                       <span className="block [overflow-wrap:anywhere] text-xs text-slate-500">{representative.agentEmail}</span>
                       <LatestActivity representative={representative} />
-                      <PeriodRanks ranks={periodRanks?.get(representative.agentEmail)} />
                     </span>
                     <ChevronRight className="h-4 w-4 shrink-0 text-slate-400" aria-hidden="true" />
                   </div>

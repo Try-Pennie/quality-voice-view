@@ -158,6 +158,8 @@ Deno.serve(async (request: Request) => {
         p_representative_limit: ACHIEVE_REPORT_REPRESENTATIVE_LIMIT,
         p_representative_offset: 0,
       }),
+      async () => admin.rpc('get_achieve_first_pay_outcomes'),
+      async endAt => admin.rpc('list_achieve_agent_termination_monitoring', { p_end_at: endAt }),
       at,
     )
     const reportResult = await loadReport(now)
@@ -165,14 +167,6 @@ Deno.serve(async (request: Request) => {
       console.error('achieve weekly report load failed', { reason: reportResult.reason })
       return json({ error: reportResult.reason }, 500)
     }
-    const previousMonday = new Date(now)
-    previousMonday.setUTCDate(previousMonday.getUTCDate() - 7)
-    const previousReportResult = await loadReport(previousMonday)
-    if (!previousReportResult.ok) {
-      console.error('previous achieve weekly report load failed', { reason: previousReportResult.reason })
-      return json({ error: previousReportResult.reason }, 500)
-    }
-
     const weekEnding = achieveReportWeekEnding(reportResult.report)
     if (action === 'scheduled') {
       const claim = await admin
@@ -188,7 +182,6 @@ Deno.serve(async (request: Request) => {
 
     const email = buildAchieveWeeklyEmail(
       reportResult.report,
-      previousReportResult.report,
       config.gmailSender,
       config.recipients,
       config.ccRecipients,
