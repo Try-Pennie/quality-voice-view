@@ -2,7 +2,7 @@
 // Run: npx tsx supabase/functions/achieve-weekly-report/email.check.ts
 import assert from 'node:assert/strict'
 import type { AchieveManagementReport, AchieveManagementRepresentative } from '../_shared/achieve-management-report'
-import { buildAchieveWeeklyEmail } from './email'
+import { achieveWeeklyEmailEnvelope, buildAchieveWeeklyEmail } from './email'
 
 function representative(
   agentName: string,
@@ -117,6 +117,15 @@ const report: AchieveManagementReport = {
     })),
   },
 }
+
+assert.deepEqual(
+  achieveWeeklyEmailEnvelope(true, ['achieve@example.test'], ['observer@example.test'], 'noah@example.test'),
+  { recipients: ['noah@example.test'], ccRecipients: [] },
+)
+assert.deepEqual(
+  achieveWeeklyEmailEnvelope(false, ['achieve@example.test'], ['observer@example.test'], 'noah@example.test'),
+  { recipients: ['achieve@example.test'], ccRecipients: ['observer@example.test'] },
+)
 
 const email = buildAchieveWeeklyEmail(
   report,

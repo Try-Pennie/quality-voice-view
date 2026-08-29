@@ -18,6 +18,18 @@ export type AchieveWeeklyEmail = {
   readonly enrollmentAttachmentFilename: string
 }
 
+/** Keep test sends internal without changing the scheduled distribution list. */
+export function achieveWeeklyEmailEnvelope(
+  test: boolean,
+  recipients: ReadonlyArray<string>,
+  ccRecipients: ReadonlyArray<string>,
+  testRecipient: string,
+): { readonly recipients: ReadonlyArray<string>; readonly ccRecipients: ReadonlyArray<string> } {
+  return test
+    ? { recipients: [testRecipient], ccRecipients: [] }
+    : { recipients, ccRecipients }
+}
+
 const GMAIL_MAX_MESSAGE_BYTES = 25_000_000
 
 const INK = '#23262b'
