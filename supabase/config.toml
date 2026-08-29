@@ -1,5 +1,9 @@
 project_id = "miikotqnovnixpeqtqnd"
 
+[functions.achieve-portal]
+# Browser access is authenticated by the function's signed session cookie.
+verify_jwt = false
+
 [functions.achieve-weekly-report]
 # pg_cron authenticates with a dedicated shared secret validated by the handler.
 verify_jwt = false
