@@ -297,14 +297,10 @@ function SortHeader({
   )
 }
 
-// Show the manager's first name when we have one, falling back to the email
-// local-part. The full email is rendered separately as secondary text.
+// Show a consistent full name, falling back to the email local-part only when
+// the directory has no entry. The email is rendered separately below it.
 function managerDisplayName(fullName: string | null, email: string): string {
-  if (fullName) {
-    const first = fullName.trim().split(/\s+/)[0]
-    if (first) return first
-  }
-  return email.split('@')[0]
+  return fullName?.trim() || email.split('@')[0]
 }
 
 function Bar({
