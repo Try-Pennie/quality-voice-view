@@ -1,6 +1,6 @@
 # Achieve weekly email setup (Google Workspace)
 
-The report sends every Monday at 9:00 AM Eastern from a real Google Workspace mailbox through the Gmail API. The existing Google service account used by `achieve-feedback-sync` is reused with domain-wide delegation and the narrow `gmail.send` scope.
+The report sends every Monday at 9:00 AM Eastern from a real Google Workspace mailbox through the Gmail API. The existing Google service account used by `achieve-feedback-sync` is reused with domain-wide delegation and the narrow `gmail.send` scope. The weekly function also uses the shared Snowflake key-pair identity to build Geoff's enrollment-level follow-through attachment in memory; it never stores that export in Supabase.
 
 ## 1. Choose the sender mailbox
 
@@ -45,7 +45,7 @@ Google references: [Gmail API scopes](https://developers.google.com/workspace/gm
 
 ## 4. Configure Supabase function secrets
 
-The existing project-level `GOOGLE_SA_EMAIL` and `GOOGLE_SA_PRIVATE_KEY` secrets are reused. Confirm their names exist without printing their values:
+The existing project-level `GOOGLE_SA_EMAIL`, `GOOGLE_SA_PRIVATE_KEY`, and eight `SNOWFLAKE_*` secrets are reused. Confirm their names exist without printing their values:
 
 ```sh
 npx supabase secrets list --project-ref miikotqnovnixpeqtqnd
@@ -68,6 +68,8 @@ npx supabase secrets set \
   --project-ref miikotqnovnixpeqtqnd \
   --env-file /tmp/achieve-weekly-email.env
 ```
+
+The Snowflake secret names are `SNOWFLAKE_ACCOUNT_URL`, `SNOWFLAKE_ACCOUNT_IDENTIFIER`, `SNOWFLAKE_USER`, `SNOWFLAKE_ROLE`, `SNOWFLAKE_WAREHOUSE`, `SNOWFLAKE_DATABASE`, `SNOWFLAKE_SCHEMA`, and `SNOWFLAKE_PRIVATE_KEY`. Never paste the private key or any secret value into chat, tickets, logs, or source control.
 
 Keep `REPORT_SECRET` available for the next step, then securely remove the temporary file:
 
@@ -93,9 +95,14 @@ unset REPORT_SECRET
 
 ## 6. Deploy the code
 
-From the `quality-voice-view` repository after this branch is merged, apply the database changes before deploying functions that call the new outcome RPC:
+Follow the one-writer activation order in [`integrations/achieve-first-pay-outcomes.md`](./integrations/achieve-first-pay-outcomes.md): deploy and test `achieve-first-pay-sync`, disable only the old first-pay Pipedream steps, then apply the migration that enables its daily cron.
 
 ```sh
+npx supabase functions deploy achieve-first-pay-sync \
+  --project-ref miikotqnovnixpeqtqnd \
+  --no-verify-jwt
+
+# After the direct-sync test and Pipedream first-pay cutover:
 npx supabase db push --project-ref miikotqnovnixpeqtqnd
 
 npx supabase functions deploy achieve-portal \
@@ -113,7 +120,7 @@ npx supabase functions deploy achieve-feedback-sync \
 
 Deploy the frontend through the repository's normal release process so `/achieve` can call the new `get_management_report` action.
 
-The migration creates a service-only delivery ledger and a cron job that invokes the function every 15 minutes during both UTC hours that can contain 9 AM Eastern. The function sends once, only during Monday's 9 AM ET hour, and handles daylight-saving changes.
+The direct Snowflake sync runs daily at 12:00 UTC, before the Monday report window. The weekly-report migration separately invokes the email function every 15 minutes during both UTC hours that can contain 9 AM Eastern; the email function sends once and handles daylight-saving changes.
 
 ## 7. Send a real test
 
@@ -147,10 +154,13 @@ Confirm that:
 - Bottom 10 Negative Reviews requires at least three Form reviews and ranks raw negative-review rate;
 - Bottom 10 Intelligibility ranks Speech Clarity counts and shows Background Noise and Connection only as context;
 - mature six-week first-pay screening shows the top ten plus roster and identifies its source-as-of date;
+- Bottom 10 All-Time by First Pay Screening appears immediately after it, uses the existing `all_time` period through the same maturity cutoff, and does not change High Risk Triangulation;
 - termination rows show Last WC Activity and distinct Activity Post Term counts based on assignment `first_seen_on`;
 - the management CSV contains all 2/4/6-week representative rows, all four report selectors, intelligibility counts, and termination count/date fields;
 - `achieve-first-pay-outcomes-*.csv` contains all-time plus mature 2/4/6-week agent comparisons;
-- no customer names, notes, call IDs, raw Enrollment rows, or transcripts appear.
+- the message has exactly three attachments and remains below the 25 MB fail-closed message limit;
+- `Achieve-WC-Agent-FirstPay-Data-YYYY-MM-DD.csv` has Geoff's exact nine-column header, full Achieve-serviced history, all welcome-agent domains, CRLF rows, unique nonblank AFF Numbers, worst human rating, and any qualifying AI flag;
+- the email body and portal contain no enrollment rows or AFF Numbers. The third attachment may contain AFF Number and WC agent email only for the fixed approved recipients; it is generated in memory and never persisted or logged by Eavesly.
 
 ## 8. Verify scheduling and delivery
 
@@ -182,3 +192,4 @@ A successful run has `status = 'sent'`. Gmail message IDs are retained for deliv
 - `not_configured`: one of the required Supabase secrets is absent or malformed.
 - Gmail `403`: confirm the sender is an active Workspace user and the service account is authorized for `gmail.send`.
 - No Monday request: confirm the Vault secret exists and inspect `cron.job_run_details` and `net._http_response` for the scheduled request.
+- `weekly_report_failed` before Gmail: inspect the safe Edge Function error category and Snowflake source controls. The report intentionally sends nothing unless all three attachments are complete; a blank WC agent email, blank/duplicate AFF Number, incomplete partition, stale source date, or invalid QA rollup must be corrected and retried during the delivery hour rather than filtered or guessed.

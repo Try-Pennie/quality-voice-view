@@ -1,161 +1,118 @@
 # Achieve first-pay outcome ingress
 
-Extend the existing daily Achieve Pipedream workflow. Snowflake remains the only place with Salesforce credentials; Supabase receives daily agent aggregates, never raw `ENROLLMENT__C` rows.
+Snowflake remains the source of truth. The scheduled `achieve-first-pay-sync` Supabase Edge Function calls the Snowflake SQL API directly, validates the complete result, and sends only daily agent/cohort aggregates to the existing transactional `ingest_achieve_first_pay_outcome_snapshot` RPC. The Monday email and `/achieve` continue reading that Supabase snapshot.
 
-## 1. Add one native Snowflake query
+The former Pipedream first-pay query/action is retired by this integration. Other Pipedream and call-feedback flows are unrelated and must remain enabled.
 
-Add **Snowflake — Execute Query** after the existing Snowflake step. Set the step key to `fetch_achieve_first_pay_outcomes` and use this exact SQL:
+## Data and security boundary
 
-```sql
-with population as (
-  select *
-  from AIRBYTE_SFDC_DATABASE.AIRBYTE_SFDC_SCHEMA.ENROLLMENT__C
-  where SERVICER__C = 'Achieve'
-    and STATUS__C <> 'Pre-Enrollment'
-    and ORIGINAL_SCHEDULED_FIRST_DRAFT_DATE__C is not null
-    and to_date(ORIGINAL_SCHEDULED_FIRST_DRAFT_DATE__C) <= dateadd(day, -10, current_date())
-    and nullif(trim(WELCOME_CALL_AGENT_EMAIL_AER__C), '') is not null
-    and lower(trim(WELCOME_CALL_AGENT_AER__C)) not in ('services interface', 'automated underwriting001')
-),
-source_control as (
-  -- Keep this on the pre-dedup population: it is the fan-out canary.
-  select
-    count(*)::integer as raw_rows,
-    count(distinct ID)::integer as distinct_enrollments
-  from population
-),
-deduped as (
-  select *
-  from population
-  qualify row_number() over (
-    partition by ID
-    order by SYSTEMMODSTAMP desc nulls last, LASTMODIFIEDDATE desc nulls last
-  ) = 1
-),
-aggregates as (
-  select
-    to_date(ORIGINAL_SCHEDULED_FIRST_DRAFT_DATE__C) as cohort_date,
-    max(trim(WELCOME_CALL_AGENT_AER__C)) as agent_name,
-    lower(trim(WELCOME_CALL_AGENT_EMAIL_AER__C)) as agent_email,
-    count(*)::integer as n,
-    count_if(CLIENT_DEPOSIT_FLAG__C = true)::integer as paid,
-    count_if(CLIENT_DEPOSIT_FLAG__C = false)::integer as no_deposit,
-    count_if(
-      CLIENT_DEPOSIT_FLAG__C = false
-      and TERMINATION_BEFORE_FIRST_PAY_FLAG__C = true
-    )::integer as rescinded,
-    count_if(
-      CLIENT_DEPOSIT_FLAG__C = false
-      and TERMINATION_BEFORE_FIRST_PAY_FLAG__C = false
-    )::integer as never_paid
-  from deduped
-  group by
-    to_date(ORIGINAL_SCHEDULED_FIRST_DRAFT_DATE__C),
-    lower(trim(WELCOME_CALL_AGENT_EMAIL_AER__C))
-)
-select
-  current_date()::date as "source_as_of",
-  cohort_date as "cohort_date",
-  agent_name as "agent_name",
-  agent_email as "agent_email",
-  n as "n",
-  paid as "paid",
-  no_deposit as "no_deposit",
-  rescinded as "rescinded",
-  never_paid as "never_paid",
-  count(*) over ()::integer as "source_aggregate_rows",
-  sum(n) over ()::integer as "source_enrollments",
-  source_control.raw_rows as "source_raw_rows",
-  source_control.distinct_enrollments as "source_distinct_enrollments"
-from aggregates
-cross join source_control
-order by cohort_date, agent_email;
+The canonical query lives in [`supabase/functions/_shared/achieve-first-pay-outcomes.ts`](../../supabase/functions/_shared/achieve-first-pay-outcomes.ts). It:
+
+- reads only `AIRBYTE_SFDC_DATABASE.AIRBYTE_SFDC_SCHEMA.ENROLLMENT__C`;
+- filters mature Achieve cohorts and excludes system accounts;
+- detects source fan-out with raw-row versus distinct enrollment-ID controls;
+- deduplicates by enrollment `ID`, preferring the latest source version;
+- returns only agent/cohort counts and source control totals;
+- reconciles `n = paid + no_deposit` and `no_deposit = rescinded + never_paid`.
+
+The Edge Function uses a five-minute `KEYPAIR_JWT`, polls asynchronous statements, retrieves every Snowflake result partition, and rejects missing, duplicate, stale, or unreconciled results before calling Supabase. Raw enrollment records, Salesforce IDs, and Snowflake credentials are never logged or persisted in Supabase.
+
+## Required secrets
+
+These project-level Supabase function secrets are required:
+
+```text
+SNOWFLAKE_ACCOUNT_URL
+SNOWFLAKE_ACCOUNT_IDENTIFIER
+SNOWFLAKE_USER
+SNOWFLAKE_ROLE
+SNOWFLAKE_WAREHOUSE
+SNOWFLAKE_DATABASE
+SNOWFLAKE_SCHEMA
+SNOWFLAKE_PRIVATE_KEY
 ```
 
-This intentionally uses only `ORIGINAL_SCHEDULED_FIRST_DRAFT_DATE__C` for cohort assignment and the Achieve AER welcome-agent fields. It deduplicates by Salesforce enrollment `ID` before aggregation, then reports raw and distinct source counts so the action rejects any upstream fan-out instead of publishing inflated z-scores. A false deposit flag is the failure population. Null deposit flags make `n != paid + no_deposit`; null termination flags on failed enrollments make `no_deposit != rescinded + never_paid`. Any source duplication or outcome reconciliation failure blocks the full replacement.
+`ACHIEVE_WEEKLY_REPORT_SECRET` is also reused only to authenticate the cron request. Its matching Vault secret remains `achieve_weekly_report_secret`. Never place the private key in chat, source control, or a command that prints it.
 
-## 2. Add the validated Supabase action
+The Snowflake user must have only its dedicated read role, `USAGE` on the selected warehouse/database/schema, and `SELECT` on `ENROLLMENT__C`.
 
-Publish [`achieve-first-pay-outcomes-pipedream.js`](./achieve-first-pay-outcomes-pipedream.js) as the next action. Configure:
+## Weekly enrollment follow-through attachment
 
-- **Snowflake enrollment aggregate rows:** `{{steps.fetch_achieve_first_pay_outcomes.$return_value}}`
-- **Supabase project URL:** the existing project URL prop
-- **Supabase service-role key:** reuse the workflow's existing secret prop; never use the anon key
-- **Dry run:** `true` for activation, then `false`
+The Monday function creates `Achieve-WC-Agent-FirstPay-Data-YYYY-MM-DD.csv` directly from Snowflake and discards the in-memory rows after the Gmail request. It does not add enrollment rows or AFF Numbers to Supabase tables, Storage, logs, or the `/achieve` payload.
 
-The action rejects the `Services Interface` and `Automated Underwriting001` system accounts and validates dates, normalized emails, mature cohorts, unique daily agent keys, integer counts, `n = paid + no_deposit`, `no_deposit = rescinded + never_paid`, raw source rows equal distinct Salesforce enrollment IDs, and Snowflake's full-snapshot row/enrollment controls before calling `ingest_achieve_first_pay_outcome_snapshot`. The RPC repeats validation, rejects an older watermark, and replaces the complete snapshot transactionally.
+The seven Salesforce fields were verified on `ENROLLMENT__C`: `CLIENT_NO_AER__C`, `DATE_ENROLLED__C`, `TERMINATION_DATE_AER__C`, `CLIENT_DEPOSIT_FLAG__C`, `TERMINATION_BEFORE_FIRST_PAY_FLAG__C`, `ORIGINAL_SCHEDULED_FIRST_DRAFT_DATE__C`, and `WELCOME_CALL_AGENT_EMAIL_AER__C`. The canonical full-history query is in [`achieve-first-pay-outcomes.ts`](../../supabase/functions/_shared/achieve-first-pay-outcomes.ts). It exactly applies Geoff's population rules:
 
-## Reviewer enrollment-detail CSV
+- `SERVICER__C = 'Achieve'` and `STATUS__C <> 'Pre-Enrollment'`;
+- welcome-call agent is present and is not `Services Interface`;
+- original scheduled first draft is present;
+- no domain, maturity, or date filter;
+- latest source version per Salesforce enrollment `ID` wins.
 
-When an internal reviewer needs enrollment-level reconciliation, export a separate **mature trailing six-week** CSV directly from Snowflake. This is a static validation artifact; it does not change the weekly email body/chart and must not be persisted in Supabase.
+The boundary requires one export row per distinct enrollment ID, one unique nonblank normalized AFF Number and valid WC agent email per row, complete SQL API partitions, today's Snowflake source date, and consistent repeated source controls. Source-version duplicates are allowed only before the deterministic ID deduplication. Validation is intentionally coupled to delivery: the function sends none of the report unless all three attachments are complete, rather than silently filtering a source row or sending a partial workbook. CSV output is UTF-8 with CRLF and this exact order:
 
-```sql
-with population as (
-  select *
-  from AIRBYTE_SFDC_DATABASE.AIRBYTE_SFDC_SCHEMA.ENROLLMENT__C
-  where SERVICER__C = 'Achieve'
-    and STATUS__C <> 'Pre-Enrollment'
-    and ORIGINAL_SCHEDULED_FIRST_DRAFT_DATE__C is not null
-    and to_date(ORIGINAL_SCHEDULED_FIRST_DRAFT_DATE__C) between
-      dateadd(day, -41, dateadd(day, -10, current_date()))
-      and dateadd(day, -10, current_date())
-    and nullif(trim(WELCOME_CALL_AGENT_EMAIL_AER__C), '') is not null
-    and lower(trim(WELCOME_CALL_AGENT_AER__C)) not in ('services interface', 'automated underwriting001')
-),
-source_control as (
-  select count(*)::integer as raw_rows, count(distinct ID)::integer as distinct_enrollments
-  from population
-),
-deduped as (
-  select *
-  from population
-  qualify row_number() over (
-    partition by ID
-    order by SYSTEMMODSTAMP desc nulls last, LASTMODIFIEDDATE desc nulls last
-  ) = 1
-)
-select
-  current_date()::date as source_as_of,
-  dateadd(day, -10, current_date())::date as maturity_cutoff,
-  sha2(ID, 256) as enrollment_key,
-  to_date(ENROLLMENT_DATE_AER__C) as enrollment_date,
-  to_date(TERMINATION_DATE__C) as termination_date,
-  to_date(ORIGINAL_SCHEDULED_FIRST_DRAFT_DATE__C) as original_scheduled_first_pay_date,
-  trim(WELCOME_CALL_AGENT_AER__C) as welcome_call_agent_name,
-  lower(trim(WELCOME_CALL_AGENT_EMAIL_AER__C)) as welcome_call_agent_email,
-  CLIENT_DEPOSIT_FLAG__C as client_deposit_flag,
-  TERMINATION_BEFORE_FIRST_PAY_FLAG__C as termination_before_first_pay_flag,
-  case
-    when CLIENT_DEPOSIT_FLAG__C = true then 'paid'
-    when CLIENT_DEPOSIT_FLAG__C = false and TERMINATION_BEFORE_FIRST_PAY_FLAG__C = true
-      then 'rescinded_terminated_pre_pay'
-    when CLIENT_DEPOSIT_FLAG__C = false and TERMINATION_BEFORE_FIRST_PAY_FLAG__C = false
-      then 'never_paid_limbo'
-    else 'unresolved'
-  end as outcome,
-  source_control.raw_rows as source_raw_rows,
-  source_control.distinct_enrollments as source_distinct_enrollments
-from deduped
-cross join source_control
-order by original_scheduled_first_pay_date, welcome_call_agent_email, enrollment_key;
+```text
+AFF Number,Enrollment Date,Termination Date,Client Deposit Flag,Termination Before First Pay Flag,Original Scheduled First Pay Date,WC Agent Email,Agent Rating,AI Flag
 ```
 
-Before sharing, require `source_raw_rows = source_distinct_enrollments = exported data rows`, escape spreadsheet-formula prefixes (`=`, `+`, `-`, `@`), and remove the two repeated source-control columns. Share only the SHA-256 enrollment key—never Salesforce IDs or customer names, emails, phones, or addresses. The approved columns are the three requested dates, welcome-call agent identity, deposit/termination flags, and derived outcome.
+The service-only `get_achieve_first_pay_export_qa_rollups` RPC returns only sparse normalized AFF/client IDs and collapsed QA outcomes. A call is attributed only when its Salesforce lead and lead-to-client bridge each resolve to exactly one value. Ambiguous calls are omitted rather than guessed. Human ratings collapse to the worst recognized value (`Poor > Fair > Good`); ordinary non-audit AI QA collapses with `bool_or(has_violation)`. Unreviewed cells remain blank. Every CSV text cell escapes spreadsheet-formula prefixes.
 
-## Activation and operations
+The email body and portal remain aggregate-only. The third attachment contains AFF Number and WC agent email for the fixed approved Achieve recipients, so it must not be forwarded or copied to shared storage. The MIME builder requires exactly three attachments and rejects messages above 25 MB before Gmail is called.
 
-1. Apply `supabase/migrations/20260822120000_achieve_first_pay_outcomes.sql` and `supabase/migrations/20260827120000_achieve_report_template.sql`.
-2. Publish/configure the action above and run once with **Dry run** enabled.
-3. Confirm `aggregateRows` and `enrollments` are plausible, `sourceRawRows = sourceDistinctEnrollments = enrollments`, and the source date is today in Snowflake.
-4. Disable **Dry run** and run once.
-5. Call `get_achieve_first_pay_outcomes` with service-role authorization and verify `source_as_of`, `refreshed_at`, all-time plus mature 2/4/6-week periods, true same-length previous windows, and `failures = rescinded + never_paid` on a sample.
-6. Keep the existing daily workflow schedule. The existing Gmail Edge Function remains on its Monday schedule and sends the outcome section itself; do not add Pipedream email delivery.
+## Activation and cutover
 
-A failed query, validation, or RPC leaves the prior complete snapshot intact. Alert on a stale `source_as_of` or `refreshed_at` in the report.
+Do these in order so there is never more than one active writer:
+
+1. Apply the existing snapshot/report migrations if they are not already present.
+2. Deploy `achieve-first-pay-sync` with `--no-verify-jwt`; do not apply the new cron migration yet. The weekly function must not be deployed until `20260829160000_achieve_first_pay_enrollment_export_qa.sql` is also applied.
+3. Invoke `{"action":"test"}` with `x-report-secret`. Confirm today's `source_as_of`, plausible totals, and `source_raw_rows = source_distinct_enrollments = enrollments`. Test mode does not write Supabase.
+4. In the existing Pipedream workflow, disable only `fetch_achieve_first_pay_outcomes` and the immediately following **Achieve first-pay outcomes → Supabase** action. Leave the welcome-call report, attribution bridge, Google Sheet feedback, and every other step enabled.
+5. Apply `20260829150000_achieve_first_pay_direct_sync.sql` and `20260829160000_achieve_first_pay_enrollment_export_qa.sql`. The first schedules `achieve_first_pay_outcome_sync` daily at `12:00 UTC` (7 AM EST / 8 AM EDT); the second adds only the service-only sparse QA RPC and no schedule or writer.
+6. Invoke `{"action":"scheduled"}` once and verify the run ledger and snapshot freshness below, then deploy the updated weekly function.
+
+The handler's daily primary-key claim prevents overlapping or duplicate writes. A failed query, validation, or RPC marks the run failed and leaves the prior complete snapshot intact.
+
+## Operations
+
+```sql
+select run_date, status, started_at, finished_at, source_as_of,
+       aggregate_rows, enrollments, error_code
+from public.achieve_first_pay_outcome_sync_runs
+order by run_date desc
+limit 14;
+
+select source_as_of, refreshed_at, aggregate_rows, enrollments
+from public.achieve_first_pay_outcome_snapshot;
+
+select jobname, schedule, active
+from cron.job
+where jobname = 'achieve_first_pay_outcome_sync';
+```
+
+A successful daily run has `status = 'succeeded'`, today's `source_as_of`, and positive reconciled totals. Investigate `failed` or stale rows before the Monday report. To retry the same day after fixing the cause, delete only that day's `failed` claim—or a `running` claim after confirming the invocation is no longer active—then invoke `{"action":"scheduled"}` again. Never delete a `succeeded` claim.
+
+## Rollback
+
+1. Unschedule only the direct writer:
+
+   ```sql
+   select cron.unschedule(jobid)
+   from cron.job
+   where jobname = 'achieve_first_pay_outcome_sync';
+   ```
+
+2. Re-enable the two retired first-pay Pipedream steps.
+3. Confirm the next Pipedream run refreshes `achieve_first_pay_outcome_snapshot`.
+
+Do not drop the snapshot tables/RPC: `/achieve` and the Monday email still read them. The weekly enrollment attachment continues to use the direct read-only Snowflake identity even if the aggregate writer rolls back to Pipedream. Do not delete or rotate Snowflake credentials as part of rollback.
 
 ## Offline checks
 
 ```bash
-node docs/integrations/achieve-first-pay-outcomes-pipedream.check.js
+npx tsx supabase/functions/_shared/achieve-first-pay-outcomes.check.ts
+npx tsx supabase/functions/_shared/achieve-first-pay-enrollment-export.check.ts
+npx tsx supabase/functions/achieve-weekly-report/email.check.ts
+node supabase/migrations/achieve-first-pay-direct-sync.check.js
+node supabase/migrations/achieve-first-pay-enrollment-export.check.js
 ./supabase/migrations/achieve-first-pay-outcomes.integration.check.sh
+./supabase/migrations/achieve-feedback-leadership-overview.integration.check.sh
 ```

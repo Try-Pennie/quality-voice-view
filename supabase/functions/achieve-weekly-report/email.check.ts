@@ -124,9 +124,14 @@ const email = buildAchieveWeeklyEmail(
   ['leader-one@example.test'],
   ['observer@example.test'],
   'https://eavesly.example.test/achieve',
+  {
+    sourceAsOf: '2026-08-27',
+    csv: 'AFF Number,Enrollment Date,Termination Date,Client Deposit Flag,Termination Before First Pay Flag,Original Scheduled First Pay Date,WC Agent Email,Agent Rating,AI Flag\r\n',
+  },
 )
 assert.strictEqual(email.attachmentFilename, 'achieve-management-2026-08-23.csv')
 assert.strictEqual(email.outcomeAttachmentFilename, 'achieve-first-pay-outcomes-2026-08-23.csv')
+assert.strictEqual(email.enrollmentAttachmentFilename, 'Achieve-WC-Agent-FirstPay-Data-2026-08-27.csv')
 const padded = email.raw.replace(/-/g, '+').replace(/_/g, '/') + '='.repeat((4 - email.raw.length % 4) % 4)
 const decoded = new TextDecoder().decode(Uint8Array.from(atob(padded), character => character.charCodeAt(0)))
 const htmlPayload = decoded.match(/Content-Type: text\/html; charset="UTF-8"\r\nContent-Transfer-Encoding: base64\r\n\r\n([\s\S]*?)\r\n--achieve_alt_/)?.[1]
@@ -138,7 +143,8 @@ const decodedHtml = new TextDecoder().decode(Uint8Array.from(
 
 assert.ok(decoded.includes('To: leader-one@example.test'))
 assert.ok(decoded.includes('Cc: observer@example.test'))
-assert.strictEqual(decoded.match(/Content-Type: text\/csv/g)?.length, 2)
+assert.strictEqual(decoded.match(/Content-Type: text\/csv/g)?.length, 3)
+assert.ok(decoded.includes('filename="Achieve-WC-Agent-FirstPay-Data-2026-08-27.csv"'))
 assert.ok(decoded.split('\r\n').every(line => new TextEncoder().encode(line).length <= 998))
 assert.ok(decodedHtml.includes('Achieve WC Agent Performance | Report Run Date = August 27, 2026'))
 assert.ok(decodedHtml.includes('Organizational Trends'))
@@ -160,6 +166,14 @@ assert.ok(decodedHtml.includes('Speech Clarity'))
 assert.ok(decodedHtml.includes('Background Noise'))
 assert.ok(decodedHtml.includes('Connection'))
 assert.ok(decodedHtml.includes('Bottom 10 by Mature 6 week first pay screening'))
+assert.ok(decodedHtml.includes('Bottom 10 All-Time by First Pay Screening'))
+const matureSection = decodedHtml.indexOf('Bottom 10 by Mature 6 week first pay screening')
+const allTimeSection = decodedHtml.indexOf('Bottom 10 All-Time by First Pay Screening')
+const zExplanation = decodedHtml.indexOf('Z Scores for People Who Hate Statistics')
+assert.ok(matureSection < allTimeSection && allTimeSection < zExplanation)
+const allTimeHtml = decodedHtml.slice(allTimeSection, zExplanation)
+assert.ok(allTimeHtml.indexOf('&lt;High Risk &amp; Agent&gt;') < allTimeHtml.indexOf('Intelligibility Agent'))
+assert.ok(allTimeHtml.indexOf('Intelligibility Agent') < allTimeHtml.indexOf('Bottom Agent'))
 assert.ok(decodedHtml.includes('AI Flags'))
 assert.ok(!decodedHtml.includes('AI QA flagged'))
 assert.ok(!decodedHtml.includes('>Accent<'))
@@ -176,6 +190,8 @@ assert.ok(!decodedHtml.includes('class='))
 assert.ok(!decodedHtml.includes('var(--'))
 assert.ok(!decodedHtml.includes('display:grid'))
 assert.ok(decodedHtml.includes('style="'))
+assert.ok(decodedHtml.includes('not persisted in Eavesly'))
 assert.ok(new TextEncoder().encode(decodedHtml).length < 102_400)
+assert.ok(new TextEncoder().encode(decoded).length < 25_000_000)
 
 console.log('achieve-weekly-email: all checks passed')

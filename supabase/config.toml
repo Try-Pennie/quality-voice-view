@@ -3,3 +3,7 @@ project_id = "miikotqnovnixpeqtqnd"
 [functions.achieve-weekly-report]
 # pg_cron authenticates with a dedicated shared secret validated by the handler.
 verify_jwt = false
+
+[functions.achieve-first-pay-sync]
+# Reuses the Achieve report cron secret; Snowflake uses separate key-pair auth.
+verify_jwt = false
