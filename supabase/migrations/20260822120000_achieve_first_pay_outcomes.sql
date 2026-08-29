@@ -145,7 +145,7 @@ begin
     raise exception using errcode = '22023', message = 'duplicate cohort and agent rows are not allowed';
   end if;
 
-  delete from public.achieve_first_pay_outcome_daily;
+  delete from public.achieve_first_pay_outcome_daily where true;
 
   insert into public.achieve_first_pay_outcome_daily (
     cohort_date, agent_name, agent_email, n, paid, no_deposit, rescinded, never_paid
