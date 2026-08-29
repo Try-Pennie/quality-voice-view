@@ -9,6 +9,7 @@ ai="$repo_root/supabase/migrations/20260816120000_achieve_wc_agent_summary_ai.sq
 summary_scope="$repo_root/supabase/migrations/20260817141000_optimize_achieve_wc_summary_scope.sql"
 termination="$repo_root/supabase/migrations/20260824120000_achieve_agent_termination_tracking.sql"
 termination_counts="$repo_root/supabase/migrations/20260827122000_achieve_report_termination_counts.sql"
+first_pay_export="$repo_root/supabase/migrations/20260829160000_achieve_first_pay_enrollment_export_qa.sql"
 container="achieve-feedback-overview-check-$RANDOM-$$"
 
 cleanup() { docker rm -f "$container" >/dev/null 2>&1 || true; }
@@ -130,6 +131,7 @@ SQL
   cat "$summary_scope"
   cat "$termination"
   cat "$termination_counts"
+  cat "$first_pay_export"
   cat <<'SQL'
 
 insert into public.achieve_agent_terminations(agent_email, agent_name, terminated_at) values
@@ -151,6 +153,7 @@ declare
   representatives jsonb;
   representative_detail jsonb;
   termination_monitoring jsonb;
+  first_pay_export jsonb;
 begin
   if not private.achieve_is_ordinary_graded_qa(
       'achieve_welcome_call_qa',
@@ -200,6 +203,37 @@ begin
     or overview->'qa'->>'distinct_exact_agents' <> '3'
     or overview->>'distinct_any_agents' <> '3' then
     raise exception 'distinct representative reconciliation failed: %', overview;
+  end if;
+
+  select public.get_achieve_first_pay_export_qa_rollups() into first_pay_export;
+  if first_pay_export->'coverage' <> '{"rows":4,"ai_clients":4,"human_clients":3}'::jsonb then
+    raise exception 'first-pay export QA coverage failed: %', first_pay_export->'coverage';
+  end if;
+  if not exists (
+    select 1 from jsonb_array_elements(first_pay_export->'rows') as row
+    where row->>'client_id' = 'client-a'
+      and row->>'agent_rating' = 'fair'
+      and (row->>'ai_reviewed')::boolean
+      and (row->>'ai_flagged')::boolean
+  ) or not exists (
+    select 1 from jsonb_array_elements(first_pay_export->'rows') as row
+    where row->>'client_id' = 'client-c'
+      and row->>'agent_rating' = 'poor'
+      and (row->>'ai_flagged')::boolean
+  ) or not exists (
+    select 1 from jsonb_array_elements(first_pay_export->'rows') as row
+    where row->>'client_id' = 'client-qa'
+      and row->'agent_rating' = 'null'::jsonb
+      and (row->>'ai_reviewed')::boolean
+      and not (row->>'ai_flagged')::boolean
+  ) then
+    raise exception 'first-pay export worst-rating or any-flag collapse failed: %', first_pay_export;
+  end if;
+  if exists (
+    select 1 from jsonb_array_elements(first_pay_export->'rows') as row
+    where row->>'client_id' in ('client-d', 'client-e', 'client-f', 'client-f2')
+  ) then
+    raise exception 'ambiguous call-to-client attribution leaked: %', first_pay_export;
   end if;
 
   if representatives->'coverage'->>'total' <> '3'
@@ -300,9 +334,11 @@ begin
     or has_function_privilege('authenticated', 'public.get_achieve_agent_feedback_dashboard(timestamptz,timestamptz,integer,integer)', 'execute')
     or has_function_privilege('authenticated', 'public.list_achieve_agent_feedback_for_rep(text,integer,integer)', 'execute')
     or has_function_privilege('authenticated', 'public.list_achieve_agent_termination_monitoring(timestamptz)', 'execute')
+    or has_function_privilege('authenticated', 'public.get_achieve_first_pay_export_qa_rollups()', 'execute')
     or has_table_privilege('authenticated', 'public.achieve_agent_terminations', 'select')
     or not has_function_privilege('service_role', 'private.achieve_is_ordinary_graded_qa(text,jsonb)', 'execute')
-    or not has_function_privilege('service_role', 'private.achieve_ordinary_qa_attributed(timestamptz,timestamptz)', 'execute') then
+    or not has_function_privilege('service_role', 'private.achieve_ordinary_qa_attributed(timestamptz,timestamptz)', 'execute')
+    or not has_function_privilege('service_role', 'public.get_achieve_first_pay_export_qa_rollups()', 'execute') then
     raise exception 'WC Agent Summary privileges are unsafe';
   end if;
 end

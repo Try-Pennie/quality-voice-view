@@ -12,8 +12,18 @@
 //   GMAIL_SENDER                  — Google Workspace mailbox to impersonate
 //   GOOGLE_SA_EMAIL               — domain-delegated Google service account
 //   GOOGLE_SA_PRIVATE_KEY         — service-account PKCS8 private key
+//   SNOWFLAKE_*                   — the eight shared key-pair SQL API secrets
 import 'jsr:@supabase/functions-js/edge-runtime.d.ts'
 import { createClient } from 'jsr:@supabase/supabase-js@2'
+import {
+  achieveFirstPayEnrollmentCsv,
+  parseFirstPayQaRollups,
+} from '../_shared/achieve-first-pay-enrollment-export.ts'
+import {
+  fetchSnowflakeFirstPayEnrollments,
+  snowflakeConfigFromEnv,
+  type SnowflakeOutcomeConfig,
+} from '../_shared/achieve-first-pay-outcomes.ts'
 import {
   ACHIEVE_REPORT_REPRESENTATIVE_LIMIT,
   achieveReportWeekEnding,
@@ -28,6 +38,7 @@ const GMAIL_SEND_SCOPE = 'https://www.googleapis.com/auth/gmail.send'
 type RequestAction = 'scheduled' | 'test'
 type Config = {
   readonly reportSecret: string
+  readonly snowflake: SnowflakeOutcomeConfig
   readonly recipients: ReadonlyArray<string>
   readonly ccRecipients: ReadonlyArray<string>
   readonly portalUrl: string
@@ -71,6 +82,7 @@ function parseConfig(): Config | null {
   const serviceAccountPrivateKey = Deno.env.get('GOOGLE_SA_PRIVATE_KEY')?.trim() ?? ''
   const recipients = parseEmailList(Deno.env.get('ACHIEVE_REPORT_RECIPIENTS') ?? '')
   const ccRecipients = parseEmailList(Deno.env.get('ACHIEVE_REPORT_CC') ?? '')
+  const snowflake = snowflakeConfigFromEnv(name => Deno.env.get(name))
   let portalUrl: string | null = null
   try {
     const candidate = new URL(Deno.env.get('ACHIEVE_PORTAL_URL') ?? '')
@@ -82,10 +94,11 @@ function parseConfig(): Config | null {
     !reportSecret || gmailSender === null || serviceAccountEmail === null || !serviceAccountPrivateKey
     || recipients === null || ccRecipients === null || recipients.length === 0
     || recipients.length + ccRecipients.length > 20
-    || ccRecipients.some(email => recipients.includes(email)) || portalUrl === null
+    || ccRecipients.some(email => recipients.includes(email)) || portalUrl === null || snowflake === null
   ) return null
   return {
     reportSecret,
+    snowflake,
     recipients,
     ccRecipients,
     portalUrl,
@@ -180,12 +193,22 @@ Deno.serve(async (request: Request) => {
       claimedWeek = weekEnding
     }
 
+    const [enrollmentPlan, qaResult] = await Promise.all([
+      fetchSnowflakeFirstPayEnrollments(config.snowflake, now),
+      admin.rpc('get_achieve_first_pay_export_qa_rollups'),
+    ])
+    if (qaResult.error) throw new Error('achieve_first_pay_qa_rollup_query_failed')
+    const enrollmentCsv = achieveFirstPayEnrollmentCsv(
+      enrollmentPlan,
+      parseFirstPayQaRollups(qaResult.data),
+    )
     const email = buildAchieveWeeklyEmail(
       reportResult.report,
       config.gmailSender,
       config.recipients,
       config.ccRecipients,
       config.portalUrl,
+      { sourceAsOf: enrollmentPlan.sourceAsOf, csv: enrollmentCsv },
     )
     const accessToken = await googleServiceAccountAccessToken({
       serviceAccountEmail: config.serviceAccountEmail,
