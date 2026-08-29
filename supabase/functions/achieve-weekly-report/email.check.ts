@@ -88,32 +88,39 @@ const report: AchieveManagementReport = {
     sourceAsOf: '2026-08-27',
     refreshedAt: '2026-08-27T12:00:00Z',
     maturityCutoff: '2026-08-17',
-    periods: (['all_time', 'mature_2_weeks', 'mature_4_weeks', 'mature_6_weeks'] as const).map((key, index) => ({
+    periods: (['all_time', 'mature_2_weeks', 'mature_4_weeks', 'mature_6_weeks', 'mature_6_months'] as const).map((key, index) => ({
       key,
-      startDate: key === 'all_time' ? null : ['2026-08-04', '2026-07-21', '2026-07-07'][index - 1] ?? null,
+      startDate: key === 'all_time' ? null : ['2026-08-04', '2026-07-21', '2026-07-07', '2026-02-18'][index - 1] ?? null,
       endDate: '2026-08-17',
-      n: [12947, 659, 1335, 1730][index] ?? 0,
-      paid: [10007, 501, 1036, 1346][index] ?? 0,
-      previousStartDate: key === 'all_time' ? null : ['2026-07-21', '2026-06-23', '2026-05-26'][index - 1] ?? null,
-      previousEndDate: key === 'all_time' ? null : ['2026-08-03', '2026-07-20', '2026-07-06'][index - 1] ?? null,
+      n: [12947, 659, 1335, 1730, 7430][index] ?? 0,
+      paid: [10007, 501, 1036, 1346, 5770][index] ?? 0,
+      previousStartDate: key === 'all_time' ? null : ['2026-07-21', '2026-06-23', '2026-05-26', '2025-08-18'][index - 1] ?? null,
+      previousEndDate: key === 'all_time' ? null : ['2026-08-03', '2026-07-20', '2026-07-06', '2026-02-17'][index - 1] ?? null,
       previousN: key === 'all_time' ? null : index === 3 ? 0 : 100,
       previousPaid: key === 'all_time' ? null : index === 1 ? 79 : index === 2 ? 80 : 0,
-      agents: [persistent, bottom, activity].map((agent, rank) => ({
-        agentName: agent.agentName,
-        agentEmail: agent.agentEmail,
-        n: 20 + rank,
-        failures: 8 - rank,
-        failureRate: ((8 - rank) / (20 + rank)) * 100,
-        expectedFailures: 5,
-        expectedSuccesses: 15 + rank,
-        expectedRate: 25,
-        deltaPp: 15,
-        z: rank === 0 ? 2.5 : rank === 1 ? -0.94 : 1.2,
-        rescinded: 3,
-        neverPaid: 5 - rank,
-        sampleQualified: rank !== 2,
-        rank: rank === 2 ? null : rank + 1,
-      })),
+      agents: [
+        ...[persistent, bottom, activity].map((agent, rank) => ({
+          agentName: agent.agentName,
+          agentEmail: agent.agentEmail,
+          n: 20 + rank,
+          failures: 8 - rank,
+          failureRate: ((8 - rank) / (20 + rank)) * 100,
+          expectedFailures: 5,
+          expectedSuccesses: 15 + rank,
+          expectedRate: 25,
+          deltaPp: 15,
+          z: rank === 0 ? 2.5 : rank === 1 ? -0.94 : 1.2,
+          rescinded: 3,
+          neverPaid: 5 - rank,
+          sampleQualified: rank !== 2,
+          rank: rank === 2 ? null : rank + 1,
+        })),
+        ...(key === 'mature_6_months' ? [{
+          agentName: 'Tiny Sample', agentEmail: 'tiny@example.test', n: 9, failures: 8,
+          failureRate: 800 / 9, expectedFailures: 5, expectedSuccesses: 4, expectedRate: 25,
+          deltaPp: 50, z: 99, rescinded: 3, neverPaid: 5, sampleQualified: false, rank: null,
+        }] : []),
+      ],
     })),
   },
 }
@@ -175,14 +182,16 @@ assert.ok(decodedHtml.includes('Speech Clarity'))
 assert.ok(decodedHtml.includes('Background Noise'))
 assert.ok(decodedHtml.includes('Connection'))
 assert.ok(decodedHtml.includes('Bottom 10 by Mature 6 week first pay screening'))
-assert.ok(decodedHtml.includes('Bottom 10 All-Time by First Pay Screening'))
+assert.ok(decodedHtml.includes('Bottom 10 by First Pay Screening — Last 6 Months'))
 const matureSection = decodedHtml.indexOf('Bottom 10 by Mature 6 week first pay screening')
-const allTimeSection = decodedHtml.indexOf('Bottom 10 All-Time by First Pay Screening')
+const sixMonthSection = decodedHtml.indexOf('Bottom 10 by First Pay Screening — Last 6 Months')
 const zExplanation = decodedHtml.indexOf('Z Scores for People Who Hate Statistics')
-assert.ok(matureSection < allTimeSection && allTimeSection < zExplanation)
-const allTimeHtml = decodedHtml.slice(allTimeSection, zExplanation)
-assert.ok(allTimeHtml.indexOf('&lt;High Risk &amp; Agent&gt;') < allTimeHtml.indexOf('Intelligibility Agent'))
-assert.ok(allTimeHtml.indexOf('Intelligibility Agent') < allTimeHtml.indexOf('Bottom Agent'))
+assert.ok(matureSection < sixMonthSection && sixMonthSection < zExplanation)
+const sixMonthHtml = decodedHtml.slice(sixMonthSection, zExplanation)
+assert.ok(sixMonthHtml.indexOf('&lt;High Risk &amp; Agent&gt;') < sixMonthHtml.indexOf('Intelligibility Agent'))
+assert.ok(sixMonthHtml.indexOf('Intelligibility Agent') < sixMonthHtml.indexOf('Bottom Agent'))
+assert.ok(sixMonthHtml.includes('requires at least 10 enrollments per agent'))
+assert.ok(!sixMonthHtml.includes('Tiny Sample'))
 assert.ok(decodedHtml.includes('AI Flags'))
 assert.ok(!decodedHtml.includes('AI QA flagged'))
 assert.ok(!decodedHtml.includes('>Accent<'))

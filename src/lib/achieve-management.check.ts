@@ -86,18 +86,18 @@ const raw = {
     sourceAsOf: '2026-08-17',
     refreshedAt: '2026-08-17T12:00:00Z',
     maturityCutoff: cutoff,
-    periods: (['all_time', 'mature_2_weeks', 'mature_4_weeks', 'mature_6_weeks'] as const).map(key => {
+    periods: (['all_time', 'mature_2_weeks', 'mature_4_weeks', 'mature_6_weeks', 'mature_6_months'] as const).map(key => {
       const startDays = key === 'mature_2_weeks' ? -13 : key === 'mature_4_weeks' ? -27 : -41
       const priorStartDays = key === 'mature_2_weeks' ? -27 : key === 'mature_4_weeks' ? -55 : -83
       const priorEndDays = key === 'mature_2_weeks' ? -14 : key === 'mature_4_weeks' ? -28 : -42
       return {
         key,
-        startDate: key === 'all_time' ? null : addDays(startDays),
+        startDate: key === 'all_time' ? null : key === 'mature_6_months' ? '2026-02-08' : addDays(startDays),
         endDate: cutoff,
         n: 20,
         paid: 12,
-        previousStartDate: key === 'all_time' ? null : addDays(priorStartDays),
-        previousEndDate: key === 'all_time' ? null : addDays(priorEndDays),
+        previousStartDate: key === 'all_time' ? null : key === 'mature_6_months' ? '2025-08-08' : addDays(priorStartDays),
+        previousEndDate: key === 'all_time' ? null : key === 'mature_6_months' ? '2026-02-07' : addDays(priorEndDays),
         previousN: key === 'all_time' ? null : 10,
         previousPaid: key === 'all_time' ? null : 7,
         agents: [{

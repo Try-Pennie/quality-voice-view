@@ -25,7 +25,10 @@ export type AchieveReportLoadResult = {
   readonly error: unknown
 }
 
-export type AchieveOutcomePeriodKey = 'all_time' | 'mature_2_weeks' | 'mature_4_weeks' | 'mature_6_weeks'
+export type AchieveOutcomePeriodKey = 'all_time' | 'mature_2_weeks' | 'mature_4_weeks' | 'mature_6_weeks' | 'mature_6_months'
+
+/** Minimum mature enrollments required for the six-month Bottom 10 list. */
+export const ACHIEVE_FIRST_PAY_BOTTOM_LIST_MIN_ENROLLMENTS = 10
 
 /** One mature first-pay screening result compared with the same weeks' roster. */
 export type AchieveFirstPayOutcomeAgent = {
@@ -183,6 +186,35 @@ function addUtcDays(value: string, days: number): string {
   const date = new Date(`${value}T00:00:00Z`)
   date.setUTCDate(date.getUTCDate() + days)
   return date.toISOString().slice(0, 10)
+}
+
+function addUtcMonths(value: string, months: number): string {
+  const date = new Date(`${value}T00:00:00Z`)
+  const day = date.getUTCDate()
+  date.setUTCDate(1)
+  date.setUTCMonth(date.getUTCMonth() + months)
+  const lastDay = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth() + 1, 0)).getUTCDate()
+  date.setUTCDate(Math.min(day, lastDay))
+  return date.toISOString().slice(0, 10)
+}
+
+function expectedOutcomeBoundaries(key: AchieveOutcomePeriodKey, maturityCutoff: string): {
+  readonly startDate: string | null
+  readonly previousStartDate: string | null
+  readonly previousEndDate: string | null
+} {
+  if (key === 'all_time') return { startDate: null, previousStartDate: null, previousEndDate: null }
+  if (key === 'mature_6_months') return {
+    startDate: addUtcDays(addUtcMonths(maturityCutoff, -6), 1),
+    previousStartDate: addUtcDays(addUtcMonths(maturityCutoff, -12), 1),
+    previousEndDate: addUtcMonths(maturityCutoff, -6),
+  }
+  const weeks = key === 'mature_2_weeks' ? 2 : key === 'mature_4_weeks' ? 4 : 6
+  return {
+    startDate: addUtcDays(maturityCutoff, -(weeks * 7 - 1)),
+    previousStartDate: addUtcDays(maturityCutoff, -(weeks * 14 - 1)),
+    previousEndDate: addUtcDays(maturityCutoff, -(weeks * 7)),
+  }
 }
 
 function optionalTimestamp(value: unknown): string | null | undefined {
@@ -411,7 +443,7 @@ function parseFirstPayOutcomes(value: unknown): AchieveFirstPayOutcomes | null {
     const previousPaid = period?.previous_paid === null ? null : count(period?.previous_paid)
     if (
       !period || !Array.isArray(period.agents) || endDate === null || n === null || paid === null || paid > n
-      || (period.key !== 'all_time' && period.key !== 'mature_2_weeks' && period.key !== 'mature_4_weeks' && period.key !== 'mature_6_weeks')
+      || (period.key !== 'all_time' && period.key !== 'mature_2_weeks' && period.key !== 'mature_4_weeks' && period.key !== 'mature_6_weeks' && period.key !== 'mature_6_months')
       || (period.key === 'all_time'
         ? startDate !== null || previousStartDate !== null || previousEndDate !== null || previousN !== null || previousPaid !== null
         : startDate === null || previousStartDate === null || previousEndDate === null
@@ -431,26 +463,18 @@ function parseFirstPayOutcomes(value: unknown): AchieveFirstPayOutcomes | null {
   })
   if (periods.some(period => period === null)) return null
   const validPeriods = periods.flatMap(period => period === null ? [] : [period])
-  const expectedKeys: ReadonlyArray<AchieveOutcomePeriodKey> = ['all_time', 'mature_2_weeks', 'mature_4_weeks', 'mature_6_weeks']
+  const expectedKeys: ReadonlyArray<AchieveOutcomePeriodKey> = ['all_time', 'mature_2_weeks', 'mature_4_weeks', 'mature_6_weeks', 'mature_6_months']
   if (
-    validPeriods.length !== 4
+    validPeriods.length !== expectedKeys.length
     || expectedKeys.some(key => !validPeriods.some(period => period.key === key))
     || maturityCutoff !== addUtcDays(sourceAsOf, -10)
-    || validPeriods.some(period => (
-      period.endDate !== maturityCutoff
-      || period.startDate !== (period.key === 'all_time' ? null : addUtcDays(
-        maturityCutoff,
-        period.key === 'mature_2_weeks' ? -13 : period.key === 'mature_4_weeks' ? -27 : -41,
-      ))
-      || period.previousStartDate !== (period.key === 'all_time' ? null : addUtcDays(
-        maturityCutoff,
-        period.key === 'mature_2_weeks' ? -27 : period.key === 'mature_4_weeks' ? -55 : -83,
-      ))
-      || period.previousEndDate !== (period.key === 'all_time' ? null : addUtcDays(
-        maturityCutoff,
-        period.key === 'mature_2_weeks' ? -14 : period.key === 'mature_4_weeks' ? -28 : -42,
-      ))
-    ))
+    || validPeriods.some(period => {
+      const expected = expectedOutcomeBoundaries(period.key, maturityCutoff)
+      return period.endDate !== maturityCutoff
+        || period.startDate !== expected.startDate
+        || period.previousStartDate !== expected.previousStartDate
+        || period.previousEndDate !== expected.previousEndDate
+    })
   ) return null
   return { sourceAsOf, refreshedAt, maturityCutoff, periods: expectedKeys.map(key => validPeriods.find(period => period.key === key)).flatMap(period => period ? [period] : []) }
 }
@@ -675,10 +699,24 @@ export function achieveManagementReportCsv(report: AchieveManagementReport): str
   const bottomTenNegative = new Set(report.bottomTenNegativeReviewAgentEmails)
   const bottomTenIntelligibility = new Set(report.bottomTenIntelligibilityAgentEmails)
   const bottomTenFirstPay = new Set(report.bottomTenFirstPayAgentEmails)
+  const sixMonth = report.outcomes.periods.find(period => period.key === 'mature_6_months')
+  const allTime = report.outcomes.periods.find(period => period.key === 'all_time')
+  const sixMonthByEmail = new Map(sixMonth?.agents.map(agent => [agent.agentEmail, agent]) ?? [])
+  const allTimeByEmail = new Map(allTime?.agents.map(agent => [agent.agentEmail, agent]) ?? [])
+  const bottomTenSixMonthFirstPay = new Set([...(sixMonth?.agents ?? [])]
+    .filter(agent => agent.n >= ACHIEVE_FIRST_PAY_BOTTOM_LIST_MIN_ENROLLMENTS && agent.z !== null)
+    .sort((left, right) => (right.z ?? Number.NEGATIVE_INFINITY) - (left.z ?? Number.NEGATIVE_INFINITY)
+      || right.failures - left.failures
+      || left.agentEmail.localeCompare(right.agentEmail))
+    .slice(0, 10)
+    .map(agent => agent.agentEmail))
   const terminationByEmail = new Map(report.terminations.map(termination => [termination.agentEmail, termination]))
   const headers = [
     'Period', 'Period start (UTC)', 'Period end (UTC)', 'High Risk Triangulation',
     'Bottom 10 negative reviews', 'Bottom 10 intelligibility', 'Bottom 10 mature 6-week first pay',
+    'Bottom 10 mature 6-month first pay', '6-month mature enrollments', '6-month no deposit',
+    '6-month no-deposit rate', '6-month z', 'All-time mature enrollments', 'All-time no deposit',
+    'All-time no-deposit rate', 'All-time z', 'All-time rescinded', 'All-time never paid',
     'Risk rank', 'Terminated at (UTC)', 'Activity Post Term', 'Last WC Activity',
     'Representative', 'Email', 'Form negative rate', 'Form sample', 'Form good', 'Form fair',
     'Form poor', 'Form other', 'Form Fair/Poor rate', 'Background noise', 'Accent / communication', 'Connection issue',
@@ -687,6 +725,8 @@ export function achieveManagementReportCsv(report: AchieveManagementReport): str
   ]
   const rows = report.periods.flatMap(period => period.representatives.map(representative => {
     const termination = terminationByEmail.get(representative.agentEmail)
+    const sixMonthOutcome = sixMonthByEmail.get(representative.agentEmail)
+    const allTimeOutcome = allTimeByEmail.get(representative.agentEmail)
     return [
       `${period.weeks} weeks`,
       period.startAt,
@@ -695,6 +735,17 @@ export function achieveManagementReportCsv(report: AchieveManagementReport): str
       bottomTenNegative.has(representative.agentEmail) ? 'Yes' : 'No',
       bottomTenIntelligibility.has(representative.agentEmail) ? 'Yes' : 'No',
       bottomTenFirstPay.has(representative.agentEmail) ? 'Yes' : 'No',
+      bottomTenSixMonthFirstPay.has(representative.agentEmail) ? 'Yes' : 'No',
+      sixMonthOutcome?.n ?? '',
+      sixMonthOutcome?.failures ?? '',
+      sixMonthOutcome ? `${sixMonthOutcome.failureRate.toFixed(1)}%` : '',
+      sixMonthOutcome?.z?.toFixed(4) ?? '',
+      allTimeOutcome?.n ?? '',
+      allTimeOutcome?.failures ?? '',
+      allTimeOutcome ? `${allTimeOutcome.failureRate.toFixed(1)}%` : '',
+      allTimeOutcome?.z?.toFixed(4) ?? '',
+      allTimeOutcome?.rescinded ?? '',
+      allTimeOutcome?.neverPaid ?? '',
       representative.riskRank ?? '',
       representative.terminatedAt ?? '',
       termination?.activityPostTermination ?? 0,
