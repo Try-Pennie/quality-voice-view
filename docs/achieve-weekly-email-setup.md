@@ -59,6 +59,7 @@ cat >/tmp/achieve-weekly-email.env <<EOF
 ACHIEVE_WEEKLY_REPORT_SECRET=$REPORT_SECRET
 ACHIEVE_REPORT_RECIPIENTS=leader.one@trypennie.com,leader.two@trypennie.com
 ACHIEVE_REPORT_CC=observer.one@trypennie.com,observer.two@trypennie.com
+ACHIEVE_REPORT_TEST_RECIPIENT=internal.tester@trypennie.com
 ACHIEVE_PORTAL_URL=https://YOUR-EAVESLY-HOST/achieve
 GMAIL_SENDER=eavesly-reports@trypennie.com
 EOF
@@ -69,7 +70,7 @@ npx supabase secrets set \
   --env-file /tmp/achieve-weekly-email.env
 ```
 
-The Snowflake secret names are `SNOWFLAKE_ACCOUNT_URL`, `SNOWFLAKE_ACCOUNT_IDENTIFIER`, `SNOWFLAKE_USER`, `SNOWFLAKE_ROLE`, `SNOWFLAKE_WAREHOUSE`, `SNOWFLAKE_DATABASE`, `SNOWFLAKE_SCHEMA`, and `SNOWFLAKE_PRIVATE_KEY`. Never paste the private key or any secret value into chat, tickets, logs, or source control.
+`ACHIEVE_REPORT_TEST_RECIPIENT` is the internal-only destination for `{"action":"test"}`. Test sends ignore the production To/Cc lists. The Snowflake secret names are `SNOWFLAKE_ACCOUNT_URL`, `SNOWFLAKE_ACCOUNT_IDENTIFIER`, `SNOWFLAKE_USER`, `SNOWFLAKE_ROLE`, `SNOWFLAKE_WAREHOUSE`, `SNOWFLAKE_DATABASE`, `SNOWFLAKE_SCHEMA`, and `SNOWFLAKE_PRIVATE_KEY`. Never paste the private key or any secret value into chat, tickets, logs, or source control.
 
 Keep `REPORT_SECRET` available for the next step, then securely remove the temporary file:
 

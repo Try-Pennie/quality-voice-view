@@ -8,6 +8,7 @@
 //   ACHIEVE_WEEKLY_REPORT_SECRET — shared with Vault for the cron request
 //   ACHIEVE_REPORT_RECIPIENTS     — comma-separated fixed To allowlist
 //   ACHIEVE_REPORT_CC             — comma-separated fixed Cc allowlist
+//   ACHIEVE_REPORT_TEST_RECIPIENT — internal-only recipient for test sends
 //   ACHIEVE_PORTAL_URL            — HTTPS URL ending in /achieve
 //   GMAIL_SENDER                  — Google Workspace mailbox to impersonate
 //   GOOGLE_SA_EMAIL               — domain-delegated Google service account
@@ -31,7 +32,7 @@ import {
   loadAchieveManagementReport,
 } from '../_shared/achieve-management-report.ts'
 import { googleServiceAccountAccessToken } from '../_shared/google-service-account.ts'
-import { buildAchieveWeeklyEmail } from './email.ts'
+import { achieveWeeklyEmailEnvelope, buildAchieveWeeklyEmail } from './email.ts'
 
 const GMAIL_SEND_SCOPE = 'https://www.googleapis.com/auth/gmail.send'
 
@@ -40,6 +41,7 @@ type Config = {
   readonly reportSecret: string
   readonly snowflake: SnowflakeOutcomeConfig
   readonly recipients: ReadonlyArray<string>
+  readonly testRecipient: string
   readonly ccRecipients: ReadonlyArray<string>
   readonly portalUrl: string
   readonly gmailSender: string
@@ -81,6 +83,7 @@ function parseConfig(): Config | null {
   const serviceAccountEmail = parseEmail(Deno.env.get('GOOGLE_SA_EMAIL') ?? '')
   const serviceAccountPrivateKey = Deno.env.get('GOOGLE_SA_PRIVATE_KEY')?.trim() ?? ''
   const recipients = parseEmailList(Deno.env.get('ACHIEVE_REPORT_RECIPIENTS') ?? '')
+  const testRecipient = parseEmail(Deno.env.get('ACHIEVE_REPORT_TEST_RECIPIENT') ?? '')
   const ccRecipients = parseEmailList(Deno.env.get('ACHIEVE_REPORT_CC') ?? '')
   const snowflake = snowflakeConfigFromEnv(name => Deno.env.get(name))
   let portalUrl: string | null = null
@@ -92,7 +95,7 @@ function parseConfig(): Config | null {
   }
   if (
     !reportSecret || gmailSender === null || serviceAccountEmail === null || !serviceAccountPrivateKey
-    || recipients === null || ccRecipients === null || recipients.length === 0
+    || recipients === null || testRecipient === null || ccRecipients === null || recipients.length === 0
     || recipients.length + ccRecipients.length > 20
     || ccRecipients.some(email => recipients.includes(email)) || portalUrl === null || snowflake === null
   ) return null
@@ -100,6 +103,7 @@ function parseConfig(): Config | null {
     reportSecret,
     snowflake,
     recipients,
+    testRecipient,
     ccRecipients,
     portalUrl,
     gmailSender,
@@ -202,11 +206,17 @@ Deno.serve(async (request: Request) => {
       enrollmentPlan,
       parseFirstPayQaRollups(qaResult.data),
     )
+    const envelope = achieveWeeklyEmailEnvelope(
+      action === 'test',
+      config.recipients,
+      config.ccRecipients,
+      config.testRecipient,
+    )
     const email = buildAchieveWeeklyEmail(
       reportResult.report,
       config.gmailSender,
-      config.recipients,
-      config.ccRecipients,
+      envelope.recipients,
+      envelope.ccRecipients,
       config.portalUrl,
       { sourceAsOf: enrollmentPlan.sourceAsOf, csv: enrollmentCsv },
     )
