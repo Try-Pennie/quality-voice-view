@@ -6,7 +6,7 @@ import {
 
 /** Supported completed-week windows in the Achieve management view. */
 export type AchieveManagementWeeks = 2 | 4 | 6
-export type AchieveOutcomePeriodKey = 'all_time' | 'mature_2_weeks' | 'mature_4_weeks' | 'mature_6_weeks'
+export type AchieveOutcomePeriodKey = 'all_time' | 'mature_2_weeks' | 'mature_4_weeks' | 'mature_6_weeks' | 'mature_6_months'
 
 export type AchieveFirstPayOutcomeAgent = {
   readonly agentName: string
@@ -161,6 +161,35 @@ function addUtcDays(value: string, days: number): string {
   return parsed.toISOString().slice(0, 10)
 }
 
+function addUtcMonths(value: string, months: number): string {
+  const parsed = new Date(`${value}T00:00:00Z`)
+  const day = parsed.getUTCDate()
+  parsed.setUTCDate(1)
+  parsed.setUTCMonth(parsed.getUTCMonth() + months)
+  const lastDay = new Date(Date.UTC(parsed.getUTCFullYear(), parsed.getUTCMonth() + 1, 0)).getUTCDate()
+  parsed.setUTCDate(Math.min(day, lastDay))
+  return parsed.toISOString().slice(0, 10)
+}
+
+function expectedOutcomeBoundaries(key: AchieveOutcomePeriodKey, maturityCutoff: string): {
+  readonly startDate: string | null
+  readonly previousStartDate: string | null
+  readonly previousEndDate: string | null
+} {
+  if (key === 'all_time') return { startDate: null, previousStartDate: null, previousEndDate: null }
+  if (key === 'mature_6_months') return {
+    startDate: addUtcDays(addUtcMonths(maturityCutoff, -6), 1),
+    previousStartDate: addUtcDays(addUtcMonths(maturityCutoff, -12), 1),
+    previousEndDate: addUtcMonths(maturityCutoff, -6),
+  }
+  const periodWeeks = key === 'mature_2_weeks' ? 2 : key === 'mature_4_weeks' ? 4 : 6
+  return {
+    startDate: addUtcDays(maturityCutoff, -(periodWeeks * 7 - 1)),
+    previousStartDate: addUtcDays(maturityCutoff, -(periodWeeks * 14 - 1)),
+    previousEndDate: addUtcDays(maturityCutoff, -(periodWeeks * 7)),
+  }
+}
+
 function parseOutcomeAgent(value: unknown): AchieveFirstPayOutcomeAgent {
   const agent = record(value)
   if (!agent || typeof agent.agentName !== 'string' || typeof agent.agentEmail !== 'string' || typeof agent.sampleQualified !== 'boolean') invalidResponse()
@@ -206,7 +235,7 @@ function parseOutcomes(value: unknown): AchieveFirstPayOutcomes {
     const period = record(raw)
     if (!period || !Array.isArray(period.agents)) invalidResponse()
     const key = period.key
-    if (key !== 'all_time' && key !== 'mature_2_weeks' && key !== 'mature_4_weeks' && key !== 'mature_6_weeks') invalidResponse()
+    if (key !== 'all_time' && key !== 'mature_2_weeks' && key !== 'mature_4_weeks' && key !== 'mature_6_weeks' && key !== 'mature_6_months') invalidResponse()
     const startDate = period.startDate === null ? null : date(period.startDate)
     const previousStartDate = period.previousStartDate === null ? null : date(period.previousStartDate)
     const previousEndDate = period.previousEndDate === null ? null : date(period.previousEndDate)
@@ -231,28 +260,20 @@ function parseOutcomes(value: unknown): AchieveFirstPayOutcomes {
     ) invalidResponse()
     return { key, startDate, endDate: date(period.endDate), n, paid, previousStartDate, previousEndDate, previousN, previousPaid, agents }
   })
-  const keys: ReadonlyArray<AchieveOutcomePeriodKey> = ['all_time', 'mature_2_weeks', 'mature_4_weeks', 'mature_6_weeks']
+  const keys: ReadonlyArray<AchieveOutcomePeriodKey> = ['all_time', 'mature_2_weeks', 'mature_4_weeks', 'mature_6_weeks', 'mature_6_months']
   const sourceAsOf = date(outcomes.sourceAsOf)
   const maturityCutoff = date(outcomes.maturityCutoff)
   if (
     periods.length !== keys.length
     || keys.some(key => !periods.some(period => period.key === key))
     || maturityCutoff !== addUtcDays(sourceAsOf, -10)
-    || periods.some(period => (
-      period.endDate !== maturityCutoff
-      || period.startDate !== (period.key === 'all_time' ? null : addUtcDays(
-        maturityCutoff,
-        period.key === 'mature_2_weeks' ? -13 : period.key === 'mature_4_weeks' ? -27 : -41,
-      ))
-      || period.previousStartDate !== (period.key === 'all_time' ? null : addUtcDays(
-        maturityCutoff,
-        period.key === 'mature_2_weeks' ? -27 : period.key === 'mature_4_weeks' ? -55 : -83,
-      ))
-      || period.previousEndDate !== (period.key === 'all_time' ? null : addUtcDays(
-        maturityCutoff,
-        period.key === 'mature_2_weeks' ? -14 : period.key === 'mature_4_weeks' ? -28 : -42,
-      ))
-    ))
+    || periods.some(period => {
+      const expected = expectedOutcomeBoundaries(period.key, maturityCutoff)
+      return period.endDate !== maturityCutoff
+        || period.startDate !== expected.startDate
+        || period.previousStartDate !== expected.previousStartDate
+        || period.previousEndDate !== expected.previousEndDate
+    })
   ) invalidResponse()
   return {
     sourceAsOf,

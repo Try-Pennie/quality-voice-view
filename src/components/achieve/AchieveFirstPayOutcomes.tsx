@@ -12,6 +12,7 @@ const controls: ReadonlyArray<{ readonly key: AchieveOutcomePeriodKey; readonly 
   { key: 'mature_2_weeks', label: '2 weeks' },
   { key: 'mature_4_weeks', label: '4 weeks' },
   { key: 'mature_6_weeks', label: '6 weeks' },
+  { key: 'mature_6_months', label: '6 months' },
   { key: 'all_time', label: 'All time' },
 ]
 
@@ -44,7 +45,7 @@ export function AchieveFirstPayOutcomes({ outcomes }: { readonly outcomes: First
           </p>
           <p className="mt-1 text-xs text-slate-400">Source as of {outcomes.sourceAsOf} · refreshed {new Date(outcomes.refreshedAt).toLocaleString()}</p>
         </div>
-        <div className="grid grid-cols-4 gap-1 rounded-xl border border-slate-200 bg-slate-50 p-1" aria-label="First-pay outcome period">
+        <div className="grid grid-cols-2 gap-1 rounded-xl border border-slate-200 bg-slate-50 p-1 sm:grid-cols-5" aria-label="First-pay outcome period">
           {controls.map(control => (
             <button
               key={control.key}

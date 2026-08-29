@@ -3,7 +3,7 @@ set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 migration="$repo_root/supabase/migrations/20260822120000_achieve_first_pay_outcomes.sql"
-report_template="$repo_root/supabase/migrations/20260827120000_achieve_report_template.sql"
+report_template="$repo_root/supabase/migrations/20260829190000_achieve_six_month_first_pay.sql"
 container="achieve-first-pay-outcomes-check-$RANDOM-$$"
 
 cleanup() { docker rm -f "$container" >/dev/null 2>&1 || true; }
@@ -124,8 +124,8 @@ begin
     or nullif(report->>'refreshed_at', '') is null then
     raise exception 'freshness metadata missing: %', report;
   end if;
-  if jsonb_array_length(report->'periods') <> 4 then
-    raise exception 'expected mature 2/4/6-week plus all-time periods: %', report;
+  if jsonb_array_length(report->'periods') <> 5 then
+    raise exception 'expected mature 2/4/6-week, trailing six-month, and all-time periods: %', report;
   end if;
   if not exists (
     select 1 from jsonb_array_elements(report->'periods') period
@@ -143,6 +143,15 @@ begin
       and period->>'previous_n' = '10' and period->>'previous_paid' = '8'
   ) then
     raise exception 'true non-overlapping 6-week comparison missing: %', report->'periods';
+  end if;
+  if not exists (
+    select 1 from jsonb_array_elements(report->'periods') period
+    where period->>'key' = 'mature_6_months'
+      and period->>'start_date' = '2026-02-23'
+      and period->>'previous_start_date' = '2025-08-23'
+      and period->>'previous_end_date' = '2026-02-22'
+  ) then
+    raise exception 'trailing six-month calendar window missing: %', report->'periods';
   end if;
   if exists (
       select 1

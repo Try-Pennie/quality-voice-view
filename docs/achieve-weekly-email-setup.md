@@ -155,10 +155,10 @@ Confirm that:
 - Bottom 10 Negative Reviews requires at least three Form reviews and ranks raw negative-review rate;
 - Bottom 10 Intelligibility ranks Speech Clarity counts and shows Background Noise and Connection only as context;
 - mature six-week first-pay screening shows the top ten plus roster and identifies its source-as-of date;
-- Bottom 10 All-Time by First Pay Screening appears immediately after it, uses the existing `all_time` period through the same maturity cutoff, and does not change High Risk Triangulation;
+- Bottom 10 by First Pay Screening — Last 6 Months appears immediately after it, uses the trailing six calendar months through the same maturity cutoff, requires at least 10 mature enrollments per agent, and does not change High Risk Triangulation;
 - termination rows show Last WC Activity and distinct Activity Post Term counts based on assignment `first_seen_on`;
-- the management CSV contains all 2/4/6-week representative rows, all four report selectors, intelligibility counts, and termination count/date fields;
-- `achieve-first-pay-outcomes-*.csv` contains all-time plus mature 2/4/6-week agent comparisons;
+- the management CSV contains all 2/4/6-week representative rows, report selectors, six-month and all-time first-pay metrics, intelligibility counts, and termination count/date fields;
+- `achieve-first-pay-outcomes-*.csv` contains all-time plus mature 2/4/6-week and trailing six-month agent comparisons;
 - the message has exactly three attachments and remains below the 25 MB fail-closed message limit;
 - `Achieve-WC-Agent-FirstPay-Data-YYYY-MM-DD.csv` has Geoff's exact nine-column header, full Achieve-serviced history, all welcome-agent domains, CRLF rows, unique nonblank AFF Numbers, worst human rating, and any qualifying AI flag;
 - the email body and portal contain no enrollment rows or AFF Numbers. The third attachment may contain AFF Number and WC agent email only for the fixed approved recipients; it is generated in memory and never persisted or logged by Eavesly.

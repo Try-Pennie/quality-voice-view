@@ -106,11 +106,16 @@ function dashboard(range: AchieveDashboardRange) {
 }
 
 const cutoff = '2026-08-09'
+const addCutoffMonths = (months: number) => {
+  const date = new Date(`${cutoff}T00:00:00Z`)
+  date.setUTCMonth(date.getUTCMonth() + months)
+  return date.toISOString().slice(0, 10)
+}
 const rawOutcomes = {
   source_as_of: '2026-08-19',
   refreshed_at: '2026-08-19T11:00:00Z',
   maturity_cutoff: cutoff,
-  periods: (['all_time', 'mature_2_weeks', 'mature_4_weeks', 'mature_6_weeks'] as const).map(key => {
+  periods: (['all_time', 'mature_2_weeks', 'mature_4_weeks', 'mature_6_weeks', 'mature_6_months'] as const).map(key => {
     const days = key === 'mature_2_weeks' ? 13 : key === 'mature_4_weeks' ? 27 : 41
     const previousDays = key === 'mature_2_weeks' ? 27 : key === 'mature_4_weeks' ? 55 : 83
     const previousEndDays = key === 'mature_2_weeks' ? 14 : key === 'mature_4_weeks' ? 28 : 42
@@ -121,12 +126,12 @@ const rawOutcomes = {
     }
     return {
       key,
-      start_date: key === 'all_time' ? null : addDays(-days),
+      start_date: key === 'all_time' ? null : key === 'mature_6_months' ? '2026-02-10' : addDays(-days),
       end_date: cutoff,
       n: 20,
       paid: 12,
-      previous_start_date: key === 'all_time' ? null : addDays(-previousDays),
-      previous_end_date: key === 'all_time' ? null : addDays(-previousEndDays),
+      previous_start_date: key === 'all_time' ? null : key === 'mature_6_months' ? '2025-08-10' : addDays(-previousDays),
+      previous_end_date: key === 'all_time' ? null : key === 'mature_6_months' ? addCutoffMonths(-6) : addDays(-previousEndDays),
       previous_n: key === 'all_time' ? null : 10,
       previous_paid: key === 'all_time' ? null : 7,
       agents: [{
@@ -197,13 +202,16 @@ assert.ok(csv.includes('"High Risk Triangulation"'))
 assert.ok(csv.includes('"Bottom 10 negative reviews"'))
 assert.ok(csv.includes('"Bottom 10 intelligibility"'))
 assert.ok(csv.includes('"Bottom 10 mature 6-week first pay"'))
+assert.ok(csv.includes('"Bottom 10 mature 6-month first pay"'))
+assert.ok(csv.includes('"All-time mature enrollments"'))
 assert.ok(csv.includes('"Activity Post Term"'))
 assert.ok(csv.includes('"\'=Formula Agent"'))
 const outcomeCsv = achieveFirstPayOutcomesCsv(loaded.report.outcomes)
 assert.ok(outcomeCsv.includes('"Organization enrollments"'))
 assert.ok(outcomeCsv.includes('"Previous enrollments"'))
 assert.ok(outcomeCsv.includes('"mature_2_weeks"'))
-assert.strictEqual(outcomeCsv.trim().split('\r\n').length, 5)
+assert.ok(outcomeCsv.includes('"mature_6_months"'))
+assert.strictEqual(outcomeCsv.trim().split('\r\n').length, 6)
 
 assert.deepStrictEqual(
   await loadAchieveManagementReport(
