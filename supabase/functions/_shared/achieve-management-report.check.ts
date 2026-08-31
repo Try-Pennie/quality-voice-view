@@ -144,6 +144,15 @@ const rawOutcomes = {
   }),
 }
 
+const rawTerminations = [{
+  agent_name: 'terminated',
+  agent_email: 'terminated@example.test',
+  terminated_at: '2026-08-10T04:00:00Z',
+  activity_source_as_of: '2026-08-19',
+  latest_post_term_enrollment_on: null,
+  enrollments_post_termination: 0,
+}]
+
 let activeDashboardLoads = 0
 let maxDashboardLoads = 0
 const loaded = await loadAchieveManagementReport(
@@ -155,16 +164,7 @@ const loaded = await loadAchieveManagementReport(
     return { data: dashboard(range), error: null }
   },
   async () => ({ data: rawOutcomes, error: null }),
-  async () => ({
-    data: [{
-      agent_name: 'terminated',
-      agent_email: 'terminated@example.test',
-      terminated_at: '2026-08-10T04:00:00Z',
-      last_activity_on: '2026-08-09',
-      activity_post_termination: 0,
-    }],
-    error: null,
-  }),
+  async () => ({ data: rawTerminations, error: null }),
   new Date('2026-08-19T12:00:00Z'),
 )
 assert.strictEqual(loaded.ok, true)
@@ -192,10 +192,23 @@ assert.deepStrictEqual(loaded.report.reviewTrends.map(trend => ({
   { weeks: 6, previousReviews: 10, previousNegativeReviews: 2 },
 ])
 assert.strictEqual(loaded.report.allTimeNegativeReviews, 3)
-assert.strictEqual(loaded.report.terminations[0]?.activityPostTermination, 0)
-assert.strictEqual(loaded.report.terminations[0]?.lastActivityOn, '2026-08-09')
+assert.strictEqual(loaded.report.terminations[0]?.enrollmentsPostTermination, 0)
+assert.strictEqual(loaded.report.terminations[0]?.latestPostTermEnrollmentOn, null)
+assert.strictEqual(loaded.report.terminations[0]?.activitySourceAsOf, '2026-08-19')
 assert.strictEqual(loaded.report.outcomes.periods[1]?.key, 'mature_2_weeks')
 assert.strictEqual(achieveReportWeekEnding(loaded.report), '2026-08-16')
+assert.deepStrictEqual(
+  await loadAchieveManagementReport(
+    async range => ({ data: dashboard(range), error: null }),
+    async () => ({ data: rawOutcomes, error: null }),
+    async () => ({
+      data: [{ ...rawTerminations[0], enrollments_post_termination: 1 }],
+      error: null,
+    }),
+    new Date('2026-08-19T12:00:00Z'),
+  ),
+  { ok: false, reason: 'invalid_termination_response' },
+)
 
 const csv = achieveManagementReportCsv(loaded.report)
 assert.ok(csv.includes('"High Risk Triangulation"'))
@@ -204,7 +217,8 @@ assert.ok(csv.includes('"Bottom 10 intelligibility"'))
 assert.ok(csv.includes('"Bottom 10 mature 6-week first pay"'))
 assert.ok(csv.includes('"Bottom 10 mature 6-month first pay"'))
 assert.ok(csv.includes('"All-time mature enrollments"'))
-assert.ok(csv.includes('"Activity Post Term"'))
+assert.ok(csv.includes('"Enrollments After Termination"'))
+assert.ok(csv.includes('"Latest Post-Term Enrollment"'))
 assert.ok(csv.includes('"\'=Formula Agent"'))
 const outcomeCsv = achieveFirstPayOutcomesCsv(loaded.report.outcomes)
 assert.ok(outcomeCsv.includes('"Organization enrollments"'))

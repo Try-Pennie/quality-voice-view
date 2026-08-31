@@ -74,8 +74,9 @@ export type AchieveManagementTermination = {
   readonly agentName: string
   readonly agentEmail: string
   readonly terminatedAt: string
-  readonly lastActivityOn: string | null
-  readonly activityPostTermination: number
+  readonly activitySourceAsOf: string
+  readonly latestPostTermEnrollmentOn: string | null
+  readonly enrollmentsPostTermination: number
 }
 
 /** Exactly attributed representative metrics and Form-led risk rank for one period. */
@@ -297,19 +298,26 @@ function parseTermination(value: unknown): AchieveManagementTermination | null {
   const row = record(value)
   if (!row || typeof row.agent_name !== 'string' || typeof row.agent_email !== 'string') return null
   const terminatedAt = optionalTimestamp(row.terminated_at)
-  const lastActivityOn = optionalTimestamp(row.last_activity_on)
-  const activityPostTermination = count(row.activity_post_termination)
+  const activitySourceAsOf = isoDate(row.activity_source_as_of)
+  const latestPostTermEnrollmentOn = row.latest_post_term_enrollment_on === null
+    ? null
+    : isoDate(row.latest_post_term_enrollment_on)
+  const enrollmentsPostTermination = count(row.enrollments_post_termination)
   const agentEmail = row.agent_email.trim().toLowerCase()
   if (
-    terminatedAt === null || terminatedAt === undefined || lastActivityOn === undefined
-    || activityPostTermination === null || !agentEmail || !agentEmail.includes('@')
+    terminatedAt === null || terminatedAt === undefined || activitySourceAsOf === null
+    || (row.latest_post_term_enrollment_on !== null && latestPostTermEnrollmentOn === null)
+    || enrollmentsPostTermination === null || !agentEmail || !agentEmail.includes('@')
+    || (enrollmentsPostTermination === 0) !== (latestPostTermEnrollmentOn === null)
+    || (latestPostTermEnrollmentOn !== null && latestPostTermEnrollmentOn > activitySourceAsOf)
   ) return null
   return {
     agentName: row.agent_name.trim() || agentEmail,
     agentEmail,
     terminatedAt,
-    lastActivityOn,
-    activityPostTermination,
+    activitySourceAsOf,
+    latestPostTermEnrollmentOn,
+    enrollmentsPostTermination,
   }
 }
 
@@ -717,7 +725,7 @@ export function achieveManagementReportCsv(report: AchieveManagementReport): str
     'Bottom 10 mature 6-month first pay', '6-month mature enrollments', '6-month no deposit',
     '6-month no-deposit rate', '6-month z', 'All-time mature enrollments', 'All-time no deposit',
     'All-time no-deposit rate', 'All-time z', 'All-time rescinded', 'All-time never paid',
-    'Risk rank', 'Terminated at (UTC)', 'Activity Post Term', 'Last WC Activity',
+    'Risk rank', 'Terminated at (UTC)', 'Enrollments After Termination', 'Latest Post-Term Enrollment', 'Termination Activity Source As Of',
     'Representative', 'Email', 'Form negative rate', 'Form sample', 'Form good', 'Form fair',
     'Form poor', 'Form other', 'Form Fair/Poor rate', 'Background noise', 'Accent / communication', 'Connection issue',
     'AI QA sample', 'AI QA pass', 'AI QA flagged', 'Overlap', 'Both clear',
@@ -748,8 +756,9 @@ export function achieveManagementReportCsv(report: AchieveManagementReport): str
       allTimeOutcome?.neverPaid ?? '',
       representative.riskRank ?? '',
       representative.terminatedAt ?? '',
-      termination?.activityPostTermination ?? 0,
-      termination?.lastActivityOn ?? '',
+      termination?.enrollmentsPostTermination ?? 0,
+      termination?.latestPostTermEnrollmentOn ?? '',
+      termination?.activitySourceAsOf ?? '',
       representative.agentName,
       representative.agentEmail,
       representative.adjustedFormRisk === null ? '' : `${representative.adjustedFormRisk.toFixed(1)}%`,

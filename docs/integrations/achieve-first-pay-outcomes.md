@@ -1,6 +1,6 @@
 # Achieve first-pay outcome ingress
 
-Snowflake remains the source of truth. The scheduled `achieve-first-pay-sync` Supabase Edge Function calls the Snowflake SQL API directly, validates the complete result, and sends only daily agent/cohort aggregates to the existing transactional `ingest_achieve_first_pay_outcome_snapshot` RPC. The Monday email and `/achieve` continue reading that Supabase snapshot.
+Snowflake remains the source of truth. The scheduled `achieve-first-pay-sync` Supabase Edge Function calls the Snowflake SQL API directly, validates complete results, and sends only daily agent/cohort and agent/enrollment-date aggregates to transactional Supabase RPCs. The Monday email and `/achieve` read those aggregate snapshots.
 
 The former Pipedream first-pay query/action is retired by this integration. Other Pipedream and call-feedback flows are unrelated and must remain enabled.
 
@@ -12,10 +12,12 @@ The canonical query lives in [`supabase/functions/_shared/achieve-first-pay-outc
 - filters mature Achieve cohorts and excludes system accounts;
 - detects source fan-out with raw-row versus distinct enrollment-ID controls;
 - deduplicates by enrollment `ID`, preferring the latest source version;
-- returns only agent/cohort counts and source control totals;
-- reconciles `n = paid + no_deposit` and `no_deposit = rescinded + never_paid`.
+- returns only agent/cohort or agent/enrollment-date counts and source control totals;
+- reconciles `n = paid + no_deposit`, `no_deposit = rescinded + never_paid`, and every aggregate total to the distinct enrollment count.
 
 The Edge Function uses a five-minute `KEYPAIR_JWT`, polls asynchronous statements, retrieves every Snowflake result partition, and rejects missing, duplicate, stale, or unreconciled results before calling Supabase. Raw enrollment records, Salesforce IDs, and Snowflake credentials are never logged or persisted in Supabase.
+
+Termination monitoring uses `DATE_ENROLLED__C`, not report-observation dates. Supabase counts a deduplicated enrollment only when its enrollment date is strictly later than the WC agent's Eastern-time termination date, so same-day enrollments are excluded. Only the count and latest qualifying date are retained per configured terminated agent; the portal and Monday email keep that agent visible for 30 days.
 
 ## Required secrets
 
@@ -60,7 +62,9 @@ The email body and portal remain aggregate-only. The third attachment contains A
 
 ## Activation and cutover
 
-Do these in order so there is never more than one active writer:
+For termination enrollment activity, apply `20260830120000_achieve_termination_enrollment_activity.sql` before deploying the updated `achieve-first-pay-sync`; otherwise the scheduled function cannot call its new ingest RPC. Run one successful scheduled sync before loading the portal or sending the weekly report, and rerun it after adding a terminated agent so the fail-closed snapshot includes that agent.
+
+For the original first-pay cutover, do these in order so there is never more than one active writer:
 
 1. Apply the existing snapshot/report migrations if they are not already present.
 2. Deploy `achieve-first-pay-sync` with `--no-verify-jwt`; do not apply the new cron migration yet. The weekly function must not be deployed until `20260829160000_achieve_first_pay_enrollment_export_qa.sql` is also applied.
@@ -82,6 +86,13 @@ limit 14;
 
 select source_as_of, refreshed_at, aggregate_rows, enrollments
 from public.achieve_first_pay_outcome_snapshot;
+
+select source_as_of, refreshed_at, aggregate_rows, enrollments
+from public.achieve_termination_enrollment_activity_snapshot;
+
+select agent_email, enrollments_post_termination, latest_post_term_enrollment_on
+from public.achieve_termination_enrollment_activity
+order by agent_email;
 
 select jobname, schedule, active
 from cron.job

@@ -5,6 +5,7 @@ import assert from 'node:assert/strict'
 import {
   fetchSnowflakeFirstPayEnrollments,
   fetchSnowflakeOutcomeSnapshot,
+  fetchSnowflakeTerminationEnrollments,
   OutcomeSyncFailure,
   snowflakeConfigFromEnv,
   type SnowflakeOutcomeConfig,
@@ -25,6 +26,14 @@ const enrollmentColumns = [
 const enrollmentRows = [
   ['2026-09-01', 'AFF-1', '2026-08-01', '', 'true', 'false', '2026-08-10', 'Agent@One.Test', '3', '2', '2', '2', '0'],
   ['2026-09-01', 'AFF-2', '2026-08-02', '2026-08-20', 'false', 'true', '2026-08-11', 'agent@fdr.com', '3', '2', '2', '2', '0'],
+]
+const terminationColumns = [
+  'source_as_of', 'enrollment_date', 'agent_email', 'enrollments',
+  'source_aggregate_rows', 'source_enrollments', 'source_raw_rows', 'source_distinct_enrollments',
+]
+const terminationRows = [
+  ['2026-09-01', '2026-08-24', 'Agent@One.Test', '2', '2', '3', '4', '3'],
+  ['2026-09-01', '2026-08-25', 'agent@fdr.com', '1', '2', '3', '4', '3'],
 ]
 const rows = [
   ['2026-09-01', '2026-08-18', 'Agent A', 'A@EXAMPLE.TEST', '30', '15', '15', '10', '5', '2', '60', '60', '60'],
@@ -154,6 +163,42 @@ assert.match(enrollmentStatement, /WELCOME_CALL_AGENT_AER__C/)
 assert.doesNotMatch(enrollmentStatement, /dateadd\(day, -10/)
 assert.doesNotMatch(enrollmentStatement, /automated underwriting001/)
 
+const terminationRequests: Array<RequestInit | undefined> = []
+const terminationFetcher: typeof fetch = async (_input, init) => {
+  terminationRequests.push(init)
+  return Response.json({
+    resultSetMetaData: {
+      numRows: terminationRows.length,
+      rowType: terminationColumns.map(name => ({ name: name.toUpperCase() })),
+      partitionInfo: [{ rowCount: terminationRows.length }],
+    },
+    data: terminationRows,
+    statementHandle: HANDLE,
+  })
+}
+const terminationPlan = await fetchSnowflakeTerminationEnrollments(
+  config,
+  new Date('2026-09-01T12:00:00Z'),
+  { fetcher: terminationFetcher },
+)
+assert.deepStrictEqual(terminationPlan, {
+  sourceAsOf: '2026-09-01',
+  expectedAggregateRows: 2,
+  expectedEnrollments: 3,
+  sourceRawRows: 4,
+  sourceDistinctEnrollments: 3,
+  rows: [
+    { enrollment_date: '2026-08-24', agent_email: 'agent@one.test', enrollments: 2 },
+    { enrollment_date: '2026-08-25', agent_email: 'agent@fdr.com', enrollments: 1 },
+  ],
+})
+const terminationStatement = JSON.parse(String(terminationRequests[0]?.body)).statement
+assert.match(terminationStatement, /DATE_ENROLLED__C/)
+assert.match(terminationStatement, /partition by ID/)
+assert.match(terminationStatement, /count\(distinct ID\)/)
+assert.match(terminationStatement, /between dateadd\(day, -30, current_date\(\)\) and current_date\(\)/)
+assert.doesNotMatch(terminationStatement, /ORIGINAL_SCHEDULED_FIRST_DRAFT_DATE__C/)
+
 const authorization = new Headers(requests[0].init?.headers).get('Authorization')
 assert.ok(authorization?.startsWith('Bearer '))
 if (authorization === null) throw new Error('missing test authorization header')
@@ -256,5 +301,31 @@ blankEmail[9] = '1'
 blankEmail[10] = '1'
 blankEmail[11] = '1'
 await expectEnrollmentFailure([blankEmail], new Date('2026-09-01T12:00:00Z'), 'snowflake_result_unreconciled')
+
+async function expectTerminationFailure(
+  sourceRows: ReadonlyArray<ReadonlyArray<unknown>>,
+  code: OutcomeSyncFailure['code'],
+): Promise<void> {
+  const onePage: typeof fetch = async () => Response.json({
+    resultSetMetaData: {
+      numRows: sourceRows.length,
+      rowType: terminationColumns.map(name => ({ name: name.toUpperCase() })),
+      partitionInfo: [{ rowCount: sourceRows.length }],
+    },
+    data: sourceRows,
+    statementHandle: HANDLE,
+  })
+  await assert.rejects(
+    fetchSnowflakeTerminationEnrollments(config, new Date('2026-09-01T12:00:00Z'), { fetcher: onePage }),
+    error => error instanceof OutcomeSyncFailure && error.code === code,
+  )
+}
+await expectTerminationFailure([
+  terminationRows[0],
+  [...terminationRows[0]],
+], 'snowflake_result_duplicate')
+await expectTerminationFailure([
+  [...terminationRows[0].slice(0, 3), '2', '1', '3', '4', '3'],
+], 'snowflake_result_unreconciled')
 
 console.log('achieve-first-pay-outcomes.check.ts: all assertions passed')

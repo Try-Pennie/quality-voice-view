@@ -113,8 +113,9 @@ const raw = {
     agentName: 'Terminated Representative',
     agentEmail: 'terminated@example.test',
     terminatedAt: '2026-08-16T04:00:00Z',
-    lastActivityOn: '2026-08-15',
-    activityPostTermination: 0,
+    activitySourceAsOf: '2026-08-17',
+    latestPostTermEnrollmentOn: null,
+    enrollmentsPostTermination: 0,
   }],
 }
 
@@ -126,8 +127,27 @@ const outcomeAgent = parsed.outcomes.periods[3]?.agents[0]
 assert.ok(outcomeAgent)
 assert.strictEqual(achieveOutcomeSignal(outcomeAgent), 'Flag')
 assert.strictEqual(achieveOutcomeSignal({ ...outcomeAgent, z: -1 }), 'Below roster')
-assert.strictEqual(parsed.terminations[0]?.activityPostTermination, 0)
-assert.strictEqual(parsed.terminations[0]?.lastActivityOn, '2026-08-15')
+assert.strictEqual(parsed.terminations[0]?.enrollmentsPostTermination, 0)
+assert.strictEqual(parsed.terminations[0]?.latestPostTermEnrollmentOn, null)
+assert.strictEqual(parsed.terminations[0]?.activitySourceAsOf, '2026-08-17')
+assert.throws(
+  () => parseAchieveManagementReport({
+    ...raw,
+    terminations: [{ ...raw.terminations[0], enrollmentsPostTermination: 1 }],
+  }),
+  /invalid_achieve_management_response/,
+)
+assert.throws(
+  () => parseAchieveManagementReport({
+    ...raw,
+    terminations: [{
+      ...raw.terminations[0],
+      latestPostTermEnrollmentOn: '2026-08-18',
+      enrollmentsPostTermination: 1,
+    }],
+  }),
+  /invalid_achieve_management_response/,
+)
 assert.throws(
   () => parseAchieveManagementReport({ ...raw, highRiskAgentEmails: ['missing@example.test'] }),
   /invalid_achieve_management_response/,
