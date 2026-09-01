@@ -1,9 +1,9 @@
 // Daily Snowflake -> Supabase aggregate sync for Achieve first-pay outcomes.
 //
 // pg_cron invokes this before the Monday 9 AM ET report. Snowflake is queried
-// with a five-minute key-pair JWT; only validated agent/cohort aggregates reach
-// the existing transactional snapshot RPC. Raw enrollment rows and credentials
-// are never persisted or logged.
+// with a five-minute key-pair JWT; only validated agent/cohort and
+// agent/enrollment-date aggregates reach transactional snapshot RPCs. Raw
+// enrollment rows and credentials are never persisted or logged.
 //
 // Required function secrets:
 //   ACHIEVE_WEEKLY_REPORT_SECRET — shared with the existing report cron Vault secret
@@ -19,10 +19,12 @@ import 'jsr:@supabase/functions-js/edge-runtime.d.ts'
 import { createClient } from 'jsr:@supabase/supabase-js@2'
 import {
   fetchSnowflakeOutcomeSnapshot,
+  fetchSnowflakeTerminationEnrollments,
   OutcomeSyncFailure,
   snowflakeConfigFromEnv,
   type OutcomeSnapshotPlan,
   type SnowflakeOutcomeConfig,
+  type TerminationEnrollmentPlan,
 } from '../_shared/achieve-first-pay-outcomes.ts'
 
 type RequestAction = 'scheduled' | 'test'
@@ -35,7 +37,7 @@ type Config = SnowflakeOutcomeConfig & {
 class SyncRunFailure extends Error {
   readonly name = 'SyncRunFailure'
 
-  constructor(readonly code: 'ingest_failed' | 'ingest_response_invalid' | 'run_status_update_failed') {
+  constructor(readonly code: 'ingest_failed' | 'ingest_response_invalid' | 'termination_ingest_failed' | 'termination_ingest_response_invalid' | 'run_status_update_failed') {
     super(code)
   }
 }
@@ -82,6 +84,13 @@ async function secretsMatch(supplied: string, expected: string): Promise<boolean
 }
 
 function rpcResultMatches(value: unknown, plan: OutcomeSnapshotPlan): boolean {
+  const result = record(value)
+  return result?.source_as_of === plan.sourceAsOf
+    && Number(result?.aggregate_rows) === plan.expectedAggregateRows
+    && Number(result?.enrollments) === plan.expectedEnrollments
+}
+
+function terminationRpcResultMatches(value: unknown, plan: TerminationEnrollmentPlan): boolean {
   const result = record(value)
   return result?.source_as_of === plan.sourceAsOf
     && Number(result?.aggregate_rows) === plan.expectedAggregateRows
@@ -140,6 +149,7 @@ Deno.serve(async (request: Request) => {
 
   try {
     const plan = await fetchSnowflakeOutcomeSnapshot(config, now)
+    const terminationPlan = await fetchSnowflakeTerminationEnrollments(config, now)
     if (action === 'test') {
       return json({
         ok: true,
@@ -149,6 +159,8 @@ Deno.serve(async (request: Request) => {
         enrollments: plan.expectedEnrollments,
         source_raw_rows: plan.sourceRawRows,
         source_distinct_enrollments: plan.sourceDistinctEnrollments,
+        termination_aggregate_rows: terminationPlan.expectedAggregateRows,
+        termination_enrollments: terminationPlan.expectedEnrollments,
       })
     }
 
@@ -160,6 +172,17 @@ Deno.serve(async (request: Request) => {
     })
     if (ingested.error) throw new SyncRunFailure('ingest_failed')
     if (!rpcResultMatches(ingested.data, plan)) throw new SyncRunFailure('ingest_response_invalid')
+
+    const terminationIngested = await admin.rpc('ingest_achieve_termination_enrollment_activity', {
+      p_source_as_of: terminationPlan.sourceAsOf,
+      p_expected_aggregate_rows: terminationPlan.expectedAggregateRows,
+      p_expected_enrollments: terminationPlan.expectedEnrollments,
+      p_rows: terminationPlan.rows,
+    })
+    if (terminationIngested.error) throw new SyncRunFailure('termination_ingest_failed')
+    if (!terminationRpcResultMatches(terminationIngested.data, terminationPlan)) {
+      throw new SyncRunFailure('termination_ingest_response_invalid')
+    }
 
     const completed = await admin
       .from('achieve_first_pay_outcome_sync_runs')
@@ -182,6 +205,8 @@ Deno.serve(async (request: Request) => {
       source_as_of: plan.sourceAsOf,
       aggregate_rows: plan.expectedAggregateRows,
       enrollments: plan.expectedEnrollments,
+      termination_aggregate_rows: terminationPlan.expectedAggregateRows,
+      termination_enrollments: terminationPlan.expectedEnrollments,
     })
   } catch (cause: unknown) {
     const failure = safeFailure(cause)

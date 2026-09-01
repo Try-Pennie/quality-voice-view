@@ -9,6 +9,7 @@ ai="$repo_root/supabase/migrations/20260816120000_achieve_wc_agent_summary_ai.sq
 summary_scope="$repo_root/supabase/migrations/20260817141000_optimize_achieve_wc_summary_scope.sql"
 termination="$repo_root/supabase/migrations/20260824120000_achieve_agent_termination_tracking.sql"
 termination_counts="$repo_root/supabase/migrations/20260827122000_achieve_report_termination_counts.sql"
+termination_enrollment_activity="$repo_root/supabase/migrations/20260830120000_achieve_termination_enrollment_activity.sql"
 first_pay_export="$repo_root/supabase/migrations/20260829160000_achieve_first_pay_enrollment_export_qa.sql"
 container="achieve-feedback-overview-check-$RANDOM-$$"
 
@@ -131,6 +132,7 @@ SQL
   cat "$summary_scope"
   cat "$termination"
   cat "$termination_counts"
+  cat "$termination_enrollment_activity"
   cat "$first_pay_export"
   cat <<'SQL'
 
@@ -145,6 +147,25 @@ insert into public.welcome_call_agent_log(
   ('SEEDED-A', 'Aliyu Adigun', 'aadigun@achieve.com', '2026-08-20', '2026-08-27'),
   ('SEEDED-D', 'Darios Desravines', 'ddesravines@achieve.com', '2026-08-20', '2026-08-27'),
   ('SEEDED-W', 'Wilma Hall', 'whall@achieve.com', '2026-08-20', '2026-08-27');
+
+select public.ingest_achieve_termination_enrollment_activity(
+  '2026-08-31',
+  11,
+  22,
+  '[
+    {"enrollment_date":"2026-08-10","agent_email":"rep-a@example.test","enrollments":2},
+    {"enrollment_date":"2026-08-11","agent_email":"rep-a@example.test","enrollments":3},
+    {"enrollment_date":"2026-08-12","agent_email":"rep-a@example.test","enrollments":1},
+    {"enrollment_date":"2026-08-15","agent_email":"rep-a@example.test","enrollments":2},
+    {"enrollment_date":"2026-08-10","agent_email":"boundary@example.test","enrollments":1},
+    {"enrollment_date":"2026-08-11","agent_email":"boundary@example.test","enrollments":1},
+    {"enrollment_date":"2026-08-24","agent_email":"aadigun@achieve.com","enrollments":1},
+    {"enrollment_date":"2026-08-25","agent_email":"aadigun@achieve.com","enrollments":2},
+    {"enrollment_date":"2026-08-26","agent_email":"aadigun@achieve.com","enrollments":3},
+    {"enrollment_date":"2026-08-24","agent_email":"ddesravines@achieve.com","enrollments":4},
+    {"enrollment_date":"2026-08-23","agent_email":"whall@achieve.com","enrollments":2}
+  ]'::jsonb
+);
 
 do $$
 declare
@@ -292,41 +313,59 @@ begin
   if public.list_achieve_agent_termination_monitoring('2026-08-01 00:00:00+00') <> '[]'::jsonb then
     raise exception 'future terminations leaked into monitoring';
   end if;
-  if public.list_achieve_agent_termination_monitoring('2026-08-20 00:00:00+00') <> '[]'::jsonb then
-    raise exception 'terminations outside the reporting week leaked into monitoring';
-  end if;
-  select public.list_achieve_agent_termination_monitoring('2026-08-12 00:00:00+00') into termination_monitoring;
+  select public.list_achieve_agent_termination_monitoring('2026-08-31 04:00:00+00') into termination_monitoring;
   if not exists (
     select 1 from jsonb_array_elements(termination_monitoring) as row
     where row->>'agent_email' = 'rep-a@example.test'
-      and row->>'activity_post_termination' = '0'
+      and row->>'enrollments_post_termination' = '3'
+      and row->>'latest_post_term_enrollment_on' = '2026-08-15'
+      and row->>'activity_source_as_of' = '2026-08-31'
   ) then
-    raise exception 'pre-termination first-seen activity was counted after termination: %', termination_monitoring;
+    raise exception 'strict post-termination enrollment rollup failed: %', termination_monitoring;
   end if;
-  select public.list_achieve_agent_termination_monitoring('2026-08-16 04:00:00+00') into termination_monitoring;
   if not exists (
     select 1 from jsonb_array_elements(termination_monitoring) as row
-    where row->>'agent_email' = 'rep-a@example.test'
-      and row->>'activity_post_termination' = '1'
-      and row->>'last_activity_on' = '2026-08-15'
+    where row->>'agent_email' = 'boundary@example.test'
+      and row->>'enrollments_post_termination' = '1'
+      and row->>'latest_post_term_enrollment_on' = '2026-08-11'
   ) then
-    raise exception 'distinct first-seen post-termination monitoring failed: %', termination_monitoring;
+    raise exception 'same-day termination boundary was counted: %', termination_monitoring;
   end if;
-  select public.list_achieve_agent_termination_monitoring('2026-08-17 13:00:00+00') into termination_monitoring;
+  if not exists (
+    select 1 from jsonb_array_elements(termination_monitoring) as row
+    where row->>'agent_email' = 'aadigun@achieve.com'
+      and row->>'enrollments_post_termination' = '3'
+      and row->>'latest_post_term_enrollment_on' = '2026-08-26'
+  ) or (
+    select count(*) <> 2 from jsonb_array_elements(termination_monitoring) as row
+    where row->>'agent_email' in ('ddesravines@achieve.com', 'whall@achieve.com')
+      and row->>'enrollments_post_termination' = '0'
+      and row->'latest_post_term_enrollment_on' = 'null'::jsonb
+  ) then
+    raise exception 'before/same-day enrollment exclusion failed: %', termination_monitoring;
+  end if;
+  select public.list_achieve_agent_termination_monitoring('2026-09-09 04:00:00+00') into termination_monitoring;
   if not exists (
     select 1 from jsonb_array_elements(termination_monitoring) as row
     where row->>'agent_email' = 'boundary@example.test'
   ) then
-    raise exception 'prior Monday Eastern boundary was excluded: %', termination_monitoring;
+    raise exception 'termination on day 30 was excluded: %', termination_monitoring;
   end if;
-  select public.list_achieve_agent_termination_monitoring('2026-08-28 04:00:00+00') into termination_monitoring;
+  select public.list_achieve_agent_termination_monitoring('2026-09-10 04:00:00+00') into termination_monitoring;
   if exists (
     select 1 from jsonb_array_elements(termination_monitoring) as row
-    where row->>'agent_email' in ('aadigun@achieve.com', 'ddesravines@achieve.com', 'whall@achieve.com')
-      and row->>'activity_post_termination' <> '0'
+    where row->>'agent_email' = 'boundary@example.test'
   ) then
-    raise exception 'seeded agents counted activity first seen before termination: %', termination_monitoring;
+    raise exception 'termination older than 30 days remained visible: %', termination_monitoring;
   end if;
+  insert into public.achieve_agent_terminations(agent_email, agent_name, terminated_at) values
+    ('after-snapshot@example.test', 'After Snapshot', '2026-08-30 04:00:00+00');
+  begin
+    perform public.list_achieve_agent_termination_monitoring('2026-08-31 04:00:00+00');
+    raise exception 'incomplete termination activity snapshot did not fail closed';
+  exception when sqlstate '55000' then
+    null;
+  end;
 
   if has_function_privilege('anon', 'private.achieve_is_ordinary_graded_qa(text,jsonb)', 'execute')
     or has_function_privilege('authenticated', 'private.achieve_is_ordinary_graded_qa(text,jsonb)', 'execute')
@@ -334,10 +373,14 @@ begin
     or has_function_privilege('authenticated', 'public.get_achieve_agent_feedback_dashboard(timestamptz,timestamptz,integer,integer)', 'execute')
     or has_function_privilege('authenticated', 'public.list_achieve_agent_feedback_for_rep(text,integer,integer)', 'execute')
     or has_function_privilege('authenticated', 'public.list_achieve_agent_termination_monitoring(timestamptz)', 'execute')
+    or has_function_privilege('authenticated', 'public.ingest_achieve_termination_enrollment_activity(date,integer,bigint,jsonb)', 'execute')
     or has_function_privilege('authenticated', 'public.get_achieve_first_pay_export_qa_rollups()', 'execute')
     or has_table_privilege('authenticated', 'public.achieve_agent_terminations', 'select')
+    or has_table_privilege('authenticated', 'public.achieve_termination_enrollment_activity', 'select')
+    or has_table_privilege('authenticated', 'public.achieve_termination_enrollment_activity_snapshot', 'select')
     or not has_function_privilege('service_role', 'private.achieve_is_ordinary_graded_qa(text,jsonb)', 'execute')
     or not has_function_privilege('service_role', 'private.achieve_ordinary_qa_attributed(timestamptz,timestamptz)', 'execute')
+    or not has_function_privilege('service_role', 'public.ingest_achieve_termination_enrollment_activity(date,integer,bigint,jsonb)', 'execute')
     or not has_function_privilege('service_role', 'public.get_achieve_first_pay_export_qa_rollups()', 'execute') then
     raise exception 'WC Agent Summary privileges are unsafe';
   end if;

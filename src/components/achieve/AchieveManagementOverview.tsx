@@ -87,7 +87,7 @@ export function AchieveManagementOverview({
       <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
         <h2 className="text-lg font-semibold text-slate-950">Termination follow-through</h2>
         <p className="mt-1 text-xs leading-5 text-slate-500">
-          Activity Post Term counts distinct clients first assigned on or after the effective date.
+          Enrollments After Termination counts deduplicated Salesforce enrollments whose Enrollment Date is strictly after the effective date. Agents remain here for 30 days.
         </p>
         {report.terminations.length === 0 ? (
           <p className="mt-4 text-sm text-slate-600">No effective terminations to monitor.</p>
@@ -99,9 +99,9 @@ export function AchieveManagementOverview({
                   {termination.agentName}
                   <span className="ml-2 font-normal text-slate-500">Effective {activityTime.format(new Date(termination.terminatedAt))}</span>
                 </p>
-                <p className={`font-semibold ${termination.activityPostTermination > 0 ? 'text-red-700' : 'text-emerald-700'}`}>
-                  Activity Post Term: {termination.activityPostTermination}
-                  <span className="font-normal"> · Last WC Activity {termination.lastActivityOn ? reportDate.format(new Date(termination.lastActivityOn)) : '—'}</span>
+                <p className={`font-semibold ${termination.enrollmentsPostTermination > 0 ? 'text-red-700' : 'text-emerald-700'}`}>
+                  Enrollments After Termination: {termination.enrollmentsPostTermination}
+                  <span className="font-normal"> · Latest Post-Term Enrollment {termination.latestPostTermEnrollmentOn ? reportDate.format(new Date(termination.latestPostTermEnrollmentOn)) : '—'}</span>
                 </p>
               </div>
             ))}

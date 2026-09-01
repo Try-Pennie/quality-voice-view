@@ -156,7 +156,7 @@ Confirm that:
 - Bottom 10 Intelligibility ranks Speech Clarity counts and shows Background Noise and Connection only as context;
 - mature six-week first-pay screening shows the top ten plus roster and identifies its source-as-of date;
 - Bottom 10 by First Pay Screening — Last 6 Months appears immediately after it, uses the trailing six calendar months through the same maturity cutoff, requires at least 10 mature enrollments per agent, and does not change High Risk Triangulation;
-- termination rows show Last WC Activity and distinct Activity Post Term counts based on assignment `first_seen_on`;
+- termination rows stay visible for 30 days and show the count and latest date of deduplicated Snowflake enrollments dated strictly after the agent's Eastern-time termination date, plus the activity source-as-of date;
 - the management CSV contains all 2/4/6-week representative rows, report selectors, six-month and all-time first-pay metrics, intelligibility counts, and termination count/date fields;
 - `achieve-first-pay-outcomes-*.csv` contains all-time plus mature 2/4/6-week and trailing six-month agent comparisons;
 - the message has exactly three attachments and remains below the 25 MB fail-closed message limit;

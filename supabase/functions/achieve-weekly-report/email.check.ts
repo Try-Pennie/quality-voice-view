@@ -74,8 +74,9 @@ const report: AchieveManagementReport = {
     agentName: 'Terminated Agent',
     agentEmail: 'terminated@example.test',
     terminatedAt: '2026-08-24T04:00:00Z',
-    lastActivityOn: '2026-08-22',
-    activityPostTermination: 0,
+    activitySourceAsOf: '2026-08-27',
+    latestPostTermEnrollmentOn: '2026-08-26',
+    enrollmentsPostTermination: 1,
   }],
   periods: ([2, 4, 6] as const).map(weeks => ({
     weeks,
@@ -199,9 +200,11 @@ assert.ok(decodedHtml.includes('Roster'))
 assert.ok(decodedHtml.includes('−0.94'))
 assert.ok(decodedHtml.includes('†'))
 assert.ok(decodedHtml.includes('Termination follow-through'))
-assert.ok(decodedHtml.includes('Last WC Activity'))
-assert.ok(decodedHtml.includes('Activity Post Term'))
-assert.ok(decodedHtml.includes('2026-08-22'))
+assert.ok(decodedHtml.includes('Latest Post-Term Enrollment'))
+assert.ok(decodedHtml.includes('Enrollments After Termination'))
+assert.ok(decodedHtml.includes('Enrollment Date is strictly after'))
+assert.ok(decodedHtml.includes('2026-08-26'))
+assert.ok(decodedHtml.includes('Source as of 2026-08-27'))
 assert.ok(decodedHtml.includes('&lt;High Risk &amp; Agent&gt;'))
 assert.ok(!decodedHtml.includes('<style'))
 assert.ok(!decodedHtml.includes('class='))

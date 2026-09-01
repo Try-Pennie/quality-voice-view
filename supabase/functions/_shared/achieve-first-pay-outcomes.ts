@@ -34,6 +34,17 @@ const FIRST_PAY_ENROLLMENT_COLUMNS = [
   'source_blank_aff_numbers',
 ] as const
 
+const TERMINATION_ENROLLMENT_COLUMNS = [
+  'source_as_of',
+  'enrollment_date',
+  'agent_email',
+  'enrollments',
+  'source_aggregate_rows',
+  'source_enrollments',
+  'source_raw_rows',
+  'source_distinct_enrollments',
+] as const
+
 const OUTCOME_QUERY = `with population as (
   select *
   from AIRBYTE_SFDC_DATABASE.AIRBYTE_SFDC_SCHEMA.ENROLLMENT__C
@@ -145,6 +156,51 @@ from deduped
 cross join source_control
 cross join export_control
 order by lower(trim(CLIENT_NO_AER__C))`
+
+const TERMINATION_ENROLLMENT_QUERY = `with population as (
+  select *
+  from AIRBYTE_SFDC_DATABASE.AIRBYTE_SFDC_SCHEMA.ENROLLMENT__C
+  where SERVICER__C = 'Achieve'
+    and STATUS__C <> 'Pre-Enrollment'
+    and DATE_ENROLLED__C is not null
+    and to_date(DATE_ENROLLED__C) between dateadd(day, -30, current_date()) and current_date()
+    and nullif(trim(WELCOME_CALL_AGENT_EMAIL_AER__C), '') is not null
+    and lower(trim(coalesce(WELCOME_CALL_AGENT_AER__C, ''))) not in ('services interface', 'automated underwriting001')
+),
+source_control as (
+  select
+    count(*)::integer as raw_rows,
+    count(distinct ID)::integer as distinct_enrollments
+  from population
+),
+deduped as (
+  select *
+  from population
+  qualify row_number() over (
+    partition by ID
+    order by SYSTEMMODSTAMP desc nulls last, LASTMODIFIEDDATE desc nulls last
+  ) = 1
+),
+aggregates as (
+  select
+    to_date(DATE_ENROLLED__C) as enrollment_date,
+    lower(trim(WELCOME_CALL_AGENT_EMAIL_AER__C)) as agent_email,
+    count(*)::integer as enrollments
+  from deduped
+  group by to_date(DATE_ENROLLED__C), lower(trim(WELCOME_CALL_AGENT_EMAIL_AER__C))
+)
+select
+  current_date()::date as "source_as_of",
+  enrollment_date as "enrollment_date",
+  agent_email as "agent_email",
+  enrollments as "enrollments",
+  count(*) over ()::integer as "source_aggregate_rows",
+  sum(enrollments) over ()::integer as "source_enrollments",
+  source_control.raw_rows as "source_raw_rows",
+  source_control.distinct_enrollments as "source_distinct_enrollments"
+from aggregates
+cross join source_control
+order by enrollment_date, agent_email`
 
 /** Stable, non-sensitive failure categories for the Snowflake outcome boundary. */
 export type OutcomeSyncFailureCode =
@@ -265,6 +321,23 @@ export type FirstPayEnrollmentPlan = {
   readonly sourceRawRows: number
   readonly sourceDistinctEnrollments: number
   readonly rows: ReadonlyArray<FirstPayEnrollmentRow>
+}
+
+/** One deduplicated Snowflake enrollment-date bucket by WC agent. */
+export type TerminationEnrollmentAggregateRow = {
+  readonly enrollment_date: string
+  readonly agent_email: string
+  readonly enrollments: number
+}
+
+/** Complete validated aggregate used to monitor terminated WC agents. */
+export type TerminationEnrollmentPlan = {
+  readonly sourceAsOf: string
+  readonly expectedAggregateRows: number
+  readonly expectedEnrollments: number
+  readonly sourceRawRows: number
+  readonly sourceDistinctEnrollments: number
+  readonly rows: ReadonlyArray<TerminationEnrollmentAggregateRow>
 }
 
 type SnowflakeRequestOptions = {
@@ -681,6 +754,72 @@ function planSnapshot(
   }
 }
 
+function planTerminationEnrollments(
+  columns: ReadonlyArray<string>,
+  values: ReadonlyArray<ReadonlyArray<unknown>>,
+  expectedSourceAsOf: string,
+): TerminationEnrollmentPlan {
+  if (values.length === 0) return failure('snowflake_result_empty')
+  if (
+    columns.length !== TERMINATION_ENROLLMENT_COLUMNS.length
+    || TERMINATION_ENROLLMENT_COLUMNS.some(column => !columns.includes(column))
+  ) return failure('snowflake_response_invalid')
+  const indexes = new Map(columns.map((column, index) => [column, index]))
+  const sourceDates = new Set<string>()
+  const expectedRows = new Set<number>()
+  const expectedEnrollments = new Set<number>()
+  const rawRows = new Set<number>()
+  const distinctEnrollments = new Set<number>()
+  const keys = new Set<string>()
+  const rows: Array<TerminationEnrollmentAggregateRow> = []
+  const field = (row: ReadonlyArray<unknown>, name: typeof TERMINATION_ENROLLMENT_COLUMNS[number]): unknown => {
+    const index = indexes.get(name)
+    return index === undefined ? undefined : row[index]
+  }
+
+  for (const raw of values) {
+    const sourceAsOf = isoDate(field(raw, 'source_as_of'))
+    const enrollmentDate = isoDate(field(raw, 'enrollment_date'))
+    const agentEmail = String(field(raw, 'agent_email') ?? '').trim().toLowerCase()
+    const enrollments = positiveInteger(field(raw, 'enrollments'))
+    sourceDates.add(sourceAsOf)
+    expectedRows.add(nonNegativeInteger(field(raw, 'source_aggregate_rows'), 'snowflake_response_invalid'))
+    expectedEnrollments.add(nonNegativeInteger(field(raw, 'source_enrollments'), 'snowflake_response_invalid'))
+    rawRows.add(nonNegativeInteger(field(raw, 'source_raw_rows'), 'snowflake_response_invalid'))
+    distinctEnrollments.add(nonNegativeInteger(field(raw, 'source_distinct_enrollments'), 'snowflake_response_invalid'))
+    if (
+      !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(agentEmail)
+      || enrollmentDate > sourceAsOf
+    ) return failure('snowflake_result_unreconciled')
+    const key = `${enrollmentDate}\0${agentEmail}`
+    if (keys.has(key)) return failure('snowflake_result_duplicate')
+    keys.add(key)
+    rows.push({ enrollment_date: enrollmentDate, agent_email: agentEmail, enrollments })
+  }
+
+  const sourceAsOf = oneValue(sourceDates, 'snowflake_result_unreconciled')
+  if (sourceAsOf !== expectedSourceAsOf) return failure('snowflake_result_stale')
+  const aggregateRows = oneValue(expectedRows, 'snowflake_result_unreconciled')
+  const enrollments = oneValue(expectedEnrollments, 'snowflake_result_unreconciled')
+  const sourceRawRows = oneValue(rawRows, 'snowflake_result_unreconciled')
+  const sourceDistinctEnrollments = oneValue(distinctEnrollments, 'snowflake_result_unreconciled')
+  const actualEnrollments = rows.reduce((sum, row) => sum + row.enrollments, 0)
+  if (
+    aggregateRows !== rows.length
+    || enrollments !== actualEnrollments
+    || sourceRawRows < sourceDistinctEnrollments
+    || sourceDistinctEnrollments !== actualEnrollments
+  ) return failure('snowflake_result_unreconciled')
+  return {
+    sourceAsOf,
+    expectedAggregateRows: aggregateRows,
+    expectedEnrollments: enrollments,
+    sourceRawRows,
+    sourceDistinctEnrollments,
+    rows,
+  }
+}
+
 function planFirstPayEnrollments(
   columns: ReadonlyArray<string>,
   values: ReadonlyArray<ReadonlyArray<unknown>>,
@@ -759,6 +898,16 @@ export async function fetchSnowflakeOutcomeSnapshot(
 ): Promise<OutcomeSnapshotPlan> {
   const result = await snowflakeRows(config, OUTCOME_QUERY, now, options)
   return planSnapshot(result.columns, result.rows, now.toISOString().slice(0, 10))
+}
+
+/** Return source-reconciled enrollment-date buckets for termination monitoring. */
+export async function fetchSnowflakeTerminationEnrollments(
+  config: SnowflakeOutcomeConfig,
+  now: Date,
+  options: SnowflakeRequestOptions = {},
+): Promise<TerminationEnrollmentPlan> {
+  const result = await snowflakeRows(config, TERMINATION_ENROLLMENT_QUERY, now, options)
+  return planTerminationEnrollments(result.columns, result.rows, now.toISOString().slice(0, 10))
 }
 
 /** Return the source-reconciled full-history rows for one weekly email only. */

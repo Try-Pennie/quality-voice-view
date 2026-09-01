@@ -50,8 +50,9 @@ export type AchieveManagementTermination = {
   readonly agentName: string
   readonly agentEmail: string
   readonly terminatedAt: string
-  readonly lastActivityOn: string | null
-  readonly activityPostTermination: number
+  readonly activitySourceAsOf: string
+  readonly latestPostTermEnrollmentOn: string | null
+  readonly enrollmentsPostTermination: number
 }
 
 /** Form-led risk metadata for one representative and period. */
@@ -292,16 +293,22 @@ function parseTermination(value: unknown): AchieveManagementTermination {
   const row = record(value)
   if (!row || typeof row.agentName !== 'string' || typeof row.agentEmail !== 'string') invalidResponse()
   const agentEmail = row.agentEmail.trim().toLowerCase()
-  const lastActivityOn = nullableTimestamp(row.lastActivityOn)
   const terminatedAt = timestamp(row.terminatedAt)
-  const activityPostTermination = count(row.activityPostTermination)
-  if (!agentEmail.includes('@')) invalidResponse()
+  const activitySourceAsOf = date(row.activitySourceAsOf)
+  const latestPostTermEnrollmentOn = row.latestPostTermEnrollmentOn === null ? null : date(row.latestPostTermEnrollmentOn)
+  const enrollmentsPostTermination = count(row.enrollmentsPostTermination)
+  if (
+    !agentEmail.includes('@')
+    || (enrollmentsPostTermination === 0) !== (latestPostTermEnrollmentOn === null)
+    || (latestPostTermEnrollmentOn !== null && latestPostTermEnrollmentOn > activitySourceAsOf)
+  ) invalidResponse()
   return {
     agentName: row.agentName.trim() || agentEmail,
     agentEmail,
     terminatedAt,
-    lastActivityOn,
-    activityPostTermination,
+    activitySourceAsOf,
+    latestPostTermEnrollmentOn,
+    enrollmentsPostTermination,
   }
 }
 

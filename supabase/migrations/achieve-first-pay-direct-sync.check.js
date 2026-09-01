@@ -5,6 +5,7 @@ import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 
 const sql = await readFile(new URL('./20260829150000_achieve_first_pay_direct_sync.sql', import.meta.url), 'utf8')
+const sync = await readFile(new URL('../functions/achieve-first-pay-sync/index.ts', import.meta.url), 'utf8')
 const config = await readFile(new URL('../config.toml', import.meta.url), 'utf8')
 
 for (const required of [
@@ -20,6 +21,13 @@ for (const required of [
   `body := '{"action":"scheduled"}'::jsonb`,
   'timeout_milliseconds := 120000',
 ]) assert.ok(sql.includes(required), `missing direct-sync invariant: ${required}`)
+
+for (const required of [
+  'fetchSnowflakeTerminationEnrollments',
+  "admin.rpc('ingest_achieve_termination_enrollment_activity'",
+  'termination_ingest_failed',
+  'termination_ingest_response_invalid',
+]) assert.ok(sync.includes(required), `missing termination-sync invariant: ${required}`)
 
 assert.ok(config.includes('[functions.achieve-first-pay-sync]'))
 assert.match(config, /\[functions\.achieve-first-pay-sync\][\s\S]*?verify_jwt = false/)
