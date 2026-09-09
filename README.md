@@ -34,10 +34,13 @@ npm run dev        # Vite dev server on port 8080
 npm run build      # production build
 npm run build:dev  # build in development mode (keeps lovable-tagger)
 npm run lint       # eslint
+npm test           # browser workflow + focused behavior checks (Playwright)
 npm run preview    # serve the built dist/
 ```
 
-There is **no test suite** and no typecheck script. The TS config is intentionally loose (`strict: false`, `noImplicitAny: false`, `strictNullChecks: false`), so type errors that would fail elsewhere pass here — verify data-layer changes by running the app.
+Run `npx playwright install chromium` once before `npm test`. Tests exercise the real app using synthetic Supabase HTTP responses; no production credentials or data writes are needed. See [manager review productivity](./docs/manager-review-productivity.md) for scope and verification limitations.
+
+There is no typecheck script. The TS config is intentionally loose (`strict: false`, `noImplicitAny: false`, `strictNullChecks: false`), so type errors that would fail elsewhere pass here. A known baseline ES2020-library mismatch can be isolated with `npx tsc --noEmit -p tsconfig.app.json --lib ES2021,DOM,DOM.Iterable`; this does not change the repository configuration.
 
 ## Project structure
 

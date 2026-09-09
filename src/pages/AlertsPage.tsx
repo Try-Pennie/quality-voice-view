@@ -12,6 +12,11 @@ import {
   type AlertFilters,
 } from '../lib/alert-queries'
 import type { AgentRollup } from '../lib/team-queries'
+import { paginate } from './disposition-audit-pagination'
+import {
+  ALERT_QUEUE_VIEWS, parseAlertQueueView, isClosedForReviewer, defaultAlertWindow,
+  isReviewOverdue, needsCoachingFollowUp, matchesAlertQueueView, reviewAgeLabel,
+} from '../lib/alert-review-queue'
 import { AlertHeatmap } from '../components/alerts/AlertHeatmap'
 import {
   useUserScope,
@@ -30,7 +35,6 @@ import { DateRangePicker } from '../components/dashboard/DateRangePicker'
 import { RefreshingHint } from '../components/ui/refreshing-hint'
 import { AlertReviewDrawer } from '../components/alerts/AlertReviewDrawer'
 import { formatDateParam, parseDateParam } from '../lib/url-filters'
-import { ymdInBusinessTZ } from '../lib/time-zone'
 import { filterSuppressedAlertRows, isSuppressedAlertModule } from '../lib/suppressed-alerts'
 import {
   CheckCheck,
@@ -56,9 +60,8 @@ const MODULE_OPTIONS = [
   { value: 'gota_check', label: MODULE_LABELS.gota_check },
 ]
 
-type StatusView = 'all' | 'new' | 'reviewed'
-
 type SortKey = 'time' | 'agent' | 'violation' | 'status'
+const QUEUE_PAGE_SIZE = 50
 
 const alertKey = (a: Pick<AlertWithFeedback, 'call_id' | 'module_name'>) =>
   `${a.call_id}__${a.module_name}`
@@ -75,46 +78,42 @@ export default function AlertsPage() {
   const { data: scope, isError: scopeError, refetch: refetchScope } = useUserScope(user?.email)
   const [drawerAlert, setDrawerAlert] = useState<AlertWithFeedback | null>(null)
 
-  // Default to today only — interpreted as Eastern time so all viewers see
-  // the same window regardless of browser timezone.
-  const [startDate, setStartDate] = useState<Date>(() =>
-    parseDateParam(searchParams.get('start'), (() => {
-      const [y, m, d] = ymdInBusinessTZ(new Date()).split('-').map(Number)
-      const local = new Date(y, m - 1, d)
-      local.setHours(0, 0, 0, 0)
-      return local
-    })()),
-  )
-  const [endDate, setEndDate] = useState<Date>(() =>
-    parseDateParam(
-      searchParams.get('end'),
-      (() => {
-        const [y, m, d] = ymdInBusinessTZ(new Date()).split('-').map(Number)
-        const local = new Date(y, m - 1, d)
-        local.setHours(23, 59, 59, 999)
-        return local
-      })(),
-      true,
-    ),
-  )
-  // Lazy-init from URL params so heatmap drilldowns land pre-filtered.
-  const [statusView, setStatusView] = useState<StatusView>(() => {
-    const s = searchParams.get('status')
-    return s === 'new' || s === 'reviewed' || s === 'all' ? s : 'new'
-  })
-  const [moduleFilter, setModuleFilter] = useState<string[]>(() => {
-    const m = searchParams.get('module')
-    return m ? m.split(',').filter(Boolean) : []
-  })
-  const [search, setSearch] = useState(() => searchParams.get('search') || '')
+  // Thirty Eastern calendar days, including today. URL is the source of truth
+  // so reload, browser Back, and shared drawer links restore the exact queue.
+  const [defaultDates] = useState(() => defaultAlertWindow(new Date()))
+  const startDate = useMemo(() => parseDateParam(searchParams.get('start'), defaultDates.start), [searchParams, defaultDates])
+  const endDate = useMemo(() => parseDateParam(searchParams.get('end'), defaultDates.end, true), [searchParams, defaultDates])
+  const statusView = parseAlertQueueView(searchParams.get('status'))
+  const moduleFilter = useMemo(() => searchParams.get('module')?.split(',').filter(Boolean) ?? [], [searchParams])
+  const search = searchParams.get('search') ?? ''
+  const queueParams = useMemo(() => {
+    const params = new URLSearchParams(searchParams)
+    params.set('start', formatDateParam(startDate))
+    params.set('end', formatDateParam(endDate))
+    return params
+  }, [searchParams, startDate, endDate])
+  const changeFilters = useCallback((changes: Record<string, string | null>) => {
+    const params = new URLSearchParams(queueParams)
+    for (const [key, value] of Object.entries(changes)) {
+      if (value) params.set(key, value)
+      else params.delete(key)
+    }
+    setSearchParams(params, { replace: true })
+  }, [queueParams, setSearchParams])
+  const [now, setNow] = useState(Date.now)
+  useEffect(() => {
+    const timer = window.setInterval(() => setNow(Date.now()), 60_000)
+    return () => window.clearInterval(timer)
+  }, [])
   // Mobile-only collapse state for the alert-type chip row. Open by default
   // on `sm+` (the disclosure trigger is hidden); state ignored there.
   const [alertTypeOpen, setAlertTypeOpen] = useState(false)
 
   // Column sorting for the queue table. Time descending is the default —
   // newest alerts first, matching the fetch order.
-  const [sortKey, setSortKey] = useState<SortKey>('time')
-  const [sortDesc, setSortDesc] = useState(true)
+  const rawSort = searchParams.get('sort')
+  const sortKey: SortKey = rawSort === 'agent' || rawSort === 'violation' || rawSort === 'status' ? rawSort : 'time'
+  const sortDesc = searchParams.get('direction') === 'asc' ? false : searchParams.get('direction') === 'desc' ? true : statusView !== 'overdue' && statusView !== 'follow_up'
 
   // Bulk approve (god-mode): row selection over already-manager-reviewed
   // alerts that still need this user's ✓.
@@ -123,6 +122,7 @@ export default function AlertsPage() {
 
   // Roving row focus for J/K keyboard navigation on the list itself.
   const [focusIndex, setFocusIndex] = useState(-1)
+  const [requestedPage, setRequestedPage] = useState(1)
   const rowRefs = useRef<Map<number, HTMLTableRowElement>>(new Map())
 
   // Only date + module hit the server; status, accuracy, and search are
@@ -164,55 +164,17 @@ export default function AlertsPage() {
   const refreshing =
     (alertsFetching || breakdownFetching) && !loading && !breakdownLoading
 
-  // Write filter state back to URL so the current view is shareable (and
-  // survives reloads). Skipped while a deep-link drawer route is active so
-  // we don't overwrite /:callId/:moduleName.
-  useEffect(() => {
-    if (routeCallId && routeModuleName) return
-    const params = new URLSearchParams()
-    params.set('start', formatDateParam(startDate))
-    params.set('end', formatDateParam(endDate))
-    if (statusView !== 'new') params.set('status', statusView)
-    if (moduleFilter.length) params.set('module', moduleFilter.join(','))
-    if (search.trim()) params.set('search', search.trim())
-    setSearchParams(params, { replace: true })
-  }, [
-    startDate,
-    endDate,
-    statusView,
-    moduleFilter,
-    search,
-    routeCallId,
-    routeModuleName,
-    setSearchParams,
-  ])
-
   // For god-mode reviewers (Kris) the alert isn't "closed" until *they* sign
   // off — either by being the structured reviewer (`feedback_by`) or by
   // having acked the manager's review. Non-god-mode managers fall back to
   // the simpler `is_reviewed` semantic so their queue behaviour is unchanged.
-  const lowerEmail = user?.email?.toLowerCase() || null
   const closedForMe = useCallback(
-    (a: AlertWithFeedback) => {
-      if (!a.is_reviewed) return false
-      if (!lowerEmail) return true
-      if (a.feedback_by?.toLowerCase() === lowerEmail) return true
-      return (a.acker_emails ?? []).some(e => e.toLowerCase() === lowerEmail)
-    },
-    [lowerEmail],
+    (a: AlertWithFeedback) => isClosedForReviewer(a, user?.email),
+    [user?.email],
   )
 
   const alerts = useMemo(() => {
-    let rows = allAlerts
-    if (statusView === 'new') {
-      rows = scope?.isGodMode
-        ? rows.filter(a => !closedForMe(a))
-        : rows.filter(a => !a.is_reviewed)
-    } else if (statusView === 'reviewed') {
-      rows = scope?.isGodMode
-        ? rows.filter(a => closedForMe(a))
-        : rows.filter(a => a.is_reviewed)
-    }
+    let rows = allAlerts.filter(a => matchesAlertQueueView(a, statusView, !!scope?.isGodMode, user?.email, now))
 
     const q = search.trim().toLowerCase()
     if (q) {
@@ -260,39 +222,44 @@ export default function AlertsPage() {
       return sortDesc ? -cmp : cmp
     })
     return sorted
-  }, [allAlerts, statusView, search, scope?.isGodMode, closedForMe, sortKey, sortDesc])
+  }, [allAlerts, statusView, search, scope?.isGodMode, closedForMe, sortKey, sortDesc, user?.email, now])
+
+  const queuePage = paginate(alerts, requestedPage, QUEUE_PAGE_SIZE)
+  const queueFilterKey = queueParams.toString()
+  useEffect(() => {
+    setRequestedPage(1)
+    setFocusIndex(-1)
+  }, [queueFilterKey])
 
   const toggleSort = useCallback((key: SortKey) => {
-    setSortKey(prev => {
-      if (prev === key) {
-        setSortDesc(d => !d)
-        return prev
-      }
-      setSortDesc(key === 'time') // time defaults newest-first, text A→Z
-      return key
-    })
-  }, [])
+    changeFilters({ sort: key, direction: (key === sortKey ? !sortDesc : key === 'time') ? 'desc' : 'asc' })
+  }, [changeFilters, sortKey, sortDesc])
 
-  // Deep-link: open drawer if URL has /:callId/:moduleName.
+  // Route owns the drawer. Ignore stale fetches after J/K, Back, or closing.
   useEffect(() => {
-    if (!routeCallId || !routeModuleName) return
+    if (!routeCallId || !routeModuleName || !scope) {
+      setDrawerAlert(null)
+      return
+    }
     if (isSuppressedAlertModule(routeModuleName, scope)) {
       setDrawerAlert(null)
       navigate('/dashboard/alerts', { replace: true })
       return
     }
-    const inList = allAlerts.find(
-      a => a.call_id === routeCallId && a.module_name === routeModuleName,
-    )
-    if (inList) {
-      setDrawerAlert(inList)
-      return
-    }
+    let cancelled = false
+    const inList = allAlerts.find(a => a.call_id === routeCallId && a.module_name === routeModuleName)
+    setDrawerAlert(current => {
+      if (current?.call_id === routeCallId && current.module_name === routeModuleName) return inList ? { ...current, ...inList } : current
+      return inList ?? null
+    })
     fetchAlertOne(routeCallId, routeModuleName, scope)
-      .then(a => {
-        if (a) setDrawerAlert(a)
+      .then(full => {
+        if (cancelled) return
+        if (full) setDrawerAlert(full)
+        else toast.error('This alert is unavailable.')
       })
-      .catch(err => console.error('Failed to load alert for deep link:', err))
+      .catch(() => { if (!cancelled) toast.error('Could not load alert details. Close and reopen to retry.') })
+    return () => { cancelled = true }
   }, [routeCallId, routeModuleName, allAlerts, navigate, scope])
 
   const openDrawer = useCallback(
@@ -302,29 +269,13 @@ export default function AlertsPage() {
       // Preserve any returnTo so j/k navigation between alerts doesn't strip
       // the originating-page context.
       const state = location.state as { returnTo?: string } | null
-      navigate(`/dashboard/alerts/${alert.call_id}/${alert.module_name}`, {
+      navigate(`/dashboard/alerts/${encodeURIComponent(alert.call_id)}/${encodeURIComponent(alert.module_name)}?${queueParams}`, {
         replace: false,
         state: state?.returnTo ? { returnTo: state.returnTo } : undefined,
       })
-      // …then enrich with heavy fields (result_json, recording_link, etc.)
-      // if they aren't already present. Skip if we already have a result_json.
-      if (!alert.result_json) {
-        fetchAlertOne(alert.call_id, alert.module_name, scope).then(full => {
-          if (!full) return
-          setDrawerAlert(curr => {
-            if (!curr) return curr
-            if (
-              curr.call_id !== full.call_id ||
-              curr.module_name !== full.module_name
-            ) {
-              return curr
-            }
-            return { ...curr, ...full }
-          })
-        }).catch(err => console.error('Failed to enrich alert:', err))
-      }
+      // The route effect enriches this slim row without racing another request.
     },
-    [navigate, location.state, scope],
+    [navigate, location.state, queueParams],
   )
 
   const closeDrawer = useCallback(() => {
@@ -339,8 +290,8 @@ export default function AlertsPage() {
       navigate(returnTo, { replace: true })
       return
     }
-    navigate('/dashboard/alerts', { replace: true })
-  }, [navigate, routeCallId, location.state])
+    navigate(`/dashboard/alerts?${queueParams}`, { replace: true })
+  }, [navigate, routeCallId, location.state, queueParams])
 
   const advance = useCallback(
     (delta: 1 | -1) => {
@@ -357,13 +308,15 @@ export default function AlertsPage() {
     [alerts, drawerAlert, openDrawer],
   )
 
+  const activeDrawer = useRef(drawerAlert)
+  activeDrawer.current = drawerAlert
+
   const onFeedbackSubmitted = useCallback(
     (updated: Partial<AlertWithFeedback>) => {
       if (!drawerAlert) return
       const merged: AlertWithFeedback = {
         ...drawerAlert,
         ...updated,
-        is_reviewed: true,
       }
       // Optimistically update every cached alerts query (different filter
       // combinations across pages) so the row reflects the new feedback
@@ -380,10 +333,11 @@ export default function AlertsPage() {
       // Heatmap counts (reviewed / unreviewed / false_positives) are derived
       // server-side, so refetch once the row's feedback row is in.
       queryClient.invalidateQueries({ queryKey: ['alertBreakdown'] })
-      if (statusView === 'new') {
-        const stillOpen = scope?.isGodMode
-          ? (a: AlertWithFeedback) => !closedForMe(a)
-          : (a: AlertWithFeedback) => !a.is_reviewed
+      // A late response may update its cache, but must never navigate a different alert.
+      if (activeDrawer.current?.call_id !== merged.call_id || activeDrawer.current.module_name !== merged.module_name) return
+      const stillInView = (a: AlertWithFeedback) =>
+        matchesAlertQueueView(a, statusView, !!scope?.isGodMode, user?.email, now)
+      if (stillInView(drawerAlert) && !stillInView(merged)) {
         // Walk the *visible* queue (sorted + searched) so auto-advance moves
         // in the same order the manager sees in the table — continuing from
         // the current position, then wrapping to earlier skipped alerts.
@@ -392,7 +346,7 @@ export default function AlertsPage() {
             a.call_id === merged.call_id && a.module_name === merged.module_name,
         )
         const isRemaining = (a: AlertWithFeedback) =>
-          stillOpen(a) &&
+          stillInView(a) &&
           !(a.call_id === merged.call_id && a.module_name === merged.module_name)
         const remaining = [
           ...alerts.slice(Math.max(idx, 0) + 1).filter(isRemaining),
@@ -415,7 +369,8 @@ export default function AlertsPage() {
       statusView,
       queryClient,
       scope?.isGodMode,
-      closedForMe,
+      user?.email,
+      now,
     ],
   )
 
@@ -461,16 +416,19 @@ export default function AlertsPage() {
     const email = user?.email
     if (!email || selectedTargets.length === 0) return
     setBulkPending(true)
-    const results = await Promise.allSettled(
-      selectedTargets.map(a =>
-        setAlertAck({
+    // The queue is no longer capped at 500. Bound outstanding database writes
+    // to ten, retaining per-alert success/failure handling across batches.
+    const results: PromiseSettledResult<Awaited<ReturnType<typeof setAlertAck>>>[] = []
+    for (let offset = 0; offset < selectedTargets.length; offset += 10) {
+      results.push(...await Promise.allSettled(
+        selectedTargets.slice(offset, offset + 10).map(a => setAlertAck({
           call_id: a.call_id,
           module_name: a.module_name,
           acker_email: email,
           acked: true,
-        }),
-      ),
-    )
+        })),
+      ))
+    }
     const okKeys = new Set<string>()
     let failed = 0
     results.forEach((r, i) => {
@@ -526,7 +484,7 @@ export default function AlertsPage() {
         e.preventDefault()
         setFocusIndex(prev => {
           if (alerts.length === 0) return -1
-          if (prev === -1) return 0
+          if (prev === -1) return queuePage.start - 1
           return e.key === 'j'
             ? Math.min(prev + 1, alerts.length - 1)
             : Math.max(prev - 1, 0)
@@ -551,7 +509,7 @@ export default function AlertsPage() {
     }
     window.addEventListener('keydown', handler)
     return () => window.removeEventListener('keydown', handler)
-  }, [drawerAlert, alerts, focusIndex, openDrawer])
+  }, [drawerAlert, alerts, focusIndex, openDrawer, queuePage.start])
 
   // Keep the focused row visible and clamp when the list shrinks.
   useEffect(() => {
@@ -559,8 +517,9 @@ export default function AlertsPage() {
   }, [alerts.length])
   useEffect(() => {
     if (focusIndex < 0) return
+    setRequestedPage(Math.floor(focusIndex / QUEUE_PAGE_SIZE) + 1)
     rowRefs.current.get(focusIndex)?.scrollIntoView({ block: 'nearest' })
-  }, [focusIndex])
+  }, [focusIndex, queuePage.page])
 
   const stats = useMemo(() => {
     const total = alerts.length
@@ -611,9 +570,7 @@ export default function AlertsPage() {
   }, [rollups, search])
 
   const toggleModule = (m: string) => {
-    setModuleFilter(prev =>
-      prev.includes(m) ? prev.filter(x => x !== m) : [...prev, m],
-    )
+    changeFilters({ module: (moduleFilter.includes(m) ? moduleFilter.filter(x => x !== m) : [...moduleFilter, m]).join(',') })
   }
 
   const onRowKeyDown = (e: KeyboardEvent<HTMLTableRowElement>, alert: AlertWithFeedback) => {
@@ -679,9 +636,13 @@ export default function AlertsPage() {
       ? headlineNumber === 1
         ? 'alert to review'
         : 'alerts to review'
-      : statusView === 'reviewed'
-        ? 'reviewed'
-        : 'in window'
+      : statusView === 'overdue'
+        ? 'overdue reviews'
+        : statusView === 'follow_up'
+          ? 'coaching follow-ups'
+          : statusView === 'reviewed'
+            ? 'reviewed'
+            : 'in window'
 
   return (
     <div className="space-y-6 sm:space-y-8 animate-pennie-rise">
@@ -690,7 +651,7 @@ export default function AlertsPage() {
         display
         headline={
           <>
-            {headlineNumber.toLocaleString()}{' '}
+            {loading || alertsError ? '—' : headlineNumber.toLocaleString()}{' '}
             <span className="text-pennie-graphite/70 font-normal text-[0.6em] align-baseline">
               {headlineLabel}
             </span>
@@ -727,7 +688,7 @@ export default function AlertsPage() {
         }
       />
 
-      <div className="space-y-2">
+      {statusView !== 'overdue' && statusView !== 'follow_up' && <div className="space-y-2">
         <AlertHeatmap
           cells={heatmapCells}
           rollups={heatmapRollups}
@@ -741,7 +702,7 @@ export default function AlertsPage() {
             Heatmap shows all alert types — your filter applies to the list below.
           </p>
         )}
-      </div>
+      </div>}
 
       {/* Filters */}
       <section className="pennie-card-tight space-y-4">
@@ -750,8 +711,7 @@ export default function AlertsPage() {
             startDate={startDate}
             endDate={endDate}
             onRangeChange={(start, end) => {
-              setStartDate(start)
-              setEndDate(end)
+              changeFilters({ start: formatDateParam(start), end: formatDateParam(end) })
             }}
           />
 
@@ -760,20 +720,20 @@ export default function AlertsPage() {
               Status
               <HelpHint id="filter.alerts.status" />
             </legend>
-            <div className="flex gap-1" role="group" aria-label="Filter by status">
-              {(['new', 'reviewed', 'all'] as const).map(s => (
+            <div className="flex flex-wrap gap-1" role="group" aria-label="Filter by status">
+              {Object.entries(ALERT_QUEUE_VIEWS).map(([s, label]) => (
                 <button
                   key={s}
                   type="button"
                   aria-pressed={statusView === s}
-                  onClick={() => setStatusView(s)}
+                  onClick={() => changeFilters({ status: s, sort: null, direction: null })}
                   className={`min-h-[40px] px-4 py-2 rounded-full text-sm font-semibold border transition-all duration-200 ${
                     statusView === s
                       ? 'bg-pennie-navy text-pennie-white border-pennie-navy'
                       : 'bg-pennie-white border-border text-pennie-graphite hover:bg-pennie-beige'
                   }`}
                 >
-                  {s === 'new' ? 'New' : s === 'reviewed' ? 'Reviewed' : 'All'}
+                  {label}
                 </button>
               ))}
             </div>
@@ -789,7 +749,7 @@ export default function AlertsPage() {
                 id={searchInputId}
                 type="search"
                 value={search}
-                onChange={e => setSearch(e.target.value)}
+                onChange={e => changeFilters({ search: e.target.value })}
                 placeholder="Call id, phone, lead, or agent…"
                 className="w-full min-h-[44px] sm:min-h-[40px] pl-9 pr-3 py-2 rounded-full border border-border bg-pennie-white text-base sm:text-sm font-medium placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-pennie-blue-deeper/40 focus:border-pennie-blue-deeper"
               />
@@ -862,7 +822,7 @@ export default function AlertsPage() {
             {moduleFilter.length > 0 && (
               <button
                 type="button"
-                onClick={() => setModuleFilter([])}
+                onClick={() => changeFilters({ module: null })}
                 className="min-h-[40px] px-3 py-2 text-xs font-semibold text-muted-foreground hover:text-pennie-navy underline-offset-4 hover:underline"
               >
                 Clear
@@ -872,6 +832,13 @@ export default function AlertsPage() {
         </div>
       </section>
 
+      <p className="text-sm text-pennie-graphite/80 px-2" role="status">
+        {loading || alertsFetching ? 'Loading queue…' : alertsError ? 'Queue unavailable.' : `${alerts.length.toLocaleString()} matching alerts`} · {formatDateParam(startDate)} – {formatDateParam(endDate)} (ET).
+        {' '}Counts only cover this window; widen the dates to find older work.
+        {statusView === 'overdue' && ' Overdue means no manager review after 24 elapsed hours; director sign-off is separate.'}
+        {statusView === 'follow_up' && ' Reviewed as a real issue with coaching deferred. Update the review with the outcome to clear it; approval or discussion alone does not complete coaching.'}
+      </p>
+
       {/* Table */}
       <section className="bg-pennie-white rounded-3xl shadow-resting overflow-hidden">
         {loading ? (
@@ -879,7 +846,7 @@ export default function AlertsPage() {
         ) : alertsError ? (
           <ErrorState
             title="Couldn't load alerts"
-            message="We hit an error fetching this queue. Your place is saved — just retry."
+            message="We couldn't load the complete queue. Retry, or narrow the date range. Your filters are preserved."
             onRetry={() => refetchAlerts()}
           />
         ) : alerts.length === 0 ? (
@@ -889,7 +856,11 @@ export default function AlertsPage() {
                 ? 'No matches in this window.'
                 : statusView === 'new'
                   ? 'Inbox zero — nothing to review.'
-                  : 'No alerts match.'
+                  : statusView === 'overdue'
+                    ? 'No overdue reviews in this window.'
+                    : statusView === 'follow_up'
+                      ? 'No coaching follow-ups in this window.'
+                      : 'No alerts match.'
             }
             message={
               search.trim()
@@ -933,6 +904,13 @@ export default function AlertsPage() {
                 </div>
               </div>
             )}
+          {queuePage.pageCount > 1 && <nav aria-label="Alert queue pages" className="flex flex-wrap items-center justify-between gap-2 px-4 py-3 border-b border-border text-sm">
+            <span>Showing {queuePage.start}–{queuePage.end} of {queuePage.total.toLocaleString()} alerts</span>
+            <div className="flex gap-2">
+              <button type="button" disabled={queuePage.page === 1} onClick={() => { setFocusIndex(-1); setRequestedPage(queuePage.page - 1) }} className="pennie-focus-ring min-h-[40px] px-3 rounded-full border border-border disabled:opacity-40">Previous page</button>
+              <button type="button" disabled={queuePage.page === queuePage.pageCount} onClick={() => { setFocusIndex(-1); setRequestedPage(queuePage.page + 1) }} className="pennie-focus-ring min-h-[40px] px-3 rounded-full border border-border disabled:opacity-40">Next page</button>
+            </div>
+          </nav>}
           <div className="overflow-x-auto">
             <table className="min-w-full">
               <thead className="bg-pennie-beige/60">
@@ -981,19 +959,20 @@ export default function AlertsPage() {
                 </tr>
               </thead>
               <tbody>
-                {alerts.map((a, i) => (
+                {queuePage.items.map((a, i) => (
                   <tr
                     key={`${a.call_id}__${a.module_name}`}
                     ref={el => {
-                      if (el) rowRefs.current.set(i, el)
-                      else rowRefs.current.delete(i)
+                      const index = queuePage.start - 1 + i
+                      if (el) rowRefs.current.set(index, el)
+                      else rowRefs.current.delete(index)
                     }}
                     role="button"
                     tabIndex={0}
                     aria-label={`Review ${VIOLATION_TYPE_LABELS[a.violation_type] ?? a.violation_type} alert for ${a.contact_name ?? 'unknown contact'}`}
                     className={`pennie-focus-ring-inset group cursor-pointer transition-colors duration-150 hover:bg-pennie-blue-light/40 ${
                       i !== 0 ? 'border-t border-border/60' : ''
-                    } ${i === focusIndex ? 'bg-pennie-blue-light/40' : ''}`}
+                    } ${queuePage.start - 1 + i === focusIndex ? 'bg-pennie-blue-light/40' : ''}`}
                     onClick={() => openDrawer(a)}
                     onKeyDown={e => onRowKeyDown(e, a)}
                   >
@@ -1018,6 +997,9 @@ export default function AlertsPage() {
                       <span className="text-sm text-muted-foreground tabular-nums">
                         {formatDateTime(a.alert_created_at)}
                       </span>
+                      {!a.is_reviewed && <span className={`block mt-1 text-xs font-semibold ${isReviewOverdue(a, now) ? 'text-pennie-peach-deeper' : 'text-muted-foreground'}`}>
+                        {isReviewOverdue(a, now) ? 'Overdue · ' : ''}{reviewAgeLabel(a.alert_created_at, now)}
+                      </span>}
                     </Td>
                     <Td>
                       <span className="text-sm font-semibold text-pennie-navy">
@@ -1048,6 +1030,7 @@ export default function AlertsPage() {
                             !!scope?.isGodMode && a.is_reviewed && !closedForMe(a)
                           }
                         />
+                        {needsCoachingFollowUp(a) && <span className="text-xs font-semibold text-pennie-blue-deeper">Coaching follow-up</span>}
                         <ActivityBadges alert={a} />
                       </div>
                     </Td>
@@ -1056,7 +1039,6 @@ export default function AlertsPage() {
                         aria-hidden="true"
                         className="inline-block w-4 h-4 text-pennie-graphite/35 transition-all duration-150 group-hover:text-pennie-blue-deeper group-hover:translate-x-0.5"
                       />
-                      <span className="sr-only">Review alert</span>
                     </td>
                   </tr>
                 ))}
