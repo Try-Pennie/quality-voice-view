@@ -62,4 +62,32 @@ Deliberate limits:
 - Draft guards cover drawer controls, browser history, and document unload. Drafts are not persisted to browser storage.
 - Existing whole-repository lint errors and the ES2020 `replaceAll` type-library mismatch remain outside this feature scope. No compiler/lint checks were weakened.
 
-Fresh final counts and commit-pinned screenshots are recorded below before PR creation.
+## Final evidence
+
+Verified freshly at code commit `e3292d5a3e5b9668b9861161bfbdfa130932e007`:
+
+| Check | Result |
+|---|---|
+| `npm test` | **25 passed**, Chromium, 2 workers, no retries; 19 browser scenarios + 6 focused behavior tests |
+| `npm run build` | **Pass**; existing Browserslist/chunk-size advisories remain |
+| App TypeScript with `--lib ES2021,DOM,DOM.Iterable` | **Pass** |
+| Strict TypeScript for `tests/*.ts` + `playwright.config.ts` | **Pass** (`--strict --module esnext --moduleResolution bundler --target es2021 --lib ES2021,DOM,DOM.Iterable --skipLibCheck`) |
+| Focused ESLint (new files, tests, modified queue/drawer/transcript/layout) | **Pass**, 0 problems |
+| `npm run lint` | Existing baseline debt: **50 errors, 6 warnings** (base: 50 errors, 7 warnings); no new errors |
+| Unmodified app TypeScript configuration | Existing `achieve-feedback-overview.ts:490` ES2020 `replaceAll` library error only |
+| `git diff --check` | **Pass** |
+| Independent review + follow-up review | **No remaining defects** in reviewed scope; browser-history finding fixed and browser-verified |
+
+Tests include >1000-row retrieval, stable pagination/scope/suppression parameters, failed later-page retry, an empty manager scope, save-failure retention, real deferral/completion and non-completing updates, director approval, bounded/partial-failure bulk approval, stale transcript fetches, literal search, desktop/mobile layout, and cancelled/accepted browser-history traversal.
+
+### Screenshots
+
+Captured by `npm test` from the code commit above, with synthetic data and the clock fixed to September 7, 2026. Desktop viewport: 1280×720. Mobile: 390×844.
+
+- [Overdue inbox — desktop](./screenshots/manager-review/e3292d5/overdue-desktop.png)
+- [Coaching follow-ups — desktop](./screenshots/manager-review/e3292d5/follow-up-desktop.png)
+- [Evidence in the review drawer — desktop](./screenshots/manager-review/e3292d5/evidence-desktop.png)
+- [Overdue inbox — mobile](./screenshots/manager-review/e3292d5/overdue-mobile.png)
+- [Evidence in the review drawer — mobile](./screenshots/manager-review/e3292d5/evidence-mobile.png)
+
+The implementation stays on an isolated feature branch; neither existing working tree was modified. No merge or deployment was performed.
