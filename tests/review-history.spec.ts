@@ -12,7 +12,7 @@ test('browser Back and Forward can be cancelled without losing notes or corrupti
   await page.goBack()
   await expect(page).toHaveURL(firstUrl)
   await page.getByRole('button', { name: 'Real issue (Y)', exact: true }).click()
-  const note = page.getByRole('textbox', { name: /What happened and how you addressed it/ })
+  const note = page.getByRole('textbox', { name: 'What happened?' })
   await note.fill('Unsaved coaching notes survive browser history gestures until explicitly discarded.')
   page.once('dialog', dialog => dialog.dismiss())
   await page.goBack()
@@ -28,14 +28,15 @@ test('browser Back and Forward can be cancelled without losing notes or corrupti
   await expect(page.getByRole('dialog')).toContainText('Example history-b')
   await page.goBack()
   await expect(page).toHaveURL(firstUrl)
-  await expect(page.getByRole('textbox', { name: /What happened and how you addressed it/ })).toHaveCount(0)
+  await expect(page.getByRole('textbox', { name: 'What happened?' })).toHaveCount(0)
 })
 
 test('a mobile follow-up can inspect evidence and reach its save button', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 })
   const state = await reviewFixture(page, [alertRow('mobile-coaching', {
     is_reviewed: true, accurate: true, action_taken: 'follow_up_later', feedback_by: 'manager@example.test',
-    feedback_comment: 'Coaching scheduled for our next one-to-one session to discuss the call.',
+    violation_details: 'The required disclosure was omitted from the call.',
+    action_details: 'Coaching is scheduled for our next one-to-one session.',
   })])
   await page.goto('/dashboard/alerts?status=coaching_due')
   await openAlert(page, 'mobile-coaching')

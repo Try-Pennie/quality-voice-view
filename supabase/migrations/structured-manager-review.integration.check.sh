@@ -123,6 +123,8 @@ insert into public.agent_manager_mapping(agent_email, manager_email) values
   ('agent-legacy-ordinary@example.test', 'manager.one@trypennie.com'),
   ('agent-legacy-typed@example.test', 'manager.one@trypennie.com'),
   ('agent-legacy-stale@example.test', 'manager.one@trypennie.com'),
+  ('agent-legacy-edited@example.test', 'manager.one@trypennie.com'),
+  ('agent-unsent@example.test', 'manager.one@trypennie.com'),
   ('agent-excluded@example.test', 'partner.writer@trypennie.com');
 
 insert into public.eavesly_module_results(call_id, module_name, violation_type, agent_email)
@@ -137,8 +139,11 @@ values
   ('CALL-LEGACY-ORDINARY', 'full_qa', 'manager_escalation', 'agent-legacy-ordinary@example.test'),
   ('CALL-LEGACY-TYPED', 'full_qa', 'manager_escalation', 'agent-legacy-typed@example.test'),
   ('CALL-LEGACY-STALE', 'full_qa', 'manager_escalation', 'agent-legacy-stale@example.test'),
+  ('CALL-LEGACY-EDITED', 'full_qa', 'manager_escalation', 'agent-legacy-edited@example.test'),
+  ('CALL-UNSENT', 'full_qa', 'manager_escalation', 'agent-unsent@example.test'),
   ('CALL-DISPOSITION', 'disposition_review', 'disposition_review', 'agent-excluded@example.test'),
   ('CALL-ACHIEVE', 'achieve_welcome_call_qa', 'achieve_welcome_call', 'agent-excluded@example.test');
+update public.eavesly_module_results set alert_sent = false where call_id = 'CALL-UNSENT';
 
 -- Historic incomplete rows must survive the NOT VALID completeness constraint.
 insert into public.eavesly_alert_feedback(
@@ -147,14 +152,20 @@ insert into public.eavesly_alert_feedback(
   ('CALL-LEGACY-GOD', 'full_qa', 'manager.one@trypennie.com', true, null, null, 'historic note'),
   ('CALL-LEGACY-ORDINARY', 'full_qa', 'manager.one@trypennie.com', false, null, 'wrong_context', null),
   ('CALL-LEGACY-TYPED', 'full_qa', 'manager.one@trypennie.com', true, 'coached', null, null),
-  ('CALL-LEGACY-STALE', 'full_qa', 'manager.one@trypennie.com', true, 'coached', null, null);
+  ('CALL-LEGACY-STALE', 'full_qa', 'manager.one@trypennie.com', true, 'coached', null, null),
+  ('CALL-LEGACY-EDITED', 'full_qa', 'manager.one@trypennie.com', true, 'coached', null, null),
+  ('CALL-UNSENT', 'full_qa', 'manager.one@trypennie.com', true, 'coached', null, null);
 
 insert into public.eavesly_alert_acks(call_id, module_name, acker_email) values
   ('CALL-LEGACY-GOD', 'full_qa', 'director.one@trypennie.com'),
   ('CALL-LEGACY-GOD', 'full_qa', 'ordinary.acker@trypennie.com'),
   ('CALL-LEGACY-ORDINARY', 'full_qa', 'ordinary.acker@trypennie.com'),
   ('CALL-LEGACY-TYPED', 'full_qa', 'director.one@trypennie.com'),
-  ('CALL-LEGACY-STALE', 'full_qa', 'director.one@trypennie.com');
+  ('CALL-LEGACY-STALE', 'full_qa', 'director.one@trypennie.com'),
+  ('CALL-LEGACY-EDITED', 'full_qa', 'director.one@trypennie.com');
+update public.eavesly_alert_feedback
+set comment = 'A legacy edit after the acknowledgment.'
+where call_id = 'CALL-LEGACY-EDITED';
 SQL
   cat "$migration"
   cat <<'SQL'
@@ -166,7 +177,7 @@ begin
     raise exception 'completeness constraint was unexpectedly validated';
   end if;
   if (select count(*) from public.eavesly_alert_feedback
-      where call_id like 'CALL-LEGACY-%') <> 4 then
+      where call_id like 'CALL-LEGACY-%') <> 5 then
     raise exception 'historic feedback was not preserved';
   end if;
   if has_function_privilege('anon',
@@ -175,8 +186,13 @@ begin
       'public.decide_internal_alert_feedback(text,text,integer,text,text)', 'execute')
     or has_table_privilege('anon', 'public.eavesly_alert_review_decisions', 'select')
     or not has_function_privilege('authenticated',
-      'public.submit_internal_alert_feedback(text,text,integer,bigint,boolean,text,text,text,text,text)', 'execute') then
-    raise exception 'RPC or decision privileges are unsafe';
+      'public.submit_internal_alert_feedback(text,text,integer,bigint,boolean,text,text,text,text,text)', 'execute')
+    or has_column_privilege('authenticated', 'public.eavesly_alert_feedback', 'violation_details', 'select')
+    or has_column_privilege('authenticated', 'public.eavesly_alert_feedback', 'action_details', 'select')
+    or has_column_privilege('authenticated', 'public.eavesly_alert_feedback', 'initial_manager_review', 'select')
+    or not has_column_privilege('authenticated', 'public.eavesly_alert_feedback', 'accurate', 'select')
+    or not has_column_privilege('authenticated', 'public.eavesly_alert_feedback', 'review_revision', 'select') then
+    raise exception 'RPC, decision, or feedback column privileges are unsafe';
   end if;
 end
 $$;
@@ -205,6 +221,12 @@ set role authenticated;
 do $$
 begin
   begin
+    perform violation_details from public.eavesly_alert_feedback limit 1;
+    raise exception 'TEST_EXPECTED_FAILURE_MISSING';
+  exception when insufficient_privilege then
+    null;
+  end;
+  begin
     insert into public.eavesly_alert_feedback(
       call_id, module_name, manager_email, accurate, action_taken,
       violation_details, action_details, review_revision, initial_manager_review
@@ -226,6 +248,14 @@ begin
     perform public.submit_internal_alert_feedback(
       'CALL-A', 'full_qa', 0, null, true, 'coached', null,
       '           ', 'Useful action details.', null);
+    raise exception 'TEST_EXPECTED_FAILURE_MISSING';
+  exception when others then
+    if sqlerrm = 'TEST_EXPECTED_FAILURE_MISSING' or sqlerrm <> 'EAVESLY_INVALID_FEEDBACK' then raise; end if;
+  end;
+  begin
+    perform public.submit_internal_alert_feedback(
+      'CALL-A', 'full_qa', 0, null, true, 'coached', null,
+      E'\n\t            \r', 'Useful action details.', null);
     raise exception 'TEST_EXPECTED_FAILURE_MISSING';
   exception when others then
     if sqlerrm = 'TEST_EXPECTED_FAILURE_MISSING' or sqlerrm <> 'EAVESLY_INVALID_FEEDBACK' then raise; end if;
@@ -524,6 +554,51 @@ select public.submit_internal_alert_feedback(
   true, 'coached', null,
   'The required statement was omitted.', 'The manager reviewed it with the agent.', null);
 reset role;
+do $$
+begin
+  if not (
+    (select acknowledged_at from public.eavesly_alert_acks where call_id = 'CALL-LEGACY-STALE')
+      >= (select (initial_manager_review->>'updated_at')::timestamptz
+          from public.eavesly_alert_feedback where call_id = 'CALL-LEGACY-STALE')
+    and (select acknowledged_at from public.eavesly_alert_acks where call_id = 'CALL-LEGACY-STALE')
+      < (select updated_at from public.eavesly_alert_feedback where call_id = 'CALL-LEGACY-STALE')
+  ) then
+    raise exception 'legacy retry fixture does not place the ack between the original and revised updates';
+  end if;
+end
+$$;
+create temp table legacy_retry_state as
+select
+  (select count(*) from public.eavesly_alert_messages where call_id = 'CALL-LEGACY-STALE') as message_count,
+  (select count(*) from public.eavesly_notifications where call_id = 'CALL-LEGACY-STALE') as notification_count,
+  (select reviewed_at from public.eavesly_alert_feedback where call_id = 'CALL-LEGACY-STALE') as reviewed_at;
+set role authenticated;
+do $$
+declare result jsonb;
+begin
+  result := public.submit_internal_alert_feedback(
+    'CALL-LEGACY-STALE', 'full_qa', 1,
+    (select -id from public.eavesly_alert_acks where call_id = 'CALL-LEGACY-STALE'),
+    true, 'coached', null,
+    'The required statement was omitted.', 'The manager reviewed it with the agent.', null);
+  if not (result->>'idempotent')::boolean then
+    raise exception 'legacy-ack resubmit retry was not idempotent: %', result;
+  end if;
+end
+$$;
+reset role;
+do $$
+begin
+  if (select count(*) from public.eavesly_alert_messages where call_id = 'CALL-LEGACY-STALE')
+       <> (select message_count from legacy_retry_state)
+    or (select count(*) from public.eavesly_notifications where call_id = 'CALL-LEGACY-STALE')
+       <> (select notification_count from legacy_retry_state)
+    or (select reviewed_at from public.eavesly_alert_feedback where call_id = 'CALL-LEGACY-STALE')
+       <> (select reviewed_at from legacy_retry_state) then
+    raise exception 'legacy-ack resubmit retry changed durable state';
+  end if;
+end
+$$;
 
 select set_config('request.jwt.claims',
   '{"sub":"33333333-3333-3333-3333-333333333333","email":"director.one@trypennie.com"}', false);
@@ -538,9 +613,10 @@ begin
     or (select current_decision from public.eavesly_alerts_with_feedback where call_id = 'CALL-LEGACY-TYPED')
        <> 'changes_requested'
     or (select current_decision from public.eavesly_alerts_with_feedback where call_id = 'CALL-LEGACY-STALE') is not null
-    or (select initial_manager_review->>'manager_email' from public.eavesly_alert_feedback
+    or (select current_decision from public.eavesly_alerts_with_feedback where call_id = 'CALL-LEGACY-EDITED') is not null
+    or (select initial_manager_review->>'manager_email' from public.eavesly_alerts_with_feedback
         where call_id = 'CALL-LEGACY-STALE') <> 'manager.one@trypennie.com'
-    or (select initial_manager_review->>'action_taken' from public.eavesly_alert_feedback
+    or (select initial_manager_review->>'action_taken' from public.eavesly_alerts_with_feedback
         where call_id = 'CALL-LEGACY-STALE') <> 'coached' then
     raise exception 'legacy/typed/stale approval or historic snapshot projection failed';
   end if;
@@ -587,15 +663,47 @@ end
 $$;
 reset role;
 
+-- Unsent module results are not actionable through either internal RPC.
+select set_config('request.jwt.claims',
+  '{"sub":"11111111-1111-1111-1111-111111111111","email":"manager.one@trypennie.com"}', false);
+set role authenticated;
+do $$
+begin
+  begin
+    perform public.submit_internal_alert_feedback(
+      'CALL-UNSENT', 'full_qa', 1, null, true, 'coached', null,
+      'The required statement was omitted.', 'The manager reviewed it with the agent.', null);
+    raise exception 'TEST_EXPECTED_FAILURE_MISSING';
+  exception when others then
+    if sqlerrm = 'TEST_EXPECTED_FAILURE_MISSING' or sqlerrm <> 'EAVESLY_ALERT_NOT_FOUND' then raise; end if;
+  end;
+  begin
+    perform public.decide_internal_alert_feedback('CALL-UNSENT', 'full_qa', 1, 'approved', null);
+    raise exception 'TEST_EXPECTED_FAILURE_MISSING';
+  exception when others then
+    if sqlerrm = 'TEST_EXPECTED_FAILURE_MISSING' or sqlerrm <> 'EAVESLY_ALERT_NOT_FOUND' then raise; end if;
+  end;
+end
+$$;
+reset role;
+
 -- Existing excluded-module browser/service-role writers remain unchanged.
 select set_config('request.jwt.claims',
   '{"sub":"77777777-7777-7777-7777-777777777777","email":"partner.writer@trypennie.com"}', false);
 set role authenticated;
-insert into public.eavesly_alert_feedback(
-  call_id, module_name, manager_email, accurate, action_taken, comment
-) values (
-  'CALL-DISPOSITION', 'disposition_review', 'partner.writer@trypennie.com', true, null, 'legacy direct writer'
-);
+do $$
+declare returned_call text; returned_revision integer;
+begin
+  insert into public.eavesly_alert_feedback(
+    call_id, module_name, manager_email, accurate, action_taken, comment
+  ) values (
+    'CALL-DISPOSITION', 'disposition_review', 'partner.writer@trypennie.com', true, null, 'legacy direct writer'
+  ) returning call_id, review_revision into returned_call, returned_revision;
+  if returned_call <> 'CALL-DISPOSITION' or returned_revision <> 1 then
+    raise exception 'excluded writer could not return legacy columns';
+  end if;
+end
+$$;
 reset role;
 
 set role service_role;

@@ -201,6 +201,16 @@ export type AlertWithFeedback = {
   feedback_comment: string | null
   reviewed_at: string | null
   is_reviewed: boolean
+  violation_details?: string | null
+  action_details?: string | null
+  review_revision?: number | null
+  initial_manager_review?: unknown
+  current_decision_id?: number | null
+  current_decision?: 'approved' | 'changes_requested' | null
+  current_decision_by?: string | null
+  current_decision_instructions?: string | null
+  current_decided_at?: string | null
+  current_decision_source?: 'typed' | 'legacy_superadmin_ack' | null
   message_count: number
   last_message_at: string | null
   acker_emails: string[]

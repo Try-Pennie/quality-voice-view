@@ -285,7 +285,7 @@ const ENTRIES = {
     category: 'Filters',
     title: 'Status filter',
     body:
-      'Awaiting manager, awaiting your approval, coaching due, and reviewed are separate dimensions. Approval does not complete coaching. All includes administrative closures, labeled separately.',
+      'Awaiting manager, awaiting approval, changes requested, coaching due, and reviewed are separate dimensions. Changes requested overlap reviewed, and approval does not complete coaching. All includes administrative closures, labeled separately.',
   },
   'filter.alerts.module': {
     category: 'Filters',

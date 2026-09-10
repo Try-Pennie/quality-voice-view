@@ -4,6 +4,7 @@ import { useParams, useNavigate, useSearchParams, useLocation } from 'react-rout
 import { useQueryClient } from '@tanstack/react-query'
 import { useAuth } from '../hooks/useAuth'
 import {
+  decideInternalAlertFeedback,
   fetchAlertOne,
   setAlertAck,
   VIOLATION_TYPE_LABELS,
@@ -37,6 +38,7 @@ import { RefreshingHint } from '../components/ui/refreshing-hint'
 import { AlertReviewDrawer } from '../components/alerts/AlertReviewDrawer'
 import { formatDateParam, parseDateParam } from '../lib/url-filters'
 import { filterAlertWorkloadRows, isSuppressedAlertModule, type AlertWorkload } from '../lib/suppressed-alerts'
+import { mergeAlertDetailsWithoutReviewRegression } from '../lib/internal-alert-review'
 import {
   CheckCheck,
   ChevronDown,
@@ -182,12 +184,12 @@ export default function AlertsPage() {
   // having acked the manager's review. Non-god-mode managers fall back to
   // the simpler `is_reviewed` semantic so their queue behaviour is unchanged.
   const closedForMe = useCallback(
-    (a: AlertWithFeedback) => isClosedForReviewer(a, user?.email),
-    [user?.email],
+    (a: AlertWithFeedback) => isClosedForReviewer(a, user?.email, workload),
+    [user?.email, workload],
   )
 
   const alerts = useMemo(() => {
-    let rows = allAlerts.filter(a => matchesAlertQueueView(a, statusView, !!scope?.isGodMode, user?.email, now))
+    let rows = allAlerts.filter(a => matchesAlertQueueView(a, statusView, !!scope?.isGodMode, user?.email, now, workload))
     if (managerFilter) {
       rows = rows.filter(a => (a.assigned_manager_email?.trim().toLowerCase() || '__unassigned__') === managerFilter)
     }
@@ -216,9 +218,10 @@ export default function AlertsPage() {
     const statusRank = (a: AlertWithFeedback) => {
       if (isSystemClosed(a)) return 4
       if (!isHumanReviewed(a)) return 0
-      if (scope?.isGodMode && !closedForMe(a)) return 1
-      if (a.accurate === false) return 3
-      return 2
+      if (a.current_decision === 'changes_requested') return 1
+      if (scope?.isGodMode && !closedForMe(a)) return 2
+      if (a.accurate === false) return 4
+      return 3
     }
     const sorted = [...rows].sort((a, b) => {
       let cmp = 0
@@ -241,7 +244,7 @@ export default function AlertsPage() {
       return sortDesc ? -cmp : cmp
     })
     return sorted
-  }, [allAlerts, statusView, managerFilter, outcomeFilter, search, scope?.isGodMode, closedForMe, sortKey, sortDesc, user?.email, now])
+  }, [allAlerts, statusView, managerFilter, outcomeFilter, search, scope?.isGodMode, closedForMe, sortKey, sortDesc, user?.email, now, workload])
 
   const queuePage = paginate(alerts, requestedPage, QUEUE_PAGE_SIZE)
   const queueFilterKey = queueParams.toString()
@@ -274,7 +277,10 @@ export default function AlertsPage() {
     fetchAlertOne(routeCallId, routeModuleName, scope, workload)
       .then(full => {
         if (cancelled) return
-        if (full) setDrawerAlert(full)
+        if (full) setDrawerAlert(current => {
+          if (!current || current.call_id !== full.call_id || current.module_name !== full.module_name) return full
+          return mergeAlertDetailsWithoutReviewRegression(current, full)
+        })
         else toast.error('This alert is unavailable.')
       })
       .catch(() => { if (!cancelled) toast.error('Could not load alert details. Close and reopen to retry.') })
@@ -355,7 +361,7 @@ export default function AlertsPage() {
       // A late response may update its cache, but must never navigate a different alert.
       if (activeDrawer.current?.call_id !== merged.call_id || activeDrawer.current.module_name !== merged.module_name) return
       const stillInView = (a: AlertWithFeedback) =>
-        matchesAlertQueueView(a, statusView, !!scope?.isGodMode, user?.email, now)
+        matchesAlertQueueView(a, statusView, !!scope?.isGodMode, user?.email, now, workload)
       if (stillInView(drawerAlert) && !stillInView(merged)) {
         // Walk the *visible* queue (sorted + searched) so auto-advance moves
         // in the same order the manager sees in the table — continuing from
@@ -390,16 +396,17 @@ export default function AlertsPage() {
       scope?.isGodMode,
       user?.email,
       now,
+      workload,
     ],
   )
 
   // ---- Bulk approve (god-mode second-layer review) ----
-  // Only alerts that already carry a manager's structured review can be
-  // bulk-acked; unreviewed alerts must go through the drawer form.
   const isAckable = useCallback(
-    (a: AlertWithFeedback) =>
-      !!scope?.isGodMode && isHumanReviewed(a) && !closedForMe(a),
-    [scope?.isGodMode, closedForMe],
+    (a: AlertWithFeedback) => !!scope?.isGodMode && isHumanReviewed(a) &&
+      (workload === 'internal'
+        ? !!a.review_revision && a.current_decision === null
+        : !closedForMe(a)),
+    [scope?.isGodMode, workload, closedForMe],
   )
   const ackableAlerts = useMemo(() => alerts.filter(isAckable), [alerts, isAckable])
   const showBulkColumn = !!scope?.isGodMode && ackableAlerts.length > 0
@@ -435,53 +442,64 @@ export default function AlertsPage() {
     const email = user?.email
     if (!email || selectedTargets.length === 0) return
     setBulkPending(true)
-    // The queue is no longer capped at 500. Bound outstanding database writes
-    // to ten, retaining per-alert success/failure handling across batches.
-    const results: PromiseSettledResult<Awaited<ReturnType<typeof setAlertAck>>>[] = []
-    for (let offset = 0; offset < selectedTargets.length; offset += 10) {
-      results.push(...await Promise.allSettled(
-        selectedTargets.slice(offset, offset + 10).map(a => setAlertAck({
-          call_id: a.call_id,
-          module_name: a.module_name,
-          acker_email: email,
-          acked: true,
-        }, scope, workload)),
-      ))
+    const approve = async (alert: AlertWithFeedback) => {
+      if (workload === 'internal') {
+        if (!alert.review_revision) return { ok: false as const, decisionId: null, decidedAt: null }
+        const result = await decideInternalAlertFeedback({
+          callId: alert.call_id,
+          moduleName: alert.module_name,
+          expectedRevision: alert.review_revision,
+          decision: 'approved',
+          instructions: null,
+        })
+        return result.ok
+          ? { ok: true as const, decisionId: result.value.decisionId, decidedAt: result.value.decidedAt }
+          : { ok: false as const, decisionId: null, decidedAt: null }
+      }
+      const result = await setAlertAck({
+        call_id: alert.call_id,
+        module_name: alert.module_name,
+        acker_email: email,
+        acked: true,
+      }, scope, workload)
+      return { ok: result.ok, decisionId: null, decidedAt: null }
     }
-    const okKeys = new Set<string>()
+    const results: PromiseSettledResult<Awaited<ReturnType<typeof approve>>>[] = []
+    for (let offset = 0; offset < selectedTargets.length; offset += 10) {
+      results.push(...await Promise.allSettled(selectedTargets.slice(offset, offset + 10).map(approve)))
+    }
+    const approved = new Map<string, { readonly decisionId: number | null; readonly decidedAt: string | null }>()
     let failed = 0
-    results.forEach((r, i) => {
-      if (r.status === 'fulfilled' && r.value.ok) okKeys.add(alertKey(selectedTargets[i]))
-      else failed++
+    results.forEach((result, index) => {
+      const target = selectedTargets[index]
+      if (target && result.status === 'fulfilled' && result.value.ok) {
+        approved.set(alertKey(target), result.value)
+      } else failed++
     })
-    if (okKeys.size > 0) {
+    if (approved.size > 0) {
       queryClient.setQueriesData<AlertWithFeedback[]>(
         { queryKey: ['alerts'] },
-        old =>
-          old?.map(a =>
-            okKeys.has(alertKey(a))
-              ? {
-                  ...a,
-                  acker_emails: Array.from(
-                    new Set([...(a.acker_emails ?? []), email]),
-                  ),
-                }
-              : a,
-          ) ?? old,
+        old => old?.map(alert => {
+          const result = approved.get(alertKey(alert))
+          if (!result) return alert
+          return workload === 'internal'
+            ? {
+                ...alert,
+                current_decision_id: result.decisionId,
+                current_decision: 'approved' as const,
+                current_decision_by: email,
+                current_decided_at: result.decidedAt,
+                current_decision_source: 'typed' as const,
+              }
+            : { ...alert, acker_emails: Array.from(new Set([...(alert.acker_emails ?? []), email])) }
+        }) ?? old,
       )
       queryClient.invalidateQueries({ queryKey: ['alertBreakdown'] })
     }
     setBulkPending(false)
     setSelected(new Set())
-    if (failed === 0) {
-      toast.success(
-        `Approved ${okKeys.size} review${okKeys.size === 1 ? '' : 's'}`,
-      )
-    } else {
-      toast.error(
-        `Approved ${okKeys.size}, ${failed} failed — select the rest and try again.`,
-      )
-    }
+    if (failed === 0) toast.success(`Approved ${approved.size} review${approved.size === 1 ? '' : 's'}`)
+    else toast.error(`Approved ${approved.size}, ${failed} failed — select the rest and try again.`)
   }, [user?.email, selectedTargets, queryClient, scope, workload])
 
   // ---- J/K keyboard navigation over the list (drawer closed) ----
@@ -651,8 +669,10 @@ export default function AlertsPage() {
     statusView === 'awaiting_manager'
       ? 'awaiting manager'
       : statusView === 'awaiting_approval'
-        ? 'awaiting your approval'
-        : statusView === 'coaching_due'
+        ? 'awaiting approval'
+        : statusView === 'changes_requested'
+          ? 'changes requested'
+          : statusView === 'coaching_due'
           ? 'coaching due'
           : statusView === 'reviewed'
             ? 'reviewed'
@@ -696,6 +716,11 @@ export default function AlertsPage() {
               label="Awaiting manager"
               value={loading || alertsError ? '—' : stats.awaitingManager}
               helpId="metric.team_open_alerts"
+            />
+            <SupportingStat
+              label="Changes requested"
+              value={loading || alertsError ? '—' : stats.changesRequested}
+              hint="Already reviewed; returned for correction"
             />
           </>
         }
@@ -875,7 +900,8 @@ export default function AlertsPage() {
         {loading || alertsFetching ? 'Loading queue…' : alertsError ? 'Queue unavailable.' : `${alerts.length.toLocaleString()} matching alerts`} · {formatDateParam(startDate)} – {formatDateParam(endDate)} (ET).
         {' '}Counts only cover this window. Use the date picker (including Last 90 days) to find older work.
         {statusView === 'awaiting_manager' && ' Awaiting manager means no recorded human real/false decision; overdue rows have waited more than 24 elapsed hours.'}
-        {statusView === 'awaiting_approval' && ' Includes manager-reviewed real issues and false alarms that you have not personally acknowledged.'}
+        {statusView === 'awaiting_approval' && ' Includes manager-reviewed real issues and false alarms with no authoritative decision for the current revision.'}
+        {statusView === 'changes_requested' && ' These alerts are already reviewed and have been returned to the current manager for correction.'}
         {statusView === 'coaching_due' && ' Coaching was deferred. Approval or discussion does not complete coaching.'}
         {stats.systemClosed > 0 && ` ${stats.systemClosed} administrative system closure${stats.systemClosed === 1 ? ' is' : 's are'} separate from human review.`}
       </p>
@@ -898,8 +924,10 @@ export default function AlertsPage() {
                 : statusView === 'awaiting_manager'
                   ? 'No alerts awaiting a manager in this window.'
                   : statusView === 'awaiting_approval'
-                    ? 'No manager decisions await your approval in this window.'
-                    : statusView === 'coaching_due'
+                    ? 'No manager decisions await approval in this window.'
+                    : statusView === 'changes_requested'
+                      ? 'No reviews need corrections in this window.'
+                      : statusView === 'coaching_due'
                       ? 'No coaching is due in this window.'
                       : 'No alerts match.'
             }
@@ -1067,13 +1095,13 @@ export default function AlertsPage() {
                       <div className="flex flex-col gap-1.5">
                         <StatusPill
                           alert={a}
-                          needsMyAck={
-                            !!scope?.isGodMode && isHumanReviewed(a) && !closedForMe(a)
+                          awaitingApproval={
+                            !!scope?.isGodMode && isHumanReviewed(a) && a.current_decision !== 'changes_requested' && !closedForMe(a)
                           }
                         />
                         {isHumanReviewed(a) && a.feedback_by && <span className="text-xs text-pennie-graphite/60">Decision by {a.feedback_by}</span>}
                         {needsCoachingFollowUp(a) && <span className="text-xs font-semibold text-pennie-blue-deeper">Coaching due</span>}
-                        <ActivityBadges alert={a} />
+                        <ActivityBadges alert={a} showLegacyAcks={workload === 'partner_qa'} />
                       </div>
                     </Td>
                     <td className="pl-2 pr-5 py-3 sm:py-4 w-10 align-middle text-right">
@@ -1172,9 +1200,9 @@ function ViolationPill({ type }: { type: string }) {
   return <span className={pillClasses(accentForViolation(type))}>{label}</span>
 }
 
-function ActivityBadges({ alert }: { alert: AlertWithFeedback }) {
+function ActivityBadges({ alert, showLegacyAcks }: { alert: AlertWithFeedback; showLegacyAcks: boolean }) {
   const messageCount = alert.message_count ?? 0
-  const ackCount = alert.acker_emails?.length ?? 0
+  const ackCount = showLegacyAcks ? alert.acker_emails?.length ?? 0 : 0
   if (messageCount === 0 && ackCount === 0) return null
   return (
     <div className="flex items-center gap-1.5">
@@ -1202,10 +1230,10 @@ function ActivityBadges({ alert }: { alert: AlertWithFeedback }) {
 
 function StatusPill({
   alert,
-  needsMyAck = false,
+  awaitingApproval = false,
 }: {
   alert: AlertWithFeedback
-  needsMyAck?: boolean
+  awaitingApproval?: boolean
 }) {
   if (isSystemClosed(alert)) {
     return <span className={pillClasses(accentForReviewStatus('reviewed_neutral'))}>System closed</span>
@@ -1213,12 +1241,14 @@ function StatusPill({
   if (!isHumanReviewed(alert)) {
     return <span className={pillClasses(accentForReviewStatus('new'))}>Awaiting manager</span>
   }
-  if (needsMyAck) {
-    return (
-      <span className={pillClasses(accentForReviewStatus('new'))}>
-        Awaiting your approval
-      </span>
-    )
+  if (alert.current_decision === 'changes_requested') {
+    return <span className={pillClasses(accentForReviewStatus('new'))}>Changes requested</span>
+  }
+  if (alert.current_decision === 'approved') {
+    return <span className={pillClasses(accentForReviewStatus('accurate'))}>Approved</span>
+  }
+  if (awaitingApproval) {
+    return <span className={pillClasses(accentForReviewStatus('new'))}>Awaiting approval</span>
   }
   if (alert.accurate === true) {
     return (

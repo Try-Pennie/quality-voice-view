@@ -2,6 +2,19 @@
 -- Pennie-internal Eavesly alerts. Partner/disposition feedback keeps its
 -- existing direct-writer behavior.
 
+create or replace function private.trim_internal_review_text(p_value text)
+returns text
+language sql
+immutable
+strict
+set search_path = ''
+as $$
+  select regexp_replace(p_value, '^[[:space:]]+|[[:space:]]+$', '', 'g');
+$$;
+
+revoke all on function private.trim_internal_review_text(text) from public, anon, authenticated;
+grant execute on function private.trim_internal_review_text(text) to authenticated, service_role;
+
 alter table public.eavesly_alert_feedback
   add column violation_details text,
   add column action_details text,
@@ -21,9 +34,10 @@ alter table public.eavesly_alert_feedback
         and comment is null
         and violation_details is not null
         and action_details is not null
-        and char_length(btrim(violation_details)) between 12 and 4000
-        and char_length(btrim(action_details)) between 12 and 4000
-        and lower(btrim(violation_details)) <> lower(btrim(action_details))
+        and char_length(private.trim_internal_review_text(violation_details)) between 12 and 4000
+        and char_length(private.trim_internal_review_text(action_details)) between 12 and 4000
+        and lower(private.trim_internal_review_text(violation_details))
+          <> lower(private.trim_internal_review_text(action_details))
       )
       or (
         not accurate
@@ -32,7 +46,7 @@ alter table public.eavesly_alert_feedback
         and violation_details is null
         and action_details is null
         and comment is not null
-        and char_length(btrim(comment)) between 12 and 4000
+        and char_length(private.trim_internal_review_text(comment)) between 12 and 4000
       )
     ) not valid;
 
@@ -58,7 +72,7 @@ create table public.eavesly_alert_review_decisions (
     or
     (decision = 'changes_requested'
       and instructions is not null
-      and char_length(btrim(instructions)) between 12 and 4000
+      and char_length(private.trim_internal_review_text(instructions)) between 12 and 4000
       and source_message_id is not null)
   )
 );
@@ -80,6 +94,14 @@ create policy "Read decisions on visible internal alerts"
 revoke all on table public.eavesly_alert_review_decisions from anon, public;
 revoke all on sequence public.eavesly_alert_review_decisions_id_seq from anon, public;
 grant select on table public.eavesly_alert_review_decisions to authenticated;
+
+-- Keep direct legacy reads working without exposing structured prose or the
+-- immutable snapshot around the scoped view's CASE authorization.
+revoke select on table public.eavesly_alert_feedback from authenticated;
+grant select (
+  id, call_id, module_name, manager_email, accurate, action_taken,
+  inaccuracy_reason, comment, reviewed_at, created_at, updated_at, review_revision
+) on public.eavesly_alert_feedback to authenticated;
 
 -- Existing browser writers remain available only for the two excluded modules.
 drop policy if exists "Manager inserts own feedback" on public.eavesly_alert_feedback;
@@ -153,7 +175,8 @@ as $$
     'comment', p_row.comment,
     'violation_details', p_row.violation_details,
     'action_details', p_row.action_details,
-    'reviewed_at', p_row.reviewed_at
+    'reviewed_at', p_row.reviewed_at,
+    'updated_at', p_row.updated_at
   );
 $$;
 
@@ -244,11 +267,11 @@ declare
   v_has_feedback boolean := false;
   v_current_decision_id bigint;
   v_previous_decision_id bigint;
-  v_violation text := nullif(btrim(p_violation_details), '');
-  v_action_details text := nullif(btrim(p_action_details), '');
-  v_false_details text := nullif(btrim(p_false_alarm_details), '');
-  v_action text := nullif(btrim(p_action), '');
-  v_reason text := nullif(btrim(p_reason), '');
+  v_violation text := nullif(private.trim_internal_review_text(p_violation_details), '');
+  v_action_details text := nullif(private.trim_internal_review_text(p_action_details), '');
+  v_false_details text := nullif(private.trim_internal_review_text(p_false_alarm_details), '');
+  v_action text := nullif(private.trim_internal_review_text(p_action), '');
+  v_reason text := nullif(private.trim_internal_review_text(p_reason), '');
 begin
   if p_module_name in ('disposition_review', 'achieve_welcome_call_qa') then
     raise exception using errcode = 'P0001', message = 'EAVESLY_MODULE_EXCLUDED';
@@ -285,7 +308,7 @@ begin
 
   select m.agent_email into v_agent
   from public.eavesly_module_results m
-  where m.call_id = p_call_id and m.module_name = p_module_name
+  where m.call_id = p_call_id and m.module_name = p_module_name and m.alert_sent = true
   order by m.id
   limit 1
   for update;
@@ -350,6 +373,7 @@ begin
     join public.manager_coaching_prompts p
       on lower(p.manager_email) = lower(a.acker_email) and p.is_god_mode
     where a.call_id = p_call_id and a.module_name = p_module_name
+      and a.acknowledged_at >= v_feedback.updated_at
     order by a.acknowledged_at, a.id
     limit 1;
   end if;
@@ -380,6 +404,10 @@ begin
         join public.manager_coaching_prompts p
           on lower(p.manager_email) = lower(a.acker_email) and p.is_god_mode
         where a.call_id = p_call_id and a.module_name = p_module_name
+          and a.acknowledged_at >= coalesce(
+            (v_feedback.initial_manager_review->>'updated_at')::timestamptz,
+            v_feedback.updated_at
+          )
         order by a.acknowledged_at, a.id
         limit 1;
       end if;
@@ -448,7 +476,7 @@ declare
   v_feedback public.eavesly_alert_feedback%rowtype;
   v_existing public.eavesly_alert_review_decisions%rowtype;
   v_decision public.eavesly_alert_review_decisions%rowtype;
-  v_instructions text := nullif(btrim(p_instructions), '');
+  v_instructions text := nullif(private.trim_internal_review_text(p_instructions), '');
   v_message_id bigint;
 begin
   if p_module_name in ('disposition_review', 'achieve_welcome_call_qa') then
@@ -467,7 +495,7 @@ begin
 
   perform 1
   from public.eavesly_module_results m
-  where m.call_id = p_call_id and m.module_name = p_module_name
+  where m.call_id = p_call_id and m.module_name = p_module_name and m.alert_sent = true
   order by m.id
   limit 1
   for update;
@@ -654,6 +682,7 @@ left join lateral (
     where a.call_id = m.call_id
       and a.module_name = m.module_name
       and f.review_revision = 1
+      and a.acknowledged_at >= f.updated_at
   ) candidate
   order by candidate.priority, candidate.current_decided_at, candidate.current_decision_id
   limit 1
