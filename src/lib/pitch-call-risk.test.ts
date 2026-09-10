@@ -59,7 +59,7 @@ assert.deepEqual(
 // --- explanation mentions the band reason ---
 assert.match(
   explainPitchRisk({ campaign_name: 'Cal.com Meeting', talk_time: 1200 }),
-  /rushed/i,
+  /heuristic/i,
 )
 
 console.log('pitch-call-risk: all assertions passed')

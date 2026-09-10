@@ -3,7 +3,7 @@ import { alertRow, EMAIL, openAlert, reviewFixture } from './review-fixture'
 
 test('table paging and J/K share the full ordered queue', async ({ page }) => {
   await reviewFixture(page, Array.from({ length: 52 }, (_, i) => alertRow(`page-${String(i).padStart(2, '0')}`)))
-  await page.goto('/dashboard/alerts?status=overdue')
+  await page.goto('/dashboard/alerts?status=awaiting_manager')
   await expect(page.getByText('Showing 1–50 of 52 alerts')).toBeVisible()
   await expect(page.getByRole('button', { name: /^Review .* alert for Example/ })).toHaveCount(50)
   await page.getByRole('button', { name: 'Next page', exact: true }).click()
@@ -27,7 +27,7 @@ test('saving a still-deferred review does not advance or clear follow-up', async
     is_reviewed: true, accurate: true, action_taken: 'follow_up_later', feedback_by: EMAIL,
     feedback_comment: 'Waiting until the next one-to-one coaching session to discuss this.',
   })))
-  await page.goto('/dashboard/alerts?status=follow_up')
+  await page.goto('/dashboard/alerts?status=coaching_due')
   await openAlert(page, 'first')
   await page.getByRole('textbox', { name: /What happened and how you addressed it/ }).fill('Still waiting for the next coaching session, which is now scheduled for Thursday.')
   await page.getByRole('button', { name: 'Update review', exact: true }).click()
@@ -40,7 +40,7 @@ test('transcript loading is visible and a call switch cannot show the prior tran
   const state = await reviewFixture(page, [alertRow('first'), alertRow('second')])
   let release = () => {}
   state.transcriptGate = new Promise<void>(resolve => { release = resolve })
-  await page.goto('/dashboard/alerts?status=overdue')
+  await page.goto('/dashboard/alerts?status=awaiting_manager')
   await openAlert(page, 'first')
   await page.getByRole('button', { name: 'Inspect transcript context' }).click()
   await expect(page.getByText('Loading transcript…', { exact: true })).toBeVisible()
@@ -58,11 +58,11 @@ test('desktop feature screenshots with synthetic review data', async ({ page }, 
     is_reviewed: true, accurate: true, action_taken: 'follow_up_later', feedback_by: EMAIL,
     feedback_comment: 'Scheduled a coaching session to review the disclosure and the call evidence together.',
   })])
-  await page.goto('/dashboard/alerts?status=overdue')
-  await expect(page.getByRole('heading', { name: '2 overdue reviews' })).toBeVisible()
+  await page.goto('/dashboard/alerts?status=awaiting_manager')
+  await expect(page.getByRole('heading', { name: '2 awaiting manager' })).toBeVisible()
   await page.screenshot({ path: testInfo.outputPath('overdue-desktop.png'), fullPage: true })
-  await page.getByRole('button', { name: 'Follow-up', exact: true }).click()
-  await expect(page.getByRole('heading', { name: '1 coaching follow-ups' })).toBeVisible()
+  await page.getByRole('button', { name: 'Coaching due', exact: true }).click()
+  await expect(page.getByRole('heading', { name: '1 coaching due' })).toBeVisible()
   await page.screenshot({ path: testInfo.outputPath('follow-up-desktop.png'), fullPage: true })
   await openAlert(page, 'follow-up')
   await page.getByRole('button', { name: 'Inspect transcript context' }).click()

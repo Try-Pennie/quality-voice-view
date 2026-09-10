@@ -2,6 +2,7 @@ import { useNavigate, useLocation } from 'react-router-dom'
 import type { AlertWithFeedback } from '../../types/database'
 import { VIOLATION_TYPE_LABELS } from '../../lib/alert-queries'
 import { isSuppressedAlertModule } from '../../lib/suppressed-alerts'
+import { isHumanReviewed, isSystemClosed } from '../../lib/alert-review-queue'
 import { accentForViolation, pillClasses } from '../../lib/violation-styles'
 import { formatDateTime } from '../../lib/utils'
 
@@ -15,11 +16,11 @@ export function AgentAlertsPanel({
   const navigate = useNavigate()
   const location = useLocation()
 
-  // Show only "real" alerts (has_violation = true) and prioritize unreviewed
+  // One received alert is one sent (call, module) row; prioritize awaiting work.
   const visible = [...alerts]
-    .filter(a => a.has_violation && !isSuppressedAlertModule(a.module_name))
+    .filter(a => !isSuppressedAlertModule(a.module_name))
     .sort((a, b) => {
-      if (a.is_reviewed !== b.is_reviewed) return a.is_reviewed ? 1 : -1
+      if (isHumanReviewed(a) !== isHumanReviewed(b)) return isHumanReviewed(a) ? 1 : -1
       return (
         new Date(b.alert_created_at).getTime() -
         new Date(a.alert_created_at).getTime()
@@ -28,7 +29,7 @@ export function AgentAlertsPanel({
     .slice(0, 8)
 
   const unreviewedCount = alerts.filter(
-    a => a.has_violation && !a.is_reviewed && !isSuppressedAlertModule(a.module_name),
+    a => !isHumanReviewed(a) && !isSystemClosed(a) && !isSuppressedAlertModule(a.module_name),
   ).length
 
   return (
@@ -39,7 +40,7 @@ export function AgentAlertsPanel({
           <p className="text-xs text-pennie-graphite/60 mt-1">
             {loading
               ? 'Loading…'
-              : `${unreviewedCount} unreviewed of ${visible.length} shown`}
+              : `${unreviewedCount} awaiting manager · ${alerts.length} received`}
           </p>
         </div>
       </header>
@@ -67,7 +68,7 @@ export function AgentAlertsPanel({
                   type="button"
                   onClick={() =>
                     navigate(
-                      `/dashboard/alerts/${encodeURIComponent(alert.call_id)}/${encodeURIComponent(alert.module_name)}`,
+                      `/dashboard/alerts/${encodeURIComponent(alert.call_id)}/${encodeURIComponent(alert.module_name)}${location.search}`,
                       {
                         state: {
                           returnTo: `${location.pathname}${location.search}`,
@@ -82,9 +83,14 @@ export function AgentAlertsPanel({
                       <span className={pillClasses(accentForViolation(alert.violation_type))}>
                         {moduleLabel}
                       </span>
-                      {!alert.is_reviewed && (
+                      {!isHumanReviewed(alert) && !isSystemClosed(alert) && (
                         <span className="pennie-pill bg-pennie-yellow-light text-pennie-yellow-dark">
-                          New
+                          Awaiting manager
+                        </span>
+                      )}
+                      {isSystemClosed(alert) && (
+                        <span className="pennie-pill bg-pennie-beige text-pennie-navy">
+                          System closed
                         </span>
                       )}
                     </div>

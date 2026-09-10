@@ -65,9 +65,9 @@ export default function CallDetailPage() {
     if (location.key !== 'default') {
       navigate(-1)
     } else {
-      navigate('/dashboard')
+      navigate(`/dashboard${location.search}`)
     }
-  }, [navigate, location.key])
+  }, [navigate, location.key, location.search])
 
   // Evidence quotes from this call's fired alerts — used to highlight the
   // flagged passages inside the transcript (text match; no timestamps needed).

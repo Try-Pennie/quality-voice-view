@@ -7,7 +7,7 @@ import {
   parseDateParam,
   parseListParam,
 } from '../lib/url-filters'
-import { ymdInBusinessTZ } from '../lib/time-zone'
+import { defaultAlertWindow } from '../lib/alert-review-queue'
 import {
   agentDisplayName,
   formatDuration,
@@ -81,29 +81,13 @@ export default function DashboardPage() {
   const navigate = useNavigate()
   const [searchParams, setSearchParams] = useSearchParams()
 
-  // Filter state lazy-inits from URL so /dashboard?start=…&qf=… is a
-  // shareable view. A useEffect below writes it back on every change.
-  // Defaults scoped to Eastern time — see TeamPage for the picker convention.
+  // Calls shares the Review workspace's 30-day ET default.
+  const [defaultDates] = useState(() => defaultAlertWindow(new Date()))
   const [startDate, setStartDate] = useState<Date>(() =>
-    parseDateParam(searchParams.get('start'), (() => {
-      const [y, m, d] = ymdInBusinessTZ(new Date()).split('-').map(Number)
-      const local = new Date(y, m - 1, d)
-      local.setDate(local.getDate() - 6)
-      local.setHours(0, 0, 0, 0)
-      return local
-    })()),
+    parseDateParam(searchParams.get('start'), defaultDates.start),
   )
   const [endDate, setEndDate] = useState<Date>(() =>
-    parseDateParam(
-      searchParams.get('end'),
-      (() => {
-        const [y, m, d] = ymdInBusinessTZ(new Date()).split('-').map(Number)
-        const local = new Date(y, m - 1, d)
-        local.setHours(23, 59, 59, 999)
-        return local
-      })(),
-      true,
-    ),
+    parseDateParam(searchParams.get('end'), defaultDates.end, true),
   )
 
   const [selectedAgents, setSelectedAgents] = useState<string[]>(() =>
@@ -185,6 +169,11 @@ export default function DashboardPage() {
     quickFilter,
     setSearchParams,
   ])
+
+  const callPath = (callId: string) => {
+    const params = new URLSearchParams({ start: formatDateParam(startDate), end: formatDateParam(endDate) })
+    return `/dashboard/calls/${callId}?${params.toString()}`
+  }
 
   const availableDispositions = useMemo(() => {
     const set = new Set<string>()
@@ -409,7 +398,7 @@ export default function DashboardPage() {
             { value: 'escalations', label: 'Manager escalations' },
             { value: 'compliance', label: 'Compliance failures' },
             { value: 'threshold', label: 'Below threshold' },
-            { value: 'rushed', label: 'Rushed pitch' },
+            { value: 'rushed', label: 'Pitch calls under 30 min' },
           ] as { value: QuickFilter; label: string }[]
         ).map(f => (
           <button
@@ -456,8 +445,7 @@ export default function DashboardPage() {
                   : isComplianceFail
                     ? 'bg-pennie-yellow-dark'
                     : 'bg-transparent'
-                const goToCall = () =>
-                  navigate(`/dashboard/calls/${call.call_id}`)
+                const goToCall = () => navigate(callPath(call.call_id))
                 return (
                   <li key={`mob-${call.id}`}>
                     <button
@@ -641,7 +629,7 @@ export default function DashboardPage() {
                   : isComplianceFail
                     ? 'border-pennie-yellow-dark'
                     : 'border-transparent'
-                const goToCall = () => navigate(`/dashboard/calls/${call.call_id}`)
+                const goToCall = () => navigate(callPath(call.call_id))
                 return (
                   <tr
                     key={call.id}

@@ -33,7 +33,7 @@ import {
   baselineFor,
   type InsightsWindow,
 } from '../lib/insights-queries'
-import { filterSuppressedAlertRows, isSuppressedAlertModule } from '../lib/suppressed-alerts'
+import { filterAlertWorkloadRows, filterSuppressedAlertRows, isSuppressedAlertModule, type AlertWorkload } from '../lib/suppressed-alerts'
 import { fetchAgentFeedbackForCall } from '../lib/agent-feedback-queries'
 import {
   fetchResolverPolicyHistory,
@@ -68,6 +68,7 @@ const alertFiltersKey = (f: AlertFilters) => ({
   modules: f.modules ? [...f.modules].sort() : null,
   status: f.status ?? 'all',
   accuracy: f.accuracy ?? 'all',
+  workload: f.workload ?? 'internal',
 })
 
 export function useUserScope(email: string | null | undefined) {
@@ -102,7 +103,7 @@ export function useAlerts(
     queryFn: () => fetchAlerts(filters, scope!),
     enabled: !!scope,
     placeholderData: keepPreviousData,
-    select: rows => filterSuppressedAlertRows(rows, scope),
+    select: rows => filterAlertWorkloadRows(rows, scope, filters.workload ?? 'internal'),
   })
 }
 
@@ -360,11 +361,12 @@ export function useAlertThread(
   callId: string | null | undefined,
   moduleName: string | null | undefined,
   scope?: UserScope | null,
+  workload: AlertWorkload = 'internal',
 ) {
   return useQuery({
-    queryKey: ['alertThread', callId, moduleName, scopeKey(scope)],
-    queryFn: () => fetchAlertThread(callId!, moduleName!, scope),
-    enabled: !!callId && !!moduleName && !isSuppressedAlertModule(moduleName, scope),
+    queryKey: ['alertThread', callId, moduleName, scopeKey(scope), workload],
+    queryFn: () => fetchAlertThread(callId!, moduleName!, scope, workload),
+    enabled: !!callId && !!moduleName && !isSuppressedAlertModule(moduleName, scope, workload),
   })
 }
 

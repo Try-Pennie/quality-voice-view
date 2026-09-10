@@ -21,7 +21,7 @@ import {
 import { AudioPlayer } from '@/components/call-detail/AudioPlayer'
 import { AlertTranscript } from './AlertTranscript'
 import { extractEvidenceQuotes } from '@/lib/transcript-evidence'
-import { needsCoachingFollowUp } from '@/lib/alert-review-queue'
+import { isHumanReviewed, needsCoachingFollowUp } from '@/lib/alert-review-queue'
 import {
   ACTION_TAKEN_LABELS,
   INACCURACY_REASON_LABELS,
@@ -33,6 +33,7 @@ import {
   setAlertAck,
   softDeleteAlertMessage,
   submitAlertFeedback,
+  type UserScope,
 } from '@/lib/alert-queries'
 import { useAgentFeedbackForCall, useAlertThread } from '@/hooks/use-queries'
 import { PennieAgentFeedbackSection } from '@/components/PennieAgentFeedbackSection'
@@ -50,6 +51,7 @@ import type {
   AlertMessage,
   AlertWithFeedback,
 } from '@/types/database'
+import type { AlertWorkload } from '@/lib/suppressed-alerts'
 import {
   ArrowLeft,
   Check,
@@ -114,6 +116,8 @@ const QUICK_PHRASES: { label: string; text: string }[] = [
 interface Props {
   alert: AlertWithFeedback | null
   currentUserEmail: string | null | undefined
+  scope: UserScope
+  workload: AlertWorkload
   onClose: () => void
   onSubmitted: (updated: Partial<AlertWithFeedback>) => void
   onAdvance: (delta: 1 | -1) => void
@@ -126,6 +130,8 @@ interface Props {
 export function AlertReviewDrawer({
   alert,
   currentUserEmail,
+  scope,
+  workload,
   onClose,
   onSubmitted,
   onAdvance,
@@ -155,6 +161,8 @@ export function AlertReviewDrawer({
   const { data: thread, refetch: refetchThread } = useAlertThread(
     alert?.call_id,
     alert?.module_name,
+    scope,
+    workload,
   )
 
   // Pennie agent form feedback about the Achieve welcome-call rep — only
@@ -243,7 +251,7 @@ export function AlertReviewDrawer({
       module_name: alert.module_name,
       acker_email: currentUserEmail,
       acked: next,
-    })
+    }, scope, workload)
     setAckPending(false)
     if (!res.ok) {
       toast.error(`Couldn't update ack: ${res.error}`)
@@ -272,7 +280,7 @@ export function AlertReviewDrawer({
       body,
       parent_message_id: replyTo?.id ?? null,
       requires_acknowledgment: requireAck,
-    })
+    }, scope, workload)
     setPosting(false)
     if (!res.ok) {
       toast.error(`Couldn't post message: ${res.error}`)
@@ -345,7 +353,7 @@ export function AlertReviewDrawer({
       action_taken: accurate ? action : null,
       inaccuracy_reason: !accurate ? reason : null,
       comment: comment.trim() || null,
-    }).catch(() => ({ ok: false, error: 'Network unavailable. Your draft is still here; try again.' }))
+    }, scope, workload).catch(() => ({ ok: false, error: 'Network unavailable. Your draft is still here; try again.' }))
     submissionPending.current = false
     setSubmitting(false)
     if (!res.ok) {
@@ -366,7 +374,7 @@ export function AlertReviewDrawer({
     })
   }
 
-  const reviewedByMe = !!alert?.is_reviewed && !!currentUserEmail &&
+  const reviewedByMe = !!alert && isHumanReviewed(alert) && !!currentUserEmail &&
     alert.feedback_by?.toLowerCase() === currentUserEmail.toLowerCase()
   const showStructuredForm = !!alert && (!alert.is_reviewed || reviewedByMe || overrideMode)
   const dirty = !!alert && ((showStructuredForm && (accurate !== alert.accurate ||
@@ -430,7 +438,7 @@ export function AlertReviewDrawer({
   //   - reviewedByOther  → someone above the assigned manager (e.g. Kris) reviewing
   //                        a teammate's review — one-tap ✓ Approve, comment in
   //                        Discussion, structured form gated behind explicit Override
-  const reviewedByOther = !!alert.is_reviewed && !reviewedByMe
+  const reviewedByOther = isHumanReviewed(alert) && !reviewedByMe
   const showAckBar = reviewedByOther
   const showManagerReviewSummary = reviewedByOther
 

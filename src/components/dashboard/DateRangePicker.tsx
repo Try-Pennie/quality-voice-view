@@ -4,7 +4,7 @@ import 'react-datepicker/dist/react-datepicker.css'
 import { Calendar as CalendarIcon, ChevronDown } from 'lucide-react'
 import { Popover, PopoverContent, PopoverTrigger } from '../ui/popover'
 import { cn } from '../../lib/utils'
-import { BUSINESS_TIMEZONE_LABEL } from '../../lib/time-zone'
+import { BUSINESS_TIMEZONE_LABEL, ymdInBusinessTZ } from '../../lib/time-zone'
 
 interface DateRangePickerProps {
   startDate: Date
@@ -35,7 +35,8 @@ function endOfLocalDay(d: Date): Date {
 }
 
 function todayLocal(): Date {
-  return startOfLocalDay(new Date())
+  const [year, month, day] = ymdInBusinessTZ(new Date()).split('-').map(Number)
+  return new Date(year, month - 1, day)
 }
 
 const PRESETS: Preset[] = [
@@ -160,7 +161,7 @@ export function DateRangePicker({
   onRangeChange,
   maxDate,
 }: DateRangePickerProps) {
-  const today = maxDate ?? new Date()
+  const today = maxDate ?? todayLocal()
   const isWide = useIsWide()
   const [open, setOpen] = useState(false)
   // Draft holds the in-progress selection inside the popover. The picker

@@ -25,5 +25,8 @@ export async function fetchAllPaginated<T>(
     if (rows.length < pageSize) break
     from += pageSize
   }
+  if (all.length >= hardCap) {
+    throw new Error('This request reached its safety limit. Narrow the date range to load a complete result.')
+  }
   return all
 }

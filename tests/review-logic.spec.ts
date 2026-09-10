@@ -1,10 +1,12 @@
 import { test, expect } from '@playwright/test'
 import {
-  defaultAlertWindow, isClosedForReviewer, isReviewOverdue, matchesAlertQueueView,
-  needsCoachingFollowUp, parseAlertQueueView, reviewAgeLabel,
+  ALERT_QUEUE_VIEWS, defaultAlertWindow, isClosedForReviewer, isReviewOverdue,
+  matchesAlertQueueView, needsCoachingFollowUp, parseAlertQueueView,
+  reviewAgeLabel, summarizeReviewWorkload,
 } from '../src/lib/alert-review-queue'
 import { extractEvidenceQuotes, findTranscriptRanges, parseTranscriptTurns } from '../src/lib/transcript-evidence'
 import { formatDateParam } from '../src/lib/url-filters'
+import { filterAlertWorkloadRows } from '../src/lib/suppressed-alerts'
 
 const now = Date.parse('2026-09-07T16:00:00Z')
 const open = {
@@ -25,22 +27,54 @@ test('overdue uses elapsed 24h and only first-pass review, including DST', () =>
   expect(reviewAgeLabel('2026-09-04T16:00:00Z', now)).toBe('3d old')
 })
 
-test('director approval, first review, and coaching follow-up have distinct states', () => {
+test('manager review, director approval, coaching, and system closure stay distinct', () => {
   const deferred = { ...open, is_reviewed: true, accurate: true, action_taken: 'follow_up_later' as const, feedback_by: 'Manager@example.test' }
+  expect(ALERT_QUEUE_VIEWS).toEqual({
+    awaiting_manager: 'Awaiting manager',
+    awaiting_approval: 'Awaiting your approval',
+    coaching_due: 'Coaching due',
+    reviewed: 'Reviewed',
+    all: 'All',
+  })
   expect(needsCoachingFollowUp(deferred)).toBe(true)
   expect(isClosedForReviewer(deferred, 'manager@EXAMPLE.test')).toBe(true)
-  expect(matchesAlertQueueView(deferred, 'new', true, 'director@example.test', now)).toBe(true)
-  expect(matchesAlertQueueView(deferred, 'overdue', true, 'director@example.test', now)).toBe(false)
+  expect(matchesAlertQueueView(deferred, 'awaiting_approval', true, 'director@example.test', now)).toBe(true)
+  expect(matchesAlertQueueView(deferred, 'awaiting_manager', true, 'director@example.test', now)).toBe(false)
   const approved = { ...deferred, acker_emails: ['DIRECTOR@example.test'] }
-  expect(matchesAlertQueueView(approved, 'new', true, 'director@example.test', now)).toBe(false)
-  expect(matchesAlertQueueView(approved, 'follow_up', true, 'director@example.test', now)).toBe(true)
+  expect(matchesAlertQueueView(approved, 'awaiting_approval', true, 'director@example.test', now)).toBe(false)
+  expect(matchesAlertQueueView(approved, 'coaching_due', true, 'director@example.test', now)).toBe(true)
+  expect(matchesAlertQueueView(deferred, 'reviewed', true, 'director@example.test', now)).toBe(true)
   expect(needsCoachingFollowUp({ ...deferred, accurate: false })).toBe(false)
   expect(needsCoachingFollowUp({ ...deferred, action_taken: 'coached' })).toBe(false)
   expect(needsCoachingFollowUp({ ...deferred, is_reviewed: false })).toBe(false)
-  expect(matchesAlertQueueView(deferred, 'new', false, 'someone@example.test', now)).toBe(false)
+  expect(matchesAlertQueueView(deferred, 'awaiting_approval', false, 'someone@example.test', now)).toBe(false)
   expect(matchesAlertQueueView(open, 'all', false, null, now)).toBe(true)
-  expect(parseAlertQueueView('__proto__')).toBe('new')
-  expect(parseAlertQueueView('follow_up')).toBe('follow_up')
+  expect(parseAlertQueueView('__proto__', false)).toBe('awaiting_manager')
+  expect(parseAlertQueueView(null, true)).toBe('awaiting_approval')
+  expect(parseAlertQueueView('follow_up', true)).toBe('coaching_due')
+})
+
+test('human outcomes reconcile while administrative closures remain separate', () => {
+  const real = { ...open, is_reviewed: true, accurate: true, feedback_by: 'reviewer-a@example.test' }
+  const falseAlarm = { ...open, is_reviewed: true, accurate: false, feedback_by: 'reviewer-b@example.test' }
+  const systemClosed = { ...open, is_reviewed: true, accurate: true, feedback_by: 'system@pennie' }
+  const counts = summarizeReviewWorkload([open, real, falseAlarm, systemClosed])
+  expect(counts).toEqual({ received: 4, reviewed: 2, real: 1, falseAlarm: 1, awaitingManager: 1, systemClosed: 1 })
+  expect(counts.received).toBe(counts.reviewed + counts.awaitingManager + counts.systemClosed)
+  expect(counts.reviewed).toBe(counts.real + counts.falseAlarm)
+  expect(matchesAlertQueueView(systemClosed, 'reviewed', true, 'director@example.test', now)).toBe(false)
+})
+
+test('internal and partner workloads remain separate even for god-mode viewers', () => {
+  const rows = [
+    { module_name: 'full_qa' },
+    { module_name: 'gota_check' },
+    { module_name: 'disposition_review' },
+    { module_name: 'achieve_welcome_call_qa' },
+  ]
+  expect(filterAlertWorkloadRows(rows, { isGodMode: true }, 'internal').map(row => row.module_name)).toEqual(['full_qa', 'gota_check'])
+  expect(filterAlertWorkloadRows(rows, { isGodMode: true }, 'partner_qa').map(row => row.module_name)).toEqual(['achieve_welcome_call_qa'])
+  expect(filterAlertWorkloadRows(rows, { isGodMode: false }, 'partner_qa')).toEqual([])
 })
 
 test('default window is 30 inclusive Eastern calendar days, even when UTC date differs', () => {

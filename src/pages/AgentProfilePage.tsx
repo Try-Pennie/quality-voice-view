@@ -12,7 +12,7 @@ import { AgentAlertsPanel } from '../components/team/AgentAlertsPanel'
 import { AgentRecentCalls } from '../components/team/AgentRecentCalls'
 import { ChevronLeft } from 'lucide-react'
 import { formatDateParam, parseDateParam } from '../lib/url-filters'
-import { ymdInBusinessTZ } from '../lib/time-zone'
+import { defaultAlertWindow } from '../lib/alert-review-queue'
 import { RefreshingHint } from '../components/ui/refreshing-hint'
 import { ErrorState } from '@/components/states/ErrorState'
 
@@ -23,29 +23,13 @@ export default function AgentProfilePage() {
   const { user } = useAuth()
   const [searchParams, setSearchParams] = useSearchParams()
 
-  // Lazy-init from URL so drilldowns from /dashboard or /dashboard/team carry
-  // the picked window through to the profile (and back out via the link).
-  // Defaults scoped to Eastern time — see TeamPage for the picker convention.
+  // Agent drilldown shares the Review workspace's 30-day ET default.
+  const [defaultDates] = useState(() => defaultAlertWindow(new Date()))
   const [startDate, setStartDate] = useState<Date>(() =>
-    parseDateParam(searchParams.get('start'), (() => {
-      const [y, m, d] = ymdInBusinessTZ(new Date()).split('-').map(Number)
-      const local = new Date(y, m - 1, d)
-      local.setDate(local.getDate() - 6)
-      local.setHours(0, 0, 0, 0)
-      return local
-    })()),
+    parseDateParam(searchParams.get('start'), defaultDates.start),
   )
   const [endDate, setEndDate] = useState<Date>(() =>
-    parseDateParam(
-      searchParams.get('end'),
-      (() => {
-        const [y, m, d] = ymdInBusinessTZ(new Date()).split('-').map(Number)
-        const local = new Date(y, m - 1, d)
-        local.setHours(23, 59, 59, 999)
-        return local
-      })(),
-      true,
-    ),
+    parseDateParam(searchParams.get('end'), defaultDates.end, true),
   )
 
   useEffect(() => {
@@ -56,6 +40,7 @@ export default function AgentProfilePage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [startDate, endDate])
 
+  const teamPath = `/dashboard/team?start=${formatDateParam(startDate)}&end=${formatDateParam(endDate)}`
   const { data: scope, isError: scopeError, refetch: refetchScope } = useUserScope(user?.email)
   const allowed =
     scope &&
@@ -88,7 +73,7 @@ export default function AgentProfilePage() {
       <div className="space-y-6 animate-pennie-rise">
         <button
           type="button"
-          onClick={() => navigate('/dashboard/team')}
+          onClick={() => navigate(teamPath)}
           className="inline-flex items-center gap-1 text-sm font-semibold text-pennie-blue-deeper hover:underline underline-offset-4"
         >
           <ChevronLeft className="w-4 h-4" aria-hidden="true" />
@@ -107,7 +92,7 @@ export default function AgentProfilePage() {
     <div className="space-y-6 sm:space-y-8 animate-pennie-rise">
       <button
         type="button"
-        onClick={() => navigate('/dashboard/team')}
+        onClick={() => navigate(teamPath)}
         className="inline-flex items-center gap-1 text-sm font-semibold text-pennie-blue-deeper hover:underline underline-offset-4"
       >
         <ChevronLeft className="w-4 h-4" aria-hidden="true" />
@@ -155,7 +140,7 @@ export default function AgentProfilePage() {
             <AgentRecentCalls
               calls={profile?.recent_calls ?? []}
               loading={loading}
-              onSelect={callId => navigate(`/dashboard/calls/${callId}`)}
+              onSelect={callId => navigate(`/dashboard/calls/${callId}?start=${formatDateParam(startDate)}&end=${formatDateParam(endDate)}`)}
             />
           </div>
         </>

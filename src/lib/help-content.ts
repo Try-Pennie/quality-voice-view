@@ -85,9 +85,9 @@ const ENTRIES = {
   },
   'metric.team_open_alerts': {
     category: 'Metrics',
-    title: 'Open alerts',
+    title: 'Awaiting manager',
     body:
-      'Alerts on your team that nobody has reviewed yet. Clicking takes you to the Alerts inbox.',
+      'Sent internal alerts on your team without a recorded human real-or-false decision. Clicking opens the same Review window.',
   },
 
   // -------- Metrics (Agent profile) --------
@@ -112,9 +112,9 @@ const ENTRIES = {
   },
   'metric.agent_open_alerts': {
     category: 'Metrics',
-    title: 'Agent open alerts',
+    title: 'Agent alerts awaiting manager',
     body:
-      'Alerts on this agent that nobody has reviewed yet in the window. Highlighted any time the count is non-zero.',
+      'Sent internal alerts on this agent without a recorded human real-or-false decision in the window.',
   },
 
   // -------- Metrics (Manager breakout table) --------
@@ -132,15 +132,15 @@ const ENTRIES = {
   },
   'metric.manager_qa_count': {
     category: 'Metrics',
-    title: 'Calls reviewed by Eavesly',
+    title: 'AI-evaluated calls',
     body:
       'How many of this team\'s calls received a QA scorecard. Calls without a scorecard (e.g. very short, no conversation) are excluded from compliance and CSAT averages.',
   },
   'metric.manager_total_alerts': {
     category: 'Metrics',
-    title: 'Total alerts',
+    title: 'Received alerts',
     body:
-      'Alerts fired in this window, minus any a manager has confirmed as a false alarm. Open and unreviewed alerts still count — only adjudicated false positives drop out. The (−N) suffix shows how many were excluded.',
+      'Sent internal (call, module) alerts received in this window. False alarms remain in received workload because reviewing them is real work.',
   },
 
   // -------- Metrics (Migo coverage) --------
@@ -213,9 +213,9 @@ const ENTRIES = {
   // -------- Metrics (Alerts page) --------
   'metric.alert_reviewed': {
     category: 'Metrics',
-    title: 'Reviewed / total',
+    title: 'Review workload counts',
     body:
-      'How many alerts in view have feedback recorded versus how many exist. Reviewing alerts trains the model and gives the team an audit trail.',
+      'Received is every sent (call, module) alert. Reviewed includes human real and false-alarm decisions. Administrative system closures are separate.',
   },
   'metric.fp_rate': {
     category: 'Metrics',
@@ -285,7 +285,7 @@ const ENTRIES = {
     category: 'Filters',
     title: 'Status filter',
     body:
-      '"New" hides alerts you (or a peer manager) have already reviewed. "Reviewed" shows the audit trail. "All" shows both.',
+      'Awaiting manager, awaiting your approval, coaching due, and reviewed are separate dimensions. Approval does not complete coaching. All includes administrative closures, labeled separately.',
   },
   'filter.alerts.module': {
     category: 'Filters',

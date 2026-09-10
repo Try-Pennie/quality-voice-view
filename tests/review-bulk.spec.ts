@@ -20,5 +20,5 @@ test('bulk approval bounds database writes and keeps failed reviews in the queue
   state.failedAckIds.clear()
   await page.getByRole('checkbox', { name: 'Select all approvable alerts' }).check()
   await page.getByRole('button', { name: 'Approve 1 review', exact: true }).click()
-  await expect(page.getByText('Inbox zero — nothing to review.')).toBeVisible()
+  await expect(page.getByText('No manager decisions await your approval in this window.')).toBeVisible()
 })

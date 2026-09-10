@@ -11,6 +11,7 @@ import {
 import { useAuth } from '../hooks/useAuth'
 import { useAlertBreakdown, useUserScope } from '../hooks/use-queries'
 import { defaultAlertWindow } from '../lib/alert-review-queue'
+import { formatDateParam, parseDateParam } from '../lib/url-filters'
 import { HintsProvider, useHints } from './ui/help-hint'
 import { NotificationBell } from './NotificationBell'
 import { Popover, PopoverContent, PopoverTrigger } from './ui/popover'
@@ -50,11 +51,15 @@ function DashboardChrome({ children }: { children: React.ReactNode }) {
   const [mobileNavOpen, setMobileNavOpen] = useState(false)
   const [reportsOpen, setReportsOpen] = useState(false)
 
-  // Open-alert count for the Alerts nav badge — the queue's default 30-day
-  // window (ET), sharing the AlertsPage breakdown cache.
-  // Uses the simple `unreviewed` count for all roles; god-mode "needs my ✓"
-  // nuance stays on the page itself.
-  const alertWindow = useMemo(() => defaultAlertWindow(new Date()), [])
+  // Awaiting-manager badge uses the same explicit ET range carried by nav.
+  const alertWindow = useMemo(() => {
+    const fallback = defaultAlertWindow(new Date())
+    const params = new URLSearchParams(location.search)
+    return {
+      start: parseDateParam(params.get('start'), fallback.start),
+      end: parseDateParam(params.get('end'), fallback.end, true),
+    }
+  }, [location.search])
   const { data: breakdown } = useAlertBreakdown(scope, alertWindow.start, alertWindow.end)
   const openAlertCount = useMemo(
     () => (breakdown ?? []).reduce((sum, c) => sum + c.unreviewed, 0),
@@ -96,21 +101,21 @@ function DashboardChrome({ children }: { children: React.ReactNode }) {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between items-center gap-3 sm:gap-4 py-3 sm:py-4">
             <div className="flex items-center gap-4 sm:gap-8 min-w-0">
-              <a
-                href="/dashboard"
+              <NavLink
+                to={withDateRange('/dashboard/alerts', location.search, alertWindow)}
                 className="font-display text-xl sm:text-2xl tracking-[-0.02em] text-pennie-navy font-bold hover:opacity-80 transition-opacity"
               >
                 Eavesly
-              </a>
+              </NavLink>
               <nav
                 aria-label="Primary"
                 className="hidden sm:flex items-center gap-1"
               >
+                <DashNavLink to="/dashboard/alerts" badge={openAlertCount}>
+                  Review
+                </DashNavLink>
                 <DashNavLink to="/dashboard" end>
                   Calls
-                </DashNavLink>
-                <DashNavLink to="/dashboard/alerts" badge={openAlertCount}>
-                  Alerts
                 </DashNavLink>
                 <DashNavLink to="/dashboard/team">Team</DashNavLink>
                 <ReportsMenu open={reportsOpen} onOpenChange={setReportsOpen} />
@@ -192,14 +197,14 @@ function DashboardChrome({ children }: { children: React.ReactNode }) {
                     aria-label="Primary"
                     className="flex-1 overflow-y-auto px-3 py-4 space-y-1"
                   >
-                    <MobileNavLink to="/dashboard" end>
-                      Calls
-                    </MobileNavLink>
                     <MobileNavLink
                       to="/dashboard/alerts"
                       badge={openAlertCount}
                     >
-                      Alerts
+                      Review
+                    </MobileNavLink>
+                    <MobileNavLink to="/dashboard" end>
+                      Calls
                     </MobileNavLink>
                     <MobileNavLink to="/dashboard/team">Team</MobileNavLink>
                     <p className="pennie-label px-4 pt-4 pb-1">Reports</p>
@@ -270,12 +275,24 @@ function DashboardChrome({ children }: { children: React.ReactNode }) {
   )
 }
 
+function withDateRange(
+  to: string,
+  search: string,
+  fallback = defaultAlertWindow(new Date()),
+): string {
+  const current = new URLSearchParams(search)
+  const dates = new URLSearchParams()
+  dates.set('start', current.get('start') ?? formatDateParam(fallback.start))
+  dates.set('end', current.get('end') ?? formatDateParam(fallback.end))
+  return `${to}?${dates.toString()}`
+}
+
 function NavBadge({ count }: { count: number }) {
   if (count <= 0) return null
   return (
     <span
       className="inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 rounded-full bg-pennie-blue-deeper text-pennie-white text-[10px] font-bold tabular-nums"
-      aria-label={`${count} open alert${count === 1 ? '' : 's'} in the last 30 days`}
+      aria-label={`${count} alert${count === 1 ? '' : 's'} awaiting a manager in the selected window`}
     >
       {count > 99 ? '99+' : count}
     </span>
@@ -293,14 +310,7 @@ function ReportsMenu({
   const isActive = REPORT_LINKS.some(link =>
     location.pathname.startsWith(link.to),
   )
-  const params = new URLSearchParams(location.search)
-  const start = params.get('start')
-  const endParam = params.get('end')
-  const carry = new URLSearchParams()
-  if (start) carry.set('start', start)
-  if (endParam) carry.set('end', endParam)
-  const withDates = (to: string) =>
-    carry.toString() ? `${to}?${carry.toString()}` : to
+  const withDates = (to: string) => withDateRange(to, location.search)
 
   return (
     <Popover open={open} onOpenChange={onOpenChange}>
@@ -370,13 +380,7 @@ function DashNavLink({
   // Calls / Team / Alerts all use the same ?start=&end= contract, so carrying
   // the current range across the top-nav keeps the date window stable when a
   // user pivots from one view to another.
-  const params = new URLSearchParams(location.search)
-  const start = params.get('start')
-  const endParam = params.get('end')
-  const carry = new URLSearchParams()
-  if (start) carry.set('start', start)
-  if (endParam) carry.set('end', endParam)
-  const target = carry.toString() ? `${to}?${carry.toString()}` : to
+  const target = withDateRange(to, location.search)
   return (
     <NavLink
       to={target}
@@ -419,13 +423,7 @@ function MobileNavLink({
   badge?: number
 }) {
   const location = useLocation()
-  const params = new URLSearchParams(location.search)
-  const start = params.get('start')
-  const endParam = params.get('end')
-  const carry = new URLSearchParams()
-  if (carryDates && start) carry.set('start', start)
-  if (carryDates && endParam) carry.set('end', endParam)
-  const target = carry.toString() ? `${to}?${carry.toString()}` : to
+  const target = carryDates ? withDateRange(to, location.search) : to
   return (
     <NavLink
       to={target}
