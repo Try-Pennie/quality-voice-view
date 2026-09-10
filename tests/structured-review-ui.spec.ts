@@ -17,7 +17,7 @@ function reviewedFalse(id: string) {
   })
 }
 
-test('internal form requires distinct bounded real details and an explanation for every false alarm', async ({ page }) => {
+test('internal form requires distinct bounded real details and an explanation for every false alarm', async ({ page }, testInfo) => {
   const state = await reviewFixture(page, [alertRow('real'), alertRow('false')])
   await page.goto('/dashboard/alerts?status=awaiting_manager')
   await openAlert(page, 'real')
@@ -30,6 +30,11 @@ test('internal form requires distinct bounded real details and an explanation fo
   await expect(page.getByRole('button', { name: 'Save review' })).toBeDisabled()
   await whatHappened.fill(violation)
   await expect(page.getByRole('button', { name: 'Save review' })).toBeEnabled()
+  await page.screenshot({ path: testInfo.outputPath('structured-real-desktop.png'), animations: 'disabled' })
+  await page.setViewportSize({ width: 390, height: 844 })
+  await actionTaken.scrollIntoViewIfNeeded()
+  await page.screenshot({ path: testInfo.outputPath('structured-real-mobile.png'), animations: 'disabled' })
+  await page.setViewportSize({ width: 1280, height: 720 })
   await actionTaken.press('Control+Enter')
   await expect(page.getByText('Review saved')).toBeVisible()
 
@@ -61,7 +66,7 @@ test('internal form requires distinct bounded real details and an explanation fo
   })
 })
 
-test('request goes to the current manager, preserves the original, then another admin globally reapproves', async ({ browser }) => {
+test('request goes to the current manager, preserves the original, then another admin globally reapproves', async ({ browser }, testInfo) => {
   const row = reviewedFalse('returned')
   row.assigned_manager_email = EMAIL
   row.review_revision = 2
@@ -85,6 +90,7 @@ test('request goes to the current manager, preserves the original, then another 
   await requestPage.goto('/dashboard/alerts?status=awaiting_approval')
   await openAlert(requestPage, 'returned')
   await requestPage.getByRole('textbox', { name: /Request changes with instructions/ }).fill('Identify the prior call and explain why this context differs.')
+  await requestPage.screenshot({ path: testInfo.outputPath('admin-request-changes-desktop.png'), animations: 'disabled' })
   await requestPage.getByRole('button', { name: 'Request changes', exact: true }).click()
   await expect(requestPage.getByText('Changes requested').first()).toBeVisible()
   expect(requestState.rows[0].current_decision_by).toBe('director.one@trypennie.com')
