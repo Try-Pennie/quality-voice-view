@@ -1,4 +1,4 @@
-import { useEffect, useId, useMemo, useState } from 'react'
+import { useEffect, useId, useMemo, useRef, useState } from 'react'
 import { toast } from 'sonner'
 import { useQueryClient } from '@tanstack/react-query'
 import {
@@ -19,6 +19,9 @@ import {
   AlertDialogTrigger,
 } from '@/components/ui/alert-dialog'
 import { AudioPlayer } from '@/components/call-detail/AudioPlayer'
+import { AlertTranscript } from './AlertTranscript'
+import { extractEvidenceQuotes } from '@/lib/transcript-evidence'
+import { needsCoachingFollowUp } from '@/lib/alert-review-queue'
 import {
   ACTION_TAKEN_LABELS,
   INACCURACY_REASON_LABELS,
@@ -136,6 +139,8 @@ export function AlertReviewDrawer({
   const [comment, setComment] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const [showRaw, setShowRaw] = useState(false)
+  const [showTranscript, setShowTranscript] = useState(false)
+  const submissionPending = useRef(false)
   const [overrideMode, setOverrideMode] = useState(false)
   const [draftBody, setDraftBody] = useState('')
   const [replyTo, setReplyTo] = useState<AlertMessage | null>(null)
@@ -166,16 +171,21 @@ export function AlertReviewDrawer({
     setReason(alert.inaccuracy_reason)
     setComment(alert.feedback_comment ?? '')
     setShowRaw(false)
+    setShowTranscript(false)
     setOverrideMode(false)
     setDraftBody('')
     setReplyTo(null)
+    setRequireAck(false)
     setEditingId(null)
+    // Identity changes initialize a fresh form; list enrichment must not erase a draft.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [alert?.call_id, alert?.module_name])
 
   useEffect(() => {
     if (!alert) return
     const handler = (e: KeyboardEvent) => {
-      const target = e.target as HTMLElement | null
+      if (e.defaultPrevented) return
+      const target = e.target instanceof HTMLElement ? e.target : null
       const isText =
         target &&
         (target.tagName === 'INPUT' ||
@@ -186,7 +196,16 @@ export function AlertReviewDrawer({
         handleSubmit()
         return
       }
-      if (isText) return
+      if (isText || e.metaKey || e.ctrlKey || e.altKey || submitting) return
+      if (e.key === 'j') {
+        if (hasNext) requestAdvance(1)
+        return
+      }
+      if (e.key === 'k') {
+        if (hasPrev) requestAdvance(-1)
+        return
+      }
+      if (!showStructuredForm) return
 
       if (e.key === 'y' || e.key === 'Y') {
         setAccurate(true)
@@ -194,12 +213,6 @@ export function AlertReviewDrawer({
       } else if (e.key === 'n' || e.key === 'N') {
         setAccurate(false)
         setAction(null)
-      } else if (e.key === 'j') {
-        if (hasNext) onAdvance(1)
-      } else if (e.key === 'k') {
-        if (hasPrev) onAdvance(-1)
-      } else if (e.key === 'Escape') {
-        onClose()
       } else if (/^[1-9]$/.test(e.key)) {
         const idx = parseInt(e.key, 10) - 1
         if (accurate === true && ACTION_OPTIONS[idx]) setAction(ACTION_OPTIONS[idx])
@@ -209,8 +222,7 @@ export function AlertReviewDrawer({
     }
     window.addEventListener('keydown', handler)
     return () => window.removeEventListener('keydown', handler)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [alert, accurate, hasNext, hasPrev])
+  })
 
   const ackedByMe = useMemo(() => {
     if (!alert || !currentUserEmail) return false
@@ -302,7 +314,7 @@ export function AlertReviewDrawer({
   }
 
   const handleSubmit = async () => {
-    if (!alert || !currentUserEmail) return
+    if (!alert || !currentUserEmail || submissionPending.current || !showStructuredForm) return
     if (accurate === null) {
       toast.error('Pick "Real issue" or "False alarm" first.')
       return
@@ -323,6 +335,7 @@ export function AlertReviewDrawer({
       toast.error('Add a few sentences on what happened and how you addressed it.')
       return
     }
+    submissionPending.current = true
     setSubmitting(true)
     const res = await submitAlertFeedback({
       call_id: alert.call_id,
@@ -332,7 +345,8 @@ export function AlertReviewDrawer({
       action_taken: accurate ? action : null,
       inaccuracy_reason: !accurate ? reason : null,
       comment: comment.trim() || null,
-    })
+    }).catch(() => ({ ok: false, error: 'Network unavailable. Your draft is still here; try again.' }))
+    submissionPending.current = false
     setSubmitting(false)
     if (!res.ok) {
       toast.error(`Couldn't save review: ${res.error}`)
@@ -352,6 +366,57 @@ export function AlertReviewDrawer({
     })
   }
 
+  const reviewedByMe = !!alert?.is_reviewed && !!currentUserEmail &&
+    alert.feedback_by?.toLowerCase() === currentUserEmail.toLowerCase()
+  const showStructuredForm = !!alert && (!alert.is_reviewed || reviewedByMe || overrideMode)
+  const dirty = !!alert && ((showStructuredForm && (accurate !== alert.accurate ||
+    action !== alert.action_taken || reason !== alert.inaccuracy_reason || comment !== (alert.feedback_comment ?? ''))) ||
+    !!draftBody.trim() || editingId !== null)
+  useEffect(() => {
+    if (!dirty && !submitting && !posting) return
+    const handler = (event: BeforeUnloadEvent) => { event.preventDefault(); event.returnValue = '' }
+    window.addEventListener('beforeunload', handler)
+    return () => window.removeEventListener('beforeunload', handler)
+  }, [dirty, submitting, posting])
+  const canLeave = () => {
+    if (submitting || posting || ackPending) {
+      toast.info('Wait for the current save to finish.')
+      return false
+    }
+    return !dirty || window.confirm('Discard your unsaved review or message?')
+  }
+  const requestClose = () => { if (canLeave()) onClose() }
+  const requestAdvance = (delta: 1 | -1) => { if (canLeave()) onAdvance(delta) }
+
+  useEffect(() => {
+    if (!dirty && !submitting && !posting && !ackPending) return
+    const indexOf = (state: unknown): number | null =>
+      state && typeof state === 'object' && 'idx' in state && typeof state.idx === 'number' && Number.isInteger(state.idx)
+        ? state.idx : null
+    const currentIndex = indexOf(window.history.state)
+    let restoring = false
+    const handler = (event: PopStateEvent) => {
+      const nextIndex = indexOf(event.state)
+      if (currentIndex === null || nextIndex === null) return
+      if (restoring && nextIndex === currentIndex) {
+        restoring = false
+        event.stopImmediatePropagation()
+        return
+      }
+      const pending = submitting || posting || ackPending
+      if (!pending && window.confirm('Discard your unsaved review or message?')) return
+      if (pending) toast.info('Wait for the current save to finish.')
+      // BrowserRouter stores entry indices. Capture before its listener, then
+      // traverse back to the existing entry on cancel; never push sentinels or
+      // rewrite router history state. React retains the drawer and its draft.
+      event.stopImmediatePropagation()
+      restoring = true
+      window.history.go(currentIndex - nextIndex)
+    }
+    window.addEventListener('popstate', handler, true)
+    return () => window.removeEventListener('popstate', handler, true)
+  }, [dirty, submitting, posting, ackPending])
+
   if (!alert) return null
 
   const evidence = extractEvidence(alert.violation_type, alert.result_json)
@@ -365,14 +430,7 @@ export function AlertReviewDrawer({
   //   - reviewedByOther  → someone above the assigned manager (e.g. Kris) reviewing
   //                        a teammate's review — one-tap ✓ Approve, comment in
   //                        Discussion, structured form gated behind explicit Override
-  const reviewedByMe =
-    !!alert.is_reviewed &&
-    !!alert.feedback_by &&
-    !!currentUserEmail &&
-    alert.feedback_by.toLowerCase() === currentUserEmail.toLowerCase()
   const reviewedByOther = !!alert.is_reviewed && !reviewedByMe
-
-  const showStructuredForm = !alert.is_reviewed || reviewedByMe || overrideMode
   const showAckBar = reviewedByOther
   const showManagerReviewSummary = reviewedByOther
 
@@ -398,18 +456,18 @@ export function AlertReviewDrawer({
     notesTooShort
 
   return (
-    <Sheet open={!!alert} onOpenChange={open => !open && onClose()}>
+    <Sheet open={!!alert} onOpenChange={open => !open && requestClose()}>
       <SheetContent
         side="right"
         hideClose
         className="w-full sm:max-w-2xl flex flex-col gap-0 p-0 overflow-hidden bg-pennie-white"
       >
         {/* Header */}
-        <SheetHeader className="px-4 sm:px-8 pt-4 pb-5 sm:py-5 border-b border-border space-y-3 text-left">
+        <SheetHeader className="shrink-0 px-4 sm:px-8 pt-4 pb-5 sm:py-5 border-b border-border space-y-3 text-left">
           <div className="flex items-center gap-2 sm:gap-3">
             <button
               type="button"
-              onClick={onClose}
+              onClick={requestClose}
               aria-label="Back to alerts"
               className="min-h-[44px] -ml-1 sm:hidden inline-flex items-center gap-1 px-3 py-2 rounded-full text-sm font-semibold text-pennie-navy hover:bg-pennie-beige transition-colors"
             >
@@ -433,7 +491,7 @@ export function AlertReviewDrawer({
               )}
               <button
                 type="button"
-                onClick={() => onAdvance(-1)}
+                onClick={() => requestAdvance(-1)}
                 disabled={!hasPrev}
                 aria-label="Previous alert (k)"
                 title="Previous (k)"
@@ -443,7 +501,7 @@ export function AlertReviewDrawer({
               </button>
               <button
                 type="button"
-                onClick={() => onAdvance(1)}
+                onClick={() => requestAdvance(1)}
                 disabled={!hasNext}
                 aria-label="Next alert (j)"
                 title="Next (j)"
@@ -453,7 +511,7 @@ export function AlertReviewDrawer({
               </button>
               <button
                 type="button"
-                onClick={onClose}
+                onClick={requestClose}
                 aria-label="Close (Esc)"
                 title="Close (Esc)"
                 className="hidden sm:inline-flex min-h-[44px] min-w-[44px] items-center justify-center rounded-full border border-border hover:bg-pennie-beige transition-colors ml-1"
@@ -517,7 +575,7 @@ export function AlertReviewDrawer({
         )}
 
         {/* Scrollable body */}
-        <div className="flex-1 overflow-y-auto px-8 py-6 space-y-7">
+        <div className="flex-1 min-h-0 overflow-y-auto px-8 py-6 space-y-7">
           {showManagerReviewSummary && (
             <ManagerReviewSummary
               authorEmail={alert.feedback_by}
@@ -616,6 +674,22 @@ export function AlertReviewDrawer({
             </div>
           </section>
 
+          <section>
+            <button
+              type="button"
+              onClick={() => setShowTranscript(value => !value)}
+              aria-expanded={showTranscript}
+              className="pennie-focus-ring min-h-[44px] px-4 py-2 rounded-full border border-border text-sm font-semibold text-pennie-blue-deeper"
+            >
+              {showTranscript ? 'Hide transcript context' : 'Inspect transcript context'}
+            </button>
+            {showTranscript && <div className="mt-4"><AlertTranscript
+              key={alert.call_id}
+              callId={alert.call_id}
+              evidence={extractEvidenceQuotes(alert.violation_type, alert.result_json)}
+            /></div>}
+          </section>
+
           {/* What the Pennie agent said about the Achieve welcome-call rep
               (achieve_welcome_call_qa alerts only; hidden when no submission). */}
           <PennieAgentFeedbackSection feedback={agentFeedback} compact />
@@ -639,7 +713,7 @@ export function AlertReviewDrawer({
         </div>
 
         {/* Sticky review footer — content depends on review state */}
-        <div className="border-t border-border bg-pennie-beige/40 px-8 py-5 space-y-4">
+        <div className="shrink-0 max-h-[45vh] overflow-y-auto border-t border-border bg-pennie-beige/40 px-8 py-5 space-y-4">
           {/* In State B (reviewing a teammate's review), the structured form is
               gated behind an explicit Override affordance. Approve via the bar
               at the top; comment via Discussion. */}
@@ -659,9 +733,13 @@ export function AlertReviewDrawer({
             </div>
           )}
 
+          {needsCoachingFollowUp(alert) && <p className="text-sm text-pennie-blue-deeper">
+            Coaching follow-up is still open. {reviewedByOther ? 'The reviewer can update the outcome, or you can explicitly override the review.' : 'Update the action and notes once you have followed up.'} Approving or commenting does not complete it.
+          </p>}
+
           {showStructuredForm && (
             <>
-              <fieldset>
+              <fieldset disabled={submitting}>
                 <legend className="flex items-center justify-between w-full mb-3 gap-3">
                   <span className="text-sm font-semibold text-pennie-navy">
                     {promptCopy}
@@ -714,7 +792,7 @@ export function AlertReviewDrawer({
               </fieldset>
 
               {accurate === true && (
-                <fieldset>
+                <fieldset disabled={submitting}>
                   <legend className="pennie-label mb-2">
                     How did you address it with the agent?
                     <span className="text-pennie-peach-deeper ml-1" aria-hidden="true">*</span>
@@ -737,7 +815,7 @@ export function AlertReviewDrawer({
               )}
 
               {accurate === false && (
-                <fieldset>
+                <fieldset disabled={submitting}>
                   <legend className="pennie-label mb-2">
                     Why was it a false alarm?
                     <span className="text-pennie-peach-deeper ml-1" aria-hidden="true">*</span>
@@ -787,6 +865,7 @@ export function AlertReviewDrawer({
                   <textarea
                     id={commentId}
                     value={comment}
+                    disabled={submitting}
                     onChange={e => setComment(e.target.value)}
                     placeholder={
                       accurate
@@ -807,6 +886,7 @@ export function AlertReviewDrawer({
                         <button
                           key={phrase.label}
                           type="button"
+                          disabled={submitting}
                           title={phrase.text}
                           onClick={() =>
                             setComment(prev =>
@@ -1196,6 +1276,7 @@ function ThreadSection({
             onKeyDown={e => {
               if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
                 e.preventDefault()
+                e.stopPropagation()
                 onPost()
               }
             }}

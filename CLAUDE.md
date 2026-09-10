@@ -15,10 +15,11 @@ npm run dev        # Vite dev server on port 8080
 npm run build      # production build
 npm run build:dev  # build with development mode (keeps lovable-tagger)
 npm run lint       # eslint
+npm test           # Playwright: real UI with synthetic HTTP fixtures + behavior checks
 npm run preview    # serve the built dist/
 ```
 
-There is **no test suite** and no typecheck script. TS config is intentionally loose (`strict: false`, `noImplicitAny: false`, `strictNullChecks: false`, unused-vars off) — type errors that would fail elsewhere pass here, so verify data-layer changes by running the app.
+Tests live in `tests/`; run `npx playwright install chromium` once, then `npm test`. They exercise the app through synthetic Supabase HTTP fixtures, not live production/RLS. There is no typecheck script. TS config is intentionally loose (`strict: false`, `noImplicitAny: false`, `strictNullChecks: false`, unused-vars off) — type errors that would fail elsewhere pass here, so verify data-layer changes by running the app.
 
 Supabase project is `miikotqnovnixpeqtqnd`. Migrations live in `supabase/migrations/`; the `supabase` MCP server is connected for running SQL / inspecting schema. The edge function is in `supabase/functions/migo-coverage/`.
 

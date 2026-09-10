@@ -6,7 +6,7 @@ import { agentDisplayName, formatDateTime, formatDuration, formatPhoneNumber, ge
 import { HelpHint } from '../components/ui/help-hint'
 import { pitchCallRisk, explainPitchRisk, BAND_LABEL } from '../lib/pitch-call-risk'
 import { accentForBand, pillClasses } from '../lib/violation-styles'
-import { extractEvidence } from '../lib/alert-queries'
+import { extractEvidenceQuotes } from '../lib/transcript-evidence'
 import { AudioPlayer } from '../components/call-detail/AudioPlayer'
 import { TranscriptView } from '../components/call-detail/TranscriptView'
 import { ComplianceScorecard } from '../components/call-detail/ComplianceScorecard'
@@ -75,8 +75,7 @@ export default function CallDetailPage() {
     () =>
       alerts
         .filter(a => a.has_violation)
-        .map(a => extractEvidence(a.violation_type, a.result_json))
-        .filter(Boolean),
+        .flatMap(a => extractEvidenceQuotes(a.violation_type, a.result_json)),
     [alerts],
   )
 

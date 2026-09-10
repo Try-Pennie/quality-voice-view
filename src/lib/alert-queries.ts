@@ -99,44 +99,42 @@ export async function fetchAlerts(
   // Manager with no mapped agents (and not god-mode) sees nothing.
   if (!scope.isGodMode && scope.managedAgents.length === 0) return []
 
-  let q = sb
-    .from('eavesly_alerts_with_feedback')
-    .select(ALERT_LIST_COLUMNS)
-    .gte('alert_created_at', startOfBusinessDay(filters.startDate).toISOString())
-    .lte('alert_created_at', endOfBusinessDay(filters.endDate).toISOString())
-    .order('alert_created_at', { ascending: false })
-    .limit(500)
+  const rows = await fetchAllPaginated<AlertWithFeedback>((from, to) => {
+    let q = sb
+      .from('eavesly_alerts_with_feedback')
+      .select(ALERT_LIST_COLUMNS)
+      .gte('alert_created_at', startOfBusinessDay(filters.startDate).toISOString())
+      .lte('alert_created_at', endOfBusinessDay(filters.endDate).toISOString())
+      .order('alert_created_at', { ascending: false })
+      .order('call_id', { ascending: true })
+      .order('module_name', { ascending: true })
+      .range(from, to)
 
-  // Disposition review is being tested in production. Keep its rows out of the
-  // manager-facing alert queue until ops is ready to expose them.
-  for (const moduleName of ALWAYS_SUPPRESSED_ALERT_MODULES) {
-    q = q.neq('module_name', moduleName)
-  }
-  if (!scope.isGodMode) {
-    for (const moduleName of SUPER_ADMIN_ONLY_ALERT_MODULES) {
+    for (const moduleName of ALWAYS_SUPPRESSED_ALERT_MODULES) {
       q = q.neq('module_name', moduleName)
     }
+    if (!scope.isGodMode) {
+      for (const moduleName of SUPER_ADMIN_ONLY_ALERT_MODULES) {
+        q = q.neq('module_name', moduleName)
+      }
+      q = q.in('agent_email', scope.managedAgents)
+    }
+
+    if (filters.modules?.length) q = q.in('module_name', filters.modules)
+    if (filters.status === 'new') q = q.eq('is_reviewed', false)
+    if (filters.status === 'reviewed') q = q.eq('is_reviewed', true)
+    if (filters.accuracy === 'accurate') q = q.eq('accurate', true)
+    if (filters.accuracy === 'inaccurate') q = q.eq('accurate', false)
+
+    // Search is applied to the complete scoped result set, not per page.
+
+    return q
+  })
+  // The shared paginator has a safety cap. Never present a capped queue as complete.
+  if (rows.length >= 100_000) {
+    throw new Error('This window contains too many alerts. Narrow the date range to review the complete queue.')
   }
-
-  if (!scope.isGodMode) {
-    q = q.in('agent_email', scope.managedAgents)
-  }
-
-  if (filters.modules?.length) q = q.in('module_name', filters.modules)
-  if (filters.status === 'new') q = q.eq('is_reviewed', false)
-  if (filters.status === 'reviewed') q = q.eq('is_reviewed', true)
-  if (filters.accuracy === 'accurate') q = q.eq('accurate', true)
-  if (filters.accuracy === 'inaccurate') q = q.eq('accurate', false)
-
-  // Search is applied client-side now (small result set, removes per-keystroke
-  // round-trip). The `search` field is ignored here intentionally.
-
-  const { data, error } = await q
-  if (error) {
-    console.error('Error fetching alerts:', error)
-    throw error
-  }
-  return filterSuppressedAlertRows(data as AlertWithFeedback[], scope)
+  return filterSuppressedAlertRows(rows, scope)
 }
 
 // All alerts (any status, includes false-positives + non-violations) for a

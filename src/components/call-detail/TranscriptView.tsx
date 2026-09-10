@@ -1,239 +1,112 @@
-import { useMemo, useState } from 'react'
-import { ChevronDown } from 'lucide-react'
+import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from 'react'
+import { ChevronDown, ChevronLeft, ChevronRight } from 'lucide-react'
+import { findTranscriptRanges, parseTranscriptTurns } from '@/lib/transcript-evidence'
 
-/*
-  Speaker-turn transcript renderer.
-
-  Regal transcripts arrive as plain text without reliable timestamps, so this
-  component does the best presentational job possible without them:
-
-  - Parses `Speaker: text` line prefixes into visually distinct turns.
-  - Highlights alert evidence quotes via normalized text matching (no
-    timestamps needed) so reviewers can spot the flagged moment while
-    scrubbing the audio manually.
-  - Falls back to the raw text block whenever the transcript doesn't parse
-    confidently — never worse than the old <pre> rendering.
-*/
-
-type Turn = {
-  speaker: string
-  text: string
-}
-
-// A speaker label is a short prefix before a colon — "Agent:", "Customer:",
-// "Speaker 1:", "John Smith:". Longer prefixes are almost certainly prose
-// containing a colon, so we cap length and word count.
-const SPEAKER_LINE = /^\s*([A-Za-z][A-Za-z0-9 .'_-]{0,30}?)\s*:\s*(.*)$/
-
-function parseTurns(transcript: string): Turn[] | null {
-  const lines = transcript.split(/\r?\n/)
-  const turns: Turn[] = []
-  let current: Turn | null = null
-  let matchedLines = 0
-  let contentLines = 0
-
-  for (const line of lines) {
-    if (!line.trim()) continue
-    contentLines++
-    const m = line.match(SPEAKER_LINE)
-    const speaker = m?.[1]?.trim()
-    const isSpeakerLine =
-      !!m && !!speaker && speaker.split(/\s+/).length <= 3
-    if (isSpeakerLine) {
-      matchedLines++
-      if (current) turns.push(current)
-      current = { speaker: speaker!, text: m![2] ?? '' }
-    } else if (current) {
-      current.text += (current.text ? '\n' : '') + line.trim()
-    }
-  }
-  if (current) turns.push(current)
-
-  // Only trust the parse when the transcript is mostly speaker-prefixed and
-  // involves an actual back-and-forth. Otherwise render the raw fallback.
-  const speakers = new Set(turns.map(t => t.speaker.toLowerCase()))
-  if (
-    turns.length < 4 ||
-    speakers.size < 2 ||
-    speakers.size > 6 ||
-    matchedLines / Math.max(1, contentLines) < 0.6
-  ) {
-    return null
-  }
-  return turns
-}
-
-function normalize(text: string): string {
-  return text.replace(/\s+/g, ' ').trim().toLowerCase()
-}
-
-/**
- * Render `text`, wrapping any evidence quote it contains in a <mark>. Exact
- * (case-insensitive) substring match only — normalized containment without an
- * exact position falls back to flagging the whole turn via `turnFlagged`.
- */
-function renderWithHighlights(text: string, evidence: string[]) {
-  type Range = { start: number; end: number }
-  const lower = text.toLowerCase()
-  const ranges: Range[] = []
-  for (const quote of evidence) {
-    const q = quote.trim().toLowerCase()
-    if (q.length < 12) continue
-    let from = 0
-    while (from < lower.length) {
-      const idx = lower.indexOf(q, from)
-      if (idx === -1) break
-      ranges.push({ start: idx, end: idx + q.length })
-      from = idx + q.length
-    }
-  }
-  if (ranges.length === 0) return text
-
-  ranges.sort((a, b) => a.start - b.start)
-  const merged: Range[] = []
-  for (const r of ranges) {
-    const last = merged[merged.length - 1]
-    if (last && r.start <= last.end) {
-      last.end = Math.max(last.end, r.end)
-    } else {
-      merged.push({ ...r })
-    }
-  }
-
-  const parts: React.ReactNode[] = []
-  let cursor = 0
-  merged.forEach((r, i) => {
-    if (r.start > cursor) parts.push(text.slice(cursor, r.start))
-    parts.push(
-      <mark
-        key={i}
-        className="bg-pennie-yellow-light text-pennie-graphite rounded-sm px-0.5"
-      >
-        {text.slice(r.start, r.end)}
-      </mark>,
-    )
-    cursor = r.end
-  })
-  if (cursor < text.length) parts.push(text.slice(cursor))
-  return parts
-}
-
-function turnContainsEvidence(turn: Turn, evidence: string[]): boolean {
-  const t = normalize(turn.text)
-  return evidence.some(q => {
-    const nq = normalize(q)
-    return nq.length >= 12 && t.includes(nq)
-  })
-}
-
-const COLLAPSED_MAX_HEIGHT = 'max-h-96'
-
-export function TranscriptView({
-  transcript,
-  evidence = [],
-}: {
+/** Searchable speaker turns with literal evidence navigation; no inferred audio timestamps. */
+export function TranscriptView({ transcript, evidence = [] }: {
   transcript: string
-  /** Evidence quotes from this call's alerts — highlighted via text match. */
   evidence?: string[]
 }) {
   const [expanded, setExpanded] = useState(false)
-  const turns = useMemo(() => parseTurns(transcript), [transcript])
-  const cleanedEvidence = useMemo(
-    () => evidence.map(e => e.trim()).filter(e => e.length >= 12),
-    [evidence],
-  )
-  const hasHighlights = useMemo(
-    () =>
-      cleanedEvidence.length > 0 &&
-      (turns
-        ? turns.some(t => turnContainsEvidence(t, cleanedEvidence))
-        : cleanedEvidence.some(q =>
-            normalize(transcript).includes(normalize(q)),
-          )),
-    [turns, transcript, cleanedEvidence],
-  )
+  const [search, setSearch] = useState('')
+  const [active, setActive] = useState(-1)
+  const searchId = useId()
+  const contentId = useId()
+  const contentRef = useRef<HTMLDivElement>(null)
+  const turns = useMemo(() => parseTranscriptTurns(transcript), [transcript])
+  const searching = search.trim().length > 0
+  const blocks = useMemo(() => {
+    const needles = searching ? [search] : evidence.filter(quote => quote.trim().length >= 12)
+    let offset = 0
+    return (turns ?? [{ speaker: '', text: transcript }]).map(turn => {
+      const ranges = findTranscriptRanges(turn.text, needles)
+      const block = { ...turn, ranges, offset }
+      offset += ranges.length
+      return block
+    })
+  }, [transcript, turns, search, searching, evidence])
+  const count = blocks.reduce((total, block) => total + block.ranges.length, 0)
+  const position = active >= 0 && active < count ? active : -1
 
-  // Speaker → stable accent, assigned in order of first appearance. First
-  // speaker (usually the agent) gets navy, second gets blue.
-  const speakerStyles = useMemo(() => {
-    if (!turns) return new Map<string, string>()
-    const styles = [
-      'text-pennie-navy',
-      'text-pennie-blue-deeper',
-      'text-pennie-indigo-dark',
-      'text-pennie-graphite',
-    ]
-    const map = new Map<string, string>()
-    for (const t of turns) {
-      const key = t.speaker.toLowerCase()
-      if (!map.has(key)) map.set(key, styles[map.size % styles.length])
-    }
-    return map
-  }, [turns])
+  useEffect(() => {
+    setSearch('')
+    setActive(-1)
+  }, [transcript])
+
+  useEffect(() => {
+    if (position < 0) return
+    contentRef.current?.querySelector(`[data-transcript-match="${position}"]`)?.scrollIntoView({ block: 'nearest' })
+  }, [position, blocks])
+
+  const advance = (delta: number) => {
+    if (!count) return
+    setActive(position < 0 ? (delta > 0 ? 0 : count - 1) : (position + delta + count) % count)
+  }
+  const buttonClass = 'pennie-focus-ring min-h-[40px] min-w-[40px] px-3 rounded-full border border-border text-xs font-semibold text-pennie-blue-deeper disabled:opacity-40'
 
   return (
-    <div>
-      {hasHighlights && (
-        <p className="mb-3 text-xs text-pennie-graphite/70 inline-flex items-center gap-1.5">
-          <span
-            className="inline-block w-3 h-3 rounded-sm bg-pennie-yellow-light border border-pennie-yellow-main"
-            aria-hidden="true"
+    <div className="space-y-3">
+      <div className="flex flex-wrap items-end gap-2">
+        <div className="flex-1 min-w-[160px]">
+          <label htmlFor={searchId} className="pennie-label block mb-1">Search transcript</label>
+          <input
+            id={searchId}
+            type="search"
+            value={search}
+            maxLength={256}
+            onChange={event => { setSearch(event.target.value); setActive(0) }}
+            onKeyDown={event => {
+              if (event.key === 'Enter') {
+                event.preventDefault()
+                event.stopPropagation()
+                advance(event.shiftKey ? -1 : 1)
+              }
+            }}
+            placeholder="Find a word or exact phrase…"
+            className="w-full min-h-[40px] px-3 py-2 rounded-full border border-border bg-pennie-white text-base sm:text-sm focus:outline-none focus:ring-2 focus:ring-pennie-blue-deeper/40"
           />
-          Highlighted passages were quoted as evidence by this call's alerts.
-        </p>
-      )}
-
-      <div
-        className={`bg-pennie-beige/60 rounded-2xl p-4 sm:p-5 overflow-y-auto ${
-          expanded ? 'max-h-[70vh]' : COLLAPSED_MAX_HEIGHT
-        }`}
-      >
-        {turns ? (
-          <ol className="space-y-4">
-            {turns.map((turn, i) => {
-              const flagged = turnContainsEvidence(turn, cleanedEvidence)
-              return (
-                <li
-                  key={i}
-                  className={
-                    flagged
-                      ? '-mx-2 px-2 py-1.5 rounded-xl bg-pennie-yellow-light/50'
-                      : ''
-                  }
-                >
-                  <span
-                    className={`block text-[11px] font-bold uppercase tracking-wider mb-0.5 ${
-                      speakerStyles.get(turn.speaker.toLowerCase()) ??
-                      'text-pennie-navy'
-                    }`}
-                  >
-                    {turn.speaker}
-                  </span>
-                  <p className="text-sm text-pennie-graphite leading-relaxed whitespace-pre-wrap">
-                    {renderWithHighlights(turn.text, cleanedEvidence)}
-                  </p>
-                </li>
-              )
-            })}
-          </ol>
-        ) : (
-          <pre className="whitespace-pre-wrap text-sm text-pennie-graphite font-sans leading-relaxed">
-            {renderWithHighlights(transcript, cleanedEvidence)}
-          </pre>
-        )}
+        </div>
+        <button type="button" className={buttonClass} disabled={!count} onClick={() => advance(-1)} aria-label={searching ? 'Previous match' : 'Previous evidence'}>
+          <ChevronLeft className="w-4 h-4" aria-hidden="true" />
+        </button>
+        <button type="button" className={`${buttonClass} inline-flex items-center gap-1`} disabled={!count} onClick={() => advance(1)} aria-label={searching ? 'Next match' : 'Next evidence'}>
+          {searching ? 'Next match' : 'Next evidence'}<ChevronRight className="w-4 h-4" aria-hidden="true" />
+        </button>
+        {searching && <button type="button" className={buttonClass} onClick={() => { setSearch(''); setActive(-1) }}>Show evidence</button>}
       </div>
-
-      <button
-        type="button"
-        onClick={() => setExpanded(e => !e)}
-        aria-expanded={expanded}
-        className="mt-2 inline-flex items-center gap-1 text-xs font-semibold text-pennie-blue-deeper hover:underline underline-offset-4"
-      >
+      <p className="text-xs text-pennie-graphite/70" role="status">
+        {count > 0
+          ? `${position >= 0 ? `${position + 1} of ` : ''}${count} ${searching ? 'search matches' : 'evidence passages'}`
+          : searching ? 'No search matches.' : evidence.length ? 'No literal evidence match in this transcript. Review the context; the quote may be paraphrased or from another call.' : 'No verbatim evidence quotes available. Search to inspect the call.'}
+        {searching && ' · Enter / Shift+Enter moves between matches.'}
+      </p>
+      <div ref={contentRef} id={contentId} className={`bg-pennie-beige/60 rounded-2xl p-4 sm:p-5 overflow-y-auto ${expanded ? 'max-h-[70vh]' : 'max-h-96'}`}>
+        <ol className="space-y-4">
+          {blocks.map((block, index) => {
+            const parts: ReactNode[] = []
+            let cursor = 0
+            block.ranges.forEach((range, matchIndex) => {
+              if (range.start > cursor) parts.push(block.text.slice(cursor, range.start))
+              const matchId = block.offset + matchIndex
+              parts.push(<mark
+                key={matchIndex}
+                data-transcript-match={matchId}
+                aria-current={matchId === position ? 'true' : undefined}
+                className={`${searching ? 'bg-pennie-blue-light' : 'bg-pennie-yellow-light'} text-pennie-graphite rounded-sm ${matchId === position ? 'outline outline-2 outline-pennie-blue-deeper' : ''}`}
+              >{block.text.slice(range.start, range.end)}</mark>)
+              cursor = range.end
+            })
+            parts.push(block.text.slice(cursor))
+            return <li key={index}>
+              {block.speaker && <span className="block text-[11px] font-bold uppercase tracking-wider mb-0.5 text-pennie-navy">{block.speaker}</span>}
+              <p className="text-sm text-pennie-graphite leading-relaxed whitespace-pre-wrap">{parts}</p>
+            </li>
+          })}
+        </ol>
+      </div>
+      <button type="button" onClick={() => setExpanded(value => !value)} aria-expanded={expanded} aria-controls={contentId} className="pennie-focus-ring min-h-[36px] inline-flex items-center gap-1 text-xs font-semibold text-pennie-blue-deeper hover:underline underline-offset-4">
         {expanded ? 'Collapse transcript' : 'Expand transcript'}
-        <ChevronDown
-          className={`w-3 h-3 transition-transform ${expanded ? 'rotate-180' : ''}`}
-          aria-hidden="true"
-        />
+        <ChevronDown className={`w-3 h-3 transition-transform ${expanded ? 'rotate-180' : ''}`} aria-hidden="true" />
       </button>
     </div>
   )

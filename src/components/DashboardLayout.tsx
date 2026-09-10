@@ -10,7 +10,7 @@ import {
 } from 'lucide-react'
 import { useAuth } from '../hooks/useAuth'
 import { useAlertBreakdown, useUserScope } from '../hooks/use-queries'
-import { ymdInBusinessTZ } from '../lib/time-zone'
+import { defaultAlertWindow } from '../lib/alert-review-queue'
 import { HintsProvider, useHints } from './ui/help-hint'
 import { NotificationBell } from './NotificationBell'
 import { Popover, PopoverContent, PopoverTrigger } from './ui/popover'
@@ -50,19 +50,12 @@ function DashboardChrome({ children }: { children: React.ReactNode }) {
   const [mobileNavOpen, setMobileNavOpen] = useState(false)
   const [reportsOpen, setReportsOpen] = useState(false)
 
-  // Open-alert count for the Alerts nav badge — today's window (ET), matching
-  // the queue's default view, so it shares the AlertsPage breakdown cache.
+  // Open-alert count for the Alerts nav badge — the queue's default 30-day
+  // window (ET), sharing the AlertsPage breakdown cache.
   // Uses the simple `unreviewed` count for all roles; god-mode "needs my ✓"
   // nuance stays on the page itself.
-  const [todayStart, todayEnd] = useMemo(() => {
-    const [y, m, d] = ymdInBusinessTZ(new Date()).split('-').map(Number)
-    const start = new Date(y, m - 1, d)
-    start.setHours(0, 0, 0, 0)
-    const end = new Date(y, m - 1, d)
-    end.setHours(23, 59, 59, 999)
-    return [start, end] as const
-  }, [])
-  const { data: breakdown } = useAlertBreakdown(scope, todayStart, todayEnd)
+  const alertWindow = useMemo(() => defaultAlertWindow(new Date()), [])
+  const { data: breakdown } = useAlertBreakdown(scope, alertWindow.start, alertWindow.end)
   const openAlertCount = useMemo(
     () => (breakdown ?? []).reduce((sum, c) => sum + c.unreviewed, 0),
     [breakdown],
@@ -282,7 +275,7 @@ function NavBadge({ count }: { count: number }) {
   return (
     <span
       className="inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 rounded-full bg-pennie-blue-deeper text-pennie-white text-[10px] font-bold tabular-nums"
-      aria-label={`${count} open alert${count === 1 ? '' : 's'} today`}
+      aria-label={`${count} open alert${count === 1 ? '' : 's'} in the last 30 days`}
     >
       {count > 99 ? '99+' : count}
     </span>
