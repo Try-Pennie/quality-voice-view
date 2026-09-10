@@ -29,4 +29,6 @@ Verify with:
 - focused `npx eslint` on changed TypeScript files, then `npm run lint`
 - synthetic desktop/mobile Playwright screenshots
 
+Before deployment: confirm the Supabase Auth redirect allowlist permits the application's `/dashboard/alerts` URL (Google sign-in now returns directly to Review). The browser test inspects the real Supabase client's outgoing authorize request without contacting the OAuth provider; it does not verify production allowlist configuration.
+
 Stop conditions: a required data/schema or authorization decision, scope expansion into the review form/request-changes lifecycle, or the observable conditions above are met.

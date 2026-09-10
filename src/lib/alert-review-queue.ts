@@ -68,8 +68,9 @@ export function summarizeReviewWorkload(alerts: readonly ReviewState[]): ReviewW
 /** Parse an untrusted URL view, retaining legacy links with clearer labels. */
 export function parseAlertQueueView(value: string | null, isGodMode = false): AlertQueueView {
   switch (value) {
-    case 'awaiting_manager':
     case 'awaiting_approval':
+      return isGodMode ? 'awaiting_approval' : 'awaiting_manager'
+    case 'awaiting_manager':
     case 'coaching_due':
     case 'reviewed':
     case 'all':

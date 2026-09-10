@@ -101,6 +101,41 @@ test('partner QA is a separate god-mode destination and never appears for a mana
   expect(managerListRequest?.searchParams.get('agent_email')).toContain(AGENT_A)
 })
 
+test('fresh Google sign-in requests a return directly to Review', async ({ page }) => {
+  await page.routeWebSocket(/.*/, socket => socket.close())
+  await page.route(url => url.protocol === 'https:', route => {
+    if (new URL(route.request().url()).pathname === '/auth/v1/authorize') {
+      return route.fulfill({ contentType: 'text/html', body: '<p>Synthetic authorization endpoint</p>' })
+    }
+    return route.abort()
+  })
+  await page.goto('/login')
+  const origin = new URL(page.url()).origin
+  const authorizeRequest = page.waitForRequest(request => new URL(request.url()).pathname === '/auth/v1/authorize')
+  await page.getByRole('button', { name: 'Continue with Google' }).click()
+  const authorizeUrl = new URL((await authorizeRequest).url())
+  expect(authorizeUrl.searchParams.get('provider')).toBe('google')
+  expect(authorizeUrl.searchParams.get('redirect_to')).toBe(`${origin}/dashboard/alerts`)
+})
+
+test('manager drilldown normalizes the same owner as its summary count', async ({ page }) => {
+  await reviewFixture(page, [alertRow('padded-owner', { assigned_manager_email: `  ${MANAGER_A.toUpperCase()}  ` })], {
+    god: true,
+    managerNames: { [MANAGER_A]: 'Manager Alpha' },
+  })
+  await page.goto('/dashboard/alerts')
+  await page.getByRole('button', { name: 'Filter Manager Alpha Received 1' }).click()
+  await expect(page.getByRole('heading', { name: '1 received in window' })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Review Manager escalation alert for Example padded-owner' })).toBeVisible()
+})
+
+test('manager opening an admin approval link lands on their pending review queue', async ({ page }) => {
+  await reviewFixture(page, [alertRow('pending')])
+  await page.goto('/dashboard/alerts?status=awaiting_approval')
+  await expect(page.getByRole('heading', { name: '1 awaiting manager' })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Review Manager escalation alert for Example pending' })).toBeVisible()
+})
+
 test('login, logo, primary navigation, drawer, and history retain explicit ET dates', async ({ page }) => {
   await reviewFixture(page, [alertRow('dated')])
   await page.goto('/login')

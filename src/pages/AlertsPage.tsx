@@ -170,7 +170,7 @@ export default function AlertsPage() {
   const { data: rollupsData } = useTeamRollup(scope, startDate, endDate)
   const rollups = useMemo(() => rollupsData ?? [], [rollupsData])
   const managerEmails = useMemo(() => Array.from(new Set(allAlerts.flatMap(alert =>
-    alert.assigned_manager_email ? [alert.assigned_manager_email.toLowerCase()] : [],
+    alert.assigned_manager_email ? [alert.assigned_manager_email.trim().toLowerCase()] : [],
   ))), [allAlerts])
   const { data: managerNamesData } = useManagerNames(scope?.isGodMode && workload === 'internal' ? managerEmails : [])
   const managerNames = useMemo(() => managerNamesData ?? new Map<string, string>(), [managerNamesData])
@@ -189,7 +189,7 @@ export default function AlertsPage() {
   const alerts = useMemo(() => {
     let rows = allAlerts.filter(a => matchesAlertQueueView(a, statusView, !!scope?.isGodMode, user?.email, now))
     if (managerFilter) {
-      rows = rows.filter(a => (a.assigned_manager_email?.toLowerCase() || '__unassigned__') === managerFilter)
+      rows = rows.filter(a => (a.assigned_manager_email?.trim().toLowerCase() || '__unassigned__') === managerFilter)
     }
     if (outcomeFilter === 'real') rows = rows.filter(a => isHumanReviewed(a) && a.accurate === true)
     if (outcomeFilter === 'false_alarm') rows = rows.filter(a => isHumanReviewed(a) && a.accurate === false)
