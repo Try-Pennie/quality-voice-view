@@ -39,6 +39,7 @@ import {
   type UserScope,
 } from '@/lib/alert-queries'
 import { useAgentFeedbackForCall, useAlertThread } from '@/hooks/use-queries'
+import { registerHistoryNavigationGuard } from '@/lib/history-navigation-guard'
 import { PennieAgentFeedbackSection } from '@/components/PennieAgentFeedbackSection'
 import { VIOLATION_HELP_IDS } from '@/lib/help-content'
 import {
@@ -232,10 +233,8 @@ export function AlertReviewDrawer({
 
       if (e.key === 'y' || e.key === 'Y') {
         setAccurate(true)
-        setReason(null)
       } else if (e.key === 'n' || e.key === 'N') {
         setAccurate(false)
-        setAction(null)
       } else if (/^[1-9]$/.test(e.key)) {
         const idx = parseInt(e.key, 10) - 1
         if (accurate === true && ACTION_OPTIONS[idx]) setAction(ACTION_OPTIONS[idx])
@@ -348,14 +347,12 @@ export function AlertReviewDrawer({
     setSubmitting(true)
 
     if (workload === 'internal') {
-      const draft = parseInternalReviewDraft({
-        verdict: accurate,
-        action,
-        reason,
-        violationDetails,
-        actionDetails,
-        falseAlarmDetails: comment,
-      })
+      const draft = parsedDraft
+      if (draft === null) {
+        submissionPending.current = false
+        setSubmitting(false)
+        return
+      }
       if (draft.ok === false) {
         submissionPending.current = false
         setSubmitting(false)
@@ -377,6 +374,8 @@ export function AlertReviewDrawer({
         return
       }
       toast.success(alert.current_decision === 'changes_requested' ? 'Review resubmitted' : 'Review saved')
+      setAction(draft.value.action)
+      setReason(draft.value.reason)
       setViolationDetails(draft.value.violationDetails ?? '')
       setActionDetails(draft.value.actionDetails ?? '')
       setComment(draft.value.falseAlarmDetails ?? '')
@@ -525,8 +524,7 @@ export function AlertReviewDrawer({
       restoring = true
       window.history.go(currentIndex - nextIndex)
     }
-    window.addEventListener('popstate', handler, true)
-    return () => window.removeEventListener('popstate', handler, true)
+    return registerHistoryNavigationGuard(handler)
   }, [dirty, submitting, posting, ackPending, decisionPending])
 
   if (!alert) return null
@@ -556,11 +554,11 @@ export function AlertReviewDrawer({
 
   const parsedDraft = workload === 'internal' ? parseInternalReviewDraft({
     verdict: accurate,
-    action,
-    reason,
-    violationDetails,
-    actionDetails,
-    falseAlarmDetails: comment,
+    action: accurate === true ? action : null,
+    reason: accurate === false ? reason : null,
+    violationDetails: accurate === true ? violationDetails : null,
+    actionDetails: accurate === true ? actionDetails : null,
+    falseAlarmDetails: accurate === false ? comment : null,
   }) : null
   const legacyNotesInvalid = workload === 'partner_qa' && (
     (accurate === true && comment.trim().length < LEGACY_REAL_NOTES_MIN) ||
@@ -919,19 +917,13 @@ export function AlertReviewDrawer({
                     label="Real issue (Y)"
                     active={accurate === true}
                     tone="success"
-                    onClick={() => {
-                      setAccurate(true)
-                      setReason(null)
-                    }}
+                    onClick={() => setAccurate(true)}
                   />
                   <Toggle
                     label="False alarm (N)"
                     active={accurate === false}
                     tone="danger"
-                    onClick={() => {
-                      setAccurate(false)
-                      setAction(null)
-                    }}
+                    onClick={() => setAccurate(false)}
                   />
                 </div>
               </fieldset>
@@ -1043,9 +1035,12 @@ export function AlertReviewDrawer({
               )}
 
               <div className="flex justify-between items-center gap-3">
-                <p className="text-[11px] text-muted-foreground">
-                  ⌘/Ctrl+Enter to save · J/K to navigate
-                </p>
+                <div className="text-[11px] text-muted-foreground">
+                  <p>⌘/Ctrl+Enter to save · J/K to navigate</p>
+                  {workload === 'internal' && alert.current_decision === 'approved' && (
+                    <p>Updating creates a new revision that requires approval.</p>
+                  )}
+                </div>
                 <button
                   type="button"
                   onClick={handleSubmit}

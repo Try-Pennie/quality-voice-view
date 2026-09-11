@@ -66,6 +66,80 @@ test('internal form requires distinct bounded real details and an explanation fo
   })
 })
 
+test('click and keyboard verdict toggles preserve drafts but submit only active fields', async ({ page }) => {
+  const state = await reviewFixture(page, [alertRow('toggle-real'), alertRow('toggle-false')])
+  await page.goto('/dashboard/alerts?status=awaiting_manager')
+  await openAlert(page, 'toggle-real')
+
+  await page.getByRole('button', { name: 'False alarm (N)' }).click()
+  await page.getByRole('button', { name: '3. Wrong context' }).click()
+  await page.getByRole('textbox', { name: /Why is this a false alarm/ }).fill(falseExplanation)
+  const realToggle = page.getByRole('button', { name: 'Real issue (Y)' })
+  await realToggle.click()
+  await page.getByRole('button', { name: '1. Coached the agent' }).click()
+  await page.getByRole('textbox', { name: /What happened/ }).fill(violation)
+  await page.getByRole('textbox', { name: /What action did you take/ }).fill(action)
+  await realToggle.click()
+  await page.keyboard.press('n')
+  await expect(page.getByRole('textbox', { name: /Why is this a false alarm/ })).toHaveValue(falseExplanation)
+  await page.keyboard.press('y')
+  await expect(page.getByRole('textbox', { name: /What happened/ })).toHaveValue(violation)
+  await page.getByRole('button', { name: 'Save review' }).click()
+
+  await expect(page.getByRole('dialog')).toContainText('Example toggle-false')
+  await page.getByRole('button', { name: 'Real issue (Y)' }).click()
+  await page.getByRole('button', { name: '1. Coached the agent' }).click()
+  await page.getByRole('textbox', { name: /What happened/ }).fill(violation)
+  await page.getByRole('textbox', { name: /What action did you take/ }).fill(action)
+  await page.getByRole('button', { name: 'False alarm (N)' }).click()
+  await page.getByRole('button', { name: '3. Wrong context' }).click()
+  await page.getByRole('textbox', { name: /Why is this a false alarm/ }).fill(falseExplanation)
+  await page.getByRole('button', { name: 'Save review' }).click()
+  await expect(page.getByRole('dialog')).toHaveCount(0)
+
+  const writes = state.writes.filter(write => write && typeof write === 'object' && 'p_verdict' in write)
+  expect(writes).toHaveLength(2)
+  expect(writes[0]).toMatchObject({
+    p_verdict: true,
+    p_reason: null,
+    p_false_alarm_details: null,
+  })
+  expect(writes[1]).toMatchObject({
+    p_verdict: false,
+    p_action: null,
+    p_violation_details: null,
+    p_action_details: null,
+  })
+})
+
+test('legacy combined notes do not block an approved real-review update', async ({ page }) => {
+  const row = alertRow('legacy-note', {
+    is_reviewed: true,
+    accurate: true,
+    action_taken: 'coached',
+    feedback_by: EMAIL,
+    feedback_comment: 'Historic combined manager note remains available for compatibility.',
+    review_revision: 1,
+    current_decision_id: 33,
+    current_decision: 'approved',
+    current_decision_by: 'director@example.test',
+    current_decision_source: 'typed',
+  })
+  const state = await reviewFixture(page, [row])
+  await page.goto('/dashboard/alerts?status=reviewed')
+  await openAlert(page, 'legacy-note')
+  await expect(page.getByText('Updating creates a new revision that requires approval.')).toBeVisible()
+  await page.getByRole('textbox', { name: /What happened/ }).fill(violation)
+  await page.getByRole('textbox', { name: /What action did you take/ }).fill(action)
+  await page.getByRole('button', { name: 'Update review' }).click()
+  await expect(page.getByText('Review saved')).toBeVisible()
+  expect(state.writes.find(write => write && typeof write === 'object' && 'p_verdict' in write)).toMatchObject({
+    p_verdict: true,
+    p_false_alarm_details: null,
+  })
+  expect(state.rows[0].current_decision).toBeNull()
+})
+
 test('request goes to the current manager, preserves the original, then another admin globally reapproves', async ({ browser }, testInfo) => {
   const row = reviewedFalse('returned')
   row.assigned_manager_email = EMAIL

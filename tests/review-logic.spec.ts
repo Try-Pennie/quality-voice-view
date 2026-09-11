@@ -64,11 +64,13 @@ test('human outcomes reconcile while administrative closures remain separate', (
   const falseAlarm = { ...open, is_reviewed: true, accurate: false, feedback_by: 'reviewer-b@example.test' }
   const systemClosed = { ...open, is_reviewed: true, accurate: true, feedback_by: 'system@pennie' }
   const returned = { ...falseAlarm, current_decision: 'changes_requested' as const }
-  const counts = summarizeReviewWorkload([open, real, returned, systemClosed])
-  expect(counts).toEqual({ received: 4, reviewed: 2, real: 1, falseAlarm: 1, awaitingManager: 1, changesRequested: 1, systemClosed: 1 })
+  const malformedReturned = { ...open, current_decision: 'changes_requested' as const }
+  const counts = summarizeReviewWorkload([open, real, returned, malformedReturned, systemClosed])
+  expect(counts).toEqual({ received: 5, reviewed: 2, real: 1, falseAlarm: 1, awaitingManager: 2, changesRequested: 1, systemClosed: 1 })
   expect(counts.received).toBe(counts.reviewed + counts.awaitingManager + counts.systemClosed)
   expect(counts.reviewed).toBe(counts.real + counts.falseAlarm)
   expect(matchesAlertQueueView(systemClosed, 'reviewed', true, 'director@example.test', now)).toBe(false)
+  expect(matchesAlertQueueView(malformedReturned, 'changes_requested', true, 'director@example.test', now)).toBe(false)
 })
 
 test('internal and partner workloads remain separate even for god-mode viewers', () => {

@@ -111,6 +111,7 @@ export function parseInternalReviewDraft(input: InternalReviewDraftInput): Inter
 
   if (input.verdict) {
     if (!input.action || !ACTIONS.includes(input.action)) return failure('Choose how the issue was addressed.')
+    if (input.reason !== null || input.falseAlarmDetails?.trim()) return failure('False-alarm fields do not apply to a real issue.')
     const violation = parseRequiredText(input.violationDetails, 'What happened')
     if (violation.ok === false) return { ok: false, error: violation.error }
     const action = parseRequiredText(input.actionDetails, 'Action details')
@@ -132,6 +133,9 @@ export function parseInternalReviewDraft(input: InternalReviewDraftInput): Inter
   }
 
   if (!input.reason || !REASONS.includes(input.reason)) return failure('Choose why this was a false alarm.')
+  if (input.action !== null || input.violationDetails?.trim() || input.actionDetails?.trim()) {
+    return failure('Real-issue fields do not apply to a false alarm.')
+  }
   const explanation = parseRequiredText(input.falseAlarmDetails, 'False-alarm explanation')
   if (explanation.ok === false) return { ok: false, error: explanation.error }
   return {

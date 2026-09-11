@@ -28,14 +28,19 @@ test('structured review parser enforces the same 12–4000 character prose contr
   expect(parseInternalReviewDraft({
     verdict: true,
     action: 'coached',
-    reason: 'wrong_context', // A hidden draft from toggling verdicts is ignored.
+    reason: null,
     violationDetails: 'The disclosure was omitted.',
     actionDetails: 'The manager coached the full disclosure.',
-    falseAlarmDetails: 'The hidden false-alarm explanation remains in the form draft.',
-  })).toMatchObject({
-    ok: true,
-    value: { verdict: true, reason: null, falseAlarmDetails: null },
-  })
+    falseAlarmDetails: null,
+  })).toMatchObject({ ok: true, value: { verdict: true } })
+  expect(parseInternalReviewDraft({
+    verdict: true,
+    action: 'coached',
+    reason: 'wrong_context',
+    violationDetails: 'The disclosure was omitted.',
+    actionDetails: 'The manager coached the full disclosure.',
+    falseAlarmDetails: 'An inapplicable explanation must not cross the RPC boundary.',
+  }).ok).toBe(false)
 
   for (const reason of ['soft_inquiry_misclassified', 'wrong_context', 'evidence_misquoted', 'policy_does_not_apply', 'addressed_off_call', 'covered_not_verbatim', 'call_dropped_incomplete', 'other'] as const) {
     expect(parseInternalReviewDraft({
@@ -48,17 +53,22 @@ test('structured review parser enforces the same 12–4000 character prose contr
     }).ok).toBe(false)
     expect(parseInternalReviewDraft({
       verdict: false,
-      action: 'coached',
+      action: null,
       reason,
-      violationDetails: 'A hidden real-issue draft.',
-      actionDetails: 'A hidden coaching-action draft.',
+      violationDetails: null,
+      actionDetails: null,
       falseAlarmDetails: 'The evidence came from a different context.',
-    })).toMatchObject({
-      ok: true,
-      value: { verdict: false, reason, action: null, violationDetails: null, actionDetails: null },
-    })
+    })).toMatchObject({ ok: true, value: { verdict: false, reason } })
   }
 
+  expect(parseInternalReviewDraft({
+    verdict: false,
+    action: 'coached',
+    reason: 'other',
+    violationDetails: 'Inapplicable real details must not cross the RPC boundary.',
+    actionDetails: null,
+    falseAlarmDetails: 'The alert was evaluated in the wrong call context.',
+  }).ok).toBe(false)
   expect(parseInternalReviewDraft({
     verdict: false,
     action: null,

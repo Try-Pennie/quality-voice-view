@@ -54,9 +54,9 @@ export function summarizeReviewWorkload(alerts: readonly ReviewState[]): ReviewW
   let changesRequested = 0
   let systemClosed = 0
   for (const alert of alerts) {
-    if (alert.current_decision === 'changes_requested') changesRequested += 1
     if (isSystemClosed(alert)) systemClosed += 1
     else if (isHumanReviewed(alert)) {
+      if (alert.current_decision === 'changes_requested') changesRequested += 1
       if (alert.accurate) real += 1
       else falseAlarm += 1
     } else awaitingManager += 1
