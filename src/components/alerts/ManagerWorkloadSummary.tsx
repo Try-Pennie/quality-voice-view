@@ -48,7 +48,7 @@ export function ManagerWorkloadSummary({
       <header className="mb-4">
         <p id="manager-workload-heading" className="pennie-label">Current team workload</p>
         <p className="mt-1 text-xs text-pennie-graphite/60">
-          Ownership follows the current manager mapping. “Decision by” in the inbox is the recorded reviewer. Select any count to filter this same inbox.
+          Ownership follows the current manager mapping. “Decision by” is the recorded reviewer. Changes requested are already reviewed and overlap Reviewed; select any count to filter this inbox.
         </p>
       </header>
       {loading ? (
@@ -66,6 +66,7 @@ export function ManagerWorkloadSummary({
                 <th className="py-2 px-2 text-right">Real</th>
                 <th className="py-2 px-2 text-right">False alarm</th>
                 <th className="py-2 px-2 text-right">Awaiting manager</th>
+                <th className="py-2 px-2 text-right">Changes requested</th>
                 {showSystem && <th className="py-2 pl-2 text-right">System closed</th>}
               </tr>
             </thead>
@@ -78,6 +79,7 @@ export function ManagerWorkloadSummary({
                   <CountCell manager={row} label="Real" value={row.counts.real} view="reviewed" outcome="real" onSelect={onSelect} />
                   <CountCell manager={row} label="False alarm" value={row.counts.falseAlarm} view="reviewed" outcome="false_alarm" onSelect={onSelect} />
                   <CountCell manager={row} label="Awaiting manager" value={row.counts.awaitingManager} view="awaiting_manager" outcome="all" onSelect={onSelect} />
+                  <CountCell manager={row} label="Changes requested" value={row.counts.changesRequested} view="changes_requested" outcome="all" onSelect={onSelect} />
                   {showSystem && <td className="py-3 pl-2 text-right tabular-nums text-pennie-graphite/70">{row.counts.systemClosed}</td>}
                 </tr>
               ))}

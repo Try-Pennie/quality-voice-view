@@ -10,7 +10,8 @@ export function defaultAlertWindow(now: Date): { start: Date; end: Date } {
 /** Explicit views over the scoped alerts in the selected date window. */
 export const ALERT_QUEUE_VIEWS = {
   awaiting_manager: 'Awaiting manager',
-  awaiting_approval: 'Awaiting your approval',
+  awaiting_approval: 'Awaiting approval',
+  changes_requested: 'Changes requested',
   coaching_due: 'Coaching due',
   reviewed: 'Reviewed',
   all: 'All',
@@ -20,7 +21,8 @@ export const ALERT_QUEUE_VIEWS = {
 export type AlertQueueView = keyof typeof ALERT_QUEUE_VIEWS
 
 type ReviewState = Pick<AlertWithFeedback,
-  'is_reviewed' | 'feedback_by' | 'acker_emails' | 'accurate' | 'action_taken' | 'alert_created_at'>
+  'is_reviewed' | 'feedback_by' | 'acker_emails' | 'accurate' | 'action_taken' |
+  'alert_created_at' | 'current_decision'>
 
 /** Review-work accounting at one sent `(call, module)` row per received alert. */
 export type ReviewWorkloadCounts = {
@@ -29,6 +31,8 @@ export type ReviewWorkloadCounts = {
   readonly real: number
   readonly falseAlarm: number
   readonly awaitingManager: number
+  /** Returned reviews overlap `reviewed`; they are not first-review backlog. */
+  readonly changesRequested: number
   readonly systemClosed: number
 }
 
@@ -47,10 +51,12 @@ export function summarizeReviewWorkload(alerts: readonly ReviewState[]): ReviewW
   let real = 0
   let falseAlarm = 0
   let awaitingManager = 0
+  let changesRequested = 0
   let systemClosed = 0
   for (const alert of alerts) {
     if (isSystemClosed(alert)) systemClosed += 1
     else if (isHumanReviewed(alert)) {
+      if (alert.current_decision === 'changes_requested') changesRequested += 1
       if (alert.accurate) real += 1
       else falseAlarm += 1
     } else awaitingManager += 1
@@ -61,6 +67,7 @@ export function summarizeReviewWorkload(alerts: readonly ReviewState[]): ReviewW
     real,
     falseAlarm,
     awaitingManager,
+    changesRequested,
     systemClosed,
   }
 }
@@ -71,6 +78,7 @@ export function parseAlertQueueView(value: string | null, isGodMode = false): Al
     case 'awaiting_approval':
       return isGodMode ? 'awaiting_approval' : 'awaiting_manager'
     case 'awaiting_manager':
+    case 'changes_requested':
     case 'coaching_due':
     case 'reviewed':
     case 'all':
@@ -86,9 +94,14 @@ export function parseAlertQueueView(value: string | null, isGodMode = false): Al
   }
 }
 
-/** Whether the current reviewer has personally signed off a structured review. */
-export function isClosedForReviewer(alert: ReviewState, email: string | null | undefined): boolean {
+/** Whether a review has authoritative approval; partner QA retains legacy personal acks. */
+export function isClosedForReviewer(
+  alert: ReviewState,
+  email: string | null | undefined,
+  workload: 'internal' | 'partner_qa' = 'internal',
+): boolean {
   if (!isHumanReviewed(alert)) return false
+  if (workload === 'internal') return alert.current_decision === 'approved'
   if (!email) return true
   const lower = email.toLowerCase()
   return alert.feedback_by?.toLowerCase() === lower ||
@@ -113,10 +126,13 @@ export function matchesAlertQueueView(
   isGodMode: boolean,
   email: string | null | undefined,
   _now: number,
+  workload: 'internal' | 'partner_qa' = 'internal',
 ): boolean {
   switch (view) {
     case 'awaiting_manager': return !isHumanReviewed(alert) && !isSystemClosed(alert)
-    case 'awaiting_approval': return isGodMode && isHumanReviewed(alert) && !isClosedForReviewer(alert, email)
+    case 'awaiting_approval': return isGodMode && isHumanReviewed(alert) &&
+      alert.current_decision !== 'changes_requested' && !isClosedForReviewer(alert, email, workload)
+    case 'changes_requested': return isHumanReviewed(alert) && alert.current_decision === 'changes_requested'
     case 'coaching_due': return needsCoachingFollowUp(alert)
     case 'reviewed': return isHumanReviewed(alert)
     case 'all': return true

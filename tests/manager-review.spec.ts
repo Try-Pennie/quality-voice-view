@@ -3,7 +3,8 @@ import { alertRow, EMAIL, NOW, openAlert, QUOTES, reviewFixture } from './review
 
 const followUp = (id: string) => alertRow(id, {
   is_reviewed: true, accurate: true, action_taken: 'follow_up_later', feedback_by: EMAIL,
-  feedback_comment: 'Follow up in the next coaching session and discuss the specific call evidence.',
+  violation_details: 'The required disclosure was omitted from the call.',
+  action_details: 'Follow up in the next coaching session with the specific evidence.',
   feedback_id: 1, reviewed_at: '2026-09-05T16:00:00Z',
 })
 
@@ -82,16 +83,18 @@ test('defer from New, then complete coaching; failed save preserves draft and qu
   await openAlert(page, 'defer')
   await page.getByRole('button', { name: 'Real issue (Y)', exact: true }).click()
   await page.getByRole('button', { name: '3. Will follow up later', exact: true }).click()
-  await page.getByRole('textbox', { name: /What happened and how you addressed it/ }).fill('I will follow up in the next coaching session to discuss this specific evidence.')
-  // Hotkey must read the latest action/comment, not the prior render's closure.
-  await page.getByRole('textbox', { name: /What happened and how you addressed it/ }).press('Control+Enter')
+  await page.getByRole('textbox', { name: 'What happened?' }).fill('The required disclosure was omitted from the call.')
+  const firstAction = page.getByRole('textbox', { name: 'What action did you take?' })
+  await firstAction.fill('I will follow up in the next coaching session with the specific evidence.')
+  // Hotkey must read the latest action/details, not the prior render's closure.
+  await firstAction.press('Control+Enter')
   await expect(page.getByText('Review saved')).toBeVisible()
   await expect(page.getByRole('dialog')).toHaveCount(0)
   await page.getByRole('button', { name: 'Coaching due', exact: true }).click()
   await expect(page.getByRole('heading', { name: '2 coaching due' })).toBeVisible()
   await openAlert(page, 'defer')
   await page.getByRole('button', { name: '1. Coached the agent', exact: true }).click()
-  const note = page.getByRole('textbox', { name: /What happened and how you addressed it/ })
+  const note = page.getByRole('textbox', { name: 'What action did you take?' })
   await note.fill('Coached the agent with this recording and agreed on the correct disclosure for future calls.')
   state.failFeedback = true
   await page.getByRole('button', { name: 'Update review', exact: true }).click()
@@ -132,14 +135,14 @@ test('director approval does not complete coaching or allow silent keyboard over
   await page.keyboard.press('y')
   await page.keyboard.press('Control+Enter')
   expect(state.writes).toHaveLength(0)
-  await page.getByRole('button', { name: /Approve .* review/ }).click()
-  await expect(page.getByRole('button', { name: 'Reviewed', exact: true })).toBeVisible()
+  await page.getByRole('button', { name: 'Approve review', exact: true }).click()
+  await expect(page.getByRole('button', { name: 'Approved', exact: true })).toBeDisabled()
   await expect(page.getByRole('dialog')).toContainText('Coaching follow-up is still open.')
   expect(state.rows[0].action_taken).toBe('follow_up_later')
   await page.getByRole('button', { name: 'Close (Esc)', exact: true }).click()
   await expect(page.getByRole('heading', { name: '1 coaching due' })).toBeVisible()
-  await page.getByRole('button', { name: 'Awaiting your approval', exact: true }).click()
-  await expect(page.getByText('No manager decisions await your approval in this window.')).toBeVisible()
+  await page.getByRole('button', { name: 'Awaiting approval', exact: true }).click()
+  await expect(page.getByText('No manager decisions await approval in this window.')).toBeVisible()
 })
 
 test('inline evidence is lazy, independently highlighted, searchable and keyboard navigable', async ({ page }) => {
@@ -196,7 +199,7 @@ test('drawer close/navigation protects unsaved notes', async ({ page }) => {
   await page.goto('/dashboard/alerts?status=awaiting_manager')
   await openAlert(page, 'draft')
   await page.getByRole('button', { name: 'Real issue (Y)', exact: true }).click()
-  const note = page.getByRole('textbox', { name: /What happened and how you addressed it/ })
+  const note = page.getByRole('textbox', { name: 'What happened?' })
   await note.fill('Draft coaching notes must not disappear when navigating by keyboard.')
   page.once('dialog', dialog => dialog.dismiss())
   await page.getByRole('button', { name: 'Next alert (j)', exact: true }).click()

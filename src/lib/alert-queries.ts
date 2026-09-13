@@ -5,6 +5,15 @@ import type {
   AlertWithFeedback,
   AlertFeedbackInput,
 } from '@/types/database'
+import {
+  classifyInternalReviewMutationError,
+  parseDecisionRpcResult,
+  parseSubmitReviewRpcResult,
+  type DecisionRpcResult,
+  type InternalReviewDraft,
+  type InternalReviewMutationResult,
+  type SubmitReviewRpcResult,
+} from './internal-alert-review'
 import { fetchAllPaginated } from './supabase-helpers'
 import { startOfBusinessDay, endOfBusinessDay } from './time-zone'
 import {
@@ -92,6 +101,14 @@ const ALERT_LIST_COLUMNS = [
   'feedback_by',
   'feedback_comment',
   'reviewed_at',
+  'violation_details',
+  'action_details',
+  'review_revision',
+  'current_decision_id',
+  'current_decision',
+  'current_decision_by',
+  'current_decided_at',
+  'current_decision_source',
   'message_count',
   'last_message_at',
   'acker_emails',
@@ -197,10 +214,11 @@ export async function fetchAlertOne(
   return (data as AlertWithFeedback) ?? null
 }
 
+/** Preserve the legacy direct-write path for restricted partner feedback only. */
 export async function submitAlertFeedback(
   input: AlertFeedbackInput,
   scope?: UserScope | null,
-  workload: AlertWorkload = 'internal',
+  workload: AlertWorkload = 'partner_qa',
 ): Promise<{ ok: boolean; error?: string }> {
   if (isSuppressedAlertModule(input.module_name, scope, workload)) {
     return { ok: false, error: 'This alert type is hidden while it is in testing.' }
@@ -224,6 +242,61 @@ export async function submitAlertFeedback(
     return { ok: false, error: error.message }
   }
   return { ok: true }
+}
+
+/** Submit version-guarded Pennie-internal feedback through the authenticated RPC. */
+export async function submitInternalAlertFeedback(input: {
+  readonly callId: string
+  readonly moduleName: string
+  readonly expectedRevision: number
+  readonly expectedDecisionId: number | null
+  readonly draft: InternalReviewDraft
+}): Promise<InternalReviewMutationResult<SubmitReviewRpcResult>> {
+  try {
+    const { data, error } = await sb.rpc('submit_internal_alert_feedback', {
+      p_call_id: input.callId,
+      p_module_name: input.moduleName,
+      p_expected_revision: input.expectedRevision,
+      p_expected_decision_id: input.expectedDecisionId,
+      p_verdict: input.draft.verdict,
+      p_action: input.draft.action,
+      p_reason: input.draft.reason,
+      p_violation_details: input.draft.violationDetails,
+      p_action_details: input.draft.actionDetails,
+      p_false_alarm_details: input.draft.falseAlarmDetails,
+    })
+    if (error) return { ok: false, error: classifyInternalReviewMutationError(error) }
+    const parsed = parseSubmitReviewRpcResult(data)
+    if (parsed.ok === false) return { ok: false, error: { _tag: 'Unavailable', message: parsed.error.message } }
+    return { ok: true, value: parsed.value }
+  } catch (cause: unknown) {
+    return { ok: false, error: classifyInternalReviewMutationError(cause) }
+  }
+}
+
+/** Record one shared version-guarded super-admin decision for an internal review. */
+export async function decideInternalAlertFeedback(input: {
+  readonly callId: string
+  readonly moduleName: string
+  readonly expectedRevision: number
+  readonly decision: 'approved' | 'changes_requested'
+  readonly instructions: string | null
+}): Promise<InternalReviewMutationResult<DecisionRpcResult>> {
+  try {
+    const { data, error } = await sb.rpc('decide_internal_alert_feedback', {
+      p_call_id: input.callId,
+      p_module_name: input.moduleName,
+      p_expected_revision: input.expectedRevision,
+      p_decision: input.decision,
+      p_instructions: input.instructions,
+    })
+    if (error) return { ok: false, error: classifyInternalReviewMutationError(error) }
+    const parsed = parseDecisionRpcResult(data)
+    if (parsed.ok === false) return { ok: false, error: { _tag: 'Unavailable', message: parsed.error.message } }
+    return { ok: true, value: parsed.value }
+  } catch (cause: unknown) {
+    return { ok: false, error: classifyInternalReviewMutationError(cause) }
+  }
 }
 
 // ---- thread + acks ----

@@ -26,18 +26,27 @@ import {
   ACTION_TAKEN_LABELS,
   INACCURACY_REASON_LABELS,
   VIOLATION_TYPE_LABELS,
+  decideInternalAlertFeedback,
   editAlertMessage,
   extractEvidence,
   extractReason,
+  fetchAlertOne,
   postAlertMessage,
   setAlertAck,
   softDeleteAlertMessage,
   submitAlertFeedback,
+  submitInternalAlertFeedback,
   type UserScope,
 } from '@/lib/alert-queries'
 import { useAgentFeedbackForCall, useAlertThread } from '@/hooks/use-queries'
+import { registerHistoryNavigationGuard } from '@/lib/history-navigation-guard'
 import { PennieAgentFeedbackSection } from '@/components/PennieAgentFeedbackSection'
 import { VIOLATION_HELP_IDS } from '@/lib/help-content'
+import {
+  INTERNAL_REVIEW_TEXT_LIMITS,
+  parseInitialManagerReview,
+  parseInternalReviewDraft,
+} from '@/lib/internal-alert-review'
 import { HelpHint } from '@/components/ui/help-hint'
 import {
   accentForViolation,
@@ -91,13 +100,11 @@ const INACCURACY_OPTIONS: AlertInaccuracyReason[] = [
   'other',
 ]
 
-// A short explanation is required when the manager falls back to "Other",
-// so the catch-all bucket stays analyzable instead of opaque.
-const OTHER_NOTES_MIN = 10
+const LEGACY_REAL_NOTES_MIN = 30
+const LEGACY_OTHER_NOTES_MIN = 10
 
-// Insert-and-edit starters for the real-issue notes field. They cover the
-// common coaching outcomes so a manager isn't typing the same sentence 20
-// times a day — the note stays editable and the 30-char minimum still applies.
+// Insert-and-edit starters for action details. The text remains editable and
+// must satisfy the same database-owned 12-character minimum.
 const QUICK_PHRASES: { label: string; text: string }[] = [
   {
     label: 'Coached in 1:1',
@@ -143,7 +150,11 @@ export function AlertReviewDrawer({
   const [action, setAction] = useState<AlertActionTaken | null>(null)
   const [reason, setReason] = useState<AlertInaccuracyReason | null>(null)
   const [comment, setComment] = useState('')
+  const [violationDetails, setViolationDetails] = useState('')
+  const [actionDetails, setActionDetails] = useState('')
   const [submitting, setSubmitting] = useState(false)
+  const [decisionPending, setDecisionPending] = useState(false)
+  const [changeInstructions, setChangeInstructions] = useState('')
   const [showRaw, setShowRaw] = useState(false)
   const [showTranscript, setShowTranscript] = useState(false)
   const submissionPending = useRef(false)
@@ -155,6 +166,8 @@ export function AlertReviewDrawer({
   const [editingId, setEditingId] = useState<number | null>(null)
   const [ackPending, setAckPending] = useState(false)
   const commentId = useId()
+  const violationDetailsId = useId()
+  const actionDetailsId = useId()
   const rawJsonId = useId()
   const queryClient = useQueryClient()
 
@@ -178,6 +191,9 @@ export function AlertReviewDrawer({
     setAction(alert.action_taken)
     setReason(alert.inaccuracy_reason)
     setComment(alert.feedback_comment ?? '')
+    setViolationDetails(alert.violation_details ?? '')
+    setActionDetails(alert.action_details ?? '')
+    setChangeInstructions('')
     setShowRaw(false)
     setShowTranscript(false)
     setOverrideMode(false)
@@ -217,10 +233,8 @@ export function AlertReviewDrawer({
 
       if (e.key === 'y' || e.key === 'Y') {
         setAccurate(true)
-        setReason(null)
       } else if (e.key === 'n' || e.key === 'N') {
         setAccurate(false)
-        setAction(null)
       } else if (/^[1-9]$/.test(e.key)) {
         const idx = parseInt(e.key, 10) - 1
         if (accurate === true && ACTION_OPTIONS[idx]) setAction(ACTION_OPTIONS[idx])
@@ -321,31 +335,79 @@ export function AlertReviewDrawer({
     invalidateAlertList()
   }
 
+  const refreshAuthoritativeReview = async () => {
+    if (!alert) return
+    const latest = await fetchAlertOne(alert.call_id, alert.module_name, scope, workload).catch(() => null)
+    if (latest) onSubmitted(latest)
+  }
+
   const handleSubmit = async () => {
     if (!alert || !currentUserEmail || submissionPending.current || !showStructuredForm) return
-    if (accurate === null) {
-      toast.error('Pick "Real issue" or "False alarm" first.')
-      return
-    }
-    if (accurate === true && !action) {
-      toast.error('Pick how you addressed it with the agent.')
-      return
-    }
-    if (accurate === false && !reason) {
-      toast.error('Pick why this was a false alarm.')
-      return
-    }
-    if (accurate === false && reason === 'other' && comment.trim().length < OTHER_NOTES_MIN) {
-      toast.error('Add a quick note explaining why (required for "Other").')
-      return
-    }
-    if (accurate === true && comment.trim().length < 30) {
-      toast.error('Add a few sentences on what happened and how you addressed it.')
-      return
-    }
     submissionPending.current = true
     setSubmitting(true)
-    const res = await submitAlertFeedback({
+
+    if (workload === 'internal') {
+      const draft = parsedDraft
+      if (draft === null) {
+        submissionPending.current = false
+        setSubmitting(false)
+        return
+      }
+      if (draft.ok === false) {
+        submissionPending.current = false
+        setSubmitting(false)
+        toast.error(draft.error.message)
+        return
+      }
+      const result = await submitInternalAlertFeedback({
+        callId: alert.call_id,
+        moduleName: alert.module_name,
+        expectedRevision: alert.review_revision ?? 0,
+        expectedDecisionId: alert.current_decision_id,
+        draft: draft.value,
+      })
+      submissionPending.current = false
+      setSubmitting(false)
+      if (result.ok === false) {
+        toast.error(`Couldn't save review: ${result.error.message}`)
+        if (result.error._tag === 'StaleReview') await refreshAuthoritativeReview()
+        return
+      }
+      toast.success(alert.current_decision === 'changes_requested' ? 'Review resubmitted' : 'Review saved')
+      setAction(draft.value.action)
+      setReason(draft.value.reason)
+      setViolationDetails(draft.value.violationDetails ?? '')
+      setActionDetails(draft.value.actionDetails ?? '')
+      setComment(draft.value.falseAlarmDetails ?? '')
+      onSubmitted({
+        feedback_id: result.value.feedbackId,
+        feedback_by: currentUserEmail,
+        accurate: draft.value.verdict,
+        action_taken: draft.value.action,
+        inaccuracy_reason: draft.value.reason,
+        feedback_comment: draft.value.falseAlarmDetails,
+        violation_details: draft.value.violationDetails,
+        action_details: draft.value.actionDetails,
+        reviewed_at: result.value.reviewedAt,
+        review_revision: result.value.reviewRevision,
+        current_decision_id: null,
+        current_decision: null,
+        current_decision_by: null,
+        current_decision_instructions: null,
+        current_decided_at: null,
+        current_decision_source: null,
+        is_reviewed: true,
+      })
+      return
+    }
+
+    if (accurate === null || (accurate && !action) || (!accurate && !reason)) {
+      submissionPending.current = false
+      setSubmitting(false)
+      toast.error('Complete the review before saving.')
+      return
+    }
+    const result = await submitAlertFeedback({
       call_id: alert.call_id,
       module_name: alert.module_name,
       manager_email: currentUserEmail,
@@ -356,8 +418,8 @@ export function AlertReviewDrawer({
     }, scope, workload).catch(() => ({ ok: false, error: 'Network unavailable. Your draft is still here; try again.' }))
     submissionPending.current = false
     setSubmitting(false)
-    if (!res.ok) {
-      toast.error(`Couldn't save review: ${res.error}`)
+    if (!result.ok) {
+      toast.error(`Couldn't save review: ${result.error}`)
       return
     }
     toast.success('Review saved')
@@ -374,20 +436,61 @@ export function AlertReviewDrawer({
     })
   }
 
+  const handleDecision = async (decision: 'approved' | 'changes_requested') => {
+    if (!alert || workload !== 'internal' || !scope.isGodMode || decisionPending || !alert.review_revision) return
+    const instructions = changeInstructions.trim()
+    if (decision === 'changes_requested' && (instructions.length < INTERNAL_REVIEW_TEXT_LIMITS.min || instructions.length > INTERNAL_REVIEW_TEXT_LIMITS.max)) {
+      toast.error(`Instructions must be ${INTERNAL_REVIEW_TEXT_LIMITS.min}–${INTERNAL_REVIEW_TEXT_LIMITS.max} characters.`)
+      return
+    }
+    setDecisionPending(true)
+    const result = await decideInternalAlertFeedback({
+      callId: alert.call_id,
+      moduleName: alert.module_name,
+      expectedRevision: alert.review_revision,
+      decision,
+      instructions: decision === 'changes_requested' ? instructions : null,
+    })
+    setDecisionPending(false)
+    if (result.ok === false) {
+      toast.error(`Couldn't update approval: ${result.error.message}`)
+      if (result.error._tag === 'StaleReview') await refreshAuthoritativeReview()
+      return
+    }
+    if (decision === 'approved') toast.success('Review approved')
+    else toast.success('Changes requested')
+    setChangeInstructions('')
+    onSubmitted({
+      current_decision_id: result.value.decisionId,
+      current_decision: result.value.decision,
+      current_decision_by: currentUserEmail,
+      current_decision_instructions: decision === 'changes_requested' ? instructions : null,
+      current_decided_at: result.value.decidedAt,
+      current_decision_source: 'typed',
+      message_count: decision === 'changes_requested' ? (alert.message_count ?? 0) + 1 : alert.message_count,
+    })
+  }
+
   const reviewedByMe = !!alert && isHumanReviewed(alert) && !!currentUserEmail &&
     alert.feedback_by?.toLowerCase() === currentUserEmail.toLowerCase()
-  const showStructuredForm = !!alert && (!alert.is_reviewed || reviewedByMe || overrideMode)
+  const isCurrentManager = !!alert && !!currentUserEmail &&
+    alert.assigned_manager_email?.toLowerCase() === currentUserEmail.toLowerCase()
+  const returnedToCurrentManager = workload === 'internal' && alert?.current_decision === 'changes_requested' && isCurrentManager
+  const showStructuredForm = !!alert && (workload === 'internal'
+    ? (!alert.is_reviewed || reviewedByMe || returnedToCurrentManager)
+    : (!alert.is_reviewed || reviewedByMe || overrideMode))
   const dirty = !!alert && ((showStructuredForm && (accurate !== alert.accurate ||
-    action !== alert.action_taken || reason !== alert.inaccuracy_reason || comment !== (alert.feedback_comment ?? ''))) ||
-    !!draftBody.trim() || editingId !== null)
+    action !== alert.action_taken || reason !== alert.inaccuracy_reason || comment !== (alert.feedback_comment ?? '') ||
+    violationDetails !== (alert.violation_details ?? '') || actionDetails !== (alert.action_details ?? ''))) ||
+    !!changeInstructions.trim() || !!draftBody.trim() || editingId !== null)
   useEffect(() => {
-    if (!dirty && !submitting && !posting) return
+    if (!dirty && !submitting && !posting && !decisionPending) return
     const handler = (event: BeforeUnloadEvent) => { event.preventDefault(); event.returnValue = '' }
     window.addEventListener('beforeunload', handler)
     return () => window.removeEventListener('beforeunload', handler)
-  }, [dirty, submitting, posting])
+  }, [dirty, submitting, posting, decisionPending])
   const canLeave = () => {
-    if (submitting || posting || ackPending) {
+    if (submitting || posting || ackPending || decisionPending) {
       toast.info('Wait for the current save to finish.')
       return false
     }
@@ -397,7 +500,7 @@ export function AlertReviewDrawer({
   const requestAdvance = (delta: 1 | -1) => { if (canLeave()) onAdvance(delta) }
 
   useEffect(() => {
-    if (!dirty && !submitting && !posting && !ackPending) return
+    if (!dirty && !submitting && !posting && !ackPending && !decisionPending) return
     const indexOf = (state: unknown): number | null =>
       state && typeof state === 'object' && 'idx' in state && typeof state.idx === 'number' && Number.isInteger(state.idx)
         ? state.idx : null
@@ -411,7 +514,7 @@ export function AlertReviewDrawer({
         event.stopImmediatePropagation()
         return
       }
-      const pending = submitting || posting || ackPending
+      const pending = submitting || posting || ackPending || decisionPending
       if (!pending && window.confirm('Discard your unsaved review or message?')) return
       if (pending) toast.info('Wait for the current save to finish.')
       // BrowserRouter stores entry indices. Capture before its listener, then
@@ -421,9 +524,8 @@ export function AlertReviewDrawer({
       restoring = true
       window.history.go(currentIndex - nextIndex)
     }
-    window.addEventListener('popstate', handler, true)
-    return () => window.removeEventListener('popstate', handler, true)
-  }, [dirty, submitting, posting, ackPending])
+    return registerHistoryNavigationGuard(handler)
+  }, [dirty, submitting, posting, ackPending, decisionPending])
 
   if (!alert) return null
 
@@ -432,36 +534,39 @@ export function AlertReviewDrawer({
   const violationLabel =
     VIOLATION_TYPE_LABELS[alert.violation_type] || alert.violation_type
 
-  // Three review states drive the layout:
-  //   - unreviewed       → first-pass; manager fills the structured form (required)
-  //   - reviewedByMe     → editing my own review
-  //   - reviewedByOther  → someone above the assigned manager (e.g. Kris) reviewing
-  //                        a teammate's review — one-tap ✓ Approve, comment in
-  //                        Discussion, structured form gated behind explicit Override
   const reviewedByOther = isHumanReviewed(alert) && !reviewedByMe
-  const showAckBar = reviewedByOther
+  const showLegacyAckBar = workload === 'partner_qa' && reviewedByOther
+  const showInternalDecisionBar = workload === 'internal' && isHumanReviewed(alert) &&
+    (scope.isGodMode || alert.current_decision !== null)
   const showManagerReviewSummary = reviewedByOther
+  const parsedInitial = alert.review_revision && alert.review_revision > 1
+    ? parseInitialManagerReview(alert.initial_manager_review)
+    : null
+  const initialReview = parsedInitial?.ok ? parsedInitial.value : null
 
-  const promptCopy = overrideMode
-    ? `Override ${alert.feedback_by ? emailLabel(alert.feedback_by) : 'manager'}'s review`
-    : reviewedByMe
-      ? 'Your review'
-      : 'Was this a real issue?'
+  const promptCopy = returnedToCurrentManager
+    ? 'Correct and resubmit this review'
+    : overrideMode
+      ? `Override ${alert.feedback_by ? emailLabel(alert.feedback_by) : 'manager'}'s review`
+      : reviewedByMe
+        ? 'Your review'
+        : 'Was this a real issue?'
 
-  // Detailed notes are required when the manager confirms a real issue, and a
-  // shorter note is required for the "Other" false-alarm reason (otherwise that
-  // catch-all swallows signal). Other structured false-alarm reasons stay optional.
-  const NOTES_MIN = 30
-  const otherNoteRequired = accurate === false && reason === 'other'
-  const notesTooShort =
-    (accurate === true && comment.trim().length < NOTES_MIN) ||
-    (otherNoteRequired && comment.trim().length < OTHER_NOTES_MIN)
-  const saveDisabled =
-    submitting ||
-    accurate === null ||
-    (accurate === true && !action) ||
-    (accurate === false && !reason) ||
-    notesTooShort
+  const parsedDraft = workload === 'internal' ? parseInternalReviewDraft({
+    verdict: accurate,
+    action: accurate === true ? action : null,
+    reason: accurate === false ? reason : null,
+    violationDetails: accurate === true ? violationDetails : null,
+    actionDetails: accurate === true ? actionDetails : null,
+    falseAlarmDetails: accurate === false ? comment : null,
+  }) : null
+  const legacyNotesInvalid = workload === 'partner_qa' && (
+    (accurate === true && comment.trim().length < LEGACY_REAL_NOTES_MIN) ||
+    (accurate === false && reason === 'other' && comment.trim().length < LEGACY_OTHER_NOTES_MIN)
+  )
+  const saveDisabled = submitting || (workload === 'internal'
+    ? !parsedDraft?.ok
+    : accurate === null || (accurate && !action) || (!accurate && !reason) || legacyNotesInvalid)
 
   return (
     <Sheet open={!!alert} onOpenChange={open => !open && requestClose()}>
@@ -569,9 +674,7 @@ export function AlertReviewDrawer({
           </dl>
         </SheetHeader>
 
-        {/* Layered approval bar — only shown when reviewing a teammate's review.
-             For first-pass managers, their structured form *is* the review record. */}
-        {showAckBar && (
+        {showLegacyAckBar && (
           <AckSection
             ackers={alert.acker_emails ?? []}
             ackedByMe={ackedByMe}
@@ -579,6 +682,15 @@ export function AlertReviewDrawer({
             currentUserEmail={currentUserEmail}
             pending={ackPending}
             onToggle={handleToggleAck}
+          />
+        )}
+        {showInternalDecisionBar && (
+          <InternalDecisionSection
+            alert={alert}
+            instructions={changeInstructions}
+            onInstructionsChange={setChangeInstructions}
+            pending={decisionPending}
+            onDecide={handleDecision}
           />
         )}
 
@@ -592,6 +704,22 @@ export function AlertReviewDrawer({
               actionTaken={alert.action_taken}
               inaccuracyReason={alert.inaccuracy_reason}
               comment={alert.feedback_comment}
+              violationDetails={alert.violation_details}
+              actionDetails={alert.action_details}
+            />
+          )}
+
+          {initialReview && (
+            <ManagerReviewSummary
+              title="Original manager review"
+              authorEmail={initialReview.managerEmail}
+              reviewedAt={initialReview.reviewedAt}
+              accurate={initialReview.accurate}
+              actionTaken={initialReview.actionTaken}
+              inaccuracyReason={initialReview.inaccuracyReason}
+              comment={initialReview.comment}
+              violationDetails={initialReview.violationDetails}
+              actionDetails={initialReview.actionDetails}
             />
           )}
 
@@ -725,7 +853,7 @@ export function AlertReviewDrawer({
           {/* In State B (reviewing a teammate's review), the structured form is
               gated behind an explicit Override affordance. Approve via the bar
               at the top; comment via Discussion. */}
-          {reviewedByOther && !overrideMode && (
+          {workload === 'partner_qa' && reviewedByOther && !overrideMode && (
             <div className="flex flex-wrap items-center justify-between gap-3">
               <p className="text-xs text-pennie-graphite/70 leading-relaxed">
                 Approve at the top, or comment in Discussion above. Only override if you
@@ -742,8 +870,15 @@ export function AlertReviewDrawer({
           )}
 
           {needsCoachingFollowUp(alert) && <p className="text-sm text-pennie-blue-deeper">
-            Coaching follow-up is still open. {reviewedByOther ? 'The reviewer can update the outcome, or you can explicitly override the review.' : 'Update the action and notes once you have followed up.'} Approving or commenting does not complete it.
+            Coaching follow-up is still open. Update the action after follow-up through the review form when available. Approval or discussion does not complete it.
           </p>}
+
+          {returnedToCurrentManager && alert.current_decision_instructions && (
+            <div className="rounded-2xl bg-pennie-peach-light/60 px-4 py-3">
+              <p className="pennie-label mb-1">Requested correction</p>
+              <p className="text-sm text-pennie-graphite whitespace-pre-wrap">{alert.current_decision_instructions}</p>
+            </div>
+          )}
 
           {showStructuredForm && (
             <>
@@ -782,19 +917,13 @@ export function AlertReviewDrawer({
                     label="Real issue (Y)"
                     active={accurate === true}
                     tone="success"
-                    onClick={() => {
-                      setAccurate(true)
-                      setReason(null)
-                    }}
+                    onClick={() => setAccurate(true)}
                   />
                   <Toggle
                     label="False alarm (N)"
                     active={accurate === false}
                     tone="danger"
-                    onClick={() => {
-                      setAccurate(false)
-                      setAction(null)
-                    }}
+                    onClick={() => setAccurate(false)}
                   />
                 </div>
               </fieldset>
@@ -845,78 +974,73 @@ export function AlertReviewDrawer({
                 </fieldset>
               )}
 
-              {accurate !== null && (
-                <div>
-                  <label
-                    htmlFor={commentId}
-                    className="pennie-label mb-1.5 flex items-center justify-between"
-                  >
-                    <span>
-                      {accurate ? 'What happened and how you addressed it' : 'Notes'}
-                      {(accurate === true || otherNoteRequired) && (
-                        <span className="text-pennie-peach-deeper ml-1" aria-hidden="true">*</span>
-                      )}
-                      {accurate === false && !otherNoteRequired && (
-                        <span className="text-pennie-graphite/60 ml-1 font-normal">(optional)</span>
-                      )}
-                    </span>
-                    {(accurate === true || otherNoteRequired) && (
-                      <span
-                        className={`text-[11px] font-normal tabular-nums ${
-                          notesTooShort ? 'text-pennie-peach-deeper' : 'text-pennie-graphite/60'
-                        }`}
-                      >
-                        {comment.trim().length}/{accurate === true ? NOTES_MIN : OTHER_NOTES_MIN}
-                      </span>
-                    )}
-                  </label>
-                  <textarea
-                    id={commentId}
-                    value={comment}
+              {workload === 'internal' && accurate === true && (
+                <div className="space-y-3">
+                  <ReviewTextarea
+                    id={violationDetailsId}
+                    label="What happened?"
+                    value={violationDetails}
+                    onChange={setViolationDetails}
+                    placeholder="Describe the specific behavior or missed requirement."
                     disabled={submitting}
-                    onChange={e => setComment(e.target.value)}
-                    placeholder={
-                      accurate
-                        ? 'Spoke with agent about tone — they acknowledged and committed to next 1:1…'
-                        : otherNoteRequired
-                          ? 'Briefly explain why this was a false alarm…'
-                          : 'Anything you want to flag…'
-                    }
-                    rows={3}
-                    className="w-full px-3 py-2 rounded-2xl border border-border bg-pennie-white text-base sm:text-sm font-medium resize-none focus:outline-none focus:ring-2 focus:ring-pennie-blue-deeper/40 focus:border-pennie-blue-deeper"
                   />
-                  {accurate === true && (
-                    <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
-                      <span className="text-[11px] text-pennie-graphite/60 font-medium">
-                        Quick start:
-                      </span>
-                      {QUICK_PHRASES.map(phrase => (
-                        <button
-                          key={phrase.label}
-                          type="button"
-                          disabled={submitting}
-                          title={phrase.text}
-                          onClick={() =>
-                            setComment(prev =>
-                              prev.trim()
-                                ? `${prev.trimEnd()} ${phrase.text}`
-                                : phrase.text,
-                            )
-                          }
-                          className="pennie-focus-ring min-h-[32px] px-3 py-1 rounded-full border border-border bg-pennie-white text-[11px] font-semibold text-pennie-graphite hover:bg-pennie-blue-light hover:border-pennie-blue-light transition-colors"
-                        >
-                          {phrase.label}…
-                        </button>
-                      ))}
-                    </div>
-                  )}
+                  <ReviewTextarea
+                    id={actionDetailsId}
+                    label="What action did you take?"
+                    value={actionDetails}
+                    onChange={setActionDetails}
+                    placeholder="Describe the coaching, escalation, or planned follow-up."
+                    disabled={submitting}
+                  />
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <span className="text-[11px] text-pennie-graphite/60 font-medium">Quick start:</span>
+                    {QUICK_PHRASES.map(phrase => (
+                      <button
+                        key={phrase.label}
+                        type="button"
+                        disabled={submitting}
+                        title={phrase.text}
+                        onClick={() => setActionDetails(previous => previous.trim() ? `${previous.trimEnd()} ${phrase.text}` : phrase.text)}
+                        className="pennie-focus-ring min-h-[32px] px-3 py-1 rounded-full border border-border bg-pennie-white text-[11px] font-semibold text-pennie-graphite hover:bg-pennie-blue-light hover:border-pennie-blue-light transition-colors"
+                      >
+                        {phrase.label}…
+                      </button>
+                    ))}
+                  </div>
                 </div>
               )}
 
+              {workload === 'internal' && accurate === false && (
+                <ReviewTextarea
+                  id={commentId}
+                  label="Why is this a false alarm?"
+                  value={comment}
+                  onChange={setComment}
+                  placeholder="Explain why the alert does not apply to this call."
+                  disabled={submitting}
+                />
+              )}
+
+              {workload === 'partner_qa' && accurate !== null && (
+                <ReviewTextarea
+                  id={commentId}
+                  label={accurate ? 'What happened and how you addressed it' : 'Notes'}
+                  value={comment}
+                  onChange={setComment}
+                  placeholder={accurate ? 'Describe what happened and the follow-up.' : 'Anything you want to flag…'}
+                  disabled={submitting}
+                  required={accurate || reason === 'other'}
+                  minimum={accurate ? LEGACY_REAL_NOTES_MIN : LEGACY_OTHER_NOTES_MIN}
+                />
+              )}
+
               <div className="flex justify-between items-center gap-3">
-                <p className="text-[11px] text-muted-foreground">
-                  ⌘/Ctrl+Enter to save · J/K to navigate
-                </p>
+                <div className="text-[11px] text-muted-foreground">
+                  <p>⌘/Ctrl+Enter to save · J/K to navigate</p>
+                  {workload === 'internal' && alert.current_decision === 'approved' && (
+                    <p>Updating creates a new revision that requires approval.</p>
+                  )}
+                </div>
                 <button
                   type="button"
                   onClick={handleSubmit}
@@ -925,11 +1049,13 @@ export function AlertReviewDrawer({
                 >
                   {submitting
                     ? 'Saving…'
-                    : overrideMode
-                      ? 'Save override'
-                      : alert.is_reviewed
-                        ? 'Update review'
-                        : 'Save review'}
+                    : returnedToCurrentManager
+                      ? 'Resubmit review'
+                      : overrideMode
+                        ? 'Save override'
+                        : alert.is_reviewed
+                          ? 'Update review'
+                          : 'Save review'}
                 </button>
               </div>
             </>
@@ -937,6 +1063,53 @@ export function AlertReviewDrawer({
         </div>
       </SheetContent>
     </Sheet>
+  )
+}
+
+function ReviewTextarea({
+  id,
+  label,
+  value,
+  onChange,
+  placeholder,
+  disabled,
+  required = true,
+  minimum = INTERNAL_REVIEW_TEXT_LIMITS.min,
+}: {
+  id: string
+  label: string
+  value: string
+  onChange: (value: string) => void
+  placeholder: string
+  disabled: boolean
+  required?: boolean
+  minimum?: number
+}) {
+  const length = value.trim().length
+  return (
+    <div>
+      <label htmlFor={id} className="pennie-label mb-1.5 flex items-center justify-between">
+        <span>
+          {label}
+          {required
+            ? <span className="text-pennie-peach-deeper ml-1" aria-hidden="true">*</span>
+            : <span className="text-pennie-graphite/60 ml-1 font-normal">(optional)</span>}
+        </span>
+        {required && <span className={`text-[11px] font-normal tabular-nums ${length < minimum ? 'text-pennie-peach-deeper' : 'text-pennie-graphite/60'}`}>
+          {length}/{minimum}
+        </span>}
+      </label>
+      <textarea
+        id={id}
+        value={value}
+        disabled={disabled}
+        maxLength={INTERNAL_REVIEW_TEXT_LIMITS.max}
+        onChange={event => onChange(event.target.value)}
+        placeholder={placeholder}
+        rows={3}
+        className="w-full px-3 py-2 rounded-2xl border border-border bg-pennie-white text-base sm:text-sm font-medium resize-none focus:outline-none focus:ring-2 focus:ring-pennie-blue-deeper/40 focus:border-pennie-blue-deeper"
+      />
+    </div>
   )
 }
 
@@ -1012,19 +1185,25 @@ export function Chip({
 }
 
 function ManagerReviewSummary({
+  title = 'Manager review',
   authorEmail,
   reviewedAt,
   accurate,
   actionTaken,
   inaccuracyReason,
   comment,
+  violationDetails,
+  actionDetails,
 }: {
+  title?: string
   authorEmail: string | null | undefined
   reviewedAt: string | null | undefined
   accurate: boolean | null | undefined
   actionTaken: AlertActionTaken | null | undefined
   inaccuracyReason: AlertInaccuracyReason | null | undefined
   comment: string | null | undefined
+  violationDetails: string | null | undefined
+  actionDetails: string | null | undefined
 }) {
   const verdictLabel =
     accurate === true ? 'Real issue' : accurate === false ? 'False alarm' : 'Reviewed'
@@ -1040,7 +1219,7 @@ function ManagerReviewSummary({
       className="rounded-2xl border border-pennie-blue-light bg-pennie-blue-light/20 px-4 py-4 space-y-3"
     >
       <header className="flex flex-wrap items-baseline justify-between gap-2">
-        <span className="pennie-label">Manager review</span>
+        <span className="pennie-label">{title}</span>
         <span className="text-xs text-pennie-graphite/70">
           {authorEmail ? emailLabel(authorEmail) : '—'}
           {reviewedAt && ` · ${formatDateTime(reviewedAt)}`}
@@ -1065,13 +1244,82 @@ function ManagerReviewSummary({
           </span>
         )}
       </div>
-      {comment && comment.trim() && (
-        <p className="text-sm text-pennie-graphite leading-relaxed whitespace-pre-wrap">
-          {comment}
-        </p>
+      {violationDetails?.trim() && <p className="text-sm text-pennie-graphite leading-relaxed whitespace-pre-wrap">
+        <span className="font-semibold">What happened: </span>{violationDetails}
+      </p>}
+      {actionDetails?.trim() && <p className="text-sm text-pennie-graphite leading-relaxed whitespace-pre-wrap">
+        <span className="font-semibold">Action details: </span>{actionDetails}
+      </p>}
+      {comment?.trim() && (
+        <p className="text-sm text-pennie-graphite leading-relaxed whitespace-pre-wrap">{comment}</p>
       )}
     </section>
   )
+}
+
+function InternalDecisionSection({
+  alert,
+  instructions,
+  onInstructionsChange,
+  pending,
+  onDecide,
+}: {
+  alert: AlertWithFeedback
+  instructions: string
+  onInstructionsChange: (value: string) => void
+  pending: boolean
+  onDecide: (decision: 'approved' | 'changes_requested') => Promise<void>
+}) {
+  if (alert.current_decision === 'approved') {
+    return <section className="flex items-center justify-between gap-3 px-4 sm:px-8 py-4 bg-pennie-green-light/40 border-b border-pennie-green-light">
+      <p className="text-sm font-semibold text-pennie-navy">Approved by {alert.current_decision_by ? emailLabel(alert.current_decision_by) : 'a super-admin'}</p>
+      <button type="button" disabled className="min-h-[44px] px-5 rounded-full bg-pennie-green-dark text-pennie-white text-sm font-semibold disabled:opacity-80">
+        <CheckCheck className="inline w-4 h-4 mr-1.5" aria-hidden="true" />Approved
+      </button>
+    </section>
+  }
+
+  if (alert.current_decision === 'changes_requested') {
+    return <section className="px-4 sm:px-8 py-4 bg-pennie-peach-light/50 border-b border-pennie-peach-light">
+      <p className="text-sm font-semibold text-pennie-navy">Changes requested by {alert.current_decision_by ? emailLabel(alert.current_decision_by) : 'a super-admin'}</p>
+      {alert.current_decision_instructions && <p className="mt-1 text-sm text-pennie-graphite whitespace-pre-wrap">{alert.current_decision_instructions}</p>}
+    </section>
+  }
+
+  return <section className="px-4 sm:px-8 py-4 bg-pennie-blue-light/30 border-b border-pennie-blue-light space-y-3">
+    <div className="flex flex-wrap items-center justify-between gap-3">
+      <p className="text-sm font-semibold text-pennie-navy">This revision is awaiting shared approval.</p>
+      <button
+        type="button"
+        onClick={() => onDecide('approved')}
+        disabled={pending}
+        className="min-h-[44px] px-5 rounded-full bg-pennie-navy text-pennie-white text-sm font-semibold disabled:opacity-50"
+      >
+        Approve review
+      </button>
+    </div>
+    <label className="block text-xs font-semibold text-pennie-graphite">
+      Request changes with instructions
+      <textarea
+        value={instructions}
+        onChange={event => onInstructionsChange(event.target.value)}
+        maxLength={INTERNAL_REVIEW_TEXT_LIMITS.max}
+        rows={2}
+        placeholder="Explain what the current manager should correct."
+        className="mt-1 w-full px-3 py-2 rounded-2xl border border-border bg-pennie-white text-base sm:text-sm font-medium resize-none focus:outline-none focus:ring-2 focus:ring-pennie-blue-deeper/40"
+      />
+    </label>
+    <div className="flex justify-end">
+      <button
+        type="button"
+        onClick={() => onDecide('changes_requested')}
+        disabled={pending || instructions.trim().length < INTERNAL_REVIEW_TEXT_LIMITS.min}
+        className="min-h-[40px] px-4 rounded-full border border-pennie-peach-dark text-pennie-peach-deeper text-sm font-semibold disabled:opacity-40"
+      >
+        Request changes
+      </button>
+    </div>
+  </section>
 }
 
 function AckSection({

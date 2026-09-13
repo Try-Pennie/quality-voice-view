@@ -25,11 +25,12 @@ test('table paging and J/K share the full ordered queue', async ({ page }) => {
 test('saving a still-deferred review does not advance or clear follow-up', async ({ page }) => {
   const state = await reviewFixture(page, ['first', 'second'].map(id => alertRow(id, {
     is_reviewed: true, accurate: true, action_taken: 'follow_up_later', feedback_by: EMAIL,
-    feedback_comment: 'Waiting until the next one-to-one coaching session to discuss this.',
+    violation_details: 'The required disclosure was omitted from the call.',
+    action_details: 'Waiting until the next coaching session to discuss this.',
   })))
   await page.goto('/dashboard/alerts?status=coaching_due')
   await openAlert(page, 'first')
-  await page.getByRole('textbox', { name: /What happened and how you addressed it/ }).fill('Still waiting for the next coaching session, which is now scheduled for Thursday.')
+  await page.getByRole('textbox', { name: 'What action did you take?' }).fill('Still waiting for the next coaching session, which is now scheduled for Thursday.')
   await page.getByRole('button', { name: 'Update review', exact: true }).click()
   await expect(page.getByText('Review saved')).toBeVisible()
   await expect(page.getByRole('dialog')).toContainText('Example first')
@@ -56,7 +57,8 @@ test('transcript loading is visible and a call switch cannot show the prior tran
 test('desktop feature screenshots with synthetic review data', async ({ page }, testInfo) => {
   await reviewFixture(page, [alertRow('older'), alertRow('recent', { alert_created_at: '2026-09-06T14:00:00Z' }), alertRow('follow-up', {
     is_reviewed: true, accurate: true, action_taken: 'follow_up_later', feedback_by: EMAIL,
-    feedback_comment: 'Scheduled a coaching session to review the disclosure and the call evidence together.',
+    violation_details: 'The required disclosure was omitted from the call.',
+    action_details: 'Scheduled coaching to review the disclosure and call evidence.',
   })])
   await page.goto('/dashboard/alerts?status=awaiting_manager')
   await expect(page.getByRole('heading', { name: '2 awaiting manager' })).toBeVisible()

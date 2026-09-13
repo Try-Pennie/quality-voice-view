@@ -12,6 +12,7 @@ const now = Date.parse('2026-09-07T16:00:00Z')
 const open = {
   is_reviewed: false, feedback_by: null, acker_emails: [], accurate: null,
   action_taken: null, alert_created_at: '2026-09-06T15:59:59Z',
+  current_decision: null,
 }
 
 test('overdue uses elapsed 24h and only first-pass review, including DST', () => {
@@ -31,17 +32,21 @@ test('manager review, director approval, coaching, and system closure stay disti
   const deferred = { ...open, is_reviewed: true, accurate: true, action_taken: 'follow_up_later' as const, feedback_by: 'Manager@example.test' }
   expect(ALERT_QUEUE_VIEWS).toEqual({
     awaiting_manager: 'Awaiting manager',
-    awaiting_approval: 'Awaiting your approval',
+    awaiting_approval: 'Awaiting approval',
+    changes_requested: 'Changes requested',
     coaching_due: 'Coaching due',
     reviewed: 'Reviewed',
     all: 'All',
   })
   expect(needsCoachingFollowUp(deferred)).toBe(true)
-  expect(isClosedForReviewer(deferred, 'manager@EXAMPLE.test')).toBe(true)
+  expect(isClosedForReviewer(deferred, 'manager@EXAMPLE.test')).toBe(false)
   expect(matchesAlertQueueView(deferred, 'awaiting_approval', true, 'director@example.test', now)).toBe(true)
   expect(matchesAlertQueueView(deferred, 'awaiting_manager', true, 'director@example.test', now)).toBe(false)
-  const approved = { ...deferred, acker_emails: ['DIRECTOR@example.test'] }
+  const approved = { ...deferred, current_decision: 'approved' as const, acker_emails: [] }
   expect(matchesAlertQueueView(approved, 'awaiting_approval', true, 'director@example.test', now)).toBe(false)
+  const returned = { ...deferred, current_decision: 'changes_requested' as const }
+  expect(matchesAlertQueueView(returned, 'changes_requested', false, 'manager@example.test', now)).toBe(true)
+  expect(matchesAlertQueueView(returned, 'awaiting_approval', true, 'director@example.test', now)).toBe(false)
   expect(matchesAlertQueueView(approved, 'coaching_due', true, 'director@example.test', now)).toBe(true)
   expect(matchesAlertQueueView(deferred, 'reviewed', true, 'director@example.test', now)).toBe(true)
   expect(needsCoachingFollowUp({ ...deferred, accurate: false })).toBe(false)
@@ -58,11 +63,14 @@ test('human outcomes reconcile while administrative closures remain separate', (
   const real = { ...open, is_reviewed: true, accurate: true, feedback_by: 'reviewer-a@example.test' }
   const falseAlarm = { ...open, is_reviewed: true, accurate: false, feedback_by: 'reviewer-b@example.test' }
   const systemClosed = { ...open, is_reviewed: true, accurate: true, feedback_by: 'system@pennie' }
-  const counts = summarizeReviewWorkload([open, real, falseAlarm, systemClosed])
-  expect(counts).toEqual({ received: 4, reviewed: 2, real: 1, falseAlarm: 1, awaitingManager: 1, systemClosed: 1 })
+  const returned = { ...falseAlarm, current_decision: 'changes_requested' as const }
+  const malformedReturned = { ...open, current_decision: 'changes_requested' as const }
+  const counts = summarizeReviewWorkload([open, real, returned, malformedReturned, systemClosed])
+  expect(counts).toEqual({ received: 5, reviewed: 2, real: 1, falseAlarm: 1, awaitingManager: 2, changesRequested: 1, systemClosed: 1 })
   expect(counts.received).toBe(counts.reviewed + counts.awaitingManager + counts.systemClosed)
   expect(counts.reviewed).toBe(counts.real + counts.falseAlarm)
   expect(matchesAlertQueueView(systemClosed, 'reviewed', true, 'director@example.test', now)).toBe(false)
+  expect(matchesAlertQueueView(malformedReturned, 'changes_requested', true, 'director@example.test', now)).toBe(false)
 })
 
 test('internal and partner workloads remain separate even for god-mode viewers', () => {
