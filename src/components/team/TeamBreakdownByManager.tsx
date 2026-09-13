@@ -4,12 +4,6 @@ import type { ManagerRollup } from '../../lib/team-queries'
 import { HelpHint } from '../ui/help-hint'
 import type { HelpId } from '../../lib/help-content'
 
-// Confirmed false alarms drop out of the headline so managers rank teams by
-// real workload, not by noise. Issue #21.
-function teamAlertsExFP(r: ManagerRollup): number {
-  return Math.max(0, r.total_alerts_count - r.false_positive_count)
-}
-
 export type ManagerSortKey =
   | 'call_count'
   | 'qa_count'
@@ -18,6 +12,7 @@ export type ManagerSortKey =
   | 'csat_high_rate'
   | 'unreviewed_alerts_count'
   | 'total_alerts_count'
+  | 'confirmed_issue_count'
   | 'agent_count'
 
 export function TeamBreakdownByManager({
@@ -40,14 +35,8 @@ export function TeamBreakdownByManager({
   const sorted = useMemo(() => {
     const copy = [...rows]
     copy.sort((a, b) => {
-      const av =
-        sortKey === 'total_alerts_count'
-          ? teamAlertsExFP(a)
-          : (a[sortKey] as number)
-      const bv =
-        sortKey === 'total_alerts_count'
-          ? teamAlertsExFP(b)
-          : (b[sortKey] as number)
+      const av = a[sortKey] as number
+      const bv = b[sortKey] as number
       return sortDesc ? bv - av : av - bv
     })
     return copy
@@ -111,7 +100,7 @@ export function TeamBreakdownByManager({
                   helpId="metric.manager_call_count"
                 />
                 <SortHeader
-                  label="Reviewed"
+                  label="AI-evaluated calls"
                   active={sortKey === 'qa_count'}
                   desc={sortDesc}
                   onClick={() => toggleSort('qa_count')}
@@ -139,18 +128,24 @@ export function TeamBreakdownByManager({
                   helpId="metric.team_escalation"
                 />
                 <SortHeader
-                  label="Open alerts"
+                  label="Awaiting manager"
                   active={sortKey === 'unreviewed_alerts_count'}
                   desc={sortDesc}
                   onClick={() => toggleSort('unreviewed_alerts_count')}
                   helpId="metric.team_open_alerts"
                 />
                 <SortHeader
-                  label="Total alerts"
+                  label="Received alerts"
                   active={sortKey === 'total_alerts_count'}
                   desc={sortDesc}
                   onClick={() => toggleSort('total_alerts_count')}
                   helpId="metric.manager_total_alerts"
+                />
+                <SortHeader
+                  label="Manager-confirmed issues"
+                  active={sortKey === 'confirmed_issue_count'}
+                  desc={sortDesc}
+                  onClick={() => toggleSort('confirmed_issue_count')}
                 />
               </tr>
             </thead>
@@ -232,7 +227,10 @@ export function TeamBreakdownByManager({
                       {r.unreviewed_alerts_count}
                     </td>
                     <td className="py-3 pr-4 tabular-nums text-pennie-navy">
-                      <ManagerTotalAlertsCell row={r} />
+                      {r.total_alerts_count}
+                    </td>
+                    <td className="py-3 pr-4 tabular-nums text-pennie-navy">
+                      {r.confirmed_issue_count}
                     </td>
                   </tr>
                 )
@@ -242,26 +240,6 @@ export function TeamBreakdownByManager({
         </div>
       )}
     </section>
-  )
-}
-
-function ManagerTotalAlertsCell({ row }: { row: ManagerRollup }) {
-  const adjusted = teamAlertsExFP(row)
-  if (row.total_alerts_count === 0) return <>0</>
-  const fp = row.false_positive_count
-  const tooltip =
-    fp > 0
-      ? `${adjusted} after excluding ${fp} confirmed false alarm${fp === 1 ? '' : 's'} (${row.total_alerts_count} fired)`
-      : `${adjusted} alerts fired`
-  return (
-    <span title={tooltip}>
-      {adjusted}
-      {fp > 0 && (
-        <span className="ml-1 text-[11px] text-pennie-graphite/50 tabular-nums">
-          (−{fp})
-        </span>
-      )}
-    </span>
   )
 }
 

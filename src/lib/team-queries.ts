@@ -15,6 +15,7 @@ import { SUPPRESSED_ALERT_MODULES, filterSuppressedAlertRows } from './suppresse
 import { fetchAllPaginated } from './supabase-helpers'
 import { startOfBusinessDay, endOfBusinessDay } from './time-zone'
 import { isPitchCall, pitchCallRisk } from './pitch-call-risk'
+import { isHumanReviewed, isSystemClosed } from './alert-review-queue'
 
 const sb = supabase as any
 
@@ -47,9 +48,10 @@ export type AgentRollup = {
   total_alerts_count: number
   open_alerts_count: number
   unreviewed_alerts_count: number
-  // Confirmed false alarms (is_reviewed AND accurate = false). Used to
-  // display a workload total that excludes adjudicated noise. Issue #21.
+  reviewed_alerts_count: number
+  confirmed_issue_count: number
   false_positive_count: number
+  system_closed_count: number
   // Pitch-call talk-time risk (PSAI-178). Populated by a supplementary fetch
   // (fetchPitchRiskCounts) and merged in; 0 until then. pitch_call_count is the
   // denominator for the rushed rate. Non-pitch calls never count here.
@@ -313,7 +315,10 @@ function rollupFromDailyRows(
     total_alerts_count: totalAlerts,
     open_alerts_count: openAlerts,
     unreviewed_alerts_count: unreviewedAlerts,
+    reviewed_alerts_count: 0,
+    confirmed_issue_count: 0,
     false_positive_count: falsePositiveCount,
+    system_closed_count: 0,
     pitch_call_count: 0,
     rushed_pitch_count: 0,
     trend_points: trend,
@@ -495,28 +500,26 @@ export async function fetchAgentAlertCounts(
   endDate: Date,
 ): Promise<AlertWithFeedback[]> {
   if (agentEmails.length === 0) return []
-  return fetchInBatches<AlertWithFeedback>(agentEmails, 100, async batch => {
-    let q = sb
-      .from('eavesly_alerts_with_feedback')
-      .select(ALERT_COUNT_COLUMNS)
-      .in('agent_email', batch)
-      .gte('alert_created_at', startDate.toISOString())
-      .lte('alert_created_at', endDate.toISOString())
-      .limit(2000)
+  return fetchInBatches<AlertWithFeedback>(agentEmails, 100, batch =>
+    fetchAllPaginated<AlertWithFeedback>((from, to) => {
+      let q = sb
+        .from('eavesly_alerts_with_feedback')
+        .select(ALERT_COUNT_COLUMNS)
+        .in('agent_email', batch)
+        .eq('alert_sent', true)
+        .gte('alert_created_at', startOfBusinessDay(startDate).toISOString())
+        .lte('alert_created_at', endOfBusinessDay(endDate).toISOString())
+        .order('alert_created_at', { ascending: false })
+        .order('call_id', { ascending: true })
+        .order('module_name', { ascending: true })
+        .range(from, to)
 
-    // Keep production-test modules out of the manager-facing agent profile
-    // alerts panel too; rows remain in Supabase for internal review.
-    for (const moduleName of SUPPRESSED_ALERT_MODULES) {
-      q = q.neq('module_name', moduleName)
-    }
-
-    const { data, error } = await q
-    if (error) {
-      console.error('Error fetching agent alerts batch:', error)
-      throw error
-    }
-    return filterSuppressedAlertRows(data as AlertWithFeedback[])
-  })
+      for (const moduleName of SUPPRESSED_ALERT_MODULES) {
+        q = q.neq('module_name', moduleName)
+      }
+      return q
+    }).then(filterSuppressedAlertRows),
+  )
 }
 
 export async function fetchAgentProfile(
@@ -554,13 +557,19 @@ export async function fetchAgentProfile(
   }
   const dailyRows = ((metricsRes.data || []) as any[]).map(normalizeDailyRow)
   const sampleCalls = ((sampleCallsRes.data || []) as any[])
-  const visibleAlertTotal = alerts.filter(a => a.has_violation).length
-  const visibleUnreviewedAlerts = alerts.filter(
-    a => a.has_violation && !a.is_reviewed,
+  const visibleAlerts = alerts
+  const visibleAlertTotal = visibleAlerts.length
+  const visibleUnreviewedAlerts = visibleAlerts.filter(
+    a => !isHumanReviewed(a) && !isSystemClosed(a),
   ).length
-  const visibleFalsePositiveAlerts = alerts.filter(
-    a => a.has_violation && a.accurate === false,
+  const visibleReviewedAlerts = visibleAlerts.filter(isHumanReviewed).length
+  const visibleConfirmedIssues = visibleAlerts.filter(
+    a => isHumanReviewed(a) && a.accurate === true,
   ).length
+  const visibleFalsePositiveAlerts = visibleAlerts.filter(
+    a => isHumanReviewed(a) && a.accurate === false,
+  ).length
+  const visibleSystemClosed = visibleAlerts.filter(isSystemClosed).length
   const agentFullName =
     dailyRows.find(r => r.agent_full_name)?.agent_full_name ??
     sampleCalls.find(c => c.agent_full_name)?.agent_full_name ??
@@ -637,7 +646,10 @@ export async function fetchAgentProfile(
   rollup.total_alerts_count = visibleAlertTotal
   rollup.open_alerts_count = visibleAlertTotal
   rollup.unreviewed_alerts_count = visibleUnreviewedAlerts
+  rollup.reviewed_alerts_count = visibleReviewedAlerts
+  rollup.confirmed_issue_count = visibleConfirmedIssues
   rollup.false_positive_count = visibleFalsePositiveAlerts
+  rollup.system_closed_count = visibleSystemClosed
   rollup.needs_attention =
     rollup.call_count > 0 &&
     (rollup.compliance_pass_rate < 80 ||
@@ -670,7 +682,10 @@ export type ManagerRollup = {
   total_alerts_count: number
   open_alerts_count: number
   unreviewed_alerts_count: number
+  reviewed_alerts_count: number
+  confirmed_issue_count: number
   false_positive_count: number
+  system_closed_count: number
   top_agent: AgentRollup | null
   needs_attention: boolean
 }
@@ -811,8 +826,20 @@ export function aggregateManagerRollups(
       (s, a) => s + a.unreviewed_alerts_count,
       0,
     )
+    const reviewed_alerts_count = agents.reduce(
+      (s, a) => s + a.reviewed_alerts_count,
+      0,
+    )
+    const confirmed_issue_count = agents.reduce(
+      (s, a) => s + a.confirmed_issue_count,
+      0,
+    )
     const false_positive_count = agents.reduce(
       (s, a) => s + a.false_positive_count,
+      0,
+    )
+    const system_closed_count = agents.reduce(
+      (s, a) => s + a.system_closed_count,
       0,
     )
     const topAgent = agents
@@ -837,7 +864,10 @@ export function aggregateManagerRollups(
       total_alerts_count,
       open_alerts_count,
       unreviewed_alerts_count,
+      reviewed_alerts_count,
+      confirmed_issue_count,
       false_positive_count,
+      system_closed_count,
       top_agent: topAgent || null,
       needs_attention,
     })

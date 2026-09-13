@@ -4,12 +4,6 @@ import { agentDisplayName, formatDuration } from '../../lib/utils'
 import { AgentSparkline } from './AgentSparkline'
 import { ArrowUp, ArrowDown, ArrowUpDown } from 'lucide-react'
 
-// Confirmed false alarms shouldn't inflate an agent's headline alert
-// count — managers rank/triage off this number. Issue #21.
-function alertsExFP(r: AgentRollup): number {
-  return Math.max(0, r.total_alerts_count - r.false_positive_count)
-}
-
 type SortKey =
   | 'attention'
   | 'name'
@@ -20,6 +14,7 @@ type SortKey =
   | 'escalation'
   | 'alerts'
   | 'total_alerts'
+  | 'confirmed_issues'
   | 'rushed'
 
 export function TeamLeaderboard({
@@ -72,7 +67,10 @@ export function TeamLeaderboard({
           cmp = a.unreviewed_alerts_count - b.unreviewed_alerts_count
           break
         case 'total_alerts':
-          cmp = alertsExFP(a) - alertsExFP(b)
+          cmp = a.total_alerts_count - b.total_alerts_count
+          break
+        case 'confirmed_issues':
+          cmp = a.confirmed_issue_count - b.confirmed_issue_count
           break
         case 'rushed':
           cmp = a.rushed_pitch_count - b.rushed_pitch_count
@@ -120,9 +118,10 @@ export function TeamLeaderboard({
           <option value="compliance:asc">Compliance (low → high)</option>
           <option value="csat:asc">CSAT high (low → high)</option>
           <option value="escalation:desc">Escalation (high → low)</option>
-          <option value="alerts:desc">Open alerts (high → low)</option>
-          <option value="total_alerts:desc">Total alerts (high → low)</option>
-          <option value="rushed:desc">Rushed pitch (high → low)</option>
+          <option value="alerts:desc">Awaiting manager (high → low)</option>
+          <option value="total_alerts:desc">Received alerts (high → low)</option>
+          <option value="confirmed_issues:desc">Manager-confirmed issues (high → low)</option>
+          <option value="rushed:desc">Pitch calls under 30 min (high → low)</option>
         </select>
       </div>
 
@@ -194,7 +193,7 @@ export function TeamLeaderboard({
                       </div>
                       <div>
                         <dt className="text-[10px] uppercase tracking-wider text-pennie-graphite/50 font-bold">
-                          Alerts
+                          Awaiting manager
                         </dt>
                         <dd className="mt-0.5">
                           <AlertCountPill
@@ -205,7 +204,15 @@ export function TeamLeaderboard({
                       </div>
                       <div>
                         <dt className="text-[10px] uppercase tracking-wider text-pennie-graphite/50 font-bold">
-                          Rushed pitch
+                          Confirmed issues
+                        </dt>
+                        <dd className="mt-0.5 text-sm font-semibold text-pennie-navy tabular-nums">
+                          {agent.confirmed_issue_count}
+                        </dd>
+                      </div>
+                      <div>
+                        <dt className="text-[10px] uppercase tracking-wider text-pennie-graphite/50 font-bold">
+                          Pitch calls under 30 min
                         </dt>
                         <dd className="mt-0.5">
                           <RushedPitchCell agent={agent} />
@@ -247,7 +254,7 @@ export function TeamLeaderboard({
                 align="right"
               />
               <SortableTh
-                label="Reviewed"
+                label="AI-evaluated calls"
                 active={sortKey === 'reviewed'}
                 dir={sortDir}
                 onClick={() => handleSort('reviewed')}
@@ -275,21 +282,28 @@ export function TeamLeaderboard({
                 align="right"
               />
               <SortableTh
-                label="Open alerts"
+                label="Awaiting manager"
                 active={sortKey === 'alerts'}
                 dir={sortDir}
                 onClick={() => handleSort('alerts')}
                 align="right"
               />
               <SortableTh
-                label="Total alerts"
+                label="Received alerts"
                 active={sortKey === 'total_alerts'}
                 dir={sortDir}
                 onClick={() => handleSort('total_alerts')}
                 align="right"
               />
               <SortableTh
-                label="Rushed pitch"
+                label="Manager-confirmed issues"
+                active={sortKey === 'confirmed_issues'}
+                dir={sortDir}
+                onClick={() => handleSort('confirmed_issues')}
+                align="right"
+              />
+              <SortableTh
+                label="Pitch calls under 30 min"
                 active={sortKey === 'rushed'}
                 dir={sortDir}
                 onClick={() => handleSort('rushed')}
@@ -312,7 +326,7 @@ export function TeamLeaderboard({
                   <td className="px-3 py-4" aria-hidden="true">
                     <span className="block w-2 h-2 rounded-full bg-pennie-beige animate-pulse" />
                   </td>
-                  {Array.from({ length: 11 }).map((__, j) => (
+                  {Array.from({ length: 12 }).map((__, j) => (
                     <td key={j} className="px-6 py-4 align-top">
                       <span
                         className="block h-3 rounded-full bg-pennie-beige animate-pulse"
@@ -324,7 +338,7 @@ export function TeamLeaderboard({
               ))
             ) : sorted.length === 0 ? (
               <tr>
-                <td colSpan={12} className="px-6 py-12 text-center text-pennie-graphite/70">
+                <td colSpan={13} className="px-6 py-12 text-center text-pennie-graphite/70">
                   No agents match your filters.
                 </td>
               </tr>
@@ -409,7 +423,10 @@ export function TeamLeaderboard({
                       />
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-pennie-graphite tabular-nums text-right">
-                      <TotalAlertsCell agent={agent} />
+                      {agent.total_alerts_count}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-pennie-graphite tabular-nums text-right">
+                      {agent.confirmed_issue_count}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-right">
                       <RushedPitchCell agent={agent} />
@@ -462,29 +479,7 @@ function PercentCell({
   )
 }
 
-function TotalAlertsCell({ agent }: { agent: AgentRollup }) {
-  const adjusted = alertsExFP(agent)
-  if (agent.total_alerts_count === 0) {
-    return <span className="text-pennie-graphite/40">0</span>
-  }
-  const fp = agent.false_positive_count
-  const tooltip =
-    fp > 0
-      ? `${adjusted} after excluding ${fp} confirmed false alarm${fp === 1 ? '' : 's'} (${agent.total_alerts_count} fired)`
-      : `${adjusted} alerts fired`
-  return (
-    <span title={tooltip}>
-      {adjusted}
-      {fp > 0 && (
-        <span className="ml-1 text-[11px] text-pennie-graphite/50 tabular-nums">
-          (−{fp})
-        </span>
-      )}
-    </span>
-  )
-}
-
-// Rushed pitch-call count + rate (PSAI-178). Rate is rushed ÷ eligible pitch
+// Under-30-minute pitch-call heuristic + rate. Rate uses eligible pitch calls.
 // calls; dash when the agent took no pitch calls in the window.
 function RushedPitchCell({ agent }: { agent: AgentRollup }) {
   const pitch = agent.pitch_call_count
@@ -495,7 +490,7 @@ function RushedPitchCell({ agent }: { agent: AgentRollup }) {
   const rate = Math.round((rushed / pitch) * 100)
   return (
     <span
-      title={`${rushed} rushed of ${pitch} pitch call${pitch === 1 ? '' : 's'} (${rate}%)`}
+      title={`${rushed} pitch call${rushed === 1 ? '' : 's'} under 30 minutes of ${pitch} eligible (${rate}%). This is a talk-time heuristic, not a confirmed issue.`}
     >
       <span
         className={`text-sm font-semibold tabular-nums ${
@@ -528,9 +523,9 @@ function AlertCountPill({
   return (
     <span
       className={`pennie-pill ${tone} tabular-nums`}
-      title={`${unreviewed} unreviewed of ${total} total`}
+      title={`${unreviewed} awaiting manager of ${total} received`}
     >
-      {unreviewed > 0 ? `${unreviewed} new` : `${total} reviewed`}
+      {unreviewed > 0 ? `${unreviewed} waiting` : `${total} received`}
     </span>
   )
 }

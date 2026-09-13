@@ -15,13 +15,14 @@ import type { AgentRollup } from '../lib/team-queries'
 import { paginate } from './disposition-audit-pagination'
 import {
   ALERT_QUEUE_VIEWS, parseAlertQueueView, isClosedForReviewer, defaultAlertWindow,
-  isReviewOverdue, needsCoachingFollowUp, matchesAlertQueueView, reviewAgeLabel,
+  isHumanReviewed, isReviewOverdue, isSystemClosed, needsCoachingFollowUp,
+  matchesAlertQueueView, reviewAgeLabel, summarizeReviewWorkload,
 } from '../lib/alert-review-queue'
 import { AlertHeatmap } from '../components/alerts/AlertHeatmap'
 import {
   useUserScope,
   useAlerts,
-  useAlertBreakdown,
+  useManagerNames,
   useTeamRollup,
 } from '../hooks/use-queries'
 import {
@@ -35,7 +36,7 @@ import { DateRangePicker } from '../components/dashboard/DateRangePicker'
 import { RefreshingHint } from '../components/ui/refreshing-hint'
 import { AlertReviewDrawer } from '../components/alerts/AlertReviewDrawer'
 import { formatDateParam, parseDateParam } from '../lib/url-filters'
-import { filterSuppressedAlertRows, isSuppressedAlertModule } from '../lib/suppressed-alerts'
+import { filterAlertWorkloadRows, isSuppressedAlertModule, type AlertWorkload } from '../lib/suppressed-alerts'
 import {
   CheckCheck,
   ChevronDown,
@@ -50,6 +51,7 @@ import { HelpHint } from '../components/ui/help-hint'
 import { PageHero, SupportingStat } from '../components/PageHero'
 import { ErrorState } from '@/components/states/ErrorState'
 import { EmptyState } from '@/components/states/EmptyState'
+import { ManagerWorkloadSummary } from '../components/alerts/ManagerWorkloadSummary'
 
 const MODULE_OPTIONS = [
   { value: 'full_qa', label: MODULE_LABELS.full_qa },
@@ -83,15 +85,29 @@ export default function AlertsPage() {
   const [defaultDates] = useState(() => defaultAlertWindow(new Date()))
   const startDate = useMemo(() => parseDateParam(searchParams.get('start'), defaultDates.start), [searchParams, defaultDates])
   const endDate = useMemo(() => parseDateParam(searchParams.get('end'), defaultDates.end, true), [searchParams, defaultDates])
-  const statusView = parseAlertQueueView(searchParams.get('status'))
+  const workload: AlertWorkload = scope?.isGodMode && searchParams.get('workload') === 'partner_qa' ? 'partner_qa' : 'internal'
+  const statusView = !searchParams.has('status') && workload === 'partner_qa'
+    ? 'awaiting_manager'
+    : parseAlertQueueView(searchParams.get('status'), !!scope?.isGodMode)
   const moduleFilter = useMemo(() => searchParams.get('module')?.split(',').filter(Boolean) ?? [], [searchParams])
   const search = searchParams.get('search') ?? ''
+  const managerFilter = searchParams.get('manager')
+  const outcomeFilter = searchParams.get('outcome') === 'real' || searchParams.get('outcome') === 'false_alarm'
+    ? searchParams.get('outcome')
+    : 'all'
   const queueParams = useMemo(() => {
     const params = new URLSearchParams(searchParams)
     params.set('start', formatDateParam(startDate))
     params.set('end', formatDateParam(endDate))
     return params
   }, [searchParams, startDate, endDate])
+  useEffect(() => {
+    if (!searchParams.has('start') || !searchParams.has('end') || (scope && !scope.isGodMode && searchParams.has('workload'))) {
+      const canonical = new URLSearchParams(queueParams)
+      if (scope && !scope.isGodMode) canonical.delete('workload')
+      setSearchParams(canonical, { replace: true })
+    }
+  }, [queueParams, scope, searchParams, setSearchParams])
   const changeFilters = useCallback((changes: Record<string, string | null>) => {
     const params = new URLSearchParams(queueParams)
     for (const [key, value] of Object.entries(changes)) {
@@ -113,7 +129,7 @@ export default function AlertsPage() {
   // newest alerts first, matching the fetch order.
   const rawSort = searchParams.get('sort')
   const sortKey: SortKey = rawSort === 'agent' || rawSort === 'violation' || rawSort === 'status' ? rawSort : 'time'
-  const sortDesc = searchParams.get('direction') === 'asc' ? false : searchParams.get('direction') === 'desc' ? true : statusView !== 'overdue' && statusView !== 'follow_up'
+  const sortDesc = searchParams.get('direction') === 'asc' ? false : searchParams.get('direction') === 'desc' ? true : statusView !== 'awaiting_manager' && statusView !== 'coaching_due'
 
   // Bulk approve (god-mode): row selection over already-manager-reviewed
   // alerts that still need this user's ✓.
@@ -133,8 +149,9 @@ export default function AlertsPage() {
       endDate,
       modules: moduleFilter.length ? moduleFilter : undefined,
       status: 'all',
+      workload,
     }),
-    [startDate, endDate, moduleFilter],
+    [startDate, endDate, moduleFilter, workload],
   )
 
   const {
@@ -145,24 +162,20 @@ export default function AlertsPage() {
     refetch: refetchAlerts,
   } = useAlerts(serverFilters, scope)
   const allAlerts = useMemo(
-    () => filterSuppressedAlertRows(allAlertsData, scope),
-    [allAlertsData, scope],
+    () => filterAlertWorkloadRows(allAlertsData, scope, workload),
+    [allAlertsData, scope, workload],
   )
   const loading = alertsPending && !allAlertsData
 
-  const {
-    data: breakdownData,
-    isPending: breakdownPending,
-    isFetching: breakdownFetching,
-  } = useAlertBreakdown(scope, startDate, endDate)
-  const breakdown = useMemo(() => breakdownData ?? [], [breakdownData])
-  const breakdownLoading = breakdownPending && !breakdownData
-
   const { data: rollupsData } = useTeamRollup(scope, startDate, endDate)
   const rollups = useMemo(() => rollupsData ?? [], [rollupsData])
+  const managerEmails = useMemo(() => Array.from(new Set(allAlerts.flatMap(alert =>
+    alert.assigned_manager_email ? [alert.assigned_manager_email.trim().toLowerCase()] : [],
+  ))), [allAlerts])
+  const { data: managerNamesData } = useManagerNames(scope?.isGodMode && workload === 'internal' ? managerEmails : [])
+  const managerNames = useMemo(() => managerNamesData ?? new Map<string, string>(), [managerNamesData])
 
-  const refreshing =
-    (alertsFetching || breakdownFetching) && !loading && !breakdownLoading
+  const refreshing = alertsFetching && !loading
 
   // For god-mode reviewers (Kris) the alert isn't "closed" until *they* sign
   // off — either by being the structured reviewer (`feedback_by`) or by
@@ -175,6 +188,11 @@ export default function AlertsPage() {
 
   const alerts = useMemo(() => {
     let rows = allAlerts.filter(a => matchesAlertQueueView(a, statusView, !!scope?.isGodMode, user?.email, now))
+    if (managerFilter) {
+      rows = rows.filter(a => (a.assigned_manager_email?.trim().toLowerCase() || '__unassigned__') === managerFilter)
+    }
+    if (outcomeFilter === 'real') rows = rows.filter(a => isHumanReviewed(a) && a.accurate === true)
+    if (outcomeFilter === 'false_alarm') rows = rows.filter(a => isHumanReviewed(a) && a.accurate === false)
 
     const q = search.trim().toLowerCase()
     if (q) {
@@ -196,7 +214,8 @@ export default function AlertsPage() {
     // Sort a copy — this ordering drives the table, J/K navigation, and the
     // drawer's next/prev, so they always agree.
     const statusRank = (a: AlertWithFeedback) => {
-      if (!a.is_reviewed) return 0
+      if (isSystemClosed(a)) return 4
+      if (!isHumanReviewed(a)) return 0
       if (scope?.isGodMode && !closedForMe(a)) return 1
       if (a.accurate === false) return 3
       return 2
@@ -222,7 +241,7 @@ export default function AlertsPage() {
       return sortDesc ? -cmp : cmp
     })
     return sorted
-  }, [allAlerts, statusView, search, scope?.isGodMode, closedForMe, sortKey, sortDesc, user?.email, now])
+  }, [allAlerts, statusView, managerFilter, outcomeFilter, search, scope?.isGodMode, closedForMe, sortKey, sortDesc, user?.email, now])
 
   const queuePage = paginate(alerts, requestedPage, QUEUE_PAGE_SIZE)
   const queueFilterKey = queueParams.toString()
@@ -241,9 +260,9 @@ export default function AlertsPage() {
       setDrawerAlert(null)
       return
     }
-    if (isSuppressedAlertModule(routeModuleName, scope)) {
+    if (isSuppressedAlertModule(routeModuleName, scope, workload)) {
       setDrawerAlert(null)
-      navigate('/dashboard/alerts', { replace: true })
+      navigate(`/dashboard/alerts?${queueParams}`, { replace: true })
       return
     }
     let cancelled = false
@@ -252,7 +271,7 @@ export default function AlertsPage() {
       if (current?.call_id === routeCallId && current.module_name === routeModuleName) return inList ? { ...current, ...inList } : current
       return inList ?? null
     })
-    fetchAlertOne(routeCallId, routeModuleName, scope)
+    fetchAlertOne(routeCallId, routeModuleName, scope, workload)
       .then(full => {
         if (cancelled) return
         if (full) setDrawerAlert(full)
@@ -260,7 +279,7 @@ export default function AlertsPage() {
       })
       .catch(() => { if (!cancelled) toast.error('Could not load alert details. Close and reopen to retry.') })
     return () => { cancelled = true }
-  }, [routeCallId, routeModuleName, allAlerts, navigate, scope])
+  }, [routeCallId, routeModuleName, allAlerts, navigate, scope, workload, queueParams])
 
   const openDrawer = useCallback(
     (alert: AlertWithFeedback) => {
@@ -379,7 +398,7 @@ export default function AlertsPage() {
   // bulk-acked; unreviewed alerts must go through the drawer form.
   const isAckable = useCallback(
     (a: AlertWithFeedback) =>
-      !!scope?.isGodMode && !!a.is_reviewed && !closedForMe(a),
+      !!scope?.isGodMode && isHumanReviewed(a) && !closedForMe(a),
     [scope?.isGodMode, closedForMe],
   )
   const ackableAlerts = useMemo(() => alerts.filter(isAckable), [alerts, isAckable])
@@ -392,7 +411,7 @@ export default function AlertsPage() {
   // Selection only makes sense within one filtered view — reset when it moves.
   useEffect(() => {
     setSelected(new Set())
-  }, [startDate, endDate, statusView, moduleFilter, search])
+  }, [startDate, endDate, statusView, moduleFilter, search, managerFilter, outcomeFilter, workload])
 
   const toggleSelected = useCallback((a: AlertWithFeedback) => {
     setSelected(prev => {
@@ -426,7 +445,7 @@ export default function AlertsPage() {
           module_name: a.module_name,
           acker_email: email,
           acked: true,
-        })),
+        }, scope, workload)),
       ))
     }
     const okKeys = new Set<string>()
@@ -463,7 +482,7 @@ export default function AlertsPage() {
         `Approved ${okKeys.size}, ${failed} failed — select the rest and try again.`,
       )
     }
-  }, [user?.email, selectedTargets, queryClient])
+  }, [user?.email, selectedTargets, queryClient, scope, workload])
 
   // ---- J/K keyboard navigation over the list (drawer closed) ----
   useEffect(() => {
@@ -522,42 +541,41 @@ export default function AlertsPage() {
   }, [focusIndex, queuePage.page])
 
   const stats = useMemo(() => {
-    const total = alerts.length
-    const reviewed = alerts.filter(a => a.is_reviewed).length
-    const inaccurate = alerts.filter(a => a.accurate === false).length
-    const fpRate =
-      reviewed > 0 ? Math.round((inaccurate / reviewed) * 100) : null
-    const flaggedAgents = new Set(alerts.map(a => a.agent_email)).size
-    const queued = alerts.filter(a => !a.is_reviewed).length
-    return { total, reviewed, inaccurate, fpRate, flaggedAgents, queued }
-  }, [alerts])
+    const counts = summarizeReviewWorkload(allAlerts)
+    const fpRate = counts.reviewed > 0 ? Math.round((counts.falseAlarm / counts.reviewed) * 100) : null
+    const flaggedAgents = new Set(allAlerts.map(a => a.agent_email)).size
+    return { ...counts, fpRate, flaggedAgents }
+  }, [allAlerts])
 
-  // Heatmap respects status + search (search narrows by agent email/name)
-  // but NOT module — module is the column axis. Swap each cell's `total` to
-  // match the active status view; AlertHeatmap drives intensity off `total`.
+  // Derive the matrix from the same complete, filtered inbox rows so every
+  // displayed count opens exactly the rows it summarizes.
   const heatmapCells = useMemo<AlertBreakdownCell[]>(() => {
-    const nameByEmail = new Map<string, string | null>()
-    for (const r of rollups) nameByEmail.set(r.agent_email, r.agent_full_name)
-    const q = search.trim().toLowerCase()
-    return breakdown
-      .filter(c => {
-        if (!q) return true
-        const name = nameByEmail.get(c.agent_email) || ''
-        return (
-          c.agent_email.toLowerCase().includes(q) ||
-          name.toLowerCase().includes(q)
-        )
-      })
-      .map(c => ({
-        ...c,
-        total:
-          statusView === 'new'
-            ? c.unreviewed
-            : statusView === 'reviewed'
-              ? c.reviewed
-              : c.total,
-      }))
-  }, [breakdown, rollups, search, statusView])
+    const byKey = new Map<string, AlertBreakdownCell>()
+    for (const alert of alerts) {
+      if (!alert.agent_email || !alert.module_name) continue
+      const key = `${alert.module_name}::${alert.agent_email}`
+      const cell = byKey.get(key) ?? {
+        module: alert.module_name,
+        agent_email: alert.agent_email,
+        agent_full_name: null,
+        total: 0,
+        unreviewed: 0,
+        false_positives: 0,
+        reviewed: 0,
+        real: 0,
+        system_closed: 0,
+      }
+      cell.total += 1
+      if (isSystemClosed(alert)) cell.system_closed += 1
+      else if (isHumanReviewed(alert)) {
+        cell.reviewed += 1
+        if (alert.accurate === false) cell.false_positives += 1
+        else cell.real += 1
+      } else cell.unreviewed += 1
+      byKey.set(key, cell)
+    }
+    return Array.from(byKey.values())
+  }, [alerts])
 
   const heatmapRollups = useMemo<AgentRollup[]>(() => {
     const q = search.trim().toLowerCase()
@@ -628,26 +646,22 @@ export default function AlertsPage() {
       )
     : -1
 
-  // Headline reflects the count in the current filtered view. For god-mode
-  // this includes manager-reviewed-but-not-acked-by-me alerts under "new".
   const headlineNumber = alerts.length
   const headlineLabel =
-    statusView === 'new'
-      ? headlineNumber === 1
-        ? 'alert to review'
-        : 'alerts to review'
-      : statusView === 'overdue'
-        ? 'overdue reviews'
-        : statusView === 'follow_up'
-          ? 'coaching follow-ups'
+    statusView === 'awaiting_manager'
+      ? 'awaiting manager'
+      : statusView === 'awaiting_approval'
+        ? 'awaiting your approval'
+        : statusView === 'coaching_due'
+          ? 'coaching due'
           : statusView === 'reviewed'
             ? 'reviewed'
-            : 'in window'
+            : 'received in window'
 
   return (
     <div className="space-y-6 sm:space-y-8 animate-pennie-rise">
       <PageHero
-        label="Alert review queue"
+        label={workload === 'partner_qa' ? 'Partner QA · Admin only' : 'Review workspace'}
         display
         headline={
           <>
@@ -658,55 +672,75 @@ export default function AlertsPage() {
           </>
         }
         description={
-          scope.isGodMode
-            ? 'God-mode view: every manager’s alerts are visible.'
-            : `Alerts for ${scope.managedAgents.length} agent${scope.managedAgents.length === 1 ? '' : 's'} on your team.`
+          workload === 'partner_qa'
+            ? 'A separate restricted partner workload. It never changes Pennie manager accountability.'
+            : scope.isGodMode
+              ? 'Internal Pennie workload grouped by current team ownership.'
+              : `Internal alerts for ${scope.managedAgents.length} agent${scope.managedAgents.length === 1 ? '' : 's'} on your team.`
         }
         stats={
           <>
             <SupportingStat
-              label="Reviewed"
-              value={`${stats.reviewed} / ${stats.total}`}
+              label="Received"
+              value={loading || alertsError ? '—' : stats.received}
+              hint={stats.systemClosed > 0 ? `${stats.systemClosed} system closed separately` : undefined}
               helpId="metric.alert_reviewed"
             />
             <SupportingStat
-              label="Flagged in error"
-              value={stats.fpRate === null ? '—' : `${stats.fpRate}%`}
-              hint={
-                stats.reviewed > 0
-                  ? `${stats.inaccurate} of ${stats.reviewed}`
-                  : 'No feedback yet'
-              }
-              helpId="metric.fp_rate"
+              label="Reviewed"
+              value={loading || alertsError ? '—' : stats.reviewed}
+              hint={loading || alertsError ? undefined : `${stats.real} real · ${stats.falseAlarm} false alarm`}
+              helpId="metric.alert_reviewed"
             />
             <SupportingStat
-              label="Agents flagged"
-              value={stats.flaggedAgents}
-              helpId="metric.agents_flagged"
+              label="Awaiting manager"
+              value={loading || alertsError ? '—' : stats.awaitingManager}
+              helpId="metric.team_open_alerts"
             />
           </>
         }
       />
 
-      {statusView !== 'overdue' && statusView !== 'follow_up' && <div className="space-y-2">
+      {scope.isGodMode && workload === 'internal' && !alertsError && (
+        <ManagerWorkloadSummary
+          alerts={allAlerts}
+          managerNames={managerNames}
+          selectedManager={managerFilter}
+          loading={loading}
+          onSelect={({ managerEmail, view, outcome }) => changeFilters({
+            manager: managerEmail,
+            status: view,
+            outcome: outcome === 'all' ? null : outcome,
+            search: null,
+            sort: null,
+            direction: null,
+          })}
+        />
+      )}
+
+      {workload === 'internal' && statusView === 'awaiting_manager' && !managerFilter && outcomeFilter === 'all' && !search.trim() && !alertsError && <div className="space-y-2">
         <AlertHeatmap
           cells={heatmapCells}
           rollups={heatmapRollups}
-          loading={breakdownLoading}
+          loading={loading}
           startDate={startDate}
           endDate={endDate}
           compact
         />
-        {moduleFilter.length > 0 && (
-          <p className="text-xs text-pennie-graphite/60 px-2">
-            Heatmap shows all alert types — your filter applies to the list below.
-          </p>
-        )}
       </div>}
 
       {/* Filters */}
       <section className="pennie-card-tight space-y-4">
         <div className="flex flex-wrap gap-3 sm:gap-5 items-end">
+          {scope.isGodMode && (
+            <fieldset className="flex flex-col gap-1.5">
+              <legend className="pennie-label">Workload</legend>
+              <div className="flex gap-1" role="group" aria-label="Select workload">
+                <button type="button" aria-pressed={workload === 'internal'} onClick={() => changeFilters({ workload: null, status: 'awaiting_approval', manager: null, outcome: null, module: null })} className={`min-h-[40px] px-4 rounded-full text-sm font-semibold border ${workload === 'internal' ? 'bg-pennie-navy text-pennie-white border-pennie-navy' : 'bg-pennie-white border-border text-pennie-graphite'}`}>Pennie</button>
+                <button type="button" aria-pressed={workload === 'partner_qa'} onClick={() => changeFilters({ workload: 'partner_qa', status: 'awaiting_manager', manager: null, outcome: null, module: null })} className={`min-h-[40px] px-4 rounded-full text-sm font-semibold border ${workload === 'partner_qa' ? 'bg-pennie-navy text-pennie-white border-pennie-navy' : 'bg-pennie-white border-border text-pennie-graphite'}`}>Partner QA</button>
+              </div>
+            </fieldset>
+          )}
           <DateRangePicker
             startDate={startDate}
             endDate={endDate}
@@ -721,7 +755,7 @@ export default function AlertsPage() {
               <HelpHint id="filter.alerts.status" />
             </legend>
             <div className="flex flex-wrap gap-1" role="group" aria-label="Filter by status">
-              {Object.entries(ALERT_QUEUE_VIEWS).map(([s, label]) => (
+              {Object.entries(ALERT_QUEUE_VIEWS).filter(([s]) => scope.isGodMode || s !== 'awaiting_approval').map(([s, label]) => (
                 <button
                   key={s}
                   type="button"
@@ -761,7 +795,7 @@ export default function AlertsPage() {
           </div>
         </div>
 
-        <div>
+        {workload === 'internal' && <div>
           {/* Desktop label — kept inline with the chips on `sm+`. Mobile uses
               the disclosure trigger below as both label and toggle. */}
           <p className="pennie-label mb-2 hidden sm:inline-flex items-center gap-1">
@@ -829,14 +863,21 @@ export default function AlertsPage() {
               </button>
             )}
           </div>
-        </div>
+        </div>}
+        {(managerFilter || outcomeFilter !== 'all') && (
+          <button type="button" onClick={() => changeFilters({ manager: null, outcome: null })} className="min-h-[40px] px-4 rounded-full bg-pennie-blue-light text-sm font-semibold text-pennie-blue-deeper hover:underline">
+            Clear manager count filter
+          </button>
+        )}
       </section>
 
       <p className="text-sm text-pennie-graphite/80 px-2" role="status">
         {loading || alertsFetching ? 'Loading queue…' : alertsError ? 'Queue unavailable.' : `${alerts.length.toLocaleString()} matching alerts`} · {formatDateParam(startDate)} – {formatDateParam(endDate)} (ET).
-        {' '}Counts only cover this window; widen the dates to find older work.
-        {statusView === 'overdue' && ' Overdue means no manager review after 24 elapsed hours; director sign-off is separate.'}
-        {statusView === 'follow_up' && ' Reviewed as a real issue with coaching deferred. Update the review with the outcome to clear it; approval or discussion alone does not complete coaching.'}
+        {' '}Counts only cover this window. Use the date picker (including Last 90 days) to find older work.
+        {statusView === 'awaiting_manager' && ' Awaiting manager means no recorded human real/false decision; overdue rows have waited more than 24 elapsed hours.'}
+        {statusView === 'awaiting_approval' && ' Includes manager-reviewed real issues and false alarms that you have not personally acknowledged.'}
+        {statusView === 'coaching_due' && ' Coaching was deferred. Approval or discussion does not complete coaching.'}
+        {stats.systemClosed > 0 && ` ${stats.systemClosed} administrative system closure${stats.systemClosed === 1 ? ' is' : 's are'} separate from human review.`}
       </p>
 
       {/* Table */}
@@ -854,19 +895,19 @@ export default function AlertsPage() {
             title={
               search.trim()
                 ? 'No matches in this window.'
-                : statusView === 'new'
-                  ? 'Inbox zero — nothing to review.'
-                  : statusView === 'overdue'
-                    ? 'No overdue reviews in this window.'
-                    : statusView === 'follow_up'
-                      ? 'No coaching follow-ups in this window.'
+                : statusView === 'awaiting_manager'
+                  ? 'No alerts awaiting a manager in this window.'
+                  : statusView === 'awaiting_approval'
+                    ? 'No manager decisions await your approval in this window.'
+                    : statusView === 'coaching_due'
+                      ? 'No coaching is due in this window.'
                       : 'No alerts match.'
             }
             message={
               search.trim()
                 ? `Search only covers ${startDate.toLocaleDateString()} – ${endDate.toLocaleDateString()} — widen the date range to look further back.`
-                : statusView === 'new'
-                  ? 'New alerts will land here as Eavesly flags them.'
+                : statusView === 'awaiting_manager'
+                  ? 'New internal alerts will land here. Use the date picker to check older work.'
                   : 'Try widening the date range or clearing filters.'
             }
           />
@@ -997,7 +1038,7 @@ export default function AlertsPage() {
                       <span className="text-sm text-muted-foreground tabular-nums">
                         {formatDateTime(a.alert_created_at)}
                       </span>
-                      {!a.is_reviewed && <span className={`block mt-1 text-xs font-semibold ${isReviewOverdue(a, now) ? 'text-pennie-peach-deeper' : 'text-muted-foreground'}`}>
+                      {!isHumanReviewed(a) && !isSystemClosed(a) && <span className={`block mt-1 text-xs font-semibold ${isReviewOverdue(a, now) ? 'text-pennie-peach-deeper' : 'text-muted-foreground'}`}>
                         {isReviewOverdue(a, now) ? 'Overdue · ' : ''}{reviewAgeLabel(a.alert_created_at, now)}
                       </span>}
                     </Td>
@@ -1027,10 +1068,11 @@ export default function AlertsPage() {
                         <StatusPill
                           alert={a}
                           needsMyAck={
-                            !!scope?.isGodMode && a.is_reviewed && !closedForMe(a)
+                            !!scope?.isGodMode && isHumanReviewed(a) && !closedForMe(a)
                           }
                         />
-                        {needsCoachingFollowUp(a) && <span className="text-xs font-semibold text-pennie-blue-deeper">Coaching follow-up</span>}
+                        {isHumanReviewed(a) && a.feedback_by && <span className="text-xs text-pennie-graphite/60">Decision by {a.feedback_by}</span>}
+                        {needsCoachingFollowUp(a) && <span className="text-xs font-semibold text-pennie-blue-deeper">Coaching due</span>}
                         <ActivityBadges alert={a} />
                       </div>
                     </Td>
@@ -1057,6 +1099,8 @@ export default function AlertsPage() {
       <AlertReviewDrawer
         alert={drawerAlert}
         currentUserEmail={user?.email}
+        scope={scope}
+        workload={workload}
         onClose={closeDrawer}
         onSubmitted={onFeedbackSubmitted}
         onAdvance={advance}
@@ -1163,33 +1207,29 @@ function StatusPill({
   alert: AlertWithFeedback
   needsMyAck?: boolean
 }) {
-  if (!alert.is_reviewed) {
-    return <span className={pillClasses(accentForReviewStatus('new'))}>New</span>
+  if (isSystemClosed(alert)) {
+    return <span className={pillClasses(accentForReviewStatus('reviewed_neutral'))}>System closed</span>
+  }
+  if (!isHumanReviewed(alert)) {
+    return <span className={pillClasses(accentForReviewStatus('new'))}>Awaiting manager</span>
   }
   if (needsMyAck) {
     return (
       <span className={pillClasses(accentForReviewStatus('new'))}>
-        Needs your ✓
+        Awaiting your approval
       </span>
     )
   }
   if (alert.accurate === true) {
     return (
       <span className={pillClasses(accentForReviewStatus('accurate'))}>
-        Accurate
-      </span>
-    )
-  }
-  if (alert.accurate === false) {
-    return (
-      <span className={pillClasses(accentForReviewStatus('false_positive'))}>
-        Not accurate
+        Real issue
       </span>
     )
   }
   return (
-    <span className={pillClasses(accentForReviewStatus('reviewed_neutral'))}>
-      Reviewed
+    <span className={pillClasses(accentForReviewStatus('false_positive'))}>
+      False alarm
     </span>
   )
 }

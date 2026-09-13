@@ -76,7 +76,7 @@ export function explainPitchRisk(fields: PitchFields): string {
   const mins = fields.talk_time ? Math.round((fields.talk_time / 60) * 10) / 10 : 0
   switch (band) {
     case 'high':
-      return `Pitch call under 30 minutes of talk time (${mins} min) — flagged as rushed.`
+      return `Pitch call under 30 minutes of talk time (${mins} min) — a timing heuristic, not a confirmed issue.`
     case 'watch':
       return `Pitch call between 30 and 40 minutes (${mins} min) — on the watch band.`
     case 'target':

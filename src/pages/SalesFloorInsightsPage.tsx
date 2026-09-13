@@ -109,7 +109,7 @@ function Watchlist({ rows }: { rows: WatchlistEntry[] }) {
               <th className="py-2 pr-4 font-semibold text-right">QA'd</th>
               <th className="py-2 pr-4 font-semibold text-right">Compliance</th>
               <th className="py-2 pr-4 font-semibold text-right">Escalation</th>
-              <th className="py-2 pr-4 font-semibold text-right">Open alerts</th>
+              <th className="py-2 pr-4 font-semibold text-right">Awaiting manager</th>
               <th className="py-2 font-semibold">Why flagged</th>
             </tr>
           </thead>
@@ -211,7 +211,7 @@ function ModulePressureCard({ rows }: { rows: ModulePressure[] }) {
               <tr className="text-left text-pennie-graphite/60">
                 <th className="py-2 pr-4 font-semibold">Module</th>
                 <th className="py-2 pr-4 font-semibold text-right">This week</th>
-                <th className="py-2 pr-4 font-semibold text-right">Unreviewed</th>
+                <th className="py-2 pr-4 font-semibold text-right">Awaiting manager</th>
                 <th className="py-2 pr-4 font-semibold text-right">Trailing avg/wk</th>
                 <th className="py-2 font-semibold">Trend</th>
               </tr>

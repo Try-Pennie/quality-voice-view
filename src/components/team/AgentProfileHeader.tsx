@@ -44,7 +44,7 @@ export function AgentProfileHeader({
               : 'No calls in this window.'}
         </p>
       </div>
-      <dl className="lg:col-span-5 grid grid-cols-2 sm:grid-cols-4 gap-3">
+      <dl className="lg:col-span-5 grid grid-cols-2 sm:grid-cols-3 gap-3">
         <SupportingStat
           label="Compliance"
           value={loading || !r || r.qa_count === 0 ? '—' : `${r.compliance_pass_rate}%`}
@@ -64,7 +64,16 @@ export function AgentProfileHeader({
           helpId="metric.agent_escalation"
         />
         <SupportingStat
-          label="Open alerts"
+          label="Received alerts"
+          value={loading || !r ? '—' : r.total_alerts_count.toString()}
+          helpId="metric.manager_total_alerts"
+        />
+        <SupportingStat
+          label="Manager-confirmed issues"
+          value={loading || !r ? '—' : r.confirmed_issue_count.toString()}
+        />
+        <SupportingStat
+          label="Awaiting manager"
           value={loading || !r ? '—' : r.unreviewed_alerts_count.toString()}
           warn={!!r && r.unreviewed_alerts_count > 0}
           helpId="metric.agent_open_alerts"

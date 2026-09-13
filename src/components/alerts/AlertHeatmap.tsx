@@ -97,7 +97,7 @@ export function AlertHeatmap({
       <section className="bg-pennie-white rounded-3xl shadow-resting p-4 sm:p-6">
         <Header compact={compact} />
         <div className="py-8 text-center text-sm text-pennie-graphite/50">
-          No violations in this window.
+          No received alerts in this window.
         </div>
       </section>
     )
@@ -113,7 +113,7 @@ export function AlertHeatmap({
       ...dateParams(),
       module,
       search: agentEmail,
-      status: 'new',
+      status: 'awaiting_manager',
     })
     navigate(`/dashboard/alerts?${params.toString()}`)
   }
@@ -122,7 +122,7 @@ export function AlertHeatmap({
     const params = new URLSearchParams({
       ...dateParams(),
       module,
-      status: 'new',
+      status: 'awaiting_manager',
     })
     navigate(`/dashboard/alerts?${params.toString()}`)
   }
@@ -131,7 +131,7 @@ export function AlertHeatmap({
     const params = new URLSearchParams({
       ...dateParams(),
       search: agentEmail,
-      status: 'new',
+      status: 'awaiting_manager',
     })
     navigate(`/dashboard/alerts?${params.toString()}`)
   }
@@ -144,7 +144,7 @@ export function AlertHeatmap({
       <ul className="sm:hidden mt-4 divide-y divide-border/60">
         {hotCells.length === 0 ? (
           <li className="py-8 text-center text-sm text-pennie-graphite/50">
-            No violations in this window.
+            No received alerts in this window.
           </li>
         ) : (
           hotCells.map(cell => {
@@ -184,7 +184,7 @@ export function AlertHeatmap({
                     title={
                       flagFP
                         ? `${Math.round(fpRate * 100)}% flagged in error`
-                        : `${cell.total} violations`
+                        : `${cell.total} received alerts`
                     }
                   >
                     {cell.total}
@@ -284,9 +284,7 @@ function Header({
       <p className="pennie-label">{compact ? 'By alert type × agent' : 'Alert breakdown'}</p>
       {!compact && (
         <p className="text-xs text-pennie-graphite/60 mt-1">
-          Rows lit up signal a systemic issue (training or product); columns lit
-          up signal a single agent needing 1:1 coaching. Click any cell, row, or
-          column to drill in.
+          Rows and columns show received alert volume, not confirmed behavior. Click any cell, row, or column to review the underlying rows.
         </p>
       )}
       {hiddenAgents && hiddenAgents > 0 ? (
@@ -336,7 +334,7 @@ function HeatCell({
       disabled={total === 0}
       title={
         cell
-          ? `${total} violation${total === 1 ? '' : 's'}, ${cell.unreviewed} unreviewed${
+          ? `${total} received alert${total === 1 ? '' : 's'}, ${cell.unreviewed} awaiting manager${
               cell.reviewed > 0
                 ? `, ${Math.round(fpRate * 100)}% flagged in error`
                 : ''

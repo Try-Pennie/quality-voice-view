@@ -5,7 +5,7 @@ import {
   formatDateParam,
   parseDateParam,
 } from '../lib/url-filters'
-import { ymdInBusinessTZ } from '../lib/time-zone'
+import { defaultAlertWindow } from '../lib/alert-review-queue'
 import {
   aggregateTeamTrend,
   aggregateManagerRollups,
@@ -44,6 +44,7 @@ const MANAGER_SORT_KEYS: readonly ManagerSortKey[] = [
   'csat_high_rate',
   'unreviewed_alerts_count',
   'total_alerts_count',
+  'confirmed_issue_count',
   'agent_count',
 ]
 import { AlertHeatmap } from '../components/alerts/AlertHeatmap'
@@ -100,30 +101,13 @@ export default function TeamPage() {
 
   // Filter state lazy-inits from URL so /dashboard/team?start=…&qf=…&mgr=…
   // is shareable. A useEffect below writes it back on every change.
-  // Defaults are scoped to Eastern time so all viewers (regardless of their
-  // browser timezone) see the same window. Picker-state Date carries the
-  // intended ET Y/M/D in its local components — fetch + bucket layers convert
-  // to absolute UTC moments via startOfBusinessDay / endOfBusinessDay.
+  // Every primary workload surface starts on the same 30-day ET window.
+  const [defaultDates] = useState(() => defaultAlertWindow(new Date()))
   const [startDate, setStartDate] = useState<Date>(() =>
-    parseDateParam(searchParams.get('start'), (() => {
-      const [y, m, d] = ymdInBusinessTZ(new Date()).split('-').map(Number)
-      const local = new Date(y, m - 1, d)
-      local.setDate(local.getDate() - 6) // last 7 days inclusive
-      local.setHours(0, 0, 0, 0)
-      return local
-    })()),
+    parseDateParam(searchParams.get('start'), defaultDates.start),
   )
   const [endDate, setEndDate] = useState<Date>(() =>
-    parseDateParam(
-      searchParams.get('end'),
-      (() => {
-        const [y, m, d] = ymdInBusinessTZ(new Date()).split('-').map(Number)
-        const local = new Date(y, m - 1, d)
-        local.setHours(23, 59, 59, 999)
-        return local
-      })(),
-      true,
-    ),
+    parseDateParam(searchParams.get('end'), defaultDates.end, true),
   )
 
   const [search, setSearch] = useState(() => searchParams.get('search') || '')
@@ -160,7 +144,7 @@ export default function TeamPage() {
     refetch: refetchRollup,
   } = useTeamRollup(scope, startDate, endDate)
   const rollup = useMemo(() => rollupData ?? [], [rollupData])
-  const loading = rollupPending && !rollupData
+  const rollupLoading = rollupPending && !rollupData
 
   const {
     data: breakdownData,
@@ -171,6 +155,7 @@ export default function TeamPage() {
   } = useAlertBreakdown(scope, startDate, endDate)
   const breakdown = useMemo(() => breakdownData ?? [], [breakdownData])
   const breakdownLoading = breakdownPending && !breakdownData
+  const loading = rollupLoading || breakdownLoading
 
   const { data: pitchRiskData } = usePitchRiskCounts(scope, startDate, endDate)
   const pitchRisk = useMemo(
@@ -204,17 +189,23 @@ export default function TeamPage() {
   const rollupWithVisibleAlertCounts = useMemo(() => {
     const countsByAgent = new Map<
       string,
-      { total: number; unreviewed: number; falsePositive: number }
+      { total: number; unreviewed: number; reviewed: number; real: number; falsePositive: number; systemClosed: number }
     >()
     for (const cell of breakdown) {
       const current = countsByAgent.get(cell.agent_email) ?? {
         total: 0,
         unreviewed: 0,
+        reviewed: 0,
+        real: 0,
         falsePositive: 0,
+        systemClosed: 0,
       }
       current.total += cell.total
       current.unreviewed += cell.unreviewed
+      current.reviewed += cell.reviewed
+      current.real += cell.real
       current.falsePositive += cell.false_positives
+      current.systemClosed += cell.system_closed
       countsByAgent.set(cell.agent_email, current)
     }
 
@@ -222,14 +213,20 @@ export default function TeamPage() {
       const counts = countsByAgent.get(agent.agent_email)
       const total = counts?.total ?? 0
       const unreviewed = counts?.unreviewed ?? 0
+      const reviewed = counts?.reviewed ?? 0
+      const real = counts?.real ?? 0
       const falsePositive = counts?.falsePositive ?? 0
+      const systemClosed = counts?.systemClosed ?? 0
       const pitch = pitchRisk.get(agent.agent_email)
       return {
         ...agent,
         total_alerts_count: total,
         open_alerts_count: total,
         unreviewed_alerts_count: unreviewed,
+        reviewed_alerts_count: reviewed,
+        confirmed_issue_count: real,
         false_positive_count: falsePositive,
+        system_closed_count: systemClosed,
         pitch_call_count: pitch?.pitch_call_count ?? 0,
         rushed_pitch_count: pitch?.rushed_pitch_count ?? 0,
         needs_attention:
@@ -472,11 +469,11 @@ export default function TeamPage() {
           message="We couldn't determine which agents you manage. Retry to reload."
           onRetry={() => refetchScope()}
         />
-      ) : rollupError && !loading && !noAgents ? (
+      ) : (rollupError || breakdownError) && !loading && !noAgents ? (
         <ErrorState
           title="Couldn't load team metrics"
-          message="We hit an error building the team rollup. Retry to reload."
-          onRetry={() => refetchRollup()}
+          message="We couldn't load a complete internal team workload, so no partial zero counts are shown. Retry to reload."
+          onRetry={() => { refetchRollup(); refetchBreakdown() }}
         />
       ) : (
         <>

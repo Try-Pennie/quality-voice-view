@@ -28,10 +28,10 @@ export function alertRow(id: string, overrides: Partial<AlertWithFeedback> = {})
  * It exercises real hooks, queries, pagination requests and mutations, not patched modules.
  * This proves client behavior, not production RLS/SQL execution.
  */
-export async function reviewFixture(page: Page, rows: AlertWithFeedback[], options: { god?: boolean; noAgents?: boolean } = {}) {
+export async function reviewFixture(page: Page, rows: AlertWithFeedback[], options: { god?: boolean; noAgents?: boolean; managedAgents?: string[]; managerNames?: Record<string, string>; dailyMetrics?: unknown[] } = {}) {
   const state = {
     rows, writes: [] as unknown[], requests: [] as URL[], transcript: TRANSCRIPT as string | null,
-    failFeedback: false, failTranscript: false, failQueueOffset: -1,
+    failFeedback: false, failTranscript: false, failQueueOffset: -1, failBreakdown: false,
     transcriptGate: Promise.resolve(), ackGate: Promise.resolve(),
     failedAckIds: new Set<string>(), ackInFlight: 0, maxAckInFlight: 0,
   }
@@ -54,8 +54,16 @@ export async function reviewFixture(page: Page, rows: AlertWithFeedback[], optio
     state.requests.push(url)
     const table = url.pathname.split('/').pop()
     const respond = (data: unknown, status = 200) => route.fulfill({ status, json: data })
-    if (table === 'agent_manager_mapping') return respond(options.noAgents ? [] : [{ agent_email: 'agent@example.test' }])
+    if (table === 'agent_manager_mapping') return respond(options.noAgents ? [] : (options.managedAgents ?? ['agent@example.test']).map(agent_email => ({ agent_email })))
     if (table === 'manager_coaching_prompts') return respond({ is_god_mode: options.god ?? false })
+    if (table === 'agent_directory') {
+      return respond(Object.entries(options.managerNames ?? {}).map(([agent_email, agent_full_name]) => ({ agent_email, agent_full_name })))
+    }
+    if (table === 'team_daily_metrics') return respond(options.dailyMetrics ?? [])
+    if (table === 'agent_daily_metrics') {
+      const email = url.searchParams.get('p_agent_email')?.replace(/^eq\./, '')
+      return respond((options.dailyMetrics ?? []).filter(row => !email || (row && typeof row === 'object' && 'agent_email' in row && row.agent_email === email)))
+    }
     if (table === 'eavesly_alerts_with_feedback') {
       const params = url.searchParams
       let selected = [...state.rows]
@@ -64,6 +72,7 @@ export async function reviewFixture(page: Page, rows: AlertWithFeedback[], optio
         if (key === 'module_name' && value.startsWith('eq.')) selected = selected.filter(row => row.module_name === value.slice(3))
         if (key === 'module_name' && value.startsWith('neq.')) selected = selected.filter(row => row.module_name !== value.slice(4))
         if (key === 'module_name' && value.startsWith('in.')) selected = selected.filter(row => value.includes(row.module_name))
+        if (key === 'alert_sent' && value === 'eq.true') selected = selected.filter(row => row.alert_sent === true)
         if (key === 'agent_email' && value.startsWith('in.')) selected = selected.filter(row => value.includes(row.agent_email ?? 'no-agent'))
         if (key === 'alert_created_at' && value.startsWith('gte.')) selected = selected.filter(row => row.alert_created_at >= value.slice(4))
         if (key === 'alert_created_at' && value.startsWith('lte.')) selected = selected.filter(row => row.alert_created_at <= value.slice(4))
@@ -71,8 +80,11 @@ export async function reviewFixture(page: Page, rows: AlertWithFeedback[], optio
       if (request.headers().accept?.includes('vnd.pgrst.object')) return respond(selected[0] ?? null)
       selected.sort((a, b) => b.alert_created_at.localeCompare(a.alert_created_at) || a.call_id.localeCompare(b.call_id) || a.module_name.localeCompare(b.module_name))
       const offset = Number(params.get('offset') ?? 0)
-      const list = params.get('select')?.includes('feedback_comment')
+      const projection = params.get('select') ?? ''
+      const list = projection.includes('feedback_comment')
+      const breakdown = projection.includes('feedback_by') && projection.includes('has_violation') && !list
       if (list && offset === state.failQueueOffset) return respond({ message: 'Synthetic queue failure' }, 500)
+      if (breakdown && state.failBreakdown) return respond({ message: 'Synthetic breakdown failure' }, 500)
       const pageRows = selected.slice(offset, offset + Math.min(Number(params.get('limit') ?? 1000), 1000))
       if (list) {
         // Real list projection deliberately omits heavy fields.

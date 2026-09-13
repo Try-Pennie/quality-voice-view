@@ -40,7 +40,7 @@ export function TeamHeaderStats({
             ? 'Loading…'
             : `${metrics.callCount.toLocaleString()} ${
                 metrics.callCount === 1 ? 'call' : 'calls'
-              } reviewed in window${
+              } in this window${
                 metrics.topAgent
                   ? `. Top performer: ${metrics.topAgent.agent_full_name || metrics.topAgent.agent_email}.`
                   : ''
@@ -63,10 +63,10 @@ export function TeamHeaderStats({
           helpId="metric.team_escalation"
         />
         <SupportingStat
-          label="Open alerts"
+          label="Awaiting manager"
           value={loading ? '—' : metrics.openAlerts.toLocaleString()}
           onClick={onAlertsClick}
-          actionLabel="Go to alerts inbox"
+          actionLabel="Go to Review workspace"
           helpId="metric.team_open_alerts"
         />
       </dl>
