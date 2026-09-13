@@ -17,7 +17,7 @@ import { paginate } from './disposition-audit-pagination'
 import {
   ALERT_QUEUE_VIEWS, parseAlertQueueView, isClosedForReviewer, defaultAlertWindow,
   isHumanReviewed, isReviewOverdue, isSystemClosed, needsCoachingFollowUp,
-  matchesAlertQueueView, reviewAgeLabel, summarizeReviewWorkload,
+  matchesAlertQueueView, reviewAgeLabel, summarizeReviewWorkload, type AlertQueueView,
 } from '../lib/alert-review-queue'
 import { AlertHeatmap } from '../components/alerts/AlertHeatmap'
 import {
@@ -700,6 +700,11 @@ export default function AlertsPage() {
       changeFilters({ sort: key, direction })
     }
   }
+  const selectWorkloadCount = (status: AlertQueueView, outcome: 'real' | 'false_alarm' | null = null, manager: string | null = null) => {
+    setTeamWorkloadOpen(false)
+    // Workload totals ignore these client-side queue filters; their drilldown must too.
+    changeFilters({ status, outcome, manager, search: null, sort: null, direction: null })
+  }
   const activeManagerLabel = managerFilter === NEEDS_MANAGER_ASSIGNMENT
     ? 'Needs manager assignment'
     : managerFilter
@@ -871,28 +876,21 @@ export default function AlertsPage() {
                 managerNames={managerNames}
                 selectedManager={managerFilter}
                 loading={loading}
-                onSelect={({ managerEmail, view, outcome }) => {
-                  setTeamWorkloadOpen(false)
-                  changeFilters({
-                    manager: managerEmail,
-                    status: view,
-                    outcome: outcome === 'all' ? null : outcome,
-                    search: null,
-                    sort: null,
-                    direction: null,
-                  })
-                }}
+                onSelect={({ managerEmail, view, outcome }) => selectWorkloadCount(view, outcome === 'all' ? null : outcome, managerEmail)}
               />
             ) : (
               <section className="rounded-2xl border border-pennie-beige p-3 sm:p-4" aria-label="My team workload counts">
-                <p className="text-xs text-pennie-graphite/60 mb-3">Received = manager reviewed + awaiting manager + system closed. Select a count to filter this queue.</p>
-                <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
-                  <WorkloadCount label="Received" value={stats.received} onClick={() => { setTeamWorkloadOpen(false); changeFilters({ status: 'all', outcome: null }) }} />
-                  <WorkloadCount label="Manager reviewed" value={stats.reviewed} onClick={() => { setTeamWorkloadOpen(false); changeFilters({ status: 'reviewed', outcome: null }) }} />
-                  <WorkloadCount label="Real" value={stats.real} onClick={() => { setTeamWorkloadOpen(false); changeFilters({ status: 'reviewed', outcome: 'real' }) }} />
-                  <WorkloadCount label="False alarm" value={stats.falseAlarm} onClick={() => { setTeamWorkloadOpen(false); changeFilters({ status: 'reviewed', outcome: 'false_alarm' }) }} />
-                  <WorkloadCount label="Awaiting manager" value={stats.awaitingManager} onClick={() => { setTeamWorkloadOpen(false); changeFilters({ status: 'awaiting_manager', outcome: null }) }} />
-                </div>
+                {loading ? <p className="text-sm text-pennie-graphite/70">Loading workload…</p> : <>
+                  <p className="text-xs text-pennie-graphite/60 mb-3">Received = manager reviewed + awaiting manager + system closed. Select a count to filter this queue.</p>
+                  <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
+                    <WorkloadCount label="Received" value={stats.received} onClick={() => selectWorkloadCount('all')} />
+                    <WorkloadCount label="Manager reviewed" value={stats.reviewed} onClick={() => selectWorkloadCount('reviewed')} />
+                    <WorkloadCount label="Real" value={stats.real} onClick={() => selectWorkloadCount('reviewed', 'real')} />
+                    <WorkloadCount label="False alarm" value={stats.falseAlarm} onClick={() => selectWorkloadCount('reviewed', 'false_alarm')} />
+                    <WorkloadCount label="Awaiting manager" value={stats.awaitingManager} onClick={() => selectWorkloadCount('awaiting_manager')} />
+                  </div>
+                  {stats.systemClosed > 0 && <p className="mt-3 text-xs text-pennie-graphite/70">{stats.systemClosed} system closed — administrative cleanup, not manager review.</p>}
+                </>}
               </section>
             )}
             {statusView === 'awaiting_manager' && !managerFilter && outcomeFilter === 'all' && !search.trim() && (

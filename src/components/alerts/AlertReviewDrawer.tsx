@@ -567,8 +567,9 @@ export function AlertReviewDrawer({
   const saveDisabled = submitting || (workload === 'internal'
     ? !parsedDraft?.ok
     : accurate === null || (accurate && !action) || (!accurate && !reason) || legacyNotesInvalid)
+  // Approval targets the persisted review; unchanged legacy reviews remain eligible.
   const approvalBlockedByDraft = workload === 'internal' && showStructuredForm &&
-    (reviewDraftDirty || !parsedDraft?.ok || submitting)
+    (reviewDraftDirty || submitting)
 
   return (
     <Sheet open={!!alert} onOpenChange={open => !open && requestClose()}>

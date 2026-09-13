@@ -9,6 +9,8 @@ test('initial queue loading is named without implying an error', async ({ page }
   await page.goto('/dashboard/alerts')
   await expect(page.getByText('Loading queue…', { exact: true }).first()).toBeVisible()
   await expect(page.getByText('Queue unavailable', { exact: true })).toHaveCount(0)
+  await page.getByText('Team workload', { exact: true }).click()
+  await expect(page.getByRole('button', { name: /^Filter my team/ })).toHaveCount(0)
   releaseQueue()
   await expect(page.getByRole('button', { name: /Review .* Example loading/ })).toBeVisible()
 })
@@ -62,6 +64,43 @@ test('manager workload and alert breakdown remain available on demand', async ({
   await page.getByRole('button', { name: 'Filter my team Manager reviewed 1' }).click()
   await expect(page.getByRole('combobox', { name: 'Queue' })).toHaveValue('reviewed')
   await expect(page.getByRole('button', { name: /^Review .* alert for Example/ })).toHaveCount(1)
+})
+
+test('my-team counts clear unrelated queue filters and account for system closures', async ({ page }) => {
+  await reviewFixture(page, [
+    alertRow('pending'),
+    alertRow('real', { is_reviewed: true, accurate: true, action_taken: 'coached', feedback_by: 'manager@example.test' }),
+    alertRow('system', { is_reviewed: true, accurate: true, action_taken: 'no_action_needed', feedback_by: 'system@pennie' }),
+  ])
+  await page.goto('/dashboard/alerts?start=2026-08-09&end=2026-09-07&module=full_qa&search=missing&manager=old-owner%40example.test')
+  await page.getByText('Team workload', { exact: true }).click()
+  await page.getByRole('button', { name: 'Filter my team Received 3' }).click()
+  await expect(page.getByRole('button', { name: /^Review .* alert for Example/ })).toHaveCount(3)
+  const params = new URL(page.url()).searchParams
+  expect(params.has('search')).toBe(false)
+  expect(params.has('manager')).toBe(false)
+  expect(params.get('module')).toBe('full_qa')
+  expect(params.get('start')).toBe('2026-08-09')
+  expect(params.get('end')).toBe('2026-09-07')
+  await page.getByText('Team workload', { exact: true }).click()
+  await expect(page.getByRole('region', { name: 'My team workload counts' })).toContainText('1 system closed')
+})
+
+test('an unchanged legacy self-review can be approved without inventing new review details', async ({ page }) => {
+  const email = 'director@example.test'
+  const state = await reviewFixture(page, [alertRow('legacy-own', {
+    is_reviewed: true, accurate: true, action_taken: 'coached', feedback_by: email,
+    feedback_comment: 'Legacy combined note describing the finding and coaching action.',
+  })], { god: true, email })
+  await page.goto('/dashboard/alerts')
+  await openAlert(page, 'legacy-own')
+  await expect(page.getByRole('button', { name: 'Update review' })).toBeDisabled()
+  await expect(page.getByRole('button', { name: 'Approve review' })).toBeEnabled()
+  await page.getByRole('button', { name: 'Approve review' }).click()
+  await expect(page.getByText('Review approved')).toBeVisible()
+  expect(state.rows[0].current_decision).toBe('approved')
+  expect(state.rows[0].review_revision).toBe(1)
+  expect(state.writes).toHaveLength(1)
 })
 
 test('director workload stays on demand and its named counts filter the queue', async ({ page }, testInfo) => {
