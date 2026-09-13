@@ -3,9 +3,10 @@ import { ChevronDown, ChevronLeft, ChevronRight } from 'lucide-react'
 import { findTranscriptRanges, parseTranscriptTurns } from '@/lib/transcript-evidence'
 
 /** Searchable speaker turns with literal evidence navigation; no inferred audio timestamps. */
-export function TranscriptView({ transcript, evidence = [] }: {
+export function TranscriptView({ transcript, evidence = [], constrainHeight = true }: {
   transcript: string
   evidence?: string[]
+  constrainHeight?: boolean
 }) {
   const [expanded, setExpanded] = useState(false)
   const [search, setSearch] = useState('')
@@ -80,7 +81,7 @@ export function TranscriptView({ transcript, evidence = [] }: {
           : searching ? 'No search matches.' : evidence.length ? 'No literal evidence match in this transcript. Review the context; the quote may be paraphrased or from another call.' : 'No verbatim evidence quotes available. Search to inspect the call.'}
         {searching && ' · Enter / Shift+Enter moves between matches.'}
       </p>
-      <div ref={contentRef} id={contentId} className={`bg-pennie-beige/60 rounded-2xl p-4 sm:p-5 overflow-y-auto ${expanded ? 'max-h-[70vh]' : 'max-h-96'}`}>
+      <div ref={contentRef} id={contentId} className={`bg-pennie-beige/60 rounded-2xl p-4 sm:p-5 ${constrainHeight ? `overflow-y-auto ${expanded ? 'max-h-[70vh]' : 'max-h-96'}` : ''}`}>
         <ol className="space-y-4">
           {blocks.map((block, index) => {
             const parts: ReactNode[] = []
@@ -104,10 +105,10 @@ export function TranscriptView({ transcript, evidence = [] }: {
           })}
         </ol>
       </div>
-      <button type="button" onClick={() => setExpanded(value => !value)} aria-expanded={expanded} aria-controls={contentId} className="pennie-focus-ring min-h-[36px] inline-flex items-center gap-1 text-xs font-semibold text-pennie-blue-deeper hover:underline underline-offset-4">
+      {constrainHeight && <button type="button" onClick={() => setExpanded(value => !value)} aria-expanded={expanded} aria-controls={contentId} className="pennie-focus-ring min-h-[36px] inline-flex items-center gap-1 text-xs font-semibold text-pennie-blue-deeper hover:underline underline-offset-4">
         {expanded ? 'Collapse transcript' : 'Expand transcript'}
         <ChevronDown className={`w-3 h-3 transition-transform ${expanded ? 'rotate-180' : ''}`} aria-hidden="true" />
-      </button>
+      </button>}
     </div>
   )
 }

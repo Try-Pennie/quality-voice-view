@@ -14,7 +14,7 @@ test('overdue queue retrieves beyond 1000, keeps scope and survives drawer/reloa
   rows.push(alertRow('hidden', { module_name: 'disposition_review' }))
   const state = await reviewFixture(page, rows)
   await page.goto('/dashboard/alerts?status=awaiting_manager')
-  await expect(page.getByRole('heading', { name: '1,002 awaiting manager' })).toBeVisible()
+  await expect(page.getByText('1,002 ready for first review', { exact: true })).toBeVisible()
   await expect(page.getByRole('status')).toContainText('2026-08-09 – 2026-09-07')
   await expect(page.getByRole('status')).toContainText('Counts only cover this window.')
   const requests = state.requests.filter(url => url.searchParams.get('select')?.includes('feedback_comment'))
@@ -27,7 +27,7 @@ test('overdue queue retrieves beyond 1000, keeps scope and survives drawer/reloa
     expect(url.searchParams.get('alert_sent')).toBe('eq.true')
   }
   await page.getByRole('searchbox', { name: 'Search', exact: true }).fill('call-1001')
-  await expect(page.getByRole('heading', { name: '1 awaiting manager' })).toBeVisible()
+  await expect(page.getByText('1 ready for first review', { exact: true })).toBeVisible()
   await openAlert(page, 'call-1001')
   expect(new URL(page.url()).searchParams.get('status')).toBe('awaiting_manager')
   expect(new URL(page.url()).searchParams.get('search')).toBe('call-1001')
@@ -49,9 +49,9 @@ test('awaiting-manager includes fresh work and identifies overdue rows, with old
     alertRow('oldest', { alert_created_at: '2026-09-01T16:00:00Z' }),
   ])
   await page.goto('/dashboard/alerts?status=awaiting_manager')
-  await expect(page.getByRole('heading', { name: '4 awaiting manager' })).toBeVisible()
+  await expect(page.getByText('4 ready for first review', { exact: true })).toBeVisible()
   await expect(page.getByRole('button', { name: /^Review .* alert for Example/ }).first()).toContainText('Example oldest')
-  await expect(page.getByText('Overdue · 6d old')).toBeVisible()
+  await expect(page.getByRole('button', { name: /Review .* alert for Example oldest/ })).toContainText('Overdue · 6d old')
   await page.getByRole('button', { name: 'Time (ET)' }).click()
   await expect(page.getByRole('button', { name: /^Review .* alert for Example/ }).first()).toContainText('Example fresh')
   await page.reload()
@@ -67,7 +67,7 @@ test('failed later page is an error, not a partial or empty inbox; retry recover
   await expect(page.getByText('No alerts awaiting a manager in this window.')).toHaveCount(0)
   state.failQueueOffset = -1
   await page.getByRole('button', { name: 'Try again', exact: true }).click()
-  await expect(page.getByRole('heading', { name: '1,001 awaiting manager' })).toBeVisible()
+  await expect(page.getByText('1,001 ready for first review', { exact: true })).toBeVisible()
 })
 
 test('manager with no agents never fetches an alert list', async ({ page }) => {
@@ -90,8 +90,8 @@ test('defer from New, then complete coaching; failed save preserves draft and qu
   await firstAction.press('Control+Enter')
   await expect(page.getByText('Review saved')).toBeVisible()
   await expect(page.getByRole('dialog')).toHaveCount(0)
-  await page.getByRole('button', { name: 'Coaching due', exact: true }).click()
-  await expect(page.getByRole('heading', { name: '2 coaching due' })).toBeVisible()
+  await page.getByRole('combobox', { name: 'Queue' }).selectOption('coaching_due')
+  await expect(page.getByText('2 coaching due', { exact: true })).toBeVisible()
   await openAlert(page, 'defer')
   await page.getByRole('button', { name: '1. Coached the agent', exact: true }).click()
   const note = page.getByRole('textbox', { name: 'What action did you take?' })
@@ -106,15 +106,16 @@ test('defer from New, then complete coaching; failed save preserves draft and qu
   await expect(page.getByRole('dialog')).toContainText('Example remaining')
   expect(state.rows[0].action_taken).toBe('coached')
   await page.getByRole('button', { name: 'Close (Esc)', exact: true }).click()
-  await expect(page.getByRole('heading', { name: '1 coaching due' })).toBeVisible()
+  await expect(page.getByText('1 coaching due', { exact: true })).toBeVisible()
   await page.reload()
-  await expect(page.getByRole('heading', { name: '1 coaching due' })).toBeVisible()
+  await expect(page.getByText('1 coaching due', { exact: true })).toBeVisible()
 })
 
 test('discussion is not a review; composer hotkey never submits the structured form', async ({ page }) => {
   const state = await reviewFixture(page, [alertRow('discussion')])
   await page.goto('/dashboard/alerts?status=awaiting_manager')
   await openAlert(page, 'discussion')
+  await page.getByText('Discussion', { exact: true }).click()
   await page.getByRole('textbox', { name: 'Add a message' }).fill('Can we discuss this call in the next coaching session?')
   await page.getByRole('textbox', { name: 'Add a message' }).press('Control+Enter')
   await expect(page.getByRole('textbox', { name: 'Add a message' })).toHaveValue('')
@@ -123,7 +124,7 @@ test('discussion is not a review; composer hotkey never submits the structured f
   expect(state.writes[0]).toHaveProperty('body')
   expect(state.rows[0].is_reviewed).toBe(false)
   await page.getByRole('button', { name: 'Close (Esc)', exact: true }).click()
-  await expect(page.getByRole('heading', { name: '1 awaiting manager' })).toBeVisible()
+  await expect(page.getByText('1 ready for first review', { exact: true })).toBeVisible()
 })
 
 test('director approval does not complete coaching or allow silent keyboard override', async ({ page }) => {
@@ -140,8 +141,8 @@ test('director approval does not complete coaching or allow silent keyboard over
   await expect(page.getByRole('dialog')).toContainText('Coaching follow-up is still open.')
   expect(state.rows[0].action_taken).toBe('follow_up_later')
   await page.getByRole('button', { name: 'Close (Esc)', exact: true }).click()
-  await expect(page.getByRole('heading', { name: '1 coaching due' })).toBeVisible()
-  await page.getByRole('button', { name: 'Awaiting approval', exact: true }).click()
+  await expect(page.getByText('1 coaching due', { exact: true })).toBeVisible()
+  await page.getByRole('combobox', { name: 'Queue' }).selectOption('awaiting_approval')
   await expect(page.getByText('No manager decisions await approval in this window.')).toBeVisible()
 })
 
@@ -216,7 +217,7 @@ test('mobile queue and evidence controls fit and remain usable', async ({ page }
   await page.setViewportSize({ width: 390, height: 844 })
   await reviewFixture(page, [alertRow('mobile'), followUp('coaching')])
   await page.goto('/dashboard/alerts?status=awaiting_manager')
-  await expect(page.getByRole('heading', { name: '1 awaiting manager' })).toBeVisible()
+  await expect(page.getByText('1 ready for first review', { exact: true })).toBeVisible()
   await page.screenshot({ path: testInfo.outputPath('overdue-mobile.png'), fullPage: true })
   const overflow = await page.evaluate(() => [...document.querySelectorAll('main *')].filter(el => el.getBoundingClientRect().right > window.innerWidth).map(el => ({ tag: el.tagName, class: el.className, width: el.getBoundingClientRect().width })).slice(0, 8))
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), JSON.stringify(overflow)).toBe(true)
@@ -226,8 +227,8 @@ test('mobile queue and evidence controls fit and remain usable', async ({ page }
   await expect(page.locator('mark[aria-current="true"]')).toHaveText(QUOTES[0])
   await page.screenshot({ path: testInfo.outputPath('evidence-mobile.png') })
   await page.getByRole('button', { name: 'Back to alerts' }).click()
-  await page.getByRole('button', { name: 'Coaching due', exact: true }).click()
-  await expect(page.getByRole('heading', { name: '1 coaching due' })).toBeVisible()
+  await page.getByRole('combobox', { name: 'Queue' }).selectOption('coaching_due')
+  await expect(page.getByText('1 coaching due', { exact: true })).toBeVisible()
 })
 
 test('call-detail uses the same searchable evidence view', async ({ page }, testInfo) => {
