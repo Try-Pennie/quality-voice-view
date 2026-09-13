@@ -117,13 +117,13 @@ test('director workload stays on demand and its named counts filter the queue', 
   await page.goto('/dashboard/alerts')
 
   await expect(page.getByRole('combobox', { name: 'Queue' })).toHaveValue('awaiting_approval')
-  await expect(page.getByRole('button', { name: 'Review Manager escalation alert for Example coaching' })).toContainText('Awaiting director approval')
+  await expect(page.getByRole('button', { name: 'Review Manager escalation alert for Example coaching' })).toContainText('Awaiting Kris’s approval')
   await expect(page.getByText('Current team workload')).not.toBeVisible()
   await expect(page.getByRole('button', { name: 'Partner QA', exact: true })).not.toBeVisible()
   await page.screenshot({ path: testInfo.outputPath('queue-first-director-desktop.png'), animations: 'disabled' })
   await page.getByText('Team workload', { exact: true }).click()
   await expect(page.getByRole('button', { name: 'Filter Manager Alpha Manager reviewed 4' })).toBeVisible()
-  await expect(page.getByRole('button', { name: 'Filter Manager Alpha Awaiting director approval 3' })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Filter Manager Alpha Awaiting Kris’s approval 3' })).toBeVisible()
   await expect(page.getByRole('button', { name: 'Filter Manager Alpha Coaching due 1' })).toBeVisible()
   await expect(page.getByRole('button', { name: 'Filter Manager Alpha Changes requested 1' })).toBeVisible()
   await page.screenshot({ path: testInfo.outputPath('team-workload-expanded-desktop.png'), fullPage: true, animations: 'disabled' })
@@ -203,7 +203,7 @@ test('director sees the manager explanation and evidence before approval actions
   await expect(dialog.getByRole('button', { name: 'Approve review' })).toBeInViewport()
   const contentOrder = await dialog.locator('section').evaluateAll(sections => ({
     review: sections.findIndex(section => section.getAttribute('aria-label') === 'Manager review'),
-    approval: sections.findIndex(section => section.textContent?.includes('awaiting shared approval')),
+    approval: sections.findIndex(section => section.textContent?.includes('awaiting Kris’s approval')),
   }))
   expect(contentOrder.review).toBeGreaterThanOrEqual(0)
   expect(contentOrder.approval).toBeGreaterThan(contentOrder.review)

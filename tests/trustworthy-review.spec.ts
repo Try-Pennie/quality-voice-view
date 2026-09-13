@@ -47,7 +47,7 @@ test('god-mode internal manager counts reconcile and filter the same inbox', asy
     managerNames: { [MANAGER_A]: 'Manager Alpha', [MANAGER_B]: 'Manager Beta' },
   })
   await page.goto('/dashboard/alerts')
-  await expect(page.getByText('3 awaiting director approval', { exact: true })).toBeVisible()
+  await expect(page.getByText('3 awaiting Kris’s approval', { exact: true })).toBeVisible()
   await page.getByText('Team workload', { exact: true }).click()
   await expect(page.getByText('7 received in period', { exact: true })).toBeVisible()
   await expect(page.getByRole('button', { name: 'Filter Manager Alpha Received 5' })).toBeVisible()

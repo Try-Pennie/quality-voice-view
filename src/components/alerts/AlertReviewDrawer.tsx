@@ -1344,7 +1344,7 @@ function InternalDecisionSection({
   }
 
   return <section className="px-4 py-4 rounded-2xl bg-pennie-blue-light/30 border border-pennie-blue-light space-y-3">
-    <p className="text-sm font-semibold text-pennie-navy">This revision is awaiting shared approval.</p>
+    <p className="text-sm font-semibold text-pennie-navy">This manager review is awaiting Kris’s approval.</p>
     <label className="block text-xs font-semibold text-pennie-graphite">
       Request changes with instructions
       <textarea

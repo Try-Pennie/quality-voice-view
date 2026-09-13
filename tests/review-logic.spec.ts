@@ -32,7 +32,7 @@ test('manager review, director approval, coaching, and system closure stay disti
   const deferred = { ...open, is_reviewed: true, accurate: true, action_taken: 'follow_up_later' as const, feedback_by: 'Manager@example.test' }
   expect(ALERT_QUEUE_VIEWS).toEqual({
     awaiting_manager: 'Awaiting manager',
-    awaiting_approval: 'Awaiting director approval',
+    awaiting_approval: 'Awaiting Kris’s approval',
     changes_requested: 'Changes requested',
     coaching_due: 'Coaching due',
     reviewed: 'Reviewed',

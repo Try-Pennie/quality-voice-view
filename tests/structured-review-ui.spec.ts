@@ -194,7 +194,7 @@ test('request goes to the current manager, preserves the original, then another 
     email: 'director.two@trypennie.com',
   })
   await adminPage.goto('/dashboard/alerts?status=awaiting_approval')
-  await expect(adminPage.getByText('1 awaiting director approval', { exact: true })).toBeVisible()
+  await expect(adminPage.getByText('1 awaiting Kris’s approval', { exact: true })).toBeVisible()
   await openAlert(adminPage, 'returned')
   await adminPage.getByRole('button', { name: 'Approve review' }).click()
   await expect(adminPage.getByText('Review approved')).toBeVisible()

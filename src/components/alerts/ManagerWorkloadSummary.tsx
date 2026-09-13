@@ -76,7 +76,7 @@ export function ManagerWorkloadSummary({
                 <th className="py-2 px-2 text-right">Real</th>
                 <th className="py-2 px-2 text-right">False alarm</th>
                 <th className="py-2 px-2 text-right">Awaiting manager</th>
-                <th className="py-2 px-2 text-right">Awaiting director approval</th>
+                <th className="py-2 px-2 text-right">Awaiting Kris’s approval</th>
                 <th className="py-2 px-2 text-right">Changes requested</th>
                 <th className="py-2 px-2 text-right">Coaching due</th>
                 {showSystem && <th className="py-2 pl-2 text-right">System closed</th>}
@@ -91,7 +91,7 @@ export function ManagerWorkloadSummary({
                   <CountCell manager={row} label="Real" value={row.counts.real} view="reviewed" outcome="real" onSelect={onSelect} />
                   <CountCell manager={row} label="False alarm" value={row.counts.falseAlarm} view="reviewed" outcome="false_alarm" onSelect={onSelect} />
                   <CountCell manager={row} label="Awaiting manager" value={row.counts.awaitingManager} view="awaiting_manager" outcome="all" onSelect={onSelect} />
-                  <CountCell manager={row} label="Awaiting director approval" value={row.counts.awaitingApproval} view="awaiting_approval" outcome="all" onSelect={onSelect} />
+                  <CountCell manager={row} label="Awaiting Kris’s approval" value={row.counts.awaitingApproval} view="awaiting_approval" outcome="all" onSelect={onSelect} />
                   <CountCell manager={row} label="Changes requested" value={row.counts.changesRequested} view="changes_requested" outcome="all" onSelect={onSelect} />
                   <CountCell manager={row} label="Coaching due" value={row.counts.coachingDue} view="coaching_due" outcome="all" onSelect={onSelect} />
                   {showSystem && <td className="py-3 pl-2 text-right tabular-nums text-pennie-graphite/70">{row.counts.systemClosed}</td>}

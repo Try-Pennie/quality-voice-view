@@ -668,7 +668,7 @@ export default function AlertsPage() {
     statusView === 'awaiting_manager'
       ? scope.isGodMode ? 'awaiting manager review' : 'ready for first review'
       : statusView === 'awaiting_approval'
-        ? 'awaiting director approval'
+        ? 'awaiting Kris’s approval'
         : statusView === 'changes_requested'
           ? 'corrections requested'
           : statusView === 'coaching_due'
@@ -683,7 +683,7 @@ export default function AlertsPage() {
       label: view === 'awaiting_manager'
         ? scope.isGodMode ? 'Awaiting manager review' : 'First reviews'
         : view === 'awaiting_approval'
-          ? 'Awaiting director approval'
+          ? 'Awaiting Kris’s approval'
           : view === 'changes_requested'
             ? 'Corrections requested'
             : view === 'reviewed'
@@ -1317,7 +1317,7 @@ function StatusPill({
     return <span className={pillClasses(accentForReviewStatus('accurate'))}>Approved</span>
   }
   if (awaitingApproval) {
-    return <span className={pillClasses(accentForReviewStatus('new'))}>Awaiting director approval</span>
+    return <span className={pillClasses(accentForReviewStatus('new'))}>Awaiting Kris’s approval</span>
   }
   if (alert.accurate === true) {
     return (
