@@ -39,6 +39,7 @@ import { AlertReviewDrawer } from '../components/alerts/AlertReviewDrawer'
 import { formatDateParam, parseDateParam } from '../lib/url-filters'
 import { filterAlertWorkloadRows, isSuppressedAlertModule, type AlertWorkload } from '../lib/suppressed-alerts'
 import { mergeAlertDetailsWithoutReviewRegression } from '../lib/internal-alert-review'
+import { managerOwnershipKey, NEEDS_MANAGER_ASSIGNMENT } from '../lib/manager-ownership'
 import {
   CheckCheck,
   ChevronDown,
@@ -50,7 +51,6 @@ import {
 } from 'lucide-react'
 import { SortableTh } from '@/components/ui/sortable-th'
 import { HelpHint } from '../components/ui/help-hint'
-import { PageHero, SupportingStat } from '../components/PageHero'
 import { ErrorState } from '@/components/states/ErrorState'
 import { EmptyState } from '@/components/states/EmptyState'
 import { ManagerWorkloadSummary } from '../components/alerts/ManagerWorkloadSummary'
@@ -93,7 +93,8 @@ export default function AlertsPage() {
     : parseAlertQueueView(searchParams.get('status'), !!scope?.isGodMode)
   const moduleFilter = useMemo(() => searchParams.get('module')?.split(',').filter(Boolean) ?? [], [searchParams])
   const search = searchParams.get('search') ?? ''
-  const managerFilter = searchParams.get('manager')
+  const rawManagerFilter = searchParams.get('manager')
+  const managerFilter = rawManagerFilter ? managerOwnershipKey(rawManagerFilter) : null
   const outcomeFilter = searchParams.get('outcome') === 'real' || searchParams.get('outcome') === 'false_alarm'
     ? searchParams.get('outcome')
     : 'all'
@@ -123,9 +124,7 @@ export default function AlertsPage() {
     const timer = window.setInterval(() => setNow(Date.now()), 60_000)
     return () => window.clearInterval(timer)
   }, [])
-  // Mobile-only collapse state for the alert-type chip row. Open by default
-  // on `sm+` (the disclosure trigger is hidden); state ignored there.
-  const [alertTypeOpen, setAlertTypeOpen] = useState(false)
+  const [teamWorkloadOpen, setTeamWorkloadOpen] = useState(false)
 
   // Column sorting for the queue table. Time descending is the default —
   // newest alerts first, matching the fetch order.
@@ -171,9 +170,10 @@ export default function AlertsPage() {
 
   const { data: rollupsData } = useTeamRollup(scope, startDate, endDate)
   const rollups = useMemo(() => rollupsData ?? [], [rollupsData])
-  const managerEmails = useMemo(() => Array.from(new Set(allAlerts.flatMap(alert =>
-    alert.assigned_manager_email ? [alert.assigned_manager_email.trim().toLowerCase()] : [],
-  ))), [allAlerts])
+  const managerEmails = useMemo(() => Array.from(new Set(allAlerts.flatMap(alert => {
+    const manager = managerOwnershipKey(alert.assigned_manager_email)
+    return manager === NEEDS_MANAGER_ASSIGNMENT ? [] : [manager]
+  }))), [allAlerts])
   const { data: managerNamesData } = useManagerNames(scope?.isGodMode && workload === 'internal' ? managerEmails : [])
   const managerNames = useMemo(() => managerNamesData ?? new Map<string, string>(), [managerNamesData])
 
@@ -191,7 +191,7 @@ export default function AlertsPage() {
   const alerts = useMemo(() => {
     let rows = allAlerts.filter(a => matchesAlertQueueView(a, statusView, !!scope?.isGodMode, user?.email, now, workload))
     if (managerFilter) {
-      rows = rows.filter(a => (a.assigned_manager_email?.trim().toLowerCase() || '__unassigned__') === managerFilter)
+      rows = rows.filter(a => managerOwnershipKey(a.assigned_manager_email) === managerFilter)
     }
     if (outcomeFilter === 'real') rows = rows.filter(a => isHumanReviewed(a) && a.accurate === true)
     if (outcomeFilter === 'false_alarm') rows = rows.filter(a => isHumanReviewed(a) && a.accurate === false)
@@ -664,108 +664,64 @@ export default function AlertsPage() {
       )
     : -1
 
-  const headlineNumber = alerts.length
   const headlineLabel =
     statusView === 'awaiting_manager'
-      ? 'awaiting manager'
+      ? scope.isGodMode ? 'awaiting manager review' : 'ready for first review'
       : statusView === 'awaiting_approval'
-        ? 'awaiting approval'
+        ? 'awaiting director approval'
         : statusView === 'changes_requested'
-          ? 'changes requested'
+          ? 'corrections requested'
           : statusView === 'coaching_due'
-          ? 'coaching due'
-          : statusView === 'reviewed'
-            ? 'reviewed'
-            : 'received in window'
+            ? 'coaching due'
+            : statusView === 'reviewed'
+              ? 'manager reviewed'
+              : 'received in period'
+  const queueOptions = Object.entries(ALERT_QUEUE_VIEWS)
+    .filter(([view]) => scope.isGodMode || view !== 'awaiting_approval')
+    .map(([view, label]) => ({
+      value: view,
+      label: view === 'awaiting_manager'
+        ? scope.isGodMode ? 'Awaiting manager review' : 'First reviews'
+        : view === 'awaiting_approval'
+          ? 'Awaiting director approval'
+          : view === 'changes_requested'
+            ? 'Corrections requested'
+            : view === 'reviewed'
+              ? 'Manager reviewed'
+              : view === 'all'
+                ? 'All received'
+                : label,
+    }))
+  const activeManagerLabel = managerFilter === NEEDS_MANAGER_ASSIGNMENT
+    ? 'Needs manager assignment'
+    : managerFilter
+      ? managerNames.get(managerFilter) ?? managerFilter.split('@')[0]
+      : null
 
   return (
-    <div className="space-y-6 sm:space-y-8 animate-pennie-rise">
-      <PageHero
-        label={workload === 'partner_qa' ? 'Partner QA · Admin only' : 'Review workspace'}
-        display
-        headline={
-          <>
-            {loading || alertsError ? '—' : headlineNumber.toLocaleString()}{' '}
-            <span className="text-pennie-graphite/70 font-normal text-[0.6em] align-baseline">
-              {headlineLabel}
-            </span>
-          </>
-        }
-        description={
-          workload === 'partner_qa'
-            ? 'A separate restricted partner workload. It never changes Pennie manager accountability.'
-            : scope.isGodMode
-              ? 'Internal Pennie workload grouped by current team ownership.'
-              : `Internal alerts for ${scope.managedAgents.length} agent${scope.managedAgents.length === 1 ? '' : 's'} on your team.`
-        }
-        stats={
-          <>
-            <SupportingStat
-              label="Received"
-              value={loading || alertsError ? '—' : stats.received}
-              hint={stats.systemClosed > 0 ? `${stats.systemClosed} system closed separately` : undefined}
-              helpId="metric.alert_reviewed"
-            />
-            <SupportingStat
-              label="Reviewed"
-              value={loading || alertsError ? '—' : stats.reviewed}
-              hint={loading || alertsError ? undefined : `${stats.real} real · ${stats.falseAlarm} false alarm`}
-              helpId="metric.alert_reviewed"
-            />
-            <SupportingStat
-              label="Awaiting manager"
-              value={loading || alertsError ? '—' : stats.awaitingManager}
-              helpId="metric.team_open_alerts"
-            />
-            <SupportingStat
-              label="Changes requested"
-              value={loading || alertsError ? '—' : stats.changesRequested}
-              hint="Already reviewed; returned for correction"
-            />
-          </>
-        }
-      />
+    <div className="space-y-4 sm:space-y-5 animate-pennie-rise">
+      <section className="bg-pennie-white rounded-3xl shadow-resting p-4 sm:p-6 space-y-4" aria-labelledby="review-heading">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <p className="pennie-label">
+              {workload === 'partner_qa' ? 'Partner QA · Admin only' : 'Review workspace'}
+            </p>
+            <h1 id="review-heading" className="mt-1 text-2xl sm:text-3xl font-semibold text-pennie-navy">Review</h1>
+            <p className="mt-1 text-sm text-pennie-graphite/70 tabular-nums" aria-live="polite">
+              {loading || alertsError ? 'Queue unavailable' : `${alerts.length.toLocaleString()} ${headlineLabel}`}
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => queuePage.items[0] && openDrawer(queuePage.items[0])}
+            disabled={loading || alertsError || queuePage.items.length === 0}
+            className="pennie-focus-ring min-h-[44px] px-5 rounded-full bg-pennie-navy text-pennie-white text-sm font-semibold hover:bg-pennie-navy/90 disabled:opacity-40 disabled:cursor-not-allowed"
+          >
+            Review next
+          </button>
+        </div>
 
-      {scope.isGodMode && workload === 'internal' && !alertsError && (
-        <ManagerWorkloadSummary
-          alerts={allAlerts}
-          managerNames={managerNames}
-          selectedManager={managerFilter}
-          loading={loading}
-          onSelect={({ managerEmail, view, outcome }) => changeFilters({
-            manager: managerEmail,
-            status: view,
-            outcome: outcome === 'all' ? null : outcome,
-            search: null,
-            sort: null,
-            direction: null,
-          })}
-        />
-      )}
-
-      {workload === 'internal' && statusView === 'awaiting_manager' && !managerFilter && outcomeFilter === 'all' && !search.trim() && !alertsError && <div className="space-y-2">
-        <AlertHeatmap
-          cells={heatmapCells}
-          rollups={heatmapRollups}
-          loading={loading}
-          startDate={startDate}
-          endDate={endDate}
-          compact
-        />
-      </div>}
-
-      {/* Filters */}
-      <section className="pennie-card-tight space-y-4">
-        <div className="flex flex-wrap gap-3 sm:gap-5 items-end">
-          {scope.isGodMode && (
-            <fieldset className="flex flex-col gap-1.5">
-              <legend className="pennie-label">Workload</legend>
-              <div className="flex gap-1" role="group" aria-label="Select workload">
-                <button type="button" aria-pressed={workload === 'internal'} onClick={() => changeFilters({ workload: null, status: 'awaiting_approval', manager: null, outcome: null, module: null })} className={`min-h-[40px] px-4 rounded-full text-sm font-semibold border ${workload === 'internal' ? 'bg-pennie-navy text-pennie-white border-pennie-navy' : 'bg-pennie-white border-border text-pennie-graphite'}`}>Pennie</button>
-                <button type="button" aria-pressed={workload === 'partner_qa'} onClick={() => changeFilters({ workload: 'partner_qa', status: 'awaiting_manager', manager: null, outcome: null, module: null })} className={`min-h-[40px] px-4 rounded-full text-sm font-semibold border ${workload === 'partner_qa' ? 'bg-pennie-navy text-pennie-white border-pennie-navy' : 'bg-pennie-white border-border text-pennie-graphite'}`}>Partner QA</button>
-              </div>
-            </fieldset>
-          )}
+        <div className="grid gap-3 lg:grid-cols-[auto_minmax(16rem,18rem)_minmax(14rem,1fr)] lg:items-end">
           <DateRangePicker
             startDate={startDate}
             endDate={endDate}
@@ -773,137 +729,144 @@ export default function AlertsPage() {
               changeFilters({ start: formatDateParam(start), end: formatDateParam(end) })
             }}
           />
-
-          <fieldset className="flex flex-col gap-1.5">
-            <legend className="pennie-label inline-flex items-center gap-1">
-              Status
+          <label className="flex flex-col gap-1.5">
+            <span className="pennie-label inline-flex items-center gap-1">
+              Queue
               <HelpHint id="filter.alerts.status" />
-            </legend>
-            <div className="flex flex-wrap gap-1" role="group" aria-label="Filter by status">
-              {Object.entries(ALERT_QUEUE_VIEWS).filter(([s]) => scope.isGodMode || s !== 'awaiting_approval').map(([s, label]) => (
-                <button
-                  key={s}
-                  type="button"
-                  aria-pressed={statusView === s}
-                  onClick={() => changeFilters({ status: s, sort: null, direction: null })}
-                  className={`min-h-[40px] px-4 py-2 rounded-full text-sm font-semibold border transition-all duration-200 ${
-                    statusView === s
-                      ? 'bg-pennie-navy text-pennie-white border-pennie-navy'
-                      : 'bg-pennie-white border-border text-pennie-graphite hover:bg-pennie-beige'
-                  }`}
-                >
-                  {label}
-                </button>
-              ))}
-            </div>
-          </fieldset>
-
-          <div className="flex flex-col gap-1.5 flex-1 min-w-[220px]">
-            <label htmlFor={searchInputId} className="pennie-label">
-              Search
-            </label>
+            </span>
+            <select
+              aria-label="Queue"
+              value={statusView}
+              onChange={event => changeFilters({ status: event.target.value, sort: null, direction: null })}
+              className="pennie-focus-ring h-10 w-full rounded-full border border-border bg-pennie-white px-4 text-sm font-semibold text-pennie-navy"
+            >
+              {queueOptions.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}
+            </select>
+          </label>
+          <div className="flex flex-col gap-1.5 min-w-0">
+            <label htmlFor={searchInputId} className="pennie-label">Search</label>
             <div className="relative">
               <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
               <input
                 id={searchInputId}
                 type="search"
                 value={search}
-                onChange={e => changeFilters({ search: e.target.value })}
-                placeholder="Call id, phone, lead, or agent…"
+                onChange={event => changeFilters({ search: event.target.value })}
+                placeholder="Call ID, phone, lead, or agent…"
                 className="w-full min-h-[44px] sm:min-h-[40px] pl-9 pr-3 py-2 rounded-full border border-border bg-pennie-white text-base sm:text-sm font-medium placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-pennie-blue-deeper/40 focus:border-pennie-blue-deeper"
               />
             </div>
           </div>
-
-          <div className="flex items-end h-10">
-            <RefreshingHint active={refreshing} />
-          </div>
         </div>
 
-        {workload === 'internal' && <div>
-          {/* Desktop label — kept inline with the chips on `sm+`. Mobile uses
-              the disclosure trigger below as both label and toggle. */}
-          <p className="pennie-label mb-2 hidden sm:inline-flex items-center gap-1">
-            Filter by alert type
-            <HelpHint id="filter.alerts.module" />
-          </p>
-
-          {/* Mobile-only disclosure trigger. Collapses the 5 chips on phones
-              (where they triple-wrap and dominate the viewport) without
-              touching the desktop layout. */}
-          <button
-            type="button"
-            onClick={() => setAlertTypeOpen(o => !o)}
-            aria-expanded={alertTypeOpen}
-            aria-controls="alert-type-filter-list"
-            className="pennie-focus-ring sm:hidden flex items-center justify-between w-full min-h-[44px] px-4 mb-2 rounded-full border border-border bg-pennie-white text-sm font-semibold text-pennie-graphite"
-          >
-            <span className="inline-flex items-center gap-2">
-              Filter by alert type
-              {moduleFilter.length > 0 && (
-                <span className="inline-flex items-center justify-center min-w-[20px] h-5 px-1.5 rounded-full bg-pennie-blue-deeper text-pennie-white text-[11px] font-bold tabular-nums">
-                  {moduleFilter.length}
-                </span>
-              )}
-            </span>
-            <ChevronDown
-              aria-hidden="true"
-              className={`w-4 h-4 transition-transform ${
-                alertTypeOpen ? 'rotate-180' : ''
-              }`}
-            />
-          </button>
-
-          <div
-            id="alert-type-filter-list"
-            className={`${alertTypeOpen ? 'flex' : 'hidden'} sm:flex flex-wrap gap-2`}
-            role="group"
-            aria-label="Filter by alert type"
-          >
-            {MODULE_OPTIONS.map(m => {
-              const active = moduleFilter.includes(m.value)
-              return (
-                <button
-                  key={m.value}
-                  type="button"
-                  aria-pressed={active}
-                  onClick={() => toggleModule(m.value)}
-                  className={`min-h-[40px] px-4 py-2 rounded-full text-xs font-bold uppercase tracking-wider border transition-all duration-200 ${
-                    active
-                      ? 'bg-pennie-blue-dark text-pennie-white border-pennie-blue-dark'
-                      : 'bg-pennie-white border-border text-pennie-graphite hover:bg-pennie-blue-light hover:border-pennie-blue-light'
-                  }`}
-                >
-                  {m.label}
-                </button>
-              )
-            })}
-            {moduleFilter.length > 0 && (
-              <button
-                type="button"
-                onClick={() => changeFilters({ module: null })}
-                className="min-h-[40px] px-3 py-2 text-xs font-semibold text-muted-foreground hover:text-pennie-navy underline-offset-4 hover:underline"
-              >
-                Clear
+        {(activeManagerLabel || outcomeFilter !== 'all' || moduleFilter.length > 0) && (
+          <div className="flex flex-wrap items-center gap-2" aria-label="Active filters">
+            <span className="pennie-label">Active</span>
+            {activeManagerLabel && (
+              <button type="button" onClick={() => changeFilters({ manager: null })} className="pennie-focus-ring min-h-[36px] px-3 rounded-full bg-pennie-blue-light text-xs font-semibold text-pennie-blue-deeper hover:underline">
+                Manager: {activeManagerLabel} ×
               </button>
             )}
+            {outcomeFilter !== 'all' && (
+              <button type="button" onClick={() => changeFilters({ outcome: null })} className="pennie-focus-ring min-h-[36px] px-3 rounded-full bg-pennie-blue-light text-xs font-semibold text-pennie-blue-deeper hover:underline">
+                Outcome: {outcomeFilter === 'real' ? 'Real issue' : 'False alarm'} ×
+              </button>
+            )}
+            {moduleFilter.map(module => (
+              <button key={module} type="button" onClick={() => toggleModule(module)} className="pennie-focus-ring min-h-[36px] px-3 rounded-full bg-pennie-blue-light text-xs font-semibold text-pennie-blue-deeper hover:underline">
+                {MODULE_OPTIONS.find(option => option.value === module)?.label ?? module} ×
+              </button>
+            ))}
           </div>
-        </div>}
-        {(managerFilter || outcomeFilter !== 'all') && (
-          <button type="button" onClick={() => changeFilters({ manager: null, outcome: null })} className="min-h-[40px] px-4 rounded-full bg-pennie-blue-light text-sm font-semibold text-pennie-blue-deeper hover:underline">
-            Clear manager count filter
-          </button>
         )}
+
+        <details className="group border-t border-border pt-3">
+          <summary className="pennie-focus-ring min-h-[40px] cursor-pointer list-none inline-flex items-center gap-2 rounded-full px-3 -ml-3 text-sm font-semibold text-pennie-blue-deeper">
+            <ChevronDown className="w-4 h-4 transition-transform group-open:rotate-180" aria-hidden="true" />
+            More filters
+          </summary>
+          <div className="mt-3 space-y-4">
+            {scope.isGodMode && (
+              <fieldset>
+                <legend className="pennie-label mb-2">Workload</legend>
+                <div className="flex flex-wrap gap-2" role="group" aria-label="Select workload">
+                  <button type="button" aria-pressed={workload === 'internal'} onClick={() => changeFilters({ workload: null, status: 'awaiting_approval', manager: null, outcome: null, module: null })} className={`min-h-[40px] px-4 rounded-full text-sm font-semibold border ${workload === 'internal' ? 'bg-pennie-navy text-pennie-white border-pennie-navy' : 'bg-pennie-white border-border text-pennie-graphite'}`}>Pennie</button>
+                  <button type="button" aria-pressed={workload === 'partner_qa'} onClick={() => changeFilters({ workload: 'partner_qa', status: 'awaiting_manager', manager: null, outcome: null, module: null })} className={`min-h-[40px] px-4 rounded-full text-sm font-semibold border ${workload === 'partner_qa' ? 'bg-pennie-navy text-pennie-white border-pennie-navy' : 'bg-pennie-white border-border text-pennie-graphite'}`}>Partner QA</button>
+                </div>
+              </fieldset>
+            )}
+            {workload === 'internal' && (
+              <fieldset>
+                <legend className="pennie-label mb-2 inline-flex items-center gap-1">
+                  Alert type
+                  <HelpHint id="filter.alerts.module" />
+                </legend>
+                <div className="flex flex-wrap gap-2" role="group" aria-label="Filter by alert type">
+                  {MODULE_OPTIONS.map(module => {
+                    const active = moduleFilter.includes(module.value)
+                    return (
+                      <button
+                        key={module.value}
+                        type="button"
+                        aria-pressed={active}
+                        onClick={() => toggleModule(module.value)}
+                        className={`min-h-[40px] px-4 py-2 rounded-full text-xs font-bold uppercase tracking-wider border transition-all duration-200 ${active ? 'bg-pennie-blue-dark text-pennie-white border-pennie-blue-dark' : 'bg-pennie-white border-border text-pennie-graphite hover:bg-pennie-blue-light hover:border-pennie-blue-light'}`}
+                      >
+                        {module.label}
+                      </button>
+                    )
+                  })}
+                </div>
+              </fieldset>
+            )}
+            <p className="text-xs text-pennie-graphite/70">
+              Counts cover the selected ET period. Received includes manager-reviewed, awaiting-manager, and administrative system-closed alerts. Corrections and coaching remain separate work.
+            </p>
+          </div>
+        </details>
+        <div className="flex justify-end"><RefreshingHint active={refreshing} /></div>
       </section>
 
+      {scope.isGodMode && workload === 'internal' && !alertsError && (
+        <details
+          open={teamWorkloadOpen}
+          onToggle={event => setTeamWorkloadOpen(event.currentTarget.open)}
+          className="group bg-pennie-white rounded-3xl shadow-resting"
+        >
+          <summary className="pennie-focus-ring-inset min-h-[52px] cursor-pointer list-none flex items-center justify-between gap-3 px-4 sm:px-6 rounded-3xl text-sm font-semibold text-pennie-navy">
+            <span>Team workload</span>
+            <span className="inline-flex items-center gap-2 text-xs text-pennie-graphite/60">
+              {loading ? 'Loading…' : `${stats.received.toLocaleString()} received in period`}
+              <ChevronDown className="w-4 h-4 transition-transform group-open:rotate-180" aria-hidden="true" />
+            </span>
+          </summary>
+          <div className="px-3 pb-4 sm:px-4 sm:pb-5 space-y-4">
+            <ManagerWorkloadSummary
+              alerts={allAlerts}
+              managerNames={managerNames}
+              selectedManager={managerFilter}
+              loading={loading}
+              onSelect={({ managerEmail, view, outcome }) => {
+                setTeamWorkloadOpen(false)
+                changeFilters({
+                  manager: managerEmail,
+                  status: view,
+                  outcome: outcome === 'all' ? null : outcome,
+                  search: null,
+                  sort: null,
+                  direction: null,
+                })
+              }}
+            />
+            {statusView === 'awaiting_manager' && !managerFilter && outcomeFilter === 'all' && !search.trim() && (
+              <AlertHeatmap cells={heatmapCells} rollups={heatmapRollups} loading={loading} startDate={startDate} endDate={endDate} compact />
+            )}
+          </div>
+        </details>
+      )}
+
       <p className="text-sm text-pennie-graphite/80 px-2" role="status">
-        {loading || alertsFetching ? 'Loading queue…' : alertsError ? 'Queue unavailable.' : `${alerts.length.toLocaleString()} matching alerts`} · {formatDateParam(startDate)} – {formatDateParam(endDate)} (ET).
-        {' '}Counts only cover this window. Use the date picker (including Last 90 days) to find older work.
-        {statusView === 'awaiting_manager' && ' Awaiting manager means no recorded human real/false decision; overdue rows have waited more than 24 elapsed hours.'}
-        {statusView === 'awaiting_approval' && ' Includes manager-reviewed real issues and false alarms with no authoritative decision for the current revision.'}
-        {statusView === 'changes_requested' && ' These alerts are already reviewed and have been returned to the current manager for correction.'}
-        {statusView === 'coaching_due' && ' Coaching was deferred. Approval or discussion does not complete coaching.'}
-        {stats.systemClosed > 0 && ` ${stats.systemClosed} administrative system closure${stats.systemClosed === 1 ? ' is' : 's are'} separate from human review.`}
+        {loading || alertsFetching ? 'Loading queue…' : alertsError ? 'Queue unavailable.' : `${alerts.length.toLocaleString()} alerts in this queue`} · {formatDateParam(startDate)} – {formatDateParam(endDate)} (ET) · Counts only cover this window.
       </p>
 
       {/* Table */}
@@ -1248,7 +1211,7 @@ function StatusPill({
     return <span className={pillClasses(accentForReviewStatus('accurate'))}>Approved</span>
   }
   if (awaitingApproval) {
-    return <span className={pillClasses(accentForReviewStatus('new'))}>Awaiting approval</span>
+    return <span className={pillClasses(accentForReviewStatus('new'))}>Awaiting director approval</span>
   }
   if (alert.accurate === true) {
     return (

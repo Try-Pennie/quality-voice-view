@@ -10,7 +10,7 @@ export function defaultAlertWindow(now: Date): { start: Date; end: Date } {
 /** Explicit views over the scoped alerts in the selected date window. */
 export const ALERT_QUEUE_VIEWS = {
   awaiting_manager: 'Awaiting manager',
-  awaiting_approval: 'Awaiting approval',
+  awaiting_approval: 'Awaiting director approval',
   changes_requested: 'Changes requested',
   coaching_due: 'Coaching due',
   reviewed: 'Reviewed',

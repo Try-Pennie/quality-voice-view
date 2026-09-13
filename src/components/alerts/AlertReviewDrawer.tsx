@@ -73,7 +73,6 @@ import {
   ExternalLink,
   Headphones,
   Info,
-  MessageSquare,
   Pencil,
   Send,
   Trash2,
@@ -665,12 +664,6 @@ export function AlertReviewDrawer({
                 </span>
               )}
             </dd>
-            <dt className="text-[11px] font-semibold uppercase tracking-wider text-pennie-graphite/60 pt-0.5">
-              Call&nbsp;ID
-            </dt>
-            <dd>
-              <CallIdChip id={alert.call_id} />
-            </dd>
           </dl>
         </SheetHeader>
 
@@ -684,18 +677,15 @@ export function AlertReviewDrawer({
             onToggle={handleToggleAck}
           />
         )}
-        {showInternalDecisionBar && (
-          <InternalDecisionSection
-            alert={alert}
-            instructions={changeInstructions}
-            onInstructionsChange={setChangeInstructions}
-            pending={decisionPending}
-            onDecide={handleDecision}
-          />
-        )}
+        {/* One scrolling review flow: evidence, required inputs, and secondary details. */}
+        <div className="flex-1 min-h-0 overflow-y-auto px-4 sm:px-8 py-5 sm:py-6 space-y-6 sm:space-y-7">
+          {returnedToCurrentManager && alert.current_decision_instructions && (
+            <div className="rounded-2xl bg-pennie-peach-light/60 px-4 py-3">
+              <p className="pennie-label mb-1">Requested correction</p>
+              <p className="text-sm text-pennie-graphite whitespace-pre-wrap">{alert.current_decision_instructions}</p>
+            </div>
+          )}
 
-        {/* Scrollable body */}
-        <div className="flex-1 min-h-0 overflow-y-auto px-8 py-6 space-y-7">
           {showManagerReviewSummary && (
             <ManagerReviewSummary
               authorEmail={alert.feedback_by}
@@ -710,17 +700,25 @@ export function AlertReviewDrawer({
           )}
 
           {initialReview && (
-            <ManagerReviewSummary
-              title="Original manager review"
-              authorEmail={initialReview.managerEmail}
-              reviewedAt={initialReview.reviewedAt}
-              accurate={initialReview.accurate}
-              actionTaken={initialReview.actionTaken}
-              inaccuracyReason={initialReview.inaccuracyReason}
-              comment={initialReview.comment}
-              violationDetails={initialReview.violationDetails}
-              actionDetails={initialReview.actionDetails}
-            />
+            <details className="group rounded-2xl border border-border px-4 py-3">
+              <summary className="pennie-focus-ring cursor-pointer list-none flex items-center justify-between gap-2 rounded-full text-sm font-semibold text-pennie-blue-deeper">
+                Original review history
+                <ChevronDown className="w-4 h-4 transition-transform group-open:rotate-180" aria-hidden="true" />
+              </summary>
+              <div className="mt-3">
+                <ManagerReviewSummary
+                  title="Original manager review"
+                  authorEmail={initialReview.managerEmail}
+                  reviewedAt={initialReview.reviewedAt}
+                  accurate={initialReview.accurate}
+                  actionTaken={initialReview.actionTaken}
+                  inaccuracyReason={initialReview.inaccuracyReason}
+                  comment={initialReview.comment}
+                  violationDetails={initialReview.violationDetails}
+                  actionDetails={initialReview.actionDetails}
+                />
+              </div>
+            </details>
           )}
 
           <section>
@@ -790,23 +788,6 @@ export function AlertReviewDrawer({
               {alert.call_summary && (
                 <CallSummary summary={alert.call_summary} />
               )}
-              <button
-                type="button"
-                onClick={() => setShowRaw(s => !s)}
-                aria-expanded={showRaw}
-                aria-controls={rawJsonId}
-                className="text-xs font-semibold text-muted-foreground hover:text-pennie-navy underline-offset-4 hover:underline"
-              >
-                {showRaw ? 'Hide' : 'Show'} raw evaluation JSON
-              </button>
-              {showRaw && (
-                <pre
-                  id={rawJsonId}
-                  className="bg-pennie-beige p-4 rounded-2xl text-xs overflow-x-auto max-h-64 overflow-y-auto text-pennie-graphite"
-                >
-                  {JSON.stringify(alert.result_json, null, 2)}
-                </pre>
-              )}
             </div>
           </section>
 
@@ -830,236 +811,276 @@ export function AlertReviewDrawer({
               (achieve_welcome_call_qa alerts only; hidden when no submission). */}
           <PennieAgentFeedbackSection feedback={agentFeedback} compact />
 
-          <ThreadSection
-            messages={thread?.messages ?? []}
-            currentUserEmail={currentUserEmail}
-            replyTo={replyTo}
-            onSetReplyTo={setReplyTo}
-            editingId={editingId}
-            onSetEditingId={setEditingId}
-            onEdit={handleEditMessage}
-            onDelete={handleDeleteMessage}
-            draft={draftBody}
-            onDraftChange={setDraftBody}
-            onPost={handlePostMessage}
-            posting={posting}
-            requireAck={requireAck}
-            onSetRequireAck={setRequireAck}
-          />
-        </div>
-
-        {/* Sticky review footer — content depends on review state */}
-        <div className="shrink-0 max-h-[45vh] overflow-y-auto border-t border-border bg-pennie-beige/40 px-8 py-5 space-y-4">
-          {/* In State B (reviewing a teammate's review), the structured form is
-              gated behind an explicit Override affordance. Approve via the bar
-              at the top; comment via Discussion. */}
-          {workload === 'partner_qa' && reviewedByOther && !overrideMode && (
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <p className="text-xs text-pennie-graphite/70 leading-relaxed">
-                Approve at the top, or comment in Discussion above. Only override if you
-                disagree with the verdict.
-              </p>
-              <button
-                type="button"
-                onClick={() => setOverrideMode(true)}
-                className="min-h-[36px] inline-flex items-center px-3.5 py-1.5 rounded-full text-xs font-semibold border border-border text-pennie-graphite hover:bg-pennie-peach-light hover:border-pennie-peach-light transition-colors"
-              >
-                Override review
-              </button>
-            </div>
+          {showInternalDecisionBar && (
+            <InternalDecisionSection
+              alert={alert}
+              instructions={changeInstructions}
+              onInstructionsChange={setChangeInstructions}
+              pending={decisionPending}
+              onDecide={handleDecision}
+            />
           )}
 
-          {needsCoachingFollowUp(alert) && <p className="text-sm text-pennie-blue-deeper">
-            Coaching follow-up is still open. Update the action after follow-up through the review form when available. Approval or discussion does not complete it.
-          </p>}
-
-          {returnedToCurrentManager && alert.current_decision_instructions && (
-            <div className="rounded-2xl bg-pennie-peach-light/60 px-4 py-3">
-              <p className="pennie-label mb-1">Requested correction</p>
-              <p className="text-sm text-pennie-graphite whitespace-pre-wrap">{alert.current_decision_instructions}</p>
-            </div>
-          )}
-
-          {showStructuredForm && (
-            <>
-              <fieldset disabled={submitting}>
-                <legend className="flex items-center justify-between w-full mb-3 gap-3">
-                  <span className="text-sm font-semibold text-pennie-navy">
-                    {promptCopy}
-                    <span className="text-pennie-peach-deeper ml-1" aria-hidden="true">*</span>
-                  </span>
-                  {overrideMode ? (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setOverrideMode(false)
-                        setAccurate(alert.accurate)
-                        setAction(alert.action_taken)
-                        setReason(alert.inaccuracy_reason)
-                        setComment(alert.feedback_comment ?? '')
-                      }}
-                      className="text-xs font-semibold text-pennie-graphite/70 hover:text-pennie-navy"
-                    >
-                      Cancel override
-                    </button>
-                  ) : (
-                    alert.is_reviewed && (
-                      <span className="text-xs text-muted-foreground">
-                        Last edited{' '}
-                        {alert.reviewed_at ? formatDateTime(alert.reviewed_at) : ''} by{' '}
-                        {alert.feedback_by || '—'}
-                      </span>
-                    )
-                  )}
-                </legend>
-                <div className="flex gap-2" role="group" aria-label={promptCopy}>
-                  <Toggle
-                    label="Real issue (Y)"
-                    active={accurate === true}
-                    tone="success"
-                    onClick={() => setAccurate(true)}
-                  />
-                  <Toggle
-                    label="False alarm (N)"
-                    active={accurate === false}
-                    tone="danger"
-                    onClick={() => setAccurate(false)}
-                  />
-                </div>
-              </fieldset>
-
-              {accurate === true && (
-                <fieldset disabled={submitting}>
-                  <legend className="pennie-label mb-2">
-                    How did you address it with the agent?
-                    <span className="text-pennie-peach-deeper ml-1" aria-hidden="true">*</span>
-                  </legend>
-                  <div
-                    className="flex flex-wrap gap-1.5"
-                    role="group"
-                    aria-label="Action taken"
-                  >
-                    {ACTION_OPTIONS.map((opt, i) => (
-                      <Chip
-                        key={opt}
-                        label={`${i + 1}. ${ACTION_TAKEN_LABELS[opt]}`}
-                        active={action === opt}
-                        onClick={() => setAction(action === opt ? null : opt)}
-                      />
-                    ))}
-                  </div>
-                </fieldset>
-              )}
-
-              {accurate === false && (
-                <fieldset disabled={submitting}>
-                  <legend className="pennie-label mb-2">
-                    Why was it a false alarm?
-                    <span className="text-pennie-peach-deeper ml-1" aria-hidden="true">*</span>
-                  </legend>
-                  <div
-                    className="flex flex-wrap gap-1.5"
-                    role="group"
-                    aria-label="Why was it a false alarm?"
-                  >
-                    {INACCURACY_OPTIONS.map((opt, i) => (
-                      <Chip
-                        key={opt}
-                        label={`${i + 1}. ${INACCURACY_REASON_LABELS[opt]}`}
-                        active={reason === opt}
-                        onClick={() => setReason(reason === opt ? null : opt)}
-                      />
-                    ))}
-                  </div>
-                </fieldset>
-              )}
-
-              {workload === 'internal' && accurate === true && (
-                <div className="space-y-3">
-                  <ReviewTextarea
-                    id={violationDetailsId}
-                    label="What happened?"
-                    value={violationDetails}
-                    onChange={setViolationDetails}
-                    placeholder="Describe the specific behavior or missed requirement."
-                    disabled={submitting}
-                  />
-                  <ReviewTextarea
-                    id={actionDetailsId}
-                    label="What action did you take?"
-                    value={actionDetails}
-                    onChange={setActionDetails}
-                    placeholder="Describe the coaching, escalation, or planned follow-up."
-                    disabled={submitting}
-                  />
-                  <div className="flex flex-wrap items-center gap-1.5">
-                    <span className="text-[11px] text-pennie-graphite/60 font-medium">Quick start:</span>
-                    {QUICK_PHRASES.map(phrase => (
-                      <button
-                        key={phrase.label}
-                        type="button"
-                        disabled={submitting}
-                        title={phrase.text}
-                        onClick={() => setActionDetails(previous => previous.trim() ? `${previous.trimEnd()} ${phrase.text}` : phrase.text)}
-                        className="pennie-focus-ring min-h-[32px] px-3 py-1 rounded-full border border-border bg-pennie-white text-[11px] font-semibold text-pennie-graphite hover:bg-pennie-blue-light hover:border-pennie-blue-light transition-colors"
-                      >
-                        {phrase.label}…
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {workload === 'internal' && accurate === false && (
-                <ReviewTextarea
-                  id={commentId}
-                  label="Why is this a false alarm?"
-                  value={comment}
-                  onChange={setComment}
-                  placeholder="Explain why the alert does not apply to this call."
-                  disabled={submitting}
-                />
-              )}
-
-              {workload === 'partner_qa' && accurate !== null && (
-                <ReviewTextarea
-                  id={commentId}
-                  label={accurate ? 'What happened and how you addressed it' : 'Notes'}
-                  value={comment}
-                  onChange={setComment}
-                  placeholder={accurate ? 'Describe what happened and the follow-up.' : 'Anything you want to flag…'}
-                  disabled={submitting}
-                  required={accurate || reason === 'other'}
-                  minimum={accurate ? LEGACY_REAL_NOTES_MIN : LEGACY_OTHER_NOTES_MIN}
-                />
-              )}
-
-              <div className="flex justify-between items-center gap-3">
-                <div className="text-[11px] text-muted-foreground">
-                  <p>⌘/Ctrl+Enter to save · J/K to navigate</p>
-                  {workload === 'internal' && alert.current_decision === 'approved' && (
-                    <p>Updating creates a new revision that requires approval.</p>
-                  )}
-                </div>
+          {/* Review form stays in the same scrolling flow. */}
+          <div className="-mx-4 sm:-mx-8 border-t border-border bg-pennie-beige/40 px-4 sm:px-8 py-5 space-y-4">
+            {/* In State B (reviewing a teammate's review), the structured form is
+                gated behind an explicit Override affordance. Approve via the bar
+                at the top; comment via Discussion. */}
+            {workload === 'partner_qa' && reviewedByOther && !overrideMode && (
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <p className="text-xs text-pennie-graphite/70 leading-relaxed">
+                  Approve at the top, or comment in Discussion above. Only override if you
+                  disagree with the verdict.
+                </p>
                 <button
                   type="button"
-                  onClick={handleSubmit}
-                  disabled={saveDisabled}
-                  className="min-h-[44px] px-5 py-2.5 rounded-full bg-pennie-navy text-pennie-white text-sm font-semibold transition-all duration-200 hover:bg-pennie-navy/90 disabled:opacity-40 disabled:cursor-not-allowed"
+                  onClick={() => setOverrideMode(true)}
+                  className="min-h-[36px] inline-flex items-center px-3.5 py-1.5 rounded-full text-xs font-semibold border border-border text-pennie-graphite hover:bg-pennie-peach-light hover:border-pennie-peach-light transition-colors"
                 >
-                  {submitting
-                    ? 'Saving…'
-                    : returnedToCurrentManager
-                      ? 'Resubmit review'
-                      : overrideMode
-                        ? 'Save override'
-                        : alert.is_reviewed
-                          ? 'Update review'
-                          : 'Save review'}
+                  Override review
                 </button>
               </div>
-            </>
-          )}
+            )}
+
+            {needsCoachingFollowUp(alert) && <p className="text-sm text-pennie-blue-deeper">
+              Coaching follow-up is still open. Update the action after follow-up through the review form when available. Approval or discussion does not complete it.
+            </p>}
+
+            {showStructuredForm && (
+              <>
+                <fieldset disabled={submitting}>
+                  <legend className="flex items-center justify-between w-full mb-3 gap-3">
+                    <span className="text-sm font-semibold text-pennie-navy">
+                      {promptCopy}
+                      <span className="text-pennie-peach-deeper ml-1" aria-hidden="true">*</span>
+                    </span>
+                    {overrideMode ? (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setOverrideMode(false)
+                          setAccurate(alert.accurate)
+                          setAction(alert.action_taken)
+                          setReason(alert.inaccuracy_reason)
+                          setComment(alert.feedback_comment ?? '')
+                        }}
+                        className="text-xs font-semibold text-pennie-graphite/70 hover:text-pennie-navy"
+                      >
+                        Cancel override
+                      </button>
+                    ) : (
+                      alert.is_reviewed && (
+                        <span className="text-xs text-muted-foreground">
+                          Last edited{' '}
+                          {alert.reviewed_at ? formatDateTime(alert.reviewed_at) : ''} by{' '}
+                          {alert.feedback_by || '—'}
+                        </span>
+                      )
+                    )}
+                  </legend>
+                  <div className="flex gap-2" role="group" aria-label={promptCopy}>
+                    <Toggle
+                      label="Real issue (Y)"
+                      active={accurate === true}
+                      tone="success"
+                      onClick={() => setAccurate(true)}
+                    />
+                    <Toggle
+                      label="False alarm (N)"
+                      active={accurate === false}
+                      tone="danger"
+                      onClick={() => setAccurate(false)}
+                    />
+                  </div>
+                </fieldset>
+
+                {accurate === true && (
+                  <fieldset disabled={submitting}>
+                    <legend className="pennie-label mb-2">
+                      How did you address it with the agent?
+                      <span className="text-pennie-peach-deeper ml-1" aria-hidden="true">*</span>
+                    </legend>
+                    <div
+                      className="flex flex-wrap gap-1.5"
+                      role="group"
+                      aria-label="Action taken"
+                    >
+                      {ACTION_OPTIONS.map((opt, i) => (
+                        <Chip
+                          key={opt}
+                          label={`${i + 1}. ${ACTION_TAKEN_LABELS[opt]}`}
+                          active={action === opt}
+                          onClick={() => setAction(action === opt ? null : opt)}
+                        />
+                      ))}
+                    </div>
+                  </fieldset>
+                )}
+
+                {accurate === false && (
+                  <fieldset disabled={submitting}>
+                    <legend className="pennie-label mb-2">
+                      Why was it a false alarm?
+                      <span className="text-pennie-peach-deeper ml-1" aria-hidden="true">*</span>
+                    </legend>
+                    <div
+                      className="flex flex-wrap gap-1.5"
+                      role="group"
+                      aria-label="Why was it a false alarm?"
+                    >
+                      {INACCURACY_OPTIONS.map((opt, i) => (
+                        <Chip
+                          key={opt}
+                          label={`${i + 1}. ${INACCURACY_REASON_LABELS[opt]}`}
+                          active={reason === opt}
+                          onClick={() => setReason(reason === opt ? null : opt)}
+                        />
+                      ))}
+                    </div>
+                  </fieldset>
+                )}
+
+                {workload === 'internal' && accurate === true && (
+                  <div className="space-y-3">
+                    <ReviewTextarea
+                      id={violationDetailsId}
+                      label="What happened?"
+                      value={violationDetails}
+                      onChange={setViolationDetails}
+                      placeholder="Describe the specific behavior or missed requirement."
+                      disabled={submitting}
+                    />
+                    <ReviewTextarea
+                      id={actionDetailsId}
+                      label="What action did you take?"
+                      value={actionDetails}
+                      onChange={setActionDetails}
+                      placeholder="Describe the coaching, escalation, or planned follow-up."
+                      disabled={submitting}
+                    />
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      <span className="text-[11px] text-pennie-graphite/60 font-medium">Quick start:</span>
+                      {QUICK_PHRASES.map(phrase => (
+                        <button
+                          key={phrase.label}
+                          type="button"
+                          disabled={submitting}
+                          title={phrase.text}
+                          onClick={() => setActionDetails(previous => previous.trim() ? `${previous.trimEnd()} ${phrase.text}` : phrase.text)}
+                          className="pennie-focus-ring min-h-[32px] px-3 py-1 rounded-full border border-border bg-pennie-white text-[11px] font-semibold text-pennie-graphite hover:bg-pennie-blue-light hover:border-pennie-blue-light transition-colors"
+                        >
+                          {phrase.label}…
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {workload === 'internal' && accurate === false && (
+                  <ReviewTextarea
+                    id={commentId}
+                    label="Why is this a false alarm?"
+                    value={comment}
+                    onChange={setComment}
+                    placeholder="Explain why the alert does not apply to this call."
+                    disabled={submitting}
+                  />
+                )}
+
+                {workload === 'partner_qa' && accurate !== null && (
+                  <ReviewTextarea
+                    id={commentId}
+                    label={accurate ? 'What happened and how you addressed it' : 'Notes'}
+                    value={comment}
+                    onChange={setComment}
+                    placeholder={accurate ? 'Describe what happened and the follow-up.' : 'Anything you want to flag…'}
+                    disabled={submitting}
+                    required={accurate || reason === 'other'}
+                    minimum={accurate ? LEGACY_REAL_NOTES_MIN : LEGACY_OTHER_NOTES_MIN}
+                  />
+                )}
+
+                <div className="flex justify-between items-center gap-3">
+                  <div className="text-[11px] text-muted-foreground">
+                    <p>⌘/Ctrl+Enter to save · J/K to navigate</p>
+                    {workload === 'internal' && alert.current_decision === 'approved' && (
+                      <p>Updating creates a new revision that requires approval.</p>
+                    )}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handleSubmit}
+                    disabled={saveDisabled}
+                    className="min-h-[44px] px-5 py-2.5 rounded-full bg-pennie-navy text-pennie-white text-sm font-semibold transition-all duration-200 hover:bg-pennie-navy/90 disabled:opacity-40 disabled:cursor-not-allowed"
+                  >
+                    {submitting
+                      ? 'Saving…'
+                      : returnedToCurrentManager
+                        ? 'Resubmit review'
+                        : overrideMode
+                          ? 'Save override'
+                          : alert.is_reviewed
+                            ? 'Update review'
+                            : 'Save review'}
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+
+          <details className="group rounded-2xl border border-border px-4 py-3">
+            <summary className="pennie-focus-ring cursor-pointer list-none flex items-center justify-between gap-2 rounded-full text-sm font-semibold text-pennie-blue-deeper">
+              Technical details
+              <ChevronDown className="w-4 h-4 transition-transform group-open:rotate-180" aria-hidden="true" />
+            </summary>
+            <dl className="mt-4 grid grid-cols-[auto_1fr] gap-x-3 gap-y-2 text-sm">
+              <dt className="pennie-label">Call ID</dt>
+              <dd><CallIdChip id={alert.call_id} /></dd>
+            </dl>
+            <button
+              type="button"
+              onClick={() => setShowRaw(value => !value)}
+              aria-expanded={showRaw}
+              aria-controls={rawJsonId}
+              className="mt-4 text-xs font-semibold text-muted-foreground hover:text-pennie-navy underline-offset-4 hover:underline"
+            >
+              {showRaw ? 'Hide' : 'Show'} raw evaluation JSON
+            </button>
+            {showRaw && (
+              <pre id={rawJsonId} className="mt-3 bg-pennie-beige p-4 rounded-2xl text-xs overflow-x-auto text-pennie-graphite">
+                {JSON.stringify(alert.result_json, null, 2)}
+              </pre>
+            )}
+          </details>
+
+          <details className="group rounded-2xl border border-border px-4 py-3">
+            <summary className="pennie-focus-ring cursor-pointer list-none flex items-center justify-between gap-2 rounded-full text-sm font-semibold text-pennie-blue-deeper">
+              <span className="inline-flex items-center gap-2">
+                Discussion
+                {(thread?.messages.length ?? 0) > 0 && <span className="text-xs text-pennie-graphite/60">{thread?.messages.length}</span>}
+              </span>
+              <ChevronDown className="w-4 h-4 transition-transform group-open:rotate-180" aria-hidden="true" />
+            </summary>
+            <div className="mt-4">
+              <ThreadSection
+                messages={thread?.messages ?? []}
+                currentUserEmail={currentUserEmail}
+                replyTo={replyTo}
+                onSetReplyTo={setReplyTo}
+                editingId={editingId}
+                onSetEditingId={setEditingId}
+                onEdit={handleEditMessage}
+                onDelete={handleDeleteMessage}
+                draft={draftBody}
+                onDraftChange={setDraftBody}
+                onPost={handlePostMessage}
+                posting={posting}
+                requireAck={requireAck}
+                onSetRequireAck={setRequireAck}
+              />
+            </div>
+          </details>
+
         </div>
       </SheetContent>
     </Sheet>
@@ -1271,7 +1292,7 @@ function InternalDecisionSection({
   onDecide: (decision: 'approved' | 'changes_requested') => Promise<void>
 }) {
   if (alert.current_decision === 'approved') {
-    return <section className="flex items-center justify-between gap-3 px-4 sm:px-8 py-4 bg-pennie-green-light/40 border-b border-pennie-green-light">
+    return <section className="flex items-center justify-between gap-3 px-4 py-4 rounded-2xl bg-pennie-green-light/40 border border-pennie-green-light">
       <p className="text-sm font-semibold text-pennie-navy">Approved by {alert.current_decision_by ? emailLabel(alert.current_decision_by) : 'a super-admin'}</p>
       <button type="button" disabled className="min-h-[44px] px-5 rounded-full bg-pennie-green-dark text-pennie-white text-sm font-semibold disabled:opacity-80">
         <CheckCheck className="inline w-4 h-4 mr-1.5" aria-hidden="true" />Approved
@@ -1280,13 +1301,13 @@ function InternalDecisionSection({
   }
 
   if (alert.current_decision === 'changes_requested') {
-    return <section className="px-4 sm:px-8 py-4 bg-pennie-peach-light/50 border-b border-pennie-peach-light">
+    return <section className="px-4 py-4 rounded-2xl bg-pennie-peach-light/50 border border-pennie-peach-light">
       <p className="text-sm font-semibold text-pennie-navy">Changes requested by {alert.current_decision_by ? emailLabel(alert.current_decision_by) : 'a super-admin'}</p>
       {alert.current_decision_instructions && <p className="mt-1 text-sm text-pennie-graphite whitespace-pre-wrap">{alert.current_decision_instructions}</p>}
     </section>
   }
 
-  return <section className="px-4 sm:px-8 py-4 bg-pennie-blue-light/30 border-b border-pennie-blue-light space-y-3">
+  return <section className="px-4 py-4 rounded-2xl bg-pennie-blue-light/30 border border-pennie-blue-light space-y-3">
     <div className="flex flex-wrap items-center justify-between gap-3">
       <p className="text-sm font-semibold text-pennie-navy">This revision is awaiting shared approval.</p>
       <button
@@ -1456,16 +1477,7 @@ function ThreadSection({
   }, [messages, messageById])
 
   return (
-    <section>
-      <h2 className="pennie-label mb-3 inline-flex items-center gap-1.5">
-        <MessageSquare className="w-3.5 h-3.5" aria-hidden="true" />
-        Discussion
-        {messages.length > 0 && (
-          <span className="text-pennie-graphite/60 font-normal">
-            · {messages.filter(m => !m.deleted_at).length}
-          </span>
-        )}
-      </h2>
+    <section aria-label="Discussion thread">
       <div className="space-y-3">
         {messages.length === 0 ? (
           <p className="text-sm text-pennie-graphite/60 italic">

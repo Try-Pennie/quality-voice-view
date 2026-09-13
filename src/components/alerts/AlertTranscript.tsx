@@ -11,5 +11,5 @@ export function AlertTranscript({ callId, evidence }: { callId: string; evidence
   if (typeof transcript !== 'string' || !transcript.trim()) {
     return <p className="text-sm text-muted-foreground">No transcript text is available for this call. Use the recording or external transcript link above.</p>
   }
-  return <TranscriptView transcript={transcript} evidence={evidence} />
+  return <TranscriptView transcript={transcript} evidence={evidence} constrainHeight={false} />
 }

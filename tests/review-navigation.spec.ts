@@ -9,6 +9,9 @@ test('table paging and J/K share the full ordered queue', async ({ page }) => {
   await page.getByRole('button', { name: 'Next page', exact: true }).click()
   await expect(page.getByText('Showing 51–52 of 52 alerts')).toBeVisible()
   await expect(page.getByRole('button', { name: /^Review .* alert for Example/ })).toHaveCount(2)
+  await page.getByRole('button', { name: 'Review next' }).click()
+  await expect(page.getByRole('dialog')).toContainText('Example page-50')
+  await page.getByRole('button', { name: 'Close (Esc)', exact: true }).click()
   // Starting J on page two starts at that page, not at the beginning of the queue.
   await page.keyboard.press('j')
   // Enter from a page button retains native behavior, so focus a table row first.
@@ -61,10 +64,10 @@ test('desktop feature screenshots with synthetic review data', async ({ page }, 
     action_details: 'Scheduled coaching to review the disclosure and call evidence.',
   })])
   await page.goto('/dashboard/alerts?status=awaiting_manager')
-  await expect(page.getByRole('heading', { name: '2 awaiting manager' })).toBeVisible()
+  await expect(page.getByText('2 ready for first review', { exact: true })).toBeVisible()
   await page.screenshot({ path: testInfo.outputPath('overdue-desktop.png'), fullPage: true })
-  await page.getByRole('button', { name: 'Coaching due', exact: true }).click()
-  await expect(page.getByRole('heading', { name: '1 coaching due' })).toBeVisible()
+  await page.getByRole('combobox', { name: 'Queue' }).selectOption('coaching_due')
+  await expect(page.getByText('1 coaching due', { exact: true })).toBeVisible()
   await page.screenshot({ path: testInfo.outputPath('follow-up-desktop.png'), fullPage: true })
   await openAlert(page, 'follow-up')
   await page.getByRole('button', { name: 'Inspect transcript context' }).click()
