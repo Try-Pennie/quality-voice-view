@@ -1,5 +1,5 @@
 import { expect, type Page } from '@playwright/test'
-import type { AlertWithFeedback } from '../src/types/database'
+import type { AlertMessage, AlertWithFeedback } from '../src/types/database'
 
 export const NOW = new Date('2026-09-07T16:00:00Z')
 export const EMAIL = 'manager@example.test'
@@ -32,12 +32,12 @@ export function alertRow(id: string, overrides: Partial<AlertWithFeedback> = {})
  * It exercises real hooks, queries, pagination requests and mutations, not patched modules.
  * This proves client behavior, not production RLS/SQL execution.
  */
-export async function reviewFixture(page: Page, rows: AlertWithFeedback[], options: { god?: boolean; noAgents?: boolean; managedAgents?: string[]; managerNames?: Record<string, string>; dailyMetrics?: unknown[]; email?: string } = {}) {
+export async function reviewFixture(page: Page, rows: AlertWithFeedback[], options: { god?: boolean; noAgents?: boolean; managedAgents?: string[]; managerNames?: Record<string, string>; dailyMetrics?: unknown[]; email?: string; messages?: AlertMessage[] } = {}) {
   const fixtureEmail = options.email ?? EMAIL
   const state = {
     rows, writes: [] as unknown[], requests: [] as URL[], transcript: TRANSCRIPT as string | null,
     failFeedback: false, failTranscript: false, failQueueOffset: -1, failBreakdown: false,
-    transcriptGate: Promise.resolve(), alertGate: Promise.resolve(), ackGate: Promise.resolve(), decisionGate: Promise.resolve(),
+    transcriptGate: Promise.resolve(), alertGate: Promise.resolve(), queueGate: Promise.resolve(), ackGate: Promise.resolve(), decisionGate: Promise.resolve(),
     failedAckIds: new Set<string>(), failedDecisionIds: new Set<string>(),
     ackInFlight: 0, maxAckInFlight: 0, decisionInFlight: 0, maxDecisionInFlight: 0,
     nextDecisionId: 100,
@@ -98,6 +98,7 @@ export async function reviewFixture(page: Page, rows: AlertWithFeedback[], optio
       if (breakdown && state.failBreakdown) return respond({ message: 'Synthetic breakdown failure' }, 500)
       const pageRows = selected.slice(offset, offset + Math.min(Number(params.get('limit') ?? 1000), 1000))
       if (list) {
+        await state.queueGate
         // Real list projection deliberately omits heavy fields.
         return respond(pageRows.map(({
           result_json: _result,
@@ -205,6 +206,7 @@ export async function reviewFixture(page: Page, rows: AlertWithFeedback[], optio
       }
       return respond(null)
     }
+    if (table === 'eavesly_alert_messages' && request.method() === 'GET') return respond(options.messages ?? [])
     if (table === 'eavesly_alert_messages' && request.method() === 'POST') {
       state.writes.push(request.postDataJSON())
       return respond({ id: 1, call_id: rows[0]?.call_id, module_name: 'full_qa', author_email: fixtureEmail, body: 'A synthetic discussion message.', posted_at: NOW.toISOString(), parent_message_id: null, requires_acknowledgment: false, deleted_at: null })

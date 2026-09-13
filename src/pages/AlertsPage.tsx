@@ -692,6 +692,14 @@ export default function AlertsPage() {
                 ? 'All received'
                 : label,
     }))
+  const mobileSortValue = `${sortKey}:${sortDesc ? 'desc' : 'asc'}`
+  const setMobileSort = (value: string) => {
+    const [key, direction] = value.split(':')
+    if ((key === 'time' || key === 'agent' || key === 'violation' || key === 'status') &&
+      (direction === 'asc' || direction === 'desc')) {
+      changeFilters({ sort: key, direction })
+    }
+  }
   const activeManagerLabel = managerFilter === NEEDS_MANAGER_ASSIGNMENT
     ? 'Needs manager assignment'
     : managerFilter
@@ -703,12 +711,10 @@ export default function AlertsPage() {
       <section className="bg-pennie-white rounded-3xl shadow-resting p-4 sm:p-6 space-y-4" aria-labelledby="review-heading">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
-            <p className="pennie-label">
-              {workload === 'partner_qa' ? 'Partner QA · Admin only' : 'Review workspace'}
-            </p>
-            <h1 id="review-heading" className="mt-1 text-2xl sm:text-3xl font-semibold text-pennie-navy">Review</h1>
+            {workload === 'partner_qa' && <p className="pennie-label">Partner QA · Admin only</p>}
+            <h1 id="review-heading" className={`${workload === 'partner_qa' ? 'mt-1 ' : ''}text-2xl sm:text-3xl font-semibold text-pennie-navy`}>Review</h1>
             <p className="mt-1 text-sm text-pennie-graphite/70 tabular-nums" aria-live="polite">
-              {loading || alertsError ? 'Queue unavailable' : `${alerts.length.toLocaleString()} ${headlineLabel}`}
+              {loading ? 'Loading queue…' : alertsError ? 'Queue unavailable' : `${alerts.length.toLocaleString()} ${headlineLabel}`}
             </p>
           </div>
           <button
@@ -786,6 +792,24 @@ export default function AlertsPage() {
             More filters
           </summary>
           <div className="mt-3 space-y-4">
+            <label className="flex flex-col gap-1.5 lg:hidden">
+              <span className="pennie-label">Sort</span>
+              <select
+                aria-label="Sort queue"
+                value={mobileSortValue}
+                onChange={event => setMobileSort(event.target.value)}
+                className="pennie-focus-ring h-10 w-full rounded-full border border-border bg-pennie-white px-4 text-sm font-semibold text-pennie-navy"
+              >
+                <option value="time:asc">Oldest first</option>
+                <option value="time:desc">Newest first</option>
+                <option value="agent:asc">Agent A–Z</option>
+                <option value="agent:desc">Agent Z–A</option>
+                <option value="violation:asc">Issue A–Z</option>
+                <option value="violation:desc">Issue Z–A</option>
+                <option value="status:asc">Status</option>
+                <option value="status:desc">Status reverse</option>
+              </select>
+            </label>
             {scope.isGodMode && (
               <fieldset>
                 <legend className="pennie-label mb-2">Workload</legend>
@@ -824,10 +848,10 @@ export default function AlertsPage() {
             </p>
           </div>
         </details>
-        <div className="flex justify-end"><RefreshingHint active={refreshing} /></div>
+        <RefreshingHint active={refreshing} />
       </section>
 
-      {scope.isGodMode && workload === 'internal' && !alertsError && (
+      {workload === 'internal' && !alertsError && (
         <details
           open={teamWorkloadOpen}
           onToggle={event => setTeamWorkloadOpen(event.currentTarget.open)}
@@ -841,23 +865,36 @@ export default function AlertsPage() {
             </span>
           </summary>
           <div className="px-3 pb-4 sm:px-4 sm:pb-5 space-y-4">
-            <ManagerWorkloadSummary
-              alerts={allAlerts}
-              managerNames={managerNames}
-              selectedManager={managerFilter}
-              loading={loading}
-              onSelect={({ managerEmail, view, outcome }) => {
-                setTeamWorkloadOpen(false)
-                changeFilters({
-                  manager: managerEmail,
-                  status: view,
-                  outcome: outcome === 'all' ? null : outcome,
-                  search: null,
-                  sort: null,
-                  direction: null,
-                })
-              }}
-            />
+            {scope.isGodMode ? (
+              <ManagerWorkloadSummary
+                alerts={allAlerts}
+                managerNames={managerNames}
+                selectedManager={managerFilter}
+                loading={loading}
+                onSelect={({ managerEmail, view, outcome }) => {
+                  setTeamWorkloadOpen(false)
+                  changeFilters({
+                    manager: managerEmail,
+                    status: view,
+                    outcome: outcome === 'all' ? null : outcome,
+                    search: null,
+                    sort: null,
+                    direction: null,
+                  })
+                }}
+              />
+            ) : (
+              <section className="rounded-2xl border border-pennie-beige p-3 sm:p-4" aria-label="My team workload counts">
+                <p className="text-xs text-pennie-graphite/60 mb-3">Received = manager reviewed + awaiting manager + system closed. Select a count to filter this queue.</p>
+                <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
+                  <WorkloadCount label="Received" value={stats.received} onClick={() => { setTeamWorkloadOpen(false); changeFilters({ status: 'all', outcome: null }) }} />
+                  <WorkloadCount label="Manager reviewed" value={stats.reviewed} onClick={() => { setTeamWorkloadOpen(false); changeFilters({ status: 'reviewed', outcome: null }) }} />
+                  <WorkloadCount label="Real" value={stats.real} onClick={() => { setTeamWorkloadOpen(false); changeFilters({ status: 'reviewed', outcome: 'real' }) }} />
+                  <WorkloadCount label="False alarm" value={stats.falseAlarm} onClick={() => { setTeamWorkloadOpen(false); changeFilters({ status: 'reviewed', outcome: 'false_alarm' }) }} />
+                  <WorkloadCount label="Awaiting manager" value={stats.awaitingManager} onClick={() => { setTeamWorkloadOpen(false); changeFilters({ status: 'awaiting_manager', outcome: null }) }} />
+                </div>
+              </section>
+            )}
             {statusView === 'awaiting_manager' && !managerFilter && outcomeFilter === 'all' && !search.trim() && (
               <AlertHeatmap cells={heatmapCells} rollups={heatmapRollups} loading={loading} startDate={startDate} endDate={endDate} compact />
             )}
@@ -943,9 +980,19 @@ export default function AlertsPage() {
               <button type="button" disabled={queuePage.page === queuePage.pageCount} onClick={() => { setFocusIndex(-1); setRequestedPage(queuePage.page + 1) }} className="pennie-focus-ring min-h-[40px] px-3 rounded-full border border-border disabled:opacity-40">Next page</button>
             </div>
           </nav>}
-          <div className="overflow-x-auto">
-            <table className="min-w-full">
-              <thead className="bg-pennie-beige/60">
+          {showBulkColumn && <label className="lg:hidden flex items-center gap-2 px-4 py-3 border-b border-border text-sm font-semibold text-pennie-navy">
+            <input
+              type="checkbox"
+              checked={ackableAlerts.length > 0 && selectedTargets.length === ackableAlerts.length}
+              onChange={toggleSelectAll}
+              aria-label="Select all approvable alerts"
+              className="w-4 h-4 rounded border-border text-pennie-blue-deeper focus:ring-pennie-blue-deeper/40"
+            />
+            Select all approvable
+          </label>}
+          <div className="overflow-hidden lg:overflow-x-auto">
+            <table className="w-full">
+              <thead className="hidden lg:table-header-group bg-pennie-beige/60">
                 <tr>
                   {showBulkColumn && (
                     <th className="pl-4 sm:pl-5 pr-1 py-3 w-10 text-left">
@@ -1010,7 +1057,7 @@ export default function AlertsPage() {
                   >
                     {showBulkColumn && (
                       <td
-                        className="pl-4 sm:pl-5 pr-1 py-3 sm:py-4 align-top w-10"
+                        className="hidden lg:table-cell pl-4 sm:pl-5 pr-1 py-3 sm:py-4 align-top w-10"
                         onClick={e => e.stopPropagation()}
                         onKeyDown={e => e.stopPropagation()}
                       >
@@ -1025,7 +1072,52 @@ export default function AlertsPage() {
                         )}
                       </td>
                     )}
-                    <Td>
+                    <td className="lg:hidden p-4 align-top">
+                      <div className="flex items-start gap-3 min-w-0">
+                        {showBulkColumn && isAckable(a) && (
+                          <span onClick={event => event.stopPropagation()} onKeyDown={event => event.stopPropagation()}>
+                            <input
+                              type="checkbox"
+                              checked={selected.has(alertKey(a))}
+                              onChange={() => toggleSelected(a)}
+                              aria-label={`Select alert for ${a.agent_email ?? 'unknown agent'}`}
+                              className="mt-1 w-4 h-4 rounded border-border text-pennie-blue-deeper focus:ring-pennie-blue-deeper/40"
+                            />
+                          </span>
+                        )}
+                        <div className="min-w-0 flex-1 space-y-2">
+                          <div className="flex flex-wrap items-center justify-between gap-2">
+                            <ViolationPill type={a.violation_type} />
+                            <StatusPill
+                              alert={a}
+                              awaitingApproval={
+                                !!scope?.isGodMode && isHumanReviewed(a) && a.current_decision !== 'changes_requested' && !closedForMe(a)
+                              }
+                            />
+                          </div>
+                          <div>
+                            <p className="text-sm font-semibold text-pennie-navy break-all">{a.agent_email || 'Unknown agent'}</p>
+                            <p className="text-sm text-pennie-graphite break-words">
+                              {a.contact_name || 'Unknown contact'}
+                              {a.contact_phone && <span className="ml-2 text-xs text-pennie-graphite/70 tabular-nums">{formatPhoneNumber(a.contact_phone)}</span>}
+                            </p>
+                          </div>
+                          <p className="text-sm text-pennie-graphite/80 line-clamp-2">{a.call_summary || 'No summary available.'}</p>
+                          <div className="flex flex-wrap items-center justify-between gap-2">
+                            <span className="text-xs text-muted-foreground tabular-nums">{formatDateTime(a.alert_created_at)}</span>
+                            <span className="inline-flex items-center gap-2">
+                              {needsCoachingFollowUp(a) && <span className="text-xs font-semibold text-pennie-blue-deeper">Coaching due</span>}
+                              <ActivityBadges alert={a} showLegacyAcks={workload === 'partner_qa'} />
+                              <ChevronRight aria-hidden="true" className="w-4 h-4 text-pennie-graphite/40" />
+                            </span>
+                          </div>
+                          {!isHumanReviewed(a) && !isSystemClosed(a) && <span className={`block text-xs font-semibold ${isReviewOverdue(a, now) ? 'text-pennie-peach-deeper' : 'text-muted-foreground'}`}>
+                            {isReviewOverdue(a, now) ? 'Overdue · ' : ''}{reviewAgeLabel(a.alert_created_at, now)}
+                          </span>}
+                        </div>
+                      </div>
+                    </td>
+                    <Td className="hidden lg:table-cell">
                       <span className="text-sm text-muted-foreground tabular-nums">
                         {formatDateTime(a.alert_created_at)}
                       </span>
@@ -1033,12 +1125,12 @@ export default function AlertsPage() {
                         {isReviewOverdue(a, now) ? 'Overdue · ' : ''}{reviewAgeLabel(a.alert_created_at, now)}
                       </span>}
                     </Td>
-                    <Td>
+                    <Td className="hidden lg:table-cell">
                       <span className="text-sm font-semibold text-pennie-navy">
                         {a.agent_email || '—'}
                       </span>
                     </Td>
-                    <Td>
+                    <Td className="hidden lg:table-cell">
                       <div className="text-sm text-pennie-graphite font-medium">
                         {a.contact_name || '—'}
                       </div>
@@ -1046,15 +1138,15 @@ export default function AlertsPage() {
                         {formatPhoneNumber(a.contact_phone)}
                       </div>
                     </Td>
-                    <Td>
+                    <Td className="hidden lg:table-cell">
                       <ViolationPill type={a.violation_type} />
                     </Td>
-                    <Td>
+                    <Td className="hidden lg:table-cell">
                       <p className="text-sm text-pennie-graphite/80 line-clamp-2 max-w-md">
                         {a.call_summary || '—'}
                       </p>
                     </Td>
-                    <Td>
+                    <Td className="hidden lg:table-cell">
                       <div className="flex flex-col gap-1.5">
                         <StatusPill
                           alert={a}
@@ -1067,7 +1159,7 @@ export default function AlertsPage() {
                         <ActivityBadges alert={a} showLegacyAcks={workload === 'partner_qa'} />
                       </div>
                     </Td>
-                    <td className="pl-2 pr-5 py-3 sm:py-4 w-10 align-middle text-right">
+                    <td className="hidden lg:table-cell pl-2 pr-5 py-3 sm:py-4 w-10 align-middle text-right">
                       <ChevronRight
                         aria-hidden="true"
                         className="inline-block w-4 h-4 text-pennie-graphite/35 transition-all duration-150 group-hover:text-pennie-blue-deeper group-hover:translate-x-0.5"
@@ -1107,10 +1199,26 @@ export default function AlertsPage() {
   )
 }
 
+function WorkloadCount({ label, value, onClick }: { label: string; value: number; onClick: () => void }) {
+  return <button type="button" onClick={onClick} aria-label={`Filter my team ${label} ${value}`} className="pennie-focus-ring min-h-[64px] rounded-2xl bg-pennie-beige/60 px-3 py-2 text-left hover:bg-pennie-blue-light/60">
+    <span className="block text-lg font-semibold tabular-nums text-pennie-navy">{value}</span>
+    <span className="block text-[11px] font-bold uppercase tracking-wider text-pennie-graphite/70">{label}</span>
+  </button>
+}
+
 function SkeletonAlertsTable() {
   return (
     <div className="overflow-hidden">
-      <table className="min-w-full">
+      <div className="lg:hidden divide-y divide-border/60">
+        {Array.from({ length: 3 }).map((_, index) => (
+          <div key={index} className="p-4 space-y-3">
+            <div className="flex justify-between gap-3"><span className="h-6 w-32 rounded-full bg-pennie-beige animate-pulse" /><span className="h-6 w-28 rounded-full bg-pennie-beige animate-pulse" /></div>
+            <span className="block h-4 w-3/4 rounded-full bg-pennie-beige animate-pulse" />
+            <span className="block h-4 w-full rounded-full bg-pennie-beige animate-pulse" />
+          </div>
+        ))}
+      </div>
+      <table className="hidden lg:table min-w-full">
         <thead className="bg-pennie-beige/60">
           <tr>
             <Th>Time (ET)</Th>
@@ -1154,8 +1262,8 @@ function Th({ children }: { children: React.ReactNode }) {
 }
 
 
-function Td({ children }: { children: React.ReactNode }) {
-  return <td className="px-4 sm:px-6 py-3 sm:py-4 align-top">{children}</td>
+function Td({ children, className = '' }: { children: React.ReactNode; className?: string }) {
+  return <td className={`px-4 sm:px-6 py-3 sm:py-4 align-top ${className}`}>{children}</td>
 }
 
 function ViolationPill({ type }: { type: string }) {

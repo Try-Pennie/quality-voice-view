@@ -51,7 +51,7 @@ test('awaiting-manager includes fresh work and identifies overdue rows, with old
   await page.goto('/dashboard/alerts?status=awaiting_manager')
   await expect(page.getByText('4 ready for first review', { exact: true })).toBeVisible()
   await expect(page.getByRole('button', { name: /^Review .* alert for Example/ }).first()).toContainText('Example oldest')
-  await expect(page.getByText('Overdue · 6d old')).toBeVisible()
+  await expect(page.getByRole('button', { name: /Review .* alert for Example oldest/ })).toContainText('Overdue · 6d old')
   await page.getByRole('button', { name: 'Time (ET)' }).click()
   await expect(page.getByRole('button', { name: /^Review .* alert for Example/ }).first()).toContainText('Example fresh')
   await page.reload()

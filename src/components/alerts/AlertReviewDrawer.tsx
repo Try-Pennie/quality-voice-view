@@ -176,6 +176,7 @@ export function AlertReviewDrawer({
     scope,
     workload,
   )
+  const visibleThreadCount = thread?.messages.filter(message => !message.deleted_at).length ?? 0
 
   // Pennie agent form feedback about the Achieve welcome-call rep — only
   // relevant (and only fetched) for Achieve welcome-call QA alerts.
@@ -478,10 +479,10 @@ export function AlertReviewDrawer({
   const showStructuredForm = !!alert && (workload === 'internal'
     ? (!alert.is_reviewed || reviewedByMe || returnedToCurrentManager)
     : (!alert.is_reviewed || reviewedByMe || overrideMode))
-  const dirty = !!alert && ((showStructuredForm && (accurate !== alert.accurate ||
+  const reviewDraftDirty = !!alert && showStructuredForm && (accurate !== alert.accurate ||
     action !== alert.action_taken || reason !== alert.inaccuracy_reason || comment !== (alert.feedback_comment ?? '') ||
-    violationDetails !== (alert.violation_details ?? '') || actionDetails !== (alert.action_details ?? ''))) ||
-    !!changeInstructions.trim() || !!draftBody.trim() || editingId !== null)
+    violationDetails !== (alert.violation_details ?? '') || actionDetails !== (alert.action_details ?? ''))
+  const dirty = reviewDraftDirty || !!changeInstructions.trim() || !!draftBody.trim() || editingId !== null
   useEffect(() => {
     if (!dirty && !submitting && !posting && !decisionPending) return
     const handler = (event: BeforeUnloadEvent) => { event.preventDefault(); event.returnValue = '' }
@@ -566,6 +567,8 @@ export function AlertReviewDrawer({
   const saveDisabled = submitting || (workload === 'internal'
     ? !parsedDraft?.ok
     : accurate === null || (accurate && !action) || (!accurate && !reason) || legacyNotesInvalid)
+  const approvalBlockedByDraft = workload === 'internal' && showStructuredForm &&
+    (reviewDraftDirty || !parsedDraft?.ok || submitting)
 
   return (
     <Sheet open={!!alert} onOpenChange={open => !open && requestClose()}>
@@ -817,7 +820,6 @@ export function AlertReviewDrawer({
               instructions={changeInstructions}
               onInstructionsChange={setChangeInstructions}
               pending={decisionPending}
-              onDecide={handleDecision}
             />
           )}
 
@@ -880,13 +882,15 @@ export function AlertReviewDrawer({
                   </legend>
                   <div className="flex gap-2" role="group" aria-label={promptCopy}>
                     <Toggle
-                      label="Real issue (Y)"
+                      label="Real issue"
+                      ariaLabel="Real issue (Y)"
                       active={accurate === true}
                       tone="success"
                       onClick={() => setAccurate(true)}
                     />
                     <Toggle
-                      label="False alarm (N)"
+                      label="False alarm"
+                      ariaLabel="False alarm (N)"
                       active={accurate === false}
                       tone="danger"
                       onClick={() => setAccurate(false)}
@@ -1000,29 +1004,11 @@ export function AlertReviewDrawer({
                   />
                 )}
 
-                <div className="flex justify-between items-center gap-3">
-                  <div className="text-[11px] text-muted-foreground">
-                    <p>⌘/Ctrl+Enter to save · J/K to navigate</p>
-                    {workload === 'internal' && alert.current_decision === 'approved' && (
-                      <p>Updating creates a new revision that requires approval.</p>
-                    )}
-                  </div>
-                  <button
-                    type="button"
-                    onClick={handleSubmit}
-                    disabled={saveDisabled}
-                    className="min-h-[44px] px-5 py-2.5 rounded-full bg-pennie-navy text-pennie-white text-sm font-semibold transition-all duration-200 hover:bg-pennie-navy/90 disabled:opacity-40 disabled:cursor-not-allowed"
-                  >
-                    {submitting
-                      ? 'Saving…'
-                      : returnedToCurrentManager
-                        ? 'Resubmit review'
-                        : overrideMode
-                          ? 'Save override'
-                          : alert.is_reviewed
-                            ? 'Update review'
-                            : 'Save review'}
-                  </button>
+                <div className="text-[11px] text-muted-foreground">
+                  <p className="hidden sm:block">⌘/Ctrl+Enter to save · J/K to navigate</p>
+                  {workload === 'internal' && alert.current_decision === 'approved' && (
+                    <p>Updating creates a new revision that requires approval.</p>
+                  )}
                 </div>
               </>
             )}
@@ -1057,7 +1043,7 @@ export function AlertReviewDrawer({
             <summary className="pennie-focus-ring cursor-pointer list-none flex items-center justify-between gap-2 rounded-full text-sm font-semibold text-pennie-blue-deeper">
               <span className="inline-flex items-center gap-2">
                 Discussion
-                {(thread?.messages.length ?? 0) > 0 && <span className="text-xs text-pennie-graphite/60">{thread?.messages.length}</span>}
+                {visibleThreadCount > 0 && <span className="text-xs text-pennie-graphite/60">{visibleThreadCount}</span>}
               </span>
               <ChevronDown className="w-4 h-4 transition-transform group-open:rotate-180" aria-hidden="true" />
             </summary>
@@ -1082,6 +1068,54 @@ export function AlertReviewDrawer({
           </details>
 
         </div>
+
+        {(showStructuredForm || (showInternalDecisionBar && scope.isGodMode && alert.current_decision === null)) && (
+          <footer className="shrink-0 border-t border-border bg-pennie-white px-4 sm:px-8 py-3">
+            {approvalBlockedByDraft && scope.isGodMode && alert.current_decision === null && (
+              <p className="mb-2 text-xs text-pennie-graphite/70">Complete and save review changes before approval.</p>
+            )}
+            <div className="flex flex-wrap items-center justify-end gap-2">
+              {showStructuredForm && (
+                <button
+                  type="button"
+                  onClick={handleSubmit}
+                  disabled={saveDisabled || decisionPending}
+                  className="min-h-[44px] whitespace-nowrap px-4 rounded-full bg-pennie-navy text-pennie-white text-sm font-semibold hover:bg-pennie-navy/90 disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  {submitting
+                    ? 'Saving…'
+                    : returnedToCurrentManager
+                      ? 'Resubmit review'
+                      : overrideMode
+                        ? 'Save override'
+                        : alert.is_reviewed
+                          ? 'Update review'
+                          : 'Save review'}
+                </button>
+              )}
+              {showInternalDecisionBar && scope.isGodMode && alert.current_decision === null && (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => handleDecision('approved')}
+                    disabled={decisionPending || approvalBlockedByDraft}
+                    className="min-h-[44px] whitespace-nowrap px-4 rounded-full bg-pennie-navy text-pennie-white text-xs sm:text-sm font-semibold disabled:opacity-40"
+                  >
+                    Approve review
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleDecision('changes_requested')}
+                    disabled={decisionPending || approvalBlockedByDraft || changeInstructions.trim().length < INTERNAL_REVIEW_TEXT_LIMITS.min}
+                    className="min-h-[44px] whitespace-nowrap px-4 rounded-full border border-pennie-peach-dark text-pennie-peach-deeper text-xs sm:text-sm font-semibold disabled:opacity-40"
+                  >
+                    Request changes
+                  </button>
+                </>
+              )}
+            </div>
+          </footer>
+        )}
       </SheetContent>
     </Sheet>
   )
@@ -1136,11 +1170,13 @@ function ReviewTextarea({
 
 export function Toggle({
   label,
+  ariaLabel,
   active,
   tone,
   onClick,
 }: {
   label: string
+  ariaLabel?: string
   active: boolean
   tone: 'success' | 'danger'
   onClick: () => void
@@ -1164,9 +1200,10 @@ export function Toggle({
   return (
     <button
       type="button"
+      aria-label={ariaLabel}
       aria-pressed={active}
       onClick={onClick}
-      className={`flex-1 min-h-[48px] px-4 py-3 rounded-full text-sm font-semibold inline-flex items-center justify-center gap-1.5 transition-all duration-200 ${baseColors}`}
+      className={`flex-1 min-h-[48px] whitespace-nowrap px-2 sm:px-4 py-3 rounded-full text-xs sm:text-sm font-semibold inline-flex items-center justify-center gap-1.5 transition-all duration-200 ${baseColors}`}
     >
       <span
         className={`inline-flex items-center justify-center w-5 h-5 rounded-full ${
@@ -1283,13 +1320,11 @@ function InternalDecisionSection({
   instructions,
   onInstructionsChange,
   pending,
-  onDecide,
 }: {
   alert: AlertWithFeedback
   instructions: string
   onInstructionsChange: (value: string) => void
   pending: boolean
-  onDecide: (decision: 'approved' | 'changes_requested') => Promise<void>
 }) {
   if (alert.current_decision === 'approved') {
     return <section className="flex items-center justify-between gap-3 px-4 py-4 rounded-2xl bg-pennie-green-light/40 border border-pennie-green-light">
@@ -1308,21 +1343,12 @@ function InternalDecisionSection({
   }
 
   return <section className="px-4 py-4 rounded-2xl bg-pennie-blue-light/30 border border-pennie-blue-light space-y-3">
-    <div className="flex flex-wrap items-center justify-between gap-3">
-      <p className="text-sm font-semibold text-pennie-navy">This revision is awaiting shared approval.</p>
-      <button
-        type="button"
-        onClick={() => onDecide('approved')}
-        disabled={pending}
-        className="min-h-[44px] px-5 rounded-full bg-pennie-navy text-pennie-white text-sm font-semibold disabled:opacity-50"
-      >
-        Approve review
-      </button>
-    </div>
+    <p className="text-sm font-semibold text-pennie-navy">This revision is awaiting shared approval.</p>
     <label className="block text-xs font-semibold text-pennie-graphite">
       Request changes with instructions
       <textarea
         value={instructions}
+        disabled={pending}
         onChange={event => onInstructionsChange(event.target.value)}
         maxLength={INTERNAL_REVIEW_TEXT_LIMITS.max}
         rows={2}
@@ -1330,16 +1356,6 @@ function InternalDecisionSection({
         className="mt-1 w-full px-3 py-2 rounded-2xl border border-border bg-pennie-white text-base sm:text-sm font-medium resize-none focus:outline-none focus:ring-2 focus:ring-pennie-blue-deeper/40"
       />
     </label>
-    <div className="flex justify-end">
-      <button
-        type="button"
-        onClick={() => onDecide('changes_requested')}
-        disabled={pending || instructions.trim().length < INTERNAL_REVIEW_TEXT_LIMITS.min}
-        className="min-h-[40px] px-4 rounded-full border border-pennie-peach-dark text-pennie-peach-deeper text-sm font-semibold disabled:opacity-40"
-      >
-        Request changes
-      </button>
-    </div>
   </section>
 }
 
