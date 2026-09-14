@@ -2,17 +2,20 @@
 set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-migration="$repo_root/supabase/migrations/20260914010000_ui_load_performance.sql"
+baseline_migration="$repo_root/supabase/migrations/20260914010000_ui_load_performance.sql"
+migration="$repo_root/supabase/migrations/20260916010000_optimize_calls_summary.sql"
 container="ui-load-performance-check-$RANDOM-$$"
 tmp="$(mktemp -d)"
 
 cleanup() {
-  docker rm -f "$container" >/dev/null 2>&1 || true
+  docker rm -fv "$container" >/dev/null 2>&1 || true
   rm -rf "$tmp"
 }
 trap cleanup EXIT
 
-docker run --rm -d --name "$container" -e POSTGRES_PASSWORD=test postgres:17-alpine >/dev/null
+docker run --rm -d --name "$container" -e POSTGRES_PASSWORD=test postgres:17-alpine \
+  -c shared_buffers=256MB -c effective_cache_size=768MB \
+  -c random_page_cost=1.1 -c work_mem=3500kB -c jit=off >/dev/null
 for _ in $(seq 1 30); do
   if docker exec "$container" pg_isready -U postgres >/dev/null 2>&1; then break; fi
   sleep 1
@@ -207,8 +210,61 @@ values
   ('AG-UNKNOWN', null, null, '2026-01-09 03:00+00'),
   ('AG-EMPTY', '', null, '2026-01-09 04:00+00');
 SQL
+  cat "$baseline_migration"
+  cat <<'SQL'
+
+-- Preserve the exact applied implementation as a Docker-only comparison
+-- function before the new migration replaces the production signature.
+alter function public.eavesly_calls_summary(
+  timestamptz, timestamptz, text[], text[], text, jsonb
+) rename to eavesly_calls_summary_baseline;
+
+create temporary table summary_parity_cases as
+select
+  row_number() over () as case_id,
+  a.p_agents,
+  d.p_dispositions,
+  q.p_quick_filter,
+  t.p_thresholds,
+  public.eavesly_calls_summary_baseline(
+    '2026-01-01+00', '2026-01-09 23:59:59+00',
+    a.p_agents, d.p_dispositions, q.p_quick_filter, t.p_thresholds
+  ) as baseline_result
+from (values
+  (array[]::text[]),
+  (array['agent-a@example.test']::text[])
+) a(p_agents)
+cross join (values
+  (array[]::text[]),
+  (array['D1']::text[])
+) d(p_dispositions)
+cross join (values
+  ('all'), ('escalations'), ('compliance'), ('threshold'), ('rushed')
+) q(p_quick_filter)
+cross join (values
+  ('{}'::jsonb),
+  ('{"overallScore":"good","compliance":"pass","customerSat":"medium"}'::jsonb)
+) t(p_thresholds);
+SQL
   cat "$migration"
   cat <<'SQL'
+
+-- Every quick filter and the agent/disposition/threshold cross-product must
+-- return exactly equal JSONB values to the applied implementation.
+do $$
+declare c record; actual jsonb;
+begin
+  for c in select * from summary_parity_cases order by case_id loop
+    actual := public.eavesly_calls_summary(
+      '2026-01-01+00', '2026-01-09 23:59:59+00',
+      c.p_agents, c.p_dispositions, c.p_quick_filter, c.p_thresholds
+    );
+    if actual is distinct from c.baseline_result then
+      raise exception 'summary old/new parity failed for case %: old=%, new=%',
+        c.case_id, c.baseline_result, actual;
+    end if;
+  end loop;
+end $$;
 
 -- Grants, invoker mode, and RLS remain the authorization boundary.
 do $$
@@ -223,7 +279,12 @@ begin
     if has_function_privilege('anon', f, 'execute')
       or has_function_privilege('public', f, 'execute')
       or not has_function_privilege('authenticated', f, 'execute')
-      or (select prosecdef from pg_proc where oid = f) then
+      or (select prosecdef from pg_proc where oid = f)
+      or not exists (
+        select 1
+        from pg_proc p cross join lateral unnest(p.proconfig) setting
+        where p.oid = f and setting = 'search_path=""'
+      ) then
       raise exception 'unsafe RPC privilege or security mode: %', f;
     end if;
   end loop;
@@ -525,41 +586,99 @@ reset role;
 
 select 'ui-load-performance behavior/auth assertions passed' as result;
 
--- Replace behavior fixtures with a deterministic 70k-call benchmark corpus.
+-- Replace behavior fixtures with production-count, wide-row benchmark data:
+-- 846,429 Calls and 496,959 QA overall, with exactly 69,204 Calls in-window.
 truncate public.eavesly_transcription_qa, public.eavesly_calls restart identity;
 insert into public.eavesly_calls(
-  call_id, agent_email, agent_full_name, started_at, disposition,
-  campaign_name, talk_time, handle_time
+  call_id, agent_email, agent_full_name, started_at, ended_at, completed_at,
+  direction, disposition, talk_time, handle_time, wrapup_time,
+  conversation_happened, contact_phone, campaign_name, notes
 )
 select
   'BENCH-' || g,
   'agent-' || (g % 100) || '@example.test',
   'Agent ' || (g % 100),
-  '2026-08-31 23:59:59+00'::timestamptz - g * interval '1 second',
-  case when g % 7 = 0 then 'CALL NOW REQUESTED' else 'Connected' end,
-  case when g % 11 = 0 then 'Cal.com Meeting' else 'Outbound' end,
-  g % 2700,
-  g % 3000
-from generate_series(1, 70000) g;
+  case when g <= 69204 then
+    '2026-08-31 23:59:59+00'::timestamptz - g * interval '1 second'
+  else
+    '2026-01-01+00'::timestamptz + (g - 69205) * interval '1 second'
+  end,
+  '2026-01-01+00'::timestamptz,
+  '2026-01-01+00'::timestamptz,
+  case when g % 2 = 0 then 'outbound' else 'inbound' end,
+  case when g % 17 = 0 then ''
+    when g % 13 = 0 then 'CALL NOW REQUESTED'
+    when g % 11 = 0 then 'No Show'
+    when g % 7 = 0 then 'Sale'
+    else 'Connected'
+  end,
+  (g % 2700) - 2,
+  g % 3000,
+  g % 400,
+  g % 3 <> 0,
+  '+1555' || lpad((g % 10000000)::text, 7, '0'),
+  case when g % 19 = 0 then 'Cal.com Meeting' else 'Outbound Campaign ' || (g % 23) end,
+  md5(g::text || '-n1') || md5(g::text || '-n2')
+    || md5(g::text || '-n3') || md5(g::text || '-n4')
+from generate_series(1, 846429) g;
 insert into public.eavesly_transcription_qa(
-  call_id, overall_score, compliance_rating, customer_satisfaction_likely,
-  manager_escalation, created_at
+  call_id, agent_email, manager_email, overall_score, compliance_rating,
+  customer_satisfaction_likely, manager_escalation, qa_json, call_summary,
+  original_transcript, transcription_link, recording_link,
+  coaching_insights_analysis, created_at
 )
 select
-  'BENCH-' || g,
-  (array['excellent','good','fair','poor'])[1 + g % 4],
+  'BENCH-' || (1 + ((g - 1) % 400000)),
+  'agent-' || (g % 100) || '@example.test',
+  'manager@example.test',
+  (array['excellent','good','needs_improvement','poor'])[1 + g % 4],
   (array['pass','fail'])[1 + g % 2],
   (array['high','medium','low'])[1 + g % 3],
   g % 29 = 0,
-  '2026-09-01+00'::timestamptz + g * interval '1 millisecond'
-from generate_series(1, 70000) g;
-analyze public.eavesly_calls;
-analyze public.eavesly_transcription_qa;
+  jsonb_build_object('grade', g % 5, 'detail', md5(g::text || '-j')),
+  md5(g::text || '-s1') || md5(g::text || '-s2'),
+  md5(g::text || '-t1') || md5(g::text || '-t2')
+    || md5(g::text || '-t3') || md5(g::text || '-t4')
+    || md5(g::text || '-t5') || md5(g::text || '-t6')
+    || md5(g::text || '-t7') || md5(g::text || '-t8'),
+  'https://example.test/transcription/' || g,
+  'https://example.test/recording/' || g,
+  md5(g::text || '-c1') || md5(g::text || '-c2')
+    || md5(g::text || '-c3') || md5(g::text || '-c4'),
+  case when g % 997 = 0 then null else
+    '2026-09-01+00'::timestamptz + g * interval '1 millisecond'
+  end
+from generate_series(1, 496959) g;
+vacuum (analyze) public.eavesly_calls;
+vacuum (analyze) public.eavesly_transcription_qa;
+
+select set_config('request.jwt.claims', '{"email":"manager@example.test"}', false);
+set role authenticated;
+do $$
+declare baseline jsonb; optimized jsonb;
+begin
+  baseline := public.eavesly_calls_summary_baseline(
+    '2026-08-01+00', '2026-09-01+00', array[]::text[], array[]::text[],
+    'all', '{}'::jsonb
+  );
+  optimized := public.eavesly_calls_summary(
+    '2026-08-01+00', '2026-09-01+00', array[]::text[], array[]::text[],
+    'all', '{}'::jsonb
+  );
+  if optimized is distinct from baseline
+    or (optimized ->> 'window_calls')::integer <> 69204
+    or (optimized ->> 'total_calls')::integer <> 69204 then
+    raise exception 'production-shaped summary parity/count failed: old=%, new=%',
+      baseline, optimized;
+  end if;
+end $$;
+reset role;
 SQL
 } | docker exec -i "$container" psql -X -v ON_ERROR_STOP=1 -U postgres -d postgres
 
 claims='{"email":"god@example.test"}'
 page_sql="select public.eavesly_calls_page('2026-08-01+00','2026-09-01+00',array[]::text[],array[]::text[],'all','{}'::jsonb,'time',true,0,25)"
+baseline_summary_sql="select public.eavesly_calls_summary_baseline('2026-08-01+00','2026-09-01+00',array[]::text[],array[]::text[],'all','{}'::jsonb)"
 summary_sql="select public.eavesly_calls_summary('2026-08-01+00','2026-09-01+00',array[]::text[],array[]::text[],'all','{}'::jsonb)"
 
 benchmark() {
@@ -603,9 +722,40 @@ if ! grep -q 'idx_eavesly_calls_started_at_desc' "$tmp/page-plan" \
 fi
 grep -E 'idx_eavesly_calls_started_at_desc|eavesly_transcription_qa_latest_idx' "$tmp/page-plan" | head -4
 
-printf '%s\n' 'synthetic PostgreSQL 17 benchmark (70k calls; not production latency)'
+printf '%s\n' 'synthetic PostgreSQL 17 benchmark (846,429 Calls / 496,959 QA / 69,204-window Calls; not production latency)'
+printf '%s\n' 'each timed run uses a fresh connection, which is not a cold OS-page-cache run'
 benchmark page "$page_sql"
 # QA-based sorts must evaluate the window to rank it; only the response is page-bounded.
 benchmark score_page "select public.eavesly_calls_page('2026-08-01+00','2026-09-01+00',array[]::text[],array[]::text[],'all','{}'::jsonb,'score',true,0,25)"
-benchmark summary "$summary_sql"
+benchmark summary_baseline "$baseline_summary_sql"
+benchmark summary_optimized "$summary_sql"
+
+capture_summary_plan() {
+  local label="$1" sql="$2"
+  docker exec -i "$container" psql -X -v ON_ERROR_STOP=1 -U postgres -d postgres >"$tmp/$label-plan" 2>&1 <<SQL
+load 'auto_explain';
+set client_min_messages = log;
+set auto_explain.log_min_duration = 0;
+set auto_explain.log_analyze = on;
+set auto_explain.log_buffers = on;
+set auto_explain.log_nested_statements = on;
+select set_config('request.jwt.claims', '$claims', false);
+set role authenticated;
+\o /dev/null
+$sql;
+SQL
+}
+capture_summary_plan summary-baseline "$baseline_summary_sql"
+capture_summary_plan summary-optimized "$summary_sql"
+if ! grep -q 'CTE Scan on joined' "$tmp/summary-baseline-plan" \
+  || grep -Eq 'CTE Scan on (joined|windowed)' "$tmp/summary-optimized-plan"; then
+  cat "$tmp/summary-baseline-plan" "$tmp/summary-optimized-plan" >&2
+  echo 'summary plan did not remove the materialized CTE scans' >&2
+  exit 1
+fi
+printf '%s\n' 'summary baseline plan (buffers/temp):'
+grep -E 'CTE Scan on (joined|windowed)|Buffers:.*temp|Execution Time' "$tmp/summary-baseline-plan" | tail -8
+printf '%s\n' 'summary optimized plan (buffers/temp):'
+grep -E 'CTE Scan on (joined|windowed)|Buffers:.*temp|Execution Time' "$tmp/summary-optimized-plan" | tail -8
+
 printf '%s\n' 'ui-load-performance.integration.check.sh: all assertions passed'
