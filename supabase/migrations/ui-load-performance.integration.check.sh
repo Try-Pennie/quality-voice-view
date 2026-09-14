@@ -4,6 +4,7 @@ set -euo pipefail
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 baseline_migration="$repo_root/supabase/migrations/20260914010000_ui_load_performance.sql"
 migration="$repo_root/supabase/migrations/20260916010000_optimize_calls_summary.sql"
+maintenance_migration="$repo_root/supabase/migrations/20260917010000_calls_auto_maintenance.sql"
 container="ui-load-performance-check-$RANDOM-$$"
 tmp="$(mktemp -d)"
 
@@ -805,4 +806,113 @@ grep -E 'CTE Scan on (joined|windowed)|Buffers:.*temp|Execution Time' "$tmp/summ
 printf 'summary rushed predicate plan occurrences=%s (query text + one Filter)\n' \
   "$(grep -o "cal com meeting" "$tmp/summary-rushed-plan" | wc -l)"
 
+# Apply maintenance only after the timing checks, so more frequent background
+# work cannot distort their before/after comparison. Reuse the real RPC fixture.
+{
+  cat <<'SQL'
+-- An unrelated option must survive setting the maintenance overrides.
+alter table public.eavesly_calls set (fillfactor = 95);
+create temporary table maintenance_tables_before as
+select oid, relacl, relrowsecurity, relforcerowsecurity, reloptions
+from pg_class where oid in ('public.eavesly_calls'::regclass,
+  'public.eavesly_transcription_qa'::regclass);
+create temporary table maintenance_functions_before as
+select oid, pg_get_functiondef(oid) as definition, proacl
+from pg_proc where pronamespace = 'public'::regnamespace;
+create temporary table maintenance_policies_before as
+select * from pg_policy;
+set role authenticated;
+create temporary table maintenance_results_before as
+select quick_filter, public.eavesly_calls_summary('2026-08-01+00', '2026-09-01+00',
+  array[]::text[], array[]::text[], quick_filter, null) as result
+from unnest(array['all','escalations','compliance','threshold','rushed']) quick_filter;
+reset role;
+begin;
+SQL
+  cat "$maintenance_migration"
+  printf '\ncommit;\nbegin;\n'
+  # Storage-parameter assignment must be safe to reapply.
+  cat "$maintenance_migration"
+  cat <<'SQL'
+do $$
+begin
+  if current_setting('lock_timeout') <> '2s' then
+    raise exception 'maintenance migration lost its bounded lock timeout';
+  end if;
+  if (select reloptions @> array['autovacuum_analyze_scale_factor=0.01']
+      from pg_class where oid = 'public.eavesly_calls'::regclass) is distinct from true
+    or (select reloptions @> array['autovacuum_vacuum_insert_scale_factor=0.01',
+      'autovacuum_analyze_scale_factor=0.01']
+      from pg_class where oid = 'public.eavesly_transcription_qa'::regclass) is distinct from true then
+    raise exception 'maintenance storage parameters were not applied';
+  end if;
+  if exists (select from maintenance_tables_before b join pg_class c on c.oid = b.oid
+    where (c.relacl, c.relrowsecurity, c.relforcerowsecurity)
+      is distinct from (b.relacl, b.relrowsecurity, b.relforcerowsecurity)
+      or not coalesce(b.reloptions, array[]::text[]) <@ c.reloptions)
+    or exists (select from maintenance_functions_before b join pg_proc p on p.oid = b.oid
+      where (pg_get_functiondef(p.oid), p.proacl) is distinct from (b.definition, b.proacl))
+    or exists ((select * from pg_policy except select * from maintenance_policies_before)
+      union all (select * from maintenance_policies_before except select * from pg_policy)) then
+    raise exception 'maintenance changed functions, security or unrelated options';
+  end if;
+end $$;
+commit;
+set role authenticated;
+do $$
+begin
+  if exists (select from maintenance_results_before b
+    where b.result is distinct from public.eavesly_calls_summary(
+      '2026-08-01+00', '2026-09-01+00', array[]::text[], array[]::text[], b.quick_filter, null)) then
+    raise exception 'maintenance changed complete five-filter RPC results';
+  end if;
+end $$;
+reset role;
+
+-- The daemon, not a manual VACUUM, must respond to batches too small to trigger
+-- the inherited defaults. The shorter wake-up is ONLY in this owned container.
+create table maintenance_counters_before as
+select relid, autovacuum_count, autoanalyze_count from pg_stat_user_tables
+where relid in ('public.eavesly_calls'::regclass, 'public.eavesly_transcription_qa'::regclass);
+do $$
+begin
+  if 6500 >= (select 1000 + 0.2 * reltuples from pg_class
+      where oid = 'public.eavesly_transcription_qa'::regclass)
+    or 6500 >= (select 50 + 0.1 * reltuples from pg_class
+      where oid = 'public.eavesly_transcription_qa'::regclass)
+    or 10000 >= (select 50 + 0.1 * reltuples from pg_class
+      where oid = 'public.eavesly_calls'::regclass) then
+    raise exception 'maintenance fixture batches would also trigger defaults';
+  end if;
+end $$;
+alter system set autovacuum_naptime = '1s';
+select pg_reload_conf();
+insert into public.eavesly_calls(call_id, started_at, talk_time, handle_time)
+select 'MAINTENANCE-' || g, '2027-01-01+00', 30, 40 from generate_series(1, 10000) g;
+insert into public.eavesly_transcription_qa(call_id, created_at, overall_score)
+select 'MAINTENANCE-' || g, '2027-01-01+00', 'good' from generate_series(1, 6500) g;
+SQL
+} | docker exec -i "$container" psql -X -v ON_ERROR_STOP=1 -U postgres -d postgres
+
+maintained=false
+for _ in $(seq 1 90); do
+  maintained="$(docker exec "$container" psql -X -At -v ON_ERROR_STOP=1 -U postgres -d postgres -c "
+    select bool_and(s.autoanalyze_count > b.autoanalyze_count
+      and s.n_mod_since_analyze = 0
+      and (s.relid <> 'public.eavesly_transcription_qa'::regclass
+        or (s.autovacuum_count > b.autovacuum_count and s.n_ins_since_vacuum = 0)))
+    from maintenance_counters_before b join pg_stat_user_tables s on s.relid = b.relid;")"
+  [[ "$maintained" == t ]] && break
+  sleep 1
+done
+docker exec "$container" psql -X -v ON_ERROR_STOP=1 -U postgres -d postgres -c "
+  select s.relname, s.autovacuum_count - b.autovacuum_count as automatic_vacuums,
+    s.autoanalyze_count - b.autoanalyze_count as automatic_analyzes,
+    s.n_ins_since_vacuum, s.n_mod_since_analyze
+  from maintenance_counters_before b join pg_stat_user_tables s on s.relid = b.relid;"
+if [[ "$maintained" != t ]]; then
+  echo 'automatic maintenance did not complete within the 90-second test bound' >&2
+  exit 1
+fi
+printf '%s\n' 'maintenance: settings, reapplication, security, RPC parity and real daemon checks passed'
 printf '%s\n' 'ui-load-performance.integration.check.sh: all assertions passed'
