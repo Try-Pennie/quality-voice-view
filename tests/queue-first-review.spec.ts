@@ -187,6 +187,7 @@ test('compact queue fits the first row and keyboard path at supported narrow wid
 test('director sees the manager explanation and evidence before approval actions', async ({ page }) => {
   await page.setViewportSize({ width: 320, height: 700 })
   await reviewFixture(page, [alertRow('approval', {
+    module_name: 'budget_inputs',
     is_reviewed: true,
     accurate: true,
     action_taken: 'coached',
@@ -268,7 +269,7 @@ test('a director editing their own manager review must save before approving it'
 })
 
 test('drawer uses one scrolling review flow for evidence, required fields, and save', async ({ page }, testInfo) => {
-  const state = await reviewFixture(page, [alertRow('single-flow')])
+  const state = await reviewFixture(page, [alertRow('single-flow', { module_name: 'budget_inputs' })])
   await page.setViewportSize({ width: 320, height: 700 })
   await page.goto('/dashboard/alerts')
   await openAlert(page, 'single-flow')

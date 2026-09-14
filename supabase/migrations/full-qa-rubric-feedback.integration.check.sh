@@ -29,7 +29,7 @@ create table public.eavesly_module_results(
  id bigint generated always as identity primary key,created_at timestamptz not null default now(),alert_sent_at timestamptz,
  call_id text not null,module_name text not null,violation_type text,has_violation boolean not null default true,alert_sent boolean not null default true,
  agent_email text not null,contact_name text,contact_phone text,recording_link text,transcript_url text,call_summary text,sfdc_lead_id text,
- processing_time_ms integer,result_json jsonb);
+ processing_time_ms integer,result_json jsonb,unique(call_id,module_name));
 alter table public.eavesly_module_results enable row level security;
 create table public.eavesly_calls(id bigint generated always as identity primary key,call_id text unique,agent_email text,started_at timestamptz);
 create table public.agent_manager_mapping(agent_email text primary key,manager_email text not null);
@@ -56,6 +56,8 @@ insert into auth.users values
 insert into public.manager_coaching_prompts values
  ('manager@trypennie.com',false),('director@trypennie.com',true),('director.two@trypennie.com',true),('outsider@trypennie.com',false);
 insert into public.agent_manager_mapping values('agent@example.test','manager@trypennie.com');
+create temporary table test_clock(anchor timestamptz not null);
+insert into test_clock values(clock_timestamp());
 create temporary table source_fixture(value jsonb);
 insert into source_fixture values(jsonb_build_object(
  '_evaluation_provenance',jsonb_build_object('version',1,'module_name','full_qa','prompt_sha256','1396c17a6ae639b1172a1ff5d04ee21b22e4ab5ceb08c5915c090a34da291e37','user_prompt_sha256',repeat('a',64),'transcript_sha256',repeat('b',64)),
@@ -64,14 +66,16 @@ insert into source_fixture values(jsonb_build_object(
  'sales_process_scorecard',jsonb_build_object('step1_agenda_setting','complete','step1_location','opening','step2_credit_review','complete','step2_location','review','step3_agent_inputs','complete','step3_location','inputs','step4_paydown_projections','not_applicable','step4_location',null,'step5_offers_review','complete','step5_location','offers','step6_debt_resolution','partial','step6_location','closing'),
  'program_expectations_scorecard',jsonb_build_object('phase_impact_covered',true,'phase_impact_evidence','quote','phase_stabilization_covered',true,'phase_stabilization_evidence','quote','phase_recovery_covered',false,'phase_recovery_evidence','','phase_rebuild_covered',false,'phase_rebuild_evidence','','payments_point_covered',true,'payments_point_evidence','quote','creditor_calls_point_covered',false,'creditor_calls_point_evidence','','legal_action_point_covered',false,'legal_action_point_evidence','')));
 insert into public.eavesly_module_results(call_id,module_name,violation_type,agent_email,created_at,result_json)
-select x,'full_qa','manager_escalation','agent@example.test',t,value from source_fixture cross join (values
- ('CALL-COACHED','2026-09-01T12:00:00Z'::timestamptz),('CALL-AFTER','2026-09-20T12:00:00Z'),('CALL-PENDING','2026-09-02T12:00:00Z'),
- ('CALL-MISSING','2026-09-22T12:00:00Z'),('CALL-UNKNOWN','2026-09-23T12:00:00Z'),('CALL-LEGACY','2026-09-24T12:00:00Z'))v(x,t);
+select x,'full_qa','manager_escalation','agent@example.test',anchor+delta,value
+from source_fixture cross join test_clock cross join (values
+ ('CALL-COACHED','-2 days'::interval),('CALL-AFTER','2 days'),('CALL-PENDING','-3 days'),
+ ('CALL-MISSING','4 days'),('CALL-UNKNOWN','5 days'),('CALL-LEGACY','6 days'))v(x,delta);
 update public.eavesly_module_results set result_json=jsonb_set(result_json,'{_evaluation_provenance,prompt_sha256}',to_jsonb(repeat('f',64))) where call_id='CALL-UNKNOWN';
 update public.eavesly_module_results set result_json=result_json-'_evaluation_provenance' where call_id='CALL-LEGACY';
-insert into public.eavesly_calls(call_id,agent_email,started_at) values
- ('CALL-COACHED','agent@example.test','2026-09-01T10:00:00Z'),('CALL-AFTER','agent@example.test','2026-09-20T10:00:00Z'),
- ('CALL-PENDING','agent@example.test','2026-09-02T10:00:00Z'),('CALL-UNKNOWN','agent@example.test','2026-09-23T10:00:00Z'),('CALL-LEGACY','agent@example.test','2026-09-24T10:00:00Z');
+insert into public.eavesly_calls(call_id,agent_email,started_at)
+select x,'agent@example.test',anchor+delta from test_clock cross join (values
+ ('CALL-COACHED','-2 days'::interval),('CALL-AFTER','2 days'),('CALL-PENDING','-3 days'),
+ ('CALL-UNKNOWN','5 days'),('CALL-LEGACY','6 days'))v(x,delta);
 insert into public.eavesly_alert_feedback(call_id,module_name,manager_email,accurate,inaccuracy_reason,comment)
 values('CALL-LEGACY','full_qa','manager@trypennie.com',false,'wrong_context','Historic review without criterion mapping.');
 SQL
@@ -198,8 +202,8 @@ reset role;
 select set_config('request.jwt.claims','{"sub":"22222222-2222-2222-2222-222222222222","email":"director@trypennie.com"}',false);
 set role authenticated;
 select public.decide_internal_alert_feedback('CALL-COACHED','full_qa',2,'approved',null);
-do $$ declare rows jsonb; coached jsonb; after_row jsonb; begin
- rows:=public.full_qa_finding_occurrences('agent@example.test','2026-09-01','2026-09-30');
+do $$ declare rows jsonb; coached jsonb; after_row jsonb; anchor timestamptz:=clock_timestamp(); begin
+ rows:=public.full_qa_finding_occurrences('agent@example.test',anchor-interval '30 days',anchor+interval '30 days');
  select x into coached from jsonb_array_elements(rows)x where x->>'call_id'='CALL-COACHED' and x->>'occurrence_kind'='finding';
  select x into after_row from jsonb_array_elements(rows)x where x->>'call_id'='CALL-AFTER' and x->>'occurrence_kind'='finding';
  if coached->>'confirmed'<>'true' or coached->>'action_taken'<>'no_action_needed' then raise exception 'approved false alert finding absent'; end if;
@@ -242,7 +246,7 @@ end $$;
 -- Out-of-scope actor cannot read recurrence.
 select set_config('request.jwt.claims','{"sub":"44444444-4444-4444-4444-444444444444","email":"outsider@trypennie.com"}',false);
 set role authenticated;
-do $$ begin begin perform public.full_qa_finding_occurrences('agent@example.test','2026-09-01','2026-09-30'); raise exception 'TEST_EXPECTED_FAILURE_MISSING';
+do $$ declare anchor timestamptz:=clock_timestamp(); begin begin perform public.full_qa_finding_occurrences('agent@example.test',anchor-interval '30 days',anchor+interval '30 days'); raise exception 'TEST_EXPECTED_FAILURE_MISSING';
  exception when others then if sqlerrm='TEST_EXPECTED_FAILURE_MISSING' or sqlerrm<>'EAVESLY_FORBIDDEN' then raise; end if; end; end $$;
 reset role;
 select 'full-qa-rubric-feedback.integration.check.sh: all assertions passed' result;

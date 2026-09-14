@@ -2,7 +2,9 @@ import type { AlertActionTaken, AlertInaccuracyReason } from '../types/database'
 import { classifyInternalReviewMutationError, type InternalReviewMutationResult } from './internal-alert-review'
 import { supabase } from '../integrations/supabase/client'
 
-const sb = supabase as any
+type Rpc = (name: string, input: Readonly<Record<string, unknown>>) => PromiseLike<{ readonly data: unknown; readonly error: unknown }>
+// SAFETY: Supabase's generated Database type does not contain this proposed migration yet; every returned value is parsed below.
+const rpc = supabase.rpc.bind(supabase) as unknown as Rpc
 const TEXT_MIN = 12
 const TEXT_MAX = 4000
 
@@ -302,7 +304,7 @@ export function parseFullQaReviewDraft(context: FullQaReviewContext, input: Full
 
 /** Fetch the rubric, immutable reviewed source, current revision, and proposals through one scoped RPC. */
 export async function fetchFullQaReviewContext(callId: string): Promise<FullQaReviewContext> {
-  const { data, error } = await sb.rpc('get_full_qa_review_context', { p_call_id: callId })
+  const { data, error } = await rpc('get_full_qa_review_context', { p_call_id: callId })
   if (error) throw error
   const parsed = parseFullQaReviewContext(data)
   if (parsed.ok === false) throw new Error(parsed.message)
@@ -320,7 +322,7 @@ function findingsToRpc(findings: readonly FullQaFinding[]) {
 /** Save one exact source/revision-guarded Full QA review revision. */
 export async function submitFullQaReview(input: { readonly callId: string; readonly expectedRevision: number; readonly expectedDecisionId: number | null; readonly expectedSourceFingerprint: string; readonly draft: FullQaReviewDraft }) {
   try {
-    const { data, error } = await sb.rpc('submit_full_qa_review', { p_call_id: input.callId, p_expected_revision: input.expectedRevision,
+    const { data, error } = await rpc('submit_full_qa_review', { p_call_id: input.callId, p_expected_revision: input.expectedRevision,
       p_expected_decision_id: input.expectedDecisionId, p_expected_source_fingerprint: input.expectedSourceFingerprint,
       p_corrections: correctionsToRpc(input.draft.corrections), p_findings: findingsToRpc(input.draft.findings),
       p_escalation_justified: input.draft.escalationJustified, p_escalation_reason: input.draft.escalationReason,
@@ -337,7 +339,7 @@ export async function submitFullQaReview(input: { readonly callId: string; reado
 /** Submit a candidate-only rule proposal against the current criterion snapshot. */
 export async function proposeFullQaRule(input: { readonly callId: string; readonly feedbackRevision: number; readonly criterionKey: string; readonly proposedRule: string; readonly why: string }): Promise<InternalReviewMutationResult<{ readonly proposalId: number }>> {
   try {
-    const { data, error } = await sb.rpc('propose_full_qa_rule', { p_call_id: input.callId, p_feedback_revision: input.feedbackRevision,
+    const { data, error } = await rpc('propose_full_qa_rule', { p_call_id: input.callId, p_feedback_revision: input.feedbackRevision,
       p_criterion_key: input.criterionKey, p_proposed_rule: input.proposedRule, p_why: input.why })
     if (error) return { ok: false, error: classifyInternalReviewMutationError(error) }
     if (!record(data) || !positiveInteger(data.proposal_id)) return { ok: false, error: { _tag: 'Unavailable', message: 'The proposal service returned an invalid response.' } }
@@ -349,7 +351,7 @@ export async function proposeFullQaRule(input: { readonly callId: string; readon
 /** Decide a candidate rule once. Acceptance means evaluation approval, not publication. */
 export async function decideFullQaRuleProposal(input: { readonly proposalId: number; readonly decision: 'accepted_for_evaluation' | 'rejected'; readonly reason: string }): Promise<InternalReviewMutationResult<{ readonly proposalId: number; readonly decision: 'accepted_for_evaluation' | 'rejected' }>> {
   try {
-    const { data, error } = await sb.rpc('decide_full_qa_rule_proposal', { p_proposal_id: input.proposalId, p_expected_decision: 'pending', p_decision: input.decision, p_reason: input.reason })
+    const { data, error } = await rpc('decide_full_qa_rule_proposal', { p_proposal_id: input.proposalId, p_expected_decision: 'pending', p_decision: input.decision, p_reason: input.reason })
     if (error) return { ok: false, error: classifyInternalReviewMutationError(error) }
     if (!record(data) || !positiveInteger(data.proposal_id) || (data.decision !== 'accepted_for_evaluation' && data.decision !== 'rejected')) {
       return { ok: false, error: { _tag: 'Unavailable', message: 'The proposal service returned an invalid response.' } }
@@ -361,7 +363,7 @@ export async function decideFullQaRuleProposal(input: { readonly proposalId: num
 
 /** Fetch complete reconciliable finding, needs-context, and legacy occurrence rows for an agent/window. */
 export async function fetchFullQaOccurrences(agentEmail: string, start: Date, end: Date): Promise<readonly FullQaOccurrence[]> {
-  const { data, error } = await sb.rpc('full_qa_finding_occurrences', { p_agent_email: agentEmail, p_start: start.toISOString(), p_end: end.toISOString() })
+  const { data, error } = await rpc('full_qa_finding_occurrences', { p_agent_email: agentEmail, p_start: start.toISOString(), p_end: end.toISOString() })
   if (error) throw error
   if (!Array.isArray(data)) throw new Error('The Full QA occurrence service returned an invalid response.')
   return data.map((input: unknown): FullQaOccurrence => {
