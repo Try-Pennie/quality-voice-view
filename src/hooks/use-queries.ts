@@ -306,12 +306,37 @@ function callsFiltersKey(filters: CallsFilters) {
     agents: [...filters.agents].sort(), dispositions: [...filters.dispositions].sort() }
 }
 
+function callsPageQuery(filters: CallsFilters, sort: CallsSort, page: number) {
+  return {
+    queryKey: ['callsPage', callsFiltersKey(filters), sort, page] as const,
+    queryFn: async ({ signal }: { signal: AbortSignal }) =>
+      callsQueryValue(
+        await fetchCallsPage(filters, sort, (page - 1) * 25, 25, { signal }),
+      ),
+  }
+}
+
 /** The first usable page does not wait for whole-window KPIs. */
 export function useCallsPage(filters: CallsFilters, sort: CallsSort, page: number) {
-  return useQuery({
-    queryKey: ['callsPage', callsFiltersKey(filters), sort, page],
-    queryFn: async ({ signal }) => callsQueryValue(await fetchCallsPage(filters, sort, (page - 1) * 25, 25, { signal })),
-  })
+  return useQuery(callsPageQuery(filters, sort, page))
+}
+
+/** Prefetch only the immediate next Calls page after explicit pagination intent. */
+export function usePrefetchNextCallsPage(
+  filters: CallsFilters,
+  sort: CallsSort,
+  page: number,
+  enabled: boolean,
+) {
+  const queryClient = useQueryClient()
+  return () => {
+    if (!enabled) return
+    // React Query owns deduplication and cancellation through this exact query.
+    void queryClient.prefetchQuery({
+      ...callsPageQuery(filters, sort, page + 1),
+      retry: false,
+    })
+  }
 }
 
 /** Counts/options load independently; changing pages or sort does not recompute them. */

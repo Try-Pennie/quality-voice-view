@@ -1,7 +1,12 @@
-import { useState, useEffect, useRef } from 'react'
-import { useNavigate, useSearchParams } from 'react-router-dom'
+import { useState, useEffect, useLayoutEffect, useRef } from 'react'
+import { useLocation, useNavigate, useSearchParams } from 'react-router-dom'
 import { calculateMetrics } from '../lib/queries'
-import { useCallsPage, useCallsSummary, useUniqueAgents } from '../hooks/use-queries'
+import {
+  useCallsPage,
+  useCallsSummary,
+  usePrefetchNextCallsPage,
+  useUniqueAgents,
+} from '../hooks/use-queries'
 import { fetchCallsExport, readCallsThresholds, type CallListRow, type CallsFilters, type CallsSort } from '../lib/calls-queries'
 import {
   formatDateParam,
@@ -9,6 +14,7 @@ import {
   parseListParam,
 } from '../lib/url-filters'
 import { defaultAlertWindow } from '../lib/alert-review-queue'
+import { callsScrollFor, rememberCallsScroll } from '../lib/calls-scroll-state'
 import {
   agentDisplayName,
   formatDuration,
@@ -21,6 +27,13 @@ import { DateRangePicker } from '../components/dashboard/DateRangePicker'
 import { AgentFilter } from '../components/dashboard/AgentFilter'
 import { DispositionFilter, prettify as prettifyDisposition } from '../components/dashboard/DispositionFilter'
 import { RefreshingHint } from '../components/ui/refreshing-hint'
+import { Popover, PopoverContent, PopoverTrigger } from '../components/ui/popover'
+import {
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+} from '../components/ui/sheet'
 import { ThresholdSettingsSheet } from '../components/settings/ThresholdSettings'
 import { ThresholdSettings, DEFAULT_THRESHOLDS } from '../types/settings'
 import {
@@ -29,7 +42,9 @@ import {
   ArrowUpDown,
   ChevronRight,
   Download,
+  ListFilter,
   Loader2,
+  MoreHorizontal,
   Settings,
 } from 'lucide-react'
 import { SortableTh } from '@/components/ui/sortable-th'
@@ -39,6 +54,39 @@ import { ErrorState } from '@/components/states/ErrorState'
 
 type QuickFilter = CallsFilters['quickFilter']
 type CallSortKey = CallsSort['key']
+
+const QUICK_FILTERS: ReadonlyArray<{ value: QuickFilter; label: string }> = [
+  { value: 'all', label: 'All calls' },
+  { value: 'escalations', label: 'Manager escalations' },
+  { value: 'compliance', label: 'Compliance failures' },
+  { value: 'threshold', label: 'Below threshold' },
+  { value: 'rushed', label: 'Pitch calls under 30 min' },
+]
+
+const MAX_CALLS_PAGE = Math.floor(2_147_483_647 / 25) + 1
+
+const CALL_SORT_KEYS: readonly CallSortKey[] = [
+  'time',
+  'agent',
+  'talk',
+  'score',
+  'compliance',
+  'csat',
+]
+
+function parsePageParam(raw: string | null): number {
+  if (!raw || !/^[1-9]\d*$/.test(raw)) return 1
+  const page = Number(raw)
+  return Number.isSafeInteger(page) && page <= MAX_CALLS_PAGE ? page : 1
+}
+
+function parseSortParams(rawKey: string | null, rawDirection: string | null): CallsSort {
+  const key = CALL_SORT_KEYS.find(candidate => candidate === rawKey)
+  if (!key) return { key: 'time', desc: true }
+  if (rawDirection === 'asc') return { key, desc: false }
+  if (rawDirection === 'desc') return { key, desc: true }
+  return { key, desc: key !== 'agent' }
+}
 
 // Condensed pagination: always show first/last, a window around the current
 // page, and ellipses for the gaps.
@@ -60,6 +108,7 @@ function paginationItems(current: number, total: number): (number | '…')[] {
 
 export default function DashboardPage() {
   const navigate = useNavigate()
+  const location = useLocation()
   const [searchParams, setSearchParams] = useSearchParams()
 
   // Calls shares the Review workspace's 30-day ET default.
@@ -91,33 +140,67 @@ export default function DashboardPage() {
   })
 
   const [showSettings, setShowSettings] = useState(false)
+  const [showMobileFilters, setShowMobileFilters] = useState(false)
   const [, setThresholds] = useState<ThresholdSettings>(DEFAULT_THRESHOLDS)
 
-  const [sortKey, setSortKey] = useState<CallSortKey>('time')
-  const [sortDesc, setSortDesc] = useState(true)
+  const [sortKey, setSortKey] = useState<CallSortKey>(() =>
+    parseSortParams(searchParams.get('sort'), searchParams.get('dir')).key,
+  )
+  const [sortDesc, setSortDesc] = useState(() =>
+    parseSortParams(searchParams.get('sort'), searchParams.get('dir')).desc,
+  )
+  const [currentPage, setCurrentPage] = useState(() =>
+    parsePageParam(searchParams.get('page')),
+  )
   const toggleSort = (key: CallSortKey) => {
+    setCurrentPage(1)
     setSortDesc(sortKey === key ? !sortDesc : key !== 'agent')
     setSortKey(key)
+  }
+  const changeDateRange = (start: Date, end: Date) => {
+    setCurrentPage(1)
+    setStartDate(start)
+    setEndDate(end)
+  }
+  const changeAgents = (agents: string[]) => {
+    setCurrentPage(1)
+    setSelectedAgents(agents)
+  }
+  const changeDispositions = (dispositions: string[]) => {
+    setCurrentPage(1)
+    setSelectedDispositions(dispositions)
+  }
+  const changeQuickFilter = (value: QuickFilter) => {
+    setCurrentPage(1)
+    setQuickFilter(value)
   }
 
   const filters: CallsFilters = { startDate, endDate, agents: selectedAgents, dispositions: selectedDispositions,
     quickFilter, thresholds: readCallsThresholds(localStorage.getItem('dashboardThresholds')) }
   const sort: CallsSort = { key: sortKey, desc: sortDesc }
-  // Derive the reset before querying, not in an effect that would fetch the old
-  // page number once using the new filters (and potentially show an empty page).
-  const pageIdentity = JSON.stringify([filters, sort])
-  const [pagination, setPagination] = useState({ identity: pageIdentity, page: 1 })
-  const currentPage = pagination.identity === pageIdentity ? pagination.page : 1
-  if (pagination.identity !== pageIdentity) setPagination({ identity: pageIdentity, page: 1 })
-  const setCurrentPage = (page: number) => setPagination({ identity: pageIdentity, page })
   const pageQuery = useCallsPage(filters, sort, currentPage)
   const summaryQuery = useCallsSummary(filters)
+  const prefetchNextPage = usePrefetchNextCallsPage(
+    filters,
+    sort,
+    currentPage,
+    pageQuery.data?.has_more === true && !pageQuery.isFetching,
+  )
   const { isPending: loading, isError, refetch } = pageQuery
   const refreshing = pageQuery.isFetching && !loading
   const paginatedCalls = pageQuery.data?.rows ?? []
   const summary = summaryQuery.data
+  useLayoutEffect(() => {
+    if (!pageQuery.data || pageQuery.data.rows.length === 0) return
+    const scrollY = callsScrollFor(location.key)
+    if (scrollY !== undefined) window.scrollTo(0, scrollY)
+  }, [location.key, pageQuery.data])
   const availableDispositions = summary?.dispositions ?? []
   const isFiltered = selectedDispositions.length > 0 || quickFilter !== 'all'
+  const activeFilterCount =
+    (selectedAgents.length > 0 ? 1 : 0) +
+    (selectedDispositions.length > 0 ? 1 : 0) +
+    (quickFilter !== 'all' ? 1 : 0)
   const startIndex = (currentPage - 1) * 25
   const totalPages = summary ? Math.ceil(summary.total_calls / 25) : 0
   const unavailableStat = summaryQuery.isError ? 'Unavailable' : '…'
@@ -137,32 +220,37 @@ export default function DashboardPage() {
     }
   }, [])
 
-  // Write filter state back to URL so the current view is shareable.
-  // `replace: true` keeps each filter tweak from polluting back-button history.
-  useEffect(() => {
-    const params = new URLSearchParams()
-    params.set('start', formatDateParam(startDate))
-    params.set('end', formatDateParam(endDate))
-    if (selectedAgents.length) params.set('agents', selectedAgents.join(','))
-    if (selectedDispositions.length)
-      params.set('dispo', selectedDispositions.join(','))
-    if (quickFilter !== 'all') params.set('qf', quickFilter)
-    setSearchParams(params, { replace: true })
-  }, [
-    startDate,
-    endDate,
-    selectedAgents,
-    selectedDispositions,
-    quickFilter,
-    setSearchParams,
-  ])
+  const callsSearchParams = new URLSearchParams()
+  callsSearchParams.set('start', formatDateParam(startDate))
+  callsSearchParams.set('end', formatDateParam(endDate))
+  if (selectedAgents.length) callsSearchParams.set('agents', selectedAgents.join(','))
+  if (selectedDispositions.length)
+    callsSearchParams.set('dispo', selectedDispositions.join(','))
+  if (quickFilter !== 'all') callsSearchParams.set('qf', quickFilter)
+  if (currentPage !== 1) callsSearchParams.set('page', String(currentPage))
+  if (sortKey !== 'time' || !sortDesc) {
+    callsSearchParams.set('sort', sortKey)
+    callsSearchParams.set('dir', sortDesc ? 'desc' : 'asc')
+  }
+  const serializedCallsSearch = callsSearchParams.toString()
 
-  const callPath = (callId: string) => {
-    const params = new URLSearchParams({ start: formatDateParam(startDate), end: formatDateParam(endDate) })
-    return `/dashboard/calls/${callId}?${params.toString()}`
+  // Keep one replaceable Calls history entry while making the complete view
+  // shareable and available to detail-page Back navigation.
+  useEffect(() => {
+    if (serializedCallsSearch !== searchParams.toString()) {
+      setSearchParams(new URLSearchParams(serializedCallsSearch), { replace: true })
+    }
+  }, [serializedCallsSearch, searchParams, setSearchParams])
+
+  const callPath = (callId: string) =>
+    `/dashboard/calls/${callId}?${serializedCallsSearch}`
+  const openCall = (callId: string) => {
+    rememberCallsScroll(location.key, window.scrollY)
+    navigate(callPath(callId))
   }
 
   const handleSaveThresholds = (newThresholds: ThresholdSettings) => {
+    setCurrentPage(1)
     setThresholds(newThresholds)
   }
 
@@ -231,7 +319,7 @@ export default function DashboardPage() {
             {quickFilter !== 'threshold' && (
               <button
                 type="button"
-                onClick={() => setQuickFilter('threshold')}
+                onClick={() => changeQuickFilter('threshold')}
                 className="text-pennie-blue-deeper font-semibold hover:underline underline-offset-4"
               >
                 Show me →
@@ -265,98 +353,160 @@ export default function DashboardPage() {
         }
       />
 
-      {summaryQuery.isPending && <p role="status" className="text-sm text-muted-foreground">Loading summary…</p>}
+      <div className="min-h-5">
+        {summaryQuery.isPending && (
+          <p role="status" className="text-sm text-muted-foreground">Loading summary…</p>
+        )}
+      </div>
       {summaryQuery.isError && <ErrorState title="Couldn't load call summary" message="Call rows are independent of totals. Retry to load counts and disposition options." onRetry={() => summaryQuery.refetch()} />}
       {agentsQuery.isError && <ErrorState title="Couldn't load agent options" message="Retry to reload the agent filter." onRetry={() => agentsQuery.refetch()} />}
       {exportError && <ErrorState title="Couldn't export calls" message={exportError} onRetry={handleExportPDF} />}
 
-      {/* Header actions */}
-      <div className="flex flex-wrap items-center justify-between gap-4">
-        <div className="flex flex-wrap gap-3 sm:gap-5 items-end">
-          <DateRangePicker
-            startDate={startDate}
-            endDate={endDate}
-            onRangeChange={(start, end) => {
-              setStartDate(start)
-              setEndDate(end)
-            }}
-          />
-          <AgentFilter
-            availableAgents={availableAgents}
-            selectedAgents={selectedAgents}
-            onSelectionChange={setSelectedAgents}
-          />
-          <DispositionFilter
-            available={availableDispositions}
-            selected={selectedDispositions}
-            onSelectionChange={setSelectedDispositions}
-          />
-          <div className="flex items-end h-10">
-            <RefreshingHint active={refreshing} />
+      {/* Calls toolbar: mobile keeps the date primary and moves advanced
+          filters/actions into compact installed primitives. */}
+      <div className="flex flex-wrap items-end justify-between gap-4">
+        <div className="flex w-full min-w-0 items-end gap-2 lg:w-auto lg:gap-5">
+          <div className="min-w-0 flex-1 [&_button]:!min-w-0 [&_button]:w-full lg:flex-none lg:[&_button]:!min-w-[16rem] lg:[&_button]:w-auto">
+            <DateRangePicker
+              startDate={startDate}
+              endDate={endDate}
+              onRangeChange={changeDateRange}
+            />
+          </div>
+          <button
+            type="button"
+            onClick={() => setShowMobileFilters(true)}
+            className="pennie-focus-ring inline-flex h-10 shrink-0 items-center gap-1.5 rounded-full border border-border bg-pennie-white px-3 text-sm font-semibold text-pennie-navy lg:hidden"
+          >
+            <ListFilter className="size-4" aria-hidden="true" />
+            Filters{activeFilterCount > 0 ? ` (${activeFilterCount})` : ''}
+          </button>
+          <Popover>
+            <PopoverTrigger asChild>
+              <button
+                type="button"
+                aria-label="More actions"
+                className="pennie-focus-ring inline-flex size-10 shrink-0 items-center justify-center rounded-full border border-border bg-pennie-white text-pennie-navy lg:hidden"
+              >
+                <MoreHorizontal className="size-5" aria-hidden="true" />
+              </button>
+            </PopoverTrigger>
+            <PopoverContent align="end" className="w-52 rounded-2xl p-2 lg:hidden">
+              <button
+                type="button"
+                onClick={() => setShowSettings(true)}
+                className="pennie-focus-ring flex min-h-[40px] w-full items-center gap-2 rounded-xl px-3 text-sm font-semibold hover:bg-pennie-beige"
+              >
+                <Settings className="size-4" aria-hidden="true" />
+                Thresholds
+              </button>
+              <button
+                type="button"
+                onClick={handleExportPDF}
+                disabled={exporting || loading || isError}
+                className="pennie-focus-ring flex min-h-[40px] w-full items-center gap-2 rounded-xl px-3 text-sm font-semibold hover:bg-pennie-beige disabled:opacity-50"
+              >
+                {exporting ? (
+                  <Loader2 className="size-4 animate-spin" aria-hidden="true" />
+                ) : (
+                  <Download className="size-4" aria-hidden="true" />
+                )}
+                {exporting ? 'Preparing PDF…' : 'Export PDF'}
+              </button>
+            </PopoverContent>
+          </Popover>
+          <div className="hidden items-end gap-5 lg:flex">
+            <AgentFilter
+              availableAgents={availableAgents}
+              selectedAgents={selectedAgents}
+              onSelectionChange={changeAgents}
+            />
+            <DispositionFilter
+              available={availableDispositions}
+              selected={selectedDispositions}
+              onSelectionChange={changeDispositions}
+            />
+            <div className="flex h-10 items-end">
+              <RefreshingHint active={refreshing} />
+            </div>
           </div>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="hidden items-center gap-2 lg:flex">
           <button
             type="button"
             onClick={() => setShowSettings(true)}
-            className="inline-flex items-center gap-2 min-h-[40px] px-4 py-2 rounded-full text-sm font-semibold text-pennie-graphite hover:bg-pennie-beige border border-border transition-colors"
+            className="inline-flex min-h-[40px] items-center gap-2 rounded-full border border-border px-4 py-2 text-sm font-semibold text-pennie-graphite transition-colors hover:bg-pennie-beige"
           >
-            <Settings className="w-4 h-4" aria-hidden="true" />
+            <Settings className="size-4" aria-hidden="true" />
             Thresholds
           </button>
           <button
             type="button"
             onClick={handleExportPDF}
             disabled={exporting || loading || isError}
-            className="inline-flex items-center gap-2 min-h-[40px] px-4 py-2 rounded-full bg-pennie-navy text-pennie-white text-sm font-semibold hover:bg-pennie-navy/90 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            className="inline-flex min-h-[40px] items-center gap-2 rounded-full bg-pennie-navy px-4 py-2 text-sm font-semibold text-pennie-white transition-colors hover:bg-pennie-navy/90 disabled:cursor-not-allowed disabled:opacity-50"
           >
             {exporting ? (
-              <Loader2 className="w-4 h-4 animate-spin" aria-hidden="true" />
+              <Loader2 className="size-4 animate-spin" aria-hidden="true" />
             ) : (
-              <Download className="w-4 h-4" aria-hidden="true" />
+              <Download className="size-4" aria-hidden="true" />
             )}
             {exporting ? 'Preparing PDF…' : 'Export PDF'}
           </button>
         </div>
       </div>
 
-      {/* Quick filters */}
-      <div
-        className="flex flex-wrap gap-2"
-        role="group"
-        aria-label="Quick filters"
-      >
-        {(
-          [
-            { value: 'all', label: 'All calls' },
-            { value: 'escalations', label: 'Manager escalations' },
-            { value: 'compliance', label: 'Compliance failures' },
-            { value: 'threshold', label: 'Below threshold' },
-            { value: 'rushed', label: 'Pitch calls under 30 min' },
-          ] as { value: QuickFilter; label: string }[]
-        ).map(f => (
-          <button
-            key={f.value}
-            type="button"
-            aria-pressed={quickFilter === f.value}
-            onClick={() => setQuickFilter(f.value)}
-            className={`min-h-[40px] px-4 py-2 rounded-full text-sm font-semibold border transition-all duration-200 ${
-              quickFilter === f.value
-                ? 'bg-pennie-navy text-pennie-white border-pennie-navy'
-                : 'bg-pennie-white border-border text-pennie-graphite hover:bg-pennie-beige'
-            }`}
-          >
-            {f.label}
-          </button>
+      <div className="hidden flex-wrap gap-2 lg:flex" role="group" aria-label="Quick filters">
+        {QUICK_FILTERS.map(filter => (
+          <QuickFilterButton
+            key={filter.value}
+            filter={filter}
+            active={quickFilter === filter.value}
+            onClick={() => changeQuickFilter(filter.value)}
+          />
         ))}
       </div>
+
+      <Sheet open={showMobileFilters} onOpenChange={setShowMobileFilters}>
+        <SheetContent side="bottom" className="max-h-[85vh] overflow-y-auto rounded-t-3xl bg-pennie-white p-0 lg:hidden">
+          <SheetHeader className="border-b border-border px-5 py-4 text-left">
+            <SheetTitle className="text-pennie-navy">Filters</SheetTitle>
+          </SheetHeader>
+          <div className="space-y-5 px-5 py-5">
+            <AgentFilter
+              availableAgents={availableAgents}
+              selectedAgents={selectedAgents}
+              onSelectionChange={changeAgents}
+            />
+            <DispositionFilter
+              available={availableDispositions}
+              selected={selectedDispositions}
+              onSelectionChange={changeDispositions}
+            />
+            <div className="flex flex-wrap gap-2" role="group" aria-label="Quick filters">
+              {QUICK_FILTERS.map(filter => (
+                <QuickFilterButton
+                  key={filter.value}
+                  filter={filter}
+                  active={quickFilter === filter.value}
+                  onClick={() => changeQuickFilter(filter.value)}
+                />
+              ))}
+            </div>
+          </div>
+        </SheetContent>
+      </Sheet>
 
       {/* Calls list — desktop renders the wide table, mobile renders a stacked
           card list with the most-scannable fields. Both views drive the same
           navigation handler so keyboard / click semantics match. */}
-      <section className="bg-pennie-white rounded-3xl shadow-resting overflow-hidden">
+      <section
+        aria-label="Calls results"
+        aria-busy={loading}
+        className="min-w-0 max-w-full bg-pennie-white rounded-3xl shadow-resting overflow-hidden"
+      >
         {/* Mobile card list */}
-        <ul className="md:hidden divide-y divide-border/60">
+        <ul className="lg:hidden divide-y divide-border/60">
           {loading
             ? Array.from({ length: 6 }).map((_, i) => (
                 <li key={`sk-mob-${i}`} className="px-4 py-4">
@@ -379,7 +529,7 @@ export default function DashboardPage() {
                   : isComplianceFail
                     ? 'bg-pennie-yellow-dark'
                     : 'bg-transparent'
-                const goToCall = () => navigate(callPath(call.call_id))
+                const goToCall = () => openCall(call.call_id)
                 return (
                   <li key={`mob-${call.id}`}>
                     <button
@@ -430,7 +580,7 @@ export default function DashboardPage() {
         </ul>
 
         {/* Desktop / tablet table */}
-        <div className="hidden md:block overflow-x-auto">
+        <div className="hidden w-full max-w-full lg:block overflow-x-auto">
           <table className="min-w-full">
             <thead className="bg-pennie-beige/60">
               <tr>
@@ -563,7 +713,7 @@ export default function DashboardPage() {
                   : isComplianceFail
                     ? 'border-pennie-yellow-dark'
                     : 'border-transparent'
-                const goToCall = () => navigate(callPath(call.call_id))
+                const goToCall = () => openCall(call.call_id)
                 return (
                   <tr
                     key={call.id}
@@ -628,61 +778,81 @@ export default function DashboardPage() {
           </table>
         </div>
 
-        {/* Pagination */}
-        {!loading && !isError && (
-        <div className="bg-pennie-beige/40 px-4 sm:px-6 py-3 sm:py-4 flex flex-wrap items-center justify-between gap-3 border-t border-border">
-          <p className="text-sm text-muted-foreground tabular-nums">
-            Showing {paginatedCalls.length === 0 ? 0 : startIndex + 1}–
-            {paginatedCalls.length === 0 ? 0 : startIndex + paginatedCalls.length}
-            {summary ? ` of ${summary.total_calls}` : ' · total pending'}
-          </p>
+        {/* Pagination remains present while rows change so pending data is
+            never presented as a genuine zero-result page. */}
+        <div className="bg-pennie-beige/40 px-4 sm:px-6 py-3 sm:py-4 flex min-h-[68px] flex-wrap items-center justify-between gap-3 border-t border-border">
+          {loading ? (
+            <p role="status" className="text-sm text-muted-foreground">Loading calls…</p>
+          ) : isError ? (
+            <p className="text-sm text-muted-foreground">Calls unavailable</p>
+          ) : (
+            <p className="text-sm text-muted-foreground tabular-nums">
+              Showing {paginatedCalls.length === 0 ? 0 : startIndex + 1}–
+              {paginatedCalls.length === 0 ? 0 : startIndex + paginatedCalls.length}
+              {summary ? ` of ${summary.total_calls}` : ' · total pending'}
+            </p>
+          )}
           <div className="flex gap-2">
             <button
               type="button"
               onClick={() => setCurrentPage(Math.max(1, currentPage - 1))}
-              disabled={currentPage === 1}
+              disabled={loading || isError || currentPage === 1}
               className="min-h-[36px] px-4 py-1.5 rounded-full bg-pennie-white border border-border text-sm font-semibold text-pennie-graphite disabled:opacity-40 disabled:cursor-not-allowed hover:bg-pennie-beige transition-colors"
             >
               Previous
             </button>
-            <div className="flex gap-1">
-              {paginationItems(currentPage, totalPages).map((item, i) =>
-                item === '…' ? (
-                  <span
-                    key={`gap-${i}`}
-                    className="px-1.5 text-muted-foreground self-center"
-                    aria-hidden="true"
-                  >
-                    …
-                  </span>
-                ) : (
-                  <button
-                    key={item}
-                    type="button"
-                    aria-current={currentPage === item ? 'page' : undefined}
-                    onClick={() => setCurrentPage(item)}
-                    className={`min-h-[36px] min-w-[36px] px-3 rounded-full text-sm font-semibold transition-colors tabular-nums ${
-                      currentPage === item
-                        ? 'bg-pennie-navy text-pennie-white'
-                        : 'bg-pennie-white border border-border text-pennie-graphite hover:bg-pennie-beige'
-                    }`}
-                  >
-                    {item}
-                  </button>
-                ),
-              )}
+            <div className="hidden gap-1 sm:flex">
+              {loading
+                ? Array.from({ length: 3 }, (_, index) => (
+                    <span
+                      key={`page-sk-${index}`}
+                      className="min-h-[36px] min-w-[36px] rounded-full bg-pennie-white/70"
+                      aria-hidden="true"
+                    />
+                  ))
+                : paginationItems(currentPage, totalPages).map((item, i) =>
+                    item === '…' ? (
+                      <span
+                        key={`gap-${i}`}
+                        className="px-1.5 text-muted-foreground self-center"
+                        aria-hidden="true"
+                      >
+                        …
+                      </span>
+                    ) : (
+                      <button
+                        key={item}
+                        type="button"
+                        aria-current={currentPage === item ? 'page' : undefined}
+                        onClick={() => setCurrentPage(item)}
+                        className={`min-h-[36px] min-w-[36px] px-3 rounded-full text-sm font-semibold transition-colors tabular-nums ${
+                          currentPage === item
+                            ? 'bg-pennie-navy text-pennie-white'
+                            : 'bg-pennie-white border border-border text-pennie-graphite hover:bg-pennie-beige'
+                        }`}
+                      >
+                        {item}
+                      </button>
+                    ),
+                  )}
             </div>
             <button
               type="button"
+              onPointerEnter={prefetchNextPage}
+              onFocus={prefetchNextPage}
               onClick={() => setCurrentPage(currentPage + 1)}
-              disabled={!pageQuery.data?.has_more}
+              disabled={
+                loading ||
+                isError ||
+                currentPage >= MAX_CALLS_PAGE ||
+                !pageQuery.data?.has_more
+              }
               className="min-h-[36px] px-4 py-1.5 rounded-full bg-pennie-white border border-border text-sm font-semibold text-pennie-graphite disabled:opacity-40 disabled:cursor-not-allowed hover:bg-pennie-beige transition-colors"
             >
               Next
             </button>
           </div>
         </div>
-        )}
       </section>
 
       {!loading && isError && (
@@ -701,6 +871,7 @@ export default function DashboardPage() {
           <button
             type="button"
             onClick={() => {
+              setCurrentPage(1)
               setQuickFilter('all')
               setSelectedAgents([])
               setSelectedDispositions([])
@@ -718,6 +889,31 @@ export default function DashboardPage() {
         onSave={handleSaveThresholds}
       />
     </div>
+  )
+}
+
+function QuickFilterButton({
+  filter,
+  active,
+  onClick,
+}: {
+  filter: { value: QuickFilter; label: string }
+  active: boolean
+  onClick: () => void
+}) {
+  return (
+    <button
+      type="button"
+      aria-pressed={active}
+      onClick={onClick}
+      className={`min-h-[40px] rounded-full border px-4 py-2 text-sm font-semibold transition-colors ${
+        active
+          ? 'border-pennie-navy bg-pennie-navy text-pennie-white'
+          : 'border-border bg-pennie-white text-pennie-graphite hover:bg-pennie-beige'
+      }`}
+    >
+      {filter.label}
+    </button>
   )
 }
 
