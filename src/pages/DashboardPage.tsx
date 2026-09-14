@@ -1,7 +1,8 @@
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { calculateMetrics } from '../lib/queries'
-import { useDashboardData, useUniqueAgents } from '../hooks/use-queries'
+import { useCallsPage, useCallsSummary, useUniqueAgents } from '../hooks/use-queries'
+import { fetchCallsExport, readCallsThresholds, type CallListRow, type CallsFilters, type CallsSort } from '../lib/calls-queries'
 import {
   formatDateParam,
   parseDateParam,
@@ -13,11 +14,9 @@ import {
   formatDuration,
   formatPhoneNumber,
   formatDateTime,
-  requiresAttention,
 } from '../lib/utils'
 import { accentForScore, accentForBand, pillClasses } from '../lib/violation-styles'
 import { pitchCallRisk, BAND_LABEL } from '../lib/pitch-call-risk'
-import type { CallWithQA } from '../types/database'
 import { DateRangePicker } from '../components/dashboard/DateRangePicker'
 import { AgentFilter } from '../components/dashboard/AgentFilter'
 import { DispositionFilter, prettify as prettifyDisposition } from '../components/dashboard/DispositionFilter'
@@ -38,26 +37,8 @@ import { HelpHint } from '../components/ui/help-hint'
 import { PageHero, SupportingStat } from '../components/PageHero'
 import { ErrorState } from '@/components/states/ErrorState'
 
-type QuickFilter = 'all' | 'escalations' | 'compliance' | 'threshold' | 'rushed'
-
-type CallSortKey = 'time' | 'agent' | 'talk' | 'score' | 'compliance' | 'csat'
-
-// Ordinal rank for QA rating vocabularies so score columns sort sensibly
-// (excellent > good > fair > poor, pass > fail, high > medium > low).
-const SCORE_RANK: Record<string, number> = {
-  excellent: 5,
-  pass: 5,
-  high: 5,
-  good: 4,
-  medium: 4,
-  fair: 3,
-  needs_improvement: 3,
-  low: 3,
-  poor: 2,
-  fail: 2,
-}
-const scoreRank = (s: string | null | undefined) =>
-  SCORE_RANK[s?.toLowerCase() ?? ''] ?? 0
+type QuickFilter = CallsFilters['quickFilter']
+type CallSortKey = CallsSort['key']
 
 // Condensed pagination: always show first/last, a window around the current
 // page, and ellipses for the gaps.
@@ -93,8 +74,8 @@ export default function DashboardPage() {
   const [selectedAgents, setSelectedAgents] = useState<string[]>(() =>
     parseListParam(searchParams.get('agents')),
   )
-  const { data: availableAgentsData } = useUniqueAgents()
-  const availableAgents = availableAgentsData ?? []
+  const agentsQuery = useUniqueAgents()
+  const availableAgents = agentsQuery.data ?? []
   const [selectedDispositions, setSelectedDispositions] = useState<string[]>(
     () => parseListParam(searchParams.get('dispo')),
   )
@@ -109,35 +90,41 @@ export default function DashboardPage() {
       : 'all'
   })
 
-  const { data: callsData, isPending, isFetching, isError, refetch } = useDashboardData(
-    startDate,
-    endDate,
-    selectedAgents,
-  )
-  const calls = useMemo(() => callsData ?? [], [callsData])
-  const loading = isPending && !callsData
-  const refreshing = isFetching && !loading
-
   const [showSettings, setShowSettings] = useState(false)
   const [, setThresholds] = useState<ThresholdSettings>(DEFAULT_THRESHOLDS)
-
-  const [currentPage, setCurrentPage] = useState(1)
-  const ITEMS_PER_PAGE = 25
 
   const [sortKey, setSortKey] = useState<CallSortKey>('time')
   const [sortDesc, setSortDesc] = useState(true)
   const toggleSort = (key: CallSortKey) => {
-    setSortKey(prev => {
-      if (prev === key) {
-        setSortDesc(d => !d)
-        return prev
-      }
-      // Time and score-ish columns default to "worst/newest first" reads:
-      // newest calls, longest talk, highest score. Agent defaults A→Z.
-      setSortDesc(key !== 'agent')
-      return key
-    })
+    setSortDesc(sortKey === key ? !sortDesc : key !== 'agent')
+    setSortKey(key)
   }
+
+  const filters: CallsFilters = { startDate, endDate, agents: selectedAgents, dispositions: selectedDispositions,
+    quickFilter, thresholds: readCallsThresholds(localStorage.getItem('dashboardThresholds')) }
+  const sort: CallsSort = { key: sortKey, desc: sortDesc }
+  // Derive the reset before querying, not in an effect that would fetch the old
+  // page number once using the new filters (and potentially show an empty page).
+  const pageIdentity = JSON.stringify([filters, sort])
+  const [pagination, setPagination] = useState({ identity: pageIdentity, page: 1 })
+  const currentPage = pagination.identity === pageIdentity ? pagination.page : 1
+  if (pagination.identity !== pageIdentity) setPagination({ identity: pageIdentity, page: 1 })
+  const setCurrentPage = (page: number) => setPagination({ identity: pageIdentity, page })
+  const pageQuery = useCallsPage(filters, sort, currentPage)
+  const summaryQuery = useCallsSummary(filters)
+  const { isPending: loading, isError, refetch } = pageQuery
+  const refreshing = pageQuery.isFetching && !loading
+  const paginatedCalls = pageQuery.data?.rows ?? []
+  const summary = summaryQuery.data
+  const availableDispositions = summary?.dispositions ?? []
+  const isFiltered = selectedDispositions.length > 0 || quickFilter !== 'all'
+  const startIndex = (currentPage - 1) * 25
+  const totalPages = summary ? Math.ceil(summary.total_calls / 25) : 0
+  const unavailableStat = summaryQuery.isError ? 'Unavailable' : '…'
+  const [exporting, setExporting] = useState(false)
+  const [exportError, setExportError] = useState<string | null>(null)
+  const exportController = useRef<AbortController | null>(null)
+  useEffect(() => () => exportController.current?.abort(), [])
 
   useEffect(() => {
     const saved = localStorage.getItem('thresholdSettings')
@@ -175,89 +162,28 @@ export default function DashboardPage() {
     return `/dashboard/calls/${callId}?${params.toString()}`
   }
 
-  const availableDispositions = useMemo(() => {
-    const set = new Set<string>()
-    for (const c of calls) {
-      if (c.disposition) set.add(c.disposition)
-    }
-    return Array.from(set).sort((a, b) => a.localeCompare(b))
-  }, [calls])
-
-  const filteredCalls = useMemo(() => {
-    let rows = calls
-    if (selectedDispositions.length > 0) {
-      const set = new Set(selectedDispositions)
-      rows = rows.filter(c => c.disposition && set.has(c.disposition))
-    }
-    if (quickFilter === 'escalations')
-      return rows.filter(c => c.qa?.manager_escalation === true)
-    if (quickFilter === 'compliance')
-      return rows.filter(c => c.qa?.compliance_rating === 'fail')
-    if (quickFilter === 'threshold') return rows.filter(c => requiresAttention(c.qa))
-    if (quickFilter === 'rushed') return rows.filter(c => pitchCallRisk(c).rushed)
-    return rows
-  }, [calls, quickFilter, selectedDispositions])
-
-  useEffect(() => {
-    setCurrentPage(1)
-  }, [quickFilter, calls, selectedDispositions, sortKey, sortDesc])
-
-  const sortedCalls = useMemo(() => {
-    const rows = [...filteredCalls]
-    rows.sort((a, b) => {
-      let cmp = 0
-      if (sortKey === 'time') {
-        cmp = (a.started_at || '').localeCompare(b.started_at || '')
-      } else if (sortKey === 'agent') {
-        cmp = agentDisplayName(a.agent_full_name, a.agent_email).localeCompare(
-          agentDisplayName(b.agent_full_name, b.agent_email),
-        )
-      } else if (sortKey === 'talk') {
-        cmp = (a.talk_time ?? 0) - (b.talk_time ?? 0)
-      } else if (sortKey === 'score') {
-        cmp = scoreRank(a.qa?.overall_score) - scoreRank(b.qa?.overall_score)
-      } else if (sortKey === 'compliance') {
-        cmp = scoreRank(a.qa?.compliance_rating) - scoreRank(b.qa?.compliance_rating)
-      } else {
-        cmp =
-          scoreRank(a.qa?.customer_satisfaction_likely) -
-          scoreRank(b.qa?.customer_satisfaction_likely)
-      }
-      if (cmp === 0) {
-        return (b.started_at || '').localeCompare(a.started_at || '')
-      }
-      return sortDesc ? -cmp : cmp
-    })
-    return rows
-  }, [filteredCalls, sortKey, sortDesc])
-
-  // Headline + supporting stats track filteredCalls so disposition + quick
-  // filter are reflected. windowMetrics keeps the unfiltered total for the
-  // "of N in window" subline.
-  const metrics = useMemo(() => calculateMetrics(filteredCalls), [filteredCalls])
-  const windowMetrics = useMemo(() => calculateMetrics(calls), [calls])
-  const isFiltered =
-    selectedDispositions.length > 0 || quickFilter !== 'all'
-
-  const startIndex = (currentPage - 1) * ITEMS_PER_PAGE
-  const endIndex = startIndex + ITEMS_PER_PAGE
-  const paginatedCalls = sortedCalls.slice(startIndex, endIndex)
-  const totalPages = Math.ceil(sortedCalls.length / ITEMS_PER_PAGE)
-
-  const [exporting, setExporting] = useState(false)
-
   const handleSaveThresholds = (newThresholds: ThresholdSettings) => {
     setThresholds(newThresholds)
   }
 
   const handleExportPDF = async () => {
+    if (exportController.current) return
     setExporting(true)
+    setExportError(null)
+    const controller = new AbortController()
+    exportController.current = controller
     try {
-      // Lazy-load jsPDF only when the user actually exports —
-      // keeps ~400KB out of the main bundle.
+      const result = await fetchCallsExport(filters, sort, { signal: controller.signal })
+      if (result.ok === false) {
+        if (result.error._tag !== 'Cancelled') setExportError(result.error.message)
+        return
+      }
       const { exportDashboardToPDF } = await import('../lib/pdf-export')
+      if (controller.signal.aborted) return
+      // Export KPIs describe the rows actually exported, not a stale summary request.
+      const metrics = calculateMetrics(result.value)
       await exportDashboardToPDF(
-        sortedCalls,
+        result.value,
         {
           totalCalls: metrics.totalCalls,
           requiresAttention: metrics.callsRequiringAttention,
@@ -269,7 +195,10 @@ export default function DashboardPage() {
         { start: startDate, end: endDate },
         selectedAgents,
       )
+    } catch {
+      if (!controller.signal.aborted) setExportError('Could not generate the PDF. Please try again.')
     } finally {
+      if (exportController.current === controller) exportController.current = null
       setExporting(false)
     }
   }
@@ -282,12 +211,12 @@ export default function DashboardPage() {
         headline={
           <>
             <span className="tabular-nums">
-              {metrics.totalCalls.toLocaleString()}
+              {summary ? summary.total_calls.toLocaleString() : unavailableStat}
             </span>{' '}
             <span className="text-pennie-graphite/70 font-medium">
-              {isFiltered
-                ? `of ${windowMetrics.totalCalls.toLocaleString()} in window`
-                : metrics.totalCalls === 1
+              {isFiltered && summary
+                ? `of ${summary.window_calls.toLocaleString()} in window`
+                : summary?.total_calls === 1
                   ? 'call in window'
                   : 'calls in window'}
             </span>
@@ -296,7 +225,7 @@ export default function DashboardPage() {
         description={
           <>
             <span className="tabular-nums">
-              {metrics.callsRequiringAttention.toLocaleString()}
+              {summary ? summary.calls_requiring_attention.toLocaleString() : unavailableStat}
             </span>{' '}
             need attention.{' '}
             {quickFilter !== 'threshold' && (
@@ -314,27 +243,32 @@ export default function DashboardPage() {
           <>
             <SupportingStat
               label="Avg talk"
-              value={formatDuration(metrics.avgTalkTime)}
+              value={summary ? formatDuration(summary.avg_talk_time) : unavailableStat}
               helpId="metric.avg_talk"
             />
             <SupportingStat
               label="Avg handle"
-              value={formatDuration(metrics.avgHandleTime)}
+              value={summary ? formatDuration(summary.avg_handle_time) : unavailableStat}
               helpId="metric.avg_handle"
             />
             <SupportingStat
               label="Compliance"
-              value={`${metrics.compliancePassRate}%`}
+              value={summary ? `${summary.compliance_pass_rate}%` : unavailableStat}
               helpId="metric.compliance_rate"
             />
             <SupportingStat
               label="High CSAT"
-              value={`${metrics.highSatRate}%`}
+              value={summary ? `${summary.high_sat_rate}%` : unavailableStat}
               helpId="metric.high_csat"
             />
           </>
         }
       />
+
+      {summaryQuery.isPending && <p role="status" className="text-sm text-muted-foreground">Loading summary…</p>}
+      {summaryQuery.isError && <ErrorState title="Couldn't load call summary" message="Call rows are independent of totals. Retry to load counts and disposition options." onRetry={() => summaryQuery.refetch()} />}
+      {agentsQuery.isError && <ErrorState title="Couldn't load agent options" message="Retry to reload the agent filter." onRetry={() => agentsQuery.refetch()} />}
+      {exportError && <ErrorState title="Couldn't export calls" message={exportError} onRetry={handleExportPDF} />}
 
       {/* Header actions */}
       <div className="flex flex-wrap items-center justify-between gap-4">
@@ -373,7 +307,7 @@ export default function DashboardPage() {
           <button
             type="button"
             onClick={handleExportPDF}
-            disabled={exporting || loading}
+            disabled={exporting || loading || isError}
             className="inline-flex items-center gap-2 min-h-[40px] px-4 py-2 rounded-full bg-pennie-navy text-pennie-white text-sm font-semibold hover:bg-pennie-navy/90 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
           >
             {exporting ? (
@@ -695,16 +629,17 @@ export default function DashboardPage() {
         </div>
 
         {/* Pagination */}
-        {!loading && (
+        {!loading && !isError && (
         <div className="bg-pennie-beige/40 px-4 sm:px-6 py-3 sm:py-4 flex flex-wrap items-center justify-between gap-3 border-t border-border">
           <p className="text-sm text-muted-foreground tabular-nums">
-            Showing {sortedCalls.length === 0 ? 0 : startIndex + 1}–
-            {Math.min(endIndex, sortedCalls.length)} of {sortedCalls.length}
+            Showing {paginatedCalls.length === 0 ? 0 : startIndex + 1}–
+            {paginatedCalls.length === 0 ? 0 : startIndex + paginatedCalls.length}
+            {summary ? ` of ${summary.total_calls}` : ' · total pending'}
           </p>
           <div className="flex gap-2">
             <button
               type="button"
-              onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+              onClick={() => setCurrentPage(Math.max(1, currentPage - 1))}
               disabled={currentPage === 1}
               className="min-h-[36px] px-4 py-1.5 rounded-full bg-pennie-white border border-border text-sm font-semibold text-pennie-graphite disabled:opacity-40 disabled:cursor-not-allowed hover:bg-pennie-beige transition-colors"
             >
@@ -739,8 +674,8 @@ export default function DashboardPage() {
             </div>
             <button
               type="button"
-              onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
-              disabled={currentPage === totalPages || totalPages === 0}
+              onClick={() => setCurrentPage(currentPage + 1)}
+              disabled={!pageQuery.data?.has_more}
               className="min-h-[36px] px-4 py-1.5 rounded-full bg-pennie-white border border-border text-sm font-semibold text-pennie-graphite disabled:opacity-40 disabled:cursor-not-allowed hover:bg-pennie-beige transition-colors"
             >
               Next
@@ -758,7 +693,7 @@ export default function DashboardPage() {
         />
       )}
 
-      {!loading && !isError && filteredCalls.length === 0 && (
+      {!loading && !isError && paginatedCalls.length === 0 && (
         <div className="text-center py-12 bg-pennie-white rounded-3xl shadow-resting">
           <p className="text-pennie-graphite font-medium">
             No calls match your filters.
@@ -824,7 +759,7 @@ function SortLabel({
 
 // Compact talk-time risk band for pitch calls only (PSAI-178). Non-pitch calls
 // and pitch calls with no talk time render nothing, keeping the list quiet.
-function RiskBandPill({ call }: { call: CallWithQA }) {
+function RiskBandPill({ call }: { call: CallListRow }) {
   const { isPitch, band } = pitchCallRisk(call)
   if (!isPitch || band === 'unknown') return null
   return (

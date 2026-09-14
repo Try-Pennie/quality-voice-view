@@ -1,11 +1,12 @@
 import jsPDF from 'jspdf'
 import { agentDisplayName } from './utils'
+import type { CallListRow } from './calls-queries'
 
 /**
  * Export dashboard data to PDF
  */
 export async function exportDashboardToPDF(
-  calls: any[],
+  calls: readonly CallListRow[],
   metrics: {
     totalCalls: number
     requiresAttention: number
@@ -90,7 +91,7 @@ export async function exportDashboardToPDF(
   // Table rows
   pdf.setFont('helvetica', 'normal')
 
-  calls.slice(0, 50).forEach((call) => {
+  calls.forEach((call) => {
     if (yPosition > pageHeight - 20) {
       pdf.addPage()
       yPosition = 20
