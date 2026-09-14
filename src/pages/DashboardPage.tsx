@@ -406,8 +406,8 @@ export default function DashboardPage() {
       {/* Calls toolbar: mobile keeps the date primary and moves advanced
           filters/actions into compact installed primitives. */}
       <div className="flex flex-wrap items-end justify-between gap-4">
-        <div className="flex w-full min-w-0 items-end gap-2 lg:w-auto lg:gap-5">
-          <div className="min-w-0 flex-1 [&_button]:!min-w-0 [&_button]:w-full lg:flex-none lg:[&_button]:!min-w-[16rem] lg:[&_button]:w-auto">
+        <div className="flex w-full min-w-0 flex-wrap items-end gap-2 lg:w-auto lg:flex-nowrap lg:gap-5">
+          <div className="min-w-[16rem] flex-1 [&_button]:w-full lg:flex-none lg:[&_button]:w-auto">
             <DateRangePicker
               startDate={startDate}
               endDate={endDate}

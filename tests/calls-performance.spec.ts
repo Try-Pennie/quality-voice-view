@@ -425,7 +425,15 @@ test('Calls controls fit 320/375/414/768 widths with mobile filters and secondar
     await expect(page.getByText('Showing 1–25 of 65')).toBeVisible()
     await expect(page.getByRole('button', { name: /^Filters/ })).toBeVisible()
     await expect(page.getByRole('button', { name: 'More actions' })).toBeVisible()
-    await expect(page.getByRole('button', { name: 'Date range', exact: false })).toBeVisible()
+    const dateRange = page.getByRole('button', { name: 'Date range', exact: false })
+    await expect(dateRange).toBeVisible()
+    expect(await dateRange.locator('span.font-medium').evaluate(element => {
+      const text = document.createRange()
+      text.selectNodeContents(element)
+      return text.getClientRects().length
+    }), `date label stays on one line at ${width}px`).toBe(1)
+    const firstCard = await page.getByRole('region', { name: 'Calls results' }).locator('ul > li').first().boundingBox()
+    expect(firstCard?.y, `first call is visible without scrolling at ${width}px`).toBeLessThan(650)
     const overflow = await page.evaluate(() => ({
       fits: document.documentElement.scrollWidth <= window.innerWidth,
       documentWidth: document.documentElement.scrollWidth,
