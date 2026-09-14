@@ -23,6 +23,12 @@ test('Full QA saves string-scale corrections, uncertainty, and a retained findin
   await page.getByRole('combobox', { name: 'Credit pull consent disposition' }).selectOption('corrected')
   await expect(page.getByRole('combobox', { name: 'Credit pull consent corrected value' })).toHaveValue('pass')
   await page.getByRole('textbox', { name: 'Credit pull consent correction reason' }).fill(correctionReason)
+  await page.setViewportSize({ width: 390, height: 844 })
+  await page.getByRole('combobox', { name: 'Credit pull consent disposition' }).scrollIntoViewIfNeeded()
+  await expect(page.getByRole('combobox', { name: 'Credit pull consent corrected value' })).toBeVisible()
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
+  await page.screenshot({ path: testInfo.outputPath('full-qa-rubric-mobile.png'), fullPage: true, animations: 'disabled' })
+  await page.setViewportSize({ width: 1280, height: 720 })
 
   await page.getByRole('button', { name: 'Add distinct finding' }).click()
   await page.getByRole('listbox', { name: 'Finding 1 related criteria' }).selectOption(['accurate_representations'])
