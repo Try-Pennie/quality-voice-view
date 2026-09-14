@@ -19,17 +19,21 @@ class RouteErrorBoundary extends Component<
     return { failed: true }
   }
 
+  componentDidCatch(): void {
+    console.error({ operation: 'render_route_page' })
+  }
+
   render() {
     if (!this.state.failed) return this.props.children
 
     return (
       <section className="pennie-card mx-auto max-w-xl text-center">
         <h1 className="font-display text-2xl text-pennie-navy">
-          This page didn&apos;t load
+          This page couldn&apos;t open
         </h1>
         <p className="mt-2 text-sm text-muted-foreground">
-          The page files may have changed while Eavesly was open. Reload to try
-          again.
+          Something prevented this page from opening. Reload to try again, or
+          use the navigation to open another page.
         </p>
         <button
           type="button"

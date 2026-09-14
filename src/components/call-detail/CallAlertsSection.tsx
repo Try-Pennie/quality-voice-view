@@ -126,7 +126,7 @@ function AlertCard({ alert }: { alert: AlertWithFeedback }) {
                 Marked not accurate
               </span>
             ) : alert.accurate === true ? (
-              <span className="text-pennie-green-dark font-semibold">
+              <span className="text-pennie-green-deeper font-semibold">
                 Marked accurate
               </span>
             ) : null}

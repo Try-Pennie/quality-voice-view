@@ -9,9 +9,9 @@ import { formatDateTime } from '@/lib/utils'
 
 function qualityTone(quality: string | null): string {
   const q = (quality ?? '').toLowerCase()
-  if (q === 'good') return 'bg-pennie-green-light text-pennie-green-dark'
+  if (q === 'good') return 'bg-pennie-green-light text-pennie-green-deeper'
   if (q === 'poor') return 'bg-pennie-peach-light text-pennie-peach-deeper'
-  if (q === 'fair') return 'bg-pennie-yellow-light text-pennie-yellow-dark'
+  if (q === 'fair') return 'bg-pennie-yellow-light text-pennie-yellow-deeper'
   return 'bg-pennie-beige text-pennie-graphite'
 }
 
@@ -66,7 +66,7 @@ function AgentFeedbackItem({ item }: { item: AchieveAgentFeedback }) {
         {flags.map(flag => (
           <span
             key={flag}
-            className="rounded-full bg-pennie-yellow-light px-2 py-0.5 text-[11px] font-semibold text-pennie-yellow-dark"
+            className="rounded-full bg-pennie-yellow-light px-2 py-0.5 text-[11px] font-semibold text-pennie-yellow-deeper"
           >
             {flag}
           </span>

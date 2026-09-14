@@ -1,5 +1,5 @@
-import { expect, test } from '@playwright/test'
-import { reviewFixture } from './review-fixture'
+import { expect, test, type Locator } from '@playwright/test'
+import { alertRow, openAlert, reviewFixture } from './review-fixture'
 
 function deferred() {
   let release = () => {}
@@ -7,6 +7,28 @@ function deferred() {
     release = resolve
   })
   return { promise, release }
+}
+
+function contrastRatio(locator: Locator): Promise<number> {
+  return locator.evaluate(element => {
+    const parseRgb = (value: string) =>
+      value.match(/\d+(?:\.\d+)?/g)?.slice(0, 3).map(Number) ?? []
+    const luminance = (value: string) => {
+      const [red = 0, green = 0, blue = 0] = parseRgb(value)
+      const linear = [red, green, blue].map(channel => {
+        const normalized = channel / 255
+        return normalized <= 0.04045
+          ? normalized / 12.92
+          : ((normalized + 0.055) / 1.055) ** 2.4
+      })
+      return 0.2126 * linear[0] + 0.7152 * linear[1] + 0.0722 * linear[2]
+    }
+    const style = getComputedStyle(element)
+    const foreground = luminance(style.color)
+    const background = luminance(style.backgroundColor)
+    return (Math.max(foreground, background) + 0.05)
+      / (Math.min(foreground, background) + 0.05)
+  })
 }
 
 test('route loading keeps dashboard navigation usable', async ({ page }) => {
@@ -49,7 +71,7 @@ test('a failed route chunk offers an explicit reload without hiding navigation',
   })
 
   await page.getByRole('link', { name: 'Team', exact: true }).click()
-  await expect(page.getByRole('heading', { name: "This page didn't load" })).toBeVisible()
+  await expect(page.getByRole('heading', { name: "This page couldn't open" })).toBeVisible()
   await expect(page.getByRole('link', { name: 'Eavesly' })).toBeVisible()
 
   await page.getByRole('button', { name: 'Reload page' }).click()
@@ -163,4 +185,48 @@ test('the licensed Inter fallback is served locally and usable', async ({ page }
     await document.fonts.load('500 16px Inter')
     return document.fonts.check('500 16px Inter')
   })).toBe(true)
+})
+
+test('legacy call-detail score badges retain meaning with AA text contrast', async ({ page }) => {
+  await reviewFixture(page, [alertRow('detail')])
+  await page.route('**/rest/v1/eavesly_transcription_qa*', route =>
+    route.fulfill({
+      json: {
+        call_id: 'detail',
+        overall_score: 'pass',
+        compliance_rating: 'fair',
+        customer_satisfaction_likely: 'high',
+        original_transcript: 'Synthetic transcript.',
+        recording_link: null,
+      },
+    }),
+  )
+  await page.goto('/dashboard/calls/detail')
+
+  for (const label of ['pass', 'fair']) {
+    const badge = page.locator('.pennie-pill', { hasText: label }).first()
+    await expect(badge).toBeVisible()
+    expect(await contrastRatio(badge), label).toBeGreaterThanOrEqual(4.5)
+  }
+})
+
+test('review verdict badges use AA text contrast', async ({ page }) => {
+  await reviewFixture(page, [
+    alertRow('review-contrast', {
+      is_reviewed: true,
+      accurate: true,
+      feedback_id: 1,
+      feedback_by: 'prior.manager@example.test',
+      review_revision: 1,
+    }),
+  ])
+  await page.goto('/dashboard/alerts?status=reviewed')
+  await openAlert(page, 'review-contrast')
+
+  const badge = page.getByRole('region', { name: 'Manager review' }).locator(
+    '.rounded-full',
+    { hasText: 'Real issue' },
+  )
+  await expect(badge).toBeVisible()
+  expect(await contrastRatio(badge)).toBeGreaterThanOrEqual(4.5)
 })

@@ -106,7 +106,7 @@ export function ProgramExpectationsScorecard({ data }: { data: any }) {
 
           {data.missing_elements?.length > 0 && (
             <div className="bg-pennie-yellow-light/60 border border-pennie-yellow-main/50 rounded-2xl p-4">
-              <p className="font-semibold text-pennie-yellow-dark mb-2 flex items-center gap-2 text-sm">
+              <p className="font-semibold text-pennie-yellow-deeper mb-2 flex items-center gap-2 text-sm">
                 <AlertTriangle className="w-4 h-4" aria-hidden="true" />
                 Missing elements
               </p>

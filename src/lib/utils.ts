@@ -1,6 +1,7 @@
 import { type ClassValue, clsx } from "clsx";
 import { twMerge } from "tailwind-merge";
 import { BUSINESS_TIMEZONE } from "./time-zone";
+import { accentForScore, pillClasses } from "./violation-styles";
 
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -60,27 +61,9 @@ export function agentDisplayName(
     .join(' ')
 }
 
-// Pennie pill classes for legacy CallDetailPage callers. Prefer
-// pillClasses(accentForScore(...)) from lib/violation-styles for new code.
+// Pennie pill classes for legacy CallDetailPage callers.
 export function getScoreBadgeColor(score: string | null): string {
-  switch (score?.toLowerCase()) {
-    case 'excellent':
-    case 'pass':
-    case 'high':
-      return 'pennie-pill bg-pennie-green-light text-pennie-green-dark'
-    case 'good':
-    case 'medium':
-      return 'pennie-pill bg-pennie-blue-light text-pennie-blue-deeper'
-    case 'needs_improvement':
-    case 'fair':
-    case 'low':
-      return 'pennie-pill bg-pennie-yellow-light text-pennie-yellow-dark'
-    case 'poor':
-    case 'fail':
-      return 'pennie-pill bg-pennie-peach-light text-pennie-peach-deeper'
-    default:
-      return 'pennie-pill bg-pennie-beige text-pennie-navy'
-  }
+  return pillClasses(accentForScore(score))
 }
 
 // Check if call requires attention

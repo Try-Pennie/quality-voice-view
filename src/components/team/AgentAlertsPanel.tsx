@@ -84,7 +84,7 @@ export function AgentAlertsPanel({
                         {moduleLabel}
                       </span>
                       {!isHumanReviewed(alert) && !isSystemClosed(alert) && (
-                        <span className="pennie-pill bg-pennie-yellow-light text-pennie-yellow-dark">
+                        <span className="pennie-pill bg-pennie-yellow-light text-pennie-yellow-deeper">
                           Awaiting manager
                         </span>
                       )}
