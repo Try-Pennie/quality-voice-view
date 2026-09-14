@@ -540,13 +540,20 @@ begin
     if found then v_source:=v_revision.source_result_json; end if;
     select d.id into v_current_decision from public.eavesly_alert_review_decisions d where d.call_id=p_call_id and d.module_name='full_qa' and d.feedback_revision=v_feedback.review_revision;
   end if;
-  v_fingerprint:=private.full_qa_fingerprint(v_source);
-  if v_fingerprint<>p_expected_source_fingerprint then raise exception using errcode='P0001',message='EAVESLY_STALE_FULL_QA_SOURCE'; end if;
   v_prompt_hash:=private.full_qa_prompt_hash(v_source);
-  select c.criteria_manifest,c.prompt_sha256 into v_manifest,v_reference_hash from public.eavesly_full_qa_rubric_catalog c where c.prompt_sha256=v_prompt_hash;
-  if v_manifest is not null then v_kind:='known';
-  elsif v_prompt_hash is null then select c.criteria_manifest,c.prompt_sha256 into v_manifest,v_reference_hash from public.eavesly_full_qa_rubric_catalog c where c.module_name='full_qa' order by c.contract_version desc limit 1; v_kind:='legacy_current_reference';
-  else select c.criteria_manifest,c.prompt_sha256 into v_manifest,v_reference_hash from public.eavesly_full_qa_rubric_catalog c where c.module_name='full_qa' order by c.contract_version desc limit 1; v_kind:='unknown_hash'; end if;
+  if v_revision.call_id is not null then
+    select c.criteria_manifest,c.prompt_sha256 into v_manifest,v_reference_hash from public.eavesly_full_qa_rubric_catalog c
+      where c.prompt_sha256=v_revision.rubric_reference_prompt_sha256;
+    v_kind:=v_revision.source_reference_kind;
+  else
+    select c.criteria_manifest,c.prompt_sha256 into v_manifest,v_reference_hash from public.eavesly_full_qa_rubric_catalog c where c.prompt_sha256=v_prompt_hash;
+    if v_manifest is not null then v_kind:='known';
+    elsif v_prompt_hash is null then select c.criteria_manifest,c.prompt_sha256 into v_manifest,v_reference_hash from public.eavesly_full_qa_rubric_catalog c where c.module_name='full_qa' order by c.contract_version desc limit 1; v_kind:='legacy_current_reference';
+    else select c.criteria_manifest,c.prompt_sha256 into v_manifest,v_reference_hash from public.eavesly_full_qa_rubric_catalog c where c.module_name='full_qa' order by c.contract_version desc limit 1; v_kind:='unknown_hash'; end if;
+  end if;
+  -- Guard both the reviewed AI and the displayed reference, including first-review catalog changes.
+  v_fingerprint:=private.full_qa_fingerprint(jsonb_build_object('source',v_source,'rubric_reference',v_reference_hash));
+  if v_fingerprint is distinct from p_expected_source_fingerprint then raise exception using errcode='P0001',message='EAVESLY_STALE_FULL_QA_SOURCE'; end if;
   if not private.full_qa_validate_review(v_source,v_manifest,p_corrections,p_findings,p_escalation_justified,
     p_escalation_reason,p_inaccuracy_reason,p_action,p_action_details) then
     raise exception using errcode='P0001',message='EAVESLY_INVALID_FULL_QA_REVIEW'; end if;
@@ -618,7 +625,7 @@ begin
     'source_prompt_sha256',p.source_prompt_sha256,'source_current_criterion',p.source_current_criterion,'proposed_by',p.proposed_by,
     'proposed_at',p.proposed_at,'decision',p.decision,'decided_by',p.decided_by,'decided_at',p.decided_at,'decision_reason',p.decision_reason)
     order by p.proposed_at,p.id),'[]'::jsonb) into v_proposals from public.eavesly_full_qa_rule_proposals p where p.call_id=p_call_id and p.module_name='full_qa';
-  return jsonb_build_object('source_fingerprint',private.full_qa_fingerprint(v_result),'source_result_json',v_result,
+  return jsonb_build_object('source_fingerprint',private.full_qa_fingerprint(jsonb_build_object('source',v_result,'rubric_reference',v_catalog.prompt_sha256)),'source_result_json',v_result,
     'source_prompt_sha256',v_hash,'source_reference_kind',v_kind,'reference_prompt_sha256',v_catalog.prompt_sha256,
     'criteria_reference_kind',case when v_kind='known' then 'exact_evaluation_rubric' when v_kind='legacy_current_reference' then 'current_reference_only' else 'current_field_map_only' end,
     'rubric_prompt_text',case when v_kind='unknown_hash' then null else v_catalog.prompt_text end,

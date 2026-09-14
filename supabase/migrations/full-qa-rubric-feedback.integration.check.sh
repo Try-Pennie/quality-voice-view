@@ -214,7 +214,14 @@ do $$ declare rows jsonb; coached jsonb; after_row jsonb; anchor timestamptz:=cl
  if not exists(select 1 from jsonb_array_elements(rows)x where x->>'call_id'='CALL-MISSING' and x->>'call_started_at' is null and x->>'coaching_timing'='unknown') then raise exception 'missing time was fabricated or hidden'; end if;
 end $$;
 reset role;
--- A later catalog version must not retarget a proposal away from its reviewed reference.
+-- Establish a legacy reference before a new catalog exists.
+select set_config('request.jwt.claims','{"sub":"11111111-1111-1111-1111-111111111111","email":"manager@trypennie.com"}',false);
+set role authenticated;
+select public.submit_full_qa_review('CALL-LEGACY',1,null,fingerprint,corrections,'[]',false,
+ 'This legacy call has no confirmed escalation findings.','other',null,null)
+from review_fixture where call_id='CALL-LEGACY';
+reset role;
+-- A later catalog version must not retarget a proposal or saved review reference.
 insert into public.eavesly_full_qa_rubric_catalog(prompt_sha256,module_name,contract_version,prompt_text,criteria_manifest)
 select encode(extensions.digest(convert_to(prompt_text||E'\nFuture candidate catalog fixture.','UTF8'),'sha256'),'hex'),module_name,2,
   prompt_text||E'\nFuture candidate catalog fixture.',jsonb_set(criteria_manifest,'{0,rule}',to_jsonb('Future rule must not leak into an older review proposal.'::text))
@@ -222,6 +229,20 @@ from public.eavesly_full_qa_rubric_catalog where contract_version=1;
 -- Candidate proposal decision is one-time and never mutates either catalog entry.
 select set_config('request.jwt.claims','{"sub":"11111111-1111-1111-1111-111111111111","email":"manager@trypennie.com"}',false);
 set role authenticated;
+do $$ declare ctx jsonb; r jsonb; corr jsonb; fp text; begin
+ ctx:=public.get_full_qa_review_context('CALL-LEGACY');
+ if ctx->>'reference_prompt_sha256'<>'1396c17a6ae639b1172a1ff5d04ee21b22e4ab5ceb08c5915c090a34da291e37' then raise exception 'legacy displayed reference moved'; end if;
+ r:=public.submit_full_qa_review('CALL-LEGACY',2,null,ctx->>'source_fingerprint',ctx->'review'->'corrections','[]',false,
+  'The legacy review remains tied to the displayed reference.','other',null,null);
+ ctx:=public.get_full_qa_review_context('CALL-LEGACY');
+ if ctx->>'reference_prompt_sha256'<>'1396c17a6ae639b1172a1ff5d04ee21b22e4ab5ceb08c5915c090a34da291e37'
+   or ctx->'review'->>'feedback_revision'<>'3' then raise exception 'legacy edit silently switched its rubric'; end if;
+ -- An unsaved unknown-hash review cannot use a stale field map after the catalog changes.
+ select corrections,fingerprint into corr,fp from review_fixture where call_id='CALL-UNKNOWN';
+ begin perform public.submit_full_qa_review('CALL-UNKNOWN',0,null,fp,corr,'[]',false,
+  'An obsolete reference must require an explicit reload.','other',null,null); raise exception 'TEST_EXPECTED_FAILURE_MISSING';
+ exception when others then if sqlerrm='TEST_EXPECTED_FAILURE_MISSING' or sqlerrm<>'EAVESLY_STALE_FULL_QA_SOURCE' then raise; end if; end;
+end $$;
 create temporary table proposal_cache as select public.propose_full_qa_rule('CALL-COACHED',2,'credit_pull_consent','Require explicit audio-context abstention when consent cannot be heard.','This prevents unavailable audio from becoming a confirmed failure.') result;
 reset role;
 do $$ begin
