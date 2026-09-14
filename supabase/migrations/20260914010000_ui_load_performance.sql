@@ -1,6 +1,6 @@
 -- Bounded Calls/Team reads. All RPCs run as the caller so existing grants and
 -- RLS remain authoritative. The ordered covering index makes each deterministic
--- latest-QA lookup one bounded probe; the default first page performs 26 probes.
+-- latest-QA lookup one bounded probe; the default first page stays page-bounded.
 
 create index if not exists eavesly_transcription_qa_latest_idx
   on public.eavesly_transcription_qa (call_id, created_at desc nulls last, id desc)
@@ -30,7 +30,8 @@ declare
   v_thresholds jsonb;
   v_result jsonb;
 begin
-  if p_start is null or p_end is null or p_start > p_end
+  if p_start is null or p_end is null
+    or not isfinite(p_start) or not isfinite(p_end) or p_start > p_end
     or p_quick_filter is null
     or p_quick_filter not in ('all', 'escalations', 'compliance', 'threshold', 'rushed')
     or p_sort is null
@@ -47,10 +48,16 @@ begin
   end;
   v_direction := case when p_desc then 'desc' else 'asc' end;
   v_order := case p_sort
-    when 'time' then format('c.started_at %s, c.id desc', v_direction)
-    when 'agent' then format(
-      'lower(coalesce(nullif(btrim(c.agent_full_name), ''''), regexp_replace(split_part(coalesce(c.agent_email, ''''), ''@'', 1), ''[._-]+'', '' '', ''g''))) collate "C" %s nulls last, c.started_at desc nulls last, c.id desc',
-      v_direction)
+    when 'time' then format('c.started_at %s nulls last, c.id desc', v_direction)
+    when 'agent' then format($order$
+      lower(case
+        when nullif(btrim(c.agent_full_name), '') is not null then btrim(c.agent_full_name)
+        when nullif(btrim(split_part(coalesce(c.agent_email, ''), '@', 1)), '') is null then 'Unknown'
+        else btrim(regexp_replace(
+          btrim(split_part(c.agent_email, '@', 1)), '[._-]+', ' ', 'g'
+        ))
+      end) collate "C" %s nulls last, c.started_at desc nulls last, c.id desc
+      $order$, v_direction)
     when 'talk' then format(
       'coalesce(c.talk_time, 0) %s, c.started_at desc nulls last, c.id desc',
       v_direction)
@@ -176,7 +183,8 @@ declare
   v_thresholds jsonb;
   v_result jsonb;
 begin
-  if p_start is null or p_end is null or p_start > p_end
+  if p_start is null or p_end is null
+    or not isfinite(p_start) or not isfinite(p_end) or p_start > p_end
     or p_quick_filter is null
     or p_quick_filter not in ('all', 'escalations', 'compliance', 'threshold', 'rushed') then
     raise exception using errcode = 'P0001', message = 'EAVESLY_INVALID_CALLS_QUERY';
@@ -254,8 +262,8 @@ begin
         or overall_score in ('poor', 'needs_improvement')
         or customer_satisfaction_likely = 'low'
       ) as calls_requiring_attention,
-      round(coalesce(sum(coalesce(talk_time, 0))::numeric / nullif(count(*), 0), 0)) as avg_talk_time,
-      round(coalesce(sum(coalesce(handle_time, 0))::numeric / nullif(count(*), 0), 0)) as avg_handle_time,
+      floor(coalesce(sum(coalesce(talk_time, 0))::numeric / nullif(count(*), 0), 0) + 0.5) as avg_talk_time,
+      floor(coalesce(sum(coalesce(handle_time, 0))::numeric / nullif(count(*), 0), 0) + 0.5) as avg_handle_time,
       case when count(qa_id) = 0 then 0 else
         round(100.0 * count(*) filter (where compliance_rating = 'pass') / count(qa_id))
       end as compliance_pass_rate,
@@ -268,7 +276,7 @@ begin
     from windowed
   ), disposition_options as (
     select coalesce(jsonb_agg(disposition order by disposition collate "C"), '[]'::jsonb) as dispositions
-    from (select distinct disposition from windowed where disposition is not null) d
+    from (select distinct disposition from windowed where disposition is not null and disposition <> '') d
   )
   select jsonb_build_object(
     'total_calls', m.total_calls,
@@ -297,7 +305,7 @@ as $$
 declare
   v_result jsonb;
 begin
-  if p_since is null then
+  if p_since is null or not isfinite(p_since) then
     raise exception using errcode = 'P0001', message = 'EAVESLY_INVALID_CALLS_QUERY';
   end if;
 
@@ -338,11 +346,12 @@ declare
   v_god boolean;
   v_result jsonb;
 begin
-  if p_start is null or p_end is null or p_start > p_end then
+  if p_start is null or p_end is null
+    or not isfinite(p_start) or not isfinite(p_end) or p_start > p_end then
     raise exception using errcode = 'P0001', message = 'EAVESLY_INVALID_CALLS_QUERY';
   end if;
 
-  v_caller := lower(coalesce(auth.jwt() ->> 'email', ''));
+  v_caller := coalesce(auth.jwt() ->> 'email', '');
   if v_caller = '' then
     return '[]'::jsonb;
   end if;
@@ -350,19 +359,20 @@ begin
   select exists (
     select 1
     from public.manager_coaching_prompts p
-    where lower(p.manager_email) = v_caller and p.is_god_mode
+    where p.manager_email = v_caller and p.is_god_mode
   ) into v_god;
 
   with authorized as (
     select distinct c.agent_email
     from public.eavesly_calls c
     where v_god
-      and c.agent_email is not null
+      and c.agent_email is not null and c.agent_email <> ''
       and c.started_at >= p_start and c.started_at <= p_end
     union
     select m.agent_email
     from public.agent_manager_mapping m
-    where not v_god and lower(m.manager_email) = v_caller
+    where not v_god and m.manager_email = v_caller
+      and m.agent_email is not null and m.agent_email <> ''
   ), normalized as (
     select
       a.agent_email,

@@ -51,7 +51,9 @@ create table public.eavesly_calls (
   notes text,
   created_at timestamptz not null default now()
 );
-create index eavesly_calls_started_at_idx on public.eavesly_calls (started_at desc, id desc);
+-- Match the deployed index exactly; do not give the benchmark a test-only id key.
+create index idx_eavesly_calls_started_at_desc
+  on public.eavesly_calls (started_at desc nulls last);
 
 create table public.eavesly_transcription_qa (
   id bigint generated always as identity primary key,
@@ -73,7 +75,7 @@ create table public.eavesly_transcription_qa (
 create index eavesly_transcription_qa_call_id_idx on public.eavesly_transcription_qa (call_id);
 
 create table public.agent_manager_mapping (
-  agent_email text primary key,
+  agent_email text,
   manager_email text not null
 );
 create table public.manager_coaching_prompts (
@@ -89,12 +91,11 @@ create policy calls_authenticated_read on public.eavesly_calls
   for select to authenticated using (true);
 create policy qa_authenticated_read on public.eavesly_transcription_qa
   for select to authenticated using (true);
-create policy mapping_own_rows on public.agent_manager_mapping
-  for select to authenticated
-  using (lower(manager_email) = lower(auth.jwt() ->> 'email'));
+create policy mapping_authenticated_read on public.agent_manager_mapping
+  for select to authenticated using (true);
 create policy prompts_own_row on public.manager_coaching_prompts
   for select to authenticated
-  using (lower(manager_email) = lower(auth.jwt() ->> 'email'));
+  using (manager_email = auth.jwt() ->> 'email');
 
 grant select on public.eavesly_calls, public.eavesly_transcription_qa,
   public.agent_manager_mapping, public.manager_coaching_prompts to authenticated;
@@ -104,7 +105,9 @@ revoke all on public.eavesly_calls, public.eavesly_transcription_qa,
 insert into public.agent_manager_mapping(agent_email, manager_email) values
   ('agent-a@example.test', 'manager@example.test'),
   ('agent-zero@example.test', 'manager@example.test'),
-  ('out-agent@example.test', 'other-manager@example.test');
+  ('out-agent@example.test', 'other-manager@example.test'),
+  ('', 'manager@example.test'),
+  (null, 'manager@example.test');
 insert into public.manager_coaching_prompts(manager_email, is_god_mode) values
   ('manager@example.test', false),
   ('other-manager@example.test', false),
@@ -186,6 +189,23 @@ values ('NAME-OLD', 'agent-a@example.test', 'Agent A Old', '2026-01-07 01:00+00'
        ('NAME-NEW', 'agent-a@example.test', 'Agent A New', '2026-01-07 02:00+00'),
        ('NAME-NULL', 'agent-a@example.test', null, '2026-01-07 03:00+00'),
        ('ONLY-NULL', 'null-name@example.test', null, '2026-01-07 04:00+00');
+
+-- JS Math.round differs from PostgreSQL round for negative halves. Empty
+-- dispositions are falsey in the legacy browser filter and are not options.
+insert into public.eavesly_calls(
+  call_id, agent_email, started_at, disposition, talk_time, handle_time
+) values
+  ('NEG-1', 'agent-a@example.test', '2026-01-08 01:00+00', 'Named', -1, -3),
+  ('NEG-2', 'agent-a@example.test', '2026-01-08 02:00+00', '', null, null);
+
+-- Agent sorting uses the rendered fallback, including separator collapse and
+-- Unknown when no trimmed email local-part exists.
+insert into public.eavesly_calls(call_id, agent_email, agent_full_name, started_at)
+values
+  ('AG-ALICE', 'other@example.test', ' Alice ', '2026-01-09 01:00+00'),
+  ('AG-BOB', 'bob__jones@example.test', null, '2026-01-09 02:00+00'),
+  ('AG-UNKNOWN', null, null, '2026-01-09 03:00+00'),
+  ('AG-EMPTY', '', null, '2026-01-09 04:00+00');
 SQL
   cat "$migration"
   cat <<'SQL'
@@ -353,14 +373,34 @@ begin
   end if;
 end $$;
 
+do $$
+declare r jsonb; s jsonb;
+begin
+  r := public.eavesly_calls_page(
+    '2026-01-09+00', '2026-01-09 23:59:59+00', array[]::text[], array[]::text[],
+    'all', '{}'::jsonb, 'agent', false, 0, 25);
+  if (select array_agg(x->>'call_id' order by ord)
+      from jsonb_array_elements(r->'rows') with ordinality t(x, ord))
+      <> array['AG-ALICE','AG-BOB','AG-EMPTY','AG-UNKNOWN'] then
+    raise exception 'agent display-name fallback sort failed: %', r;
+  end if;
+
+  s := public.eavesly_calls_summary(
+    '2026-01-08+00', '2026-01-08 23:59:59+00', array[]::text[], array[]::text[],
+    'all', '{}'::jsonb);
+  if (s->>'avg_talk_time')::int <> 0
+    or (s->>'avg_handle_time')::int <> -1
+    or s->'dispositions' <> '["Named"]'::jsonb then
+    raise exception 'JS negative-half rounding or empty disposition parity failed: %', s;
+  end if;
+end $$;
+
 -- The invoker reads calls through authenticated RLS, but Team scope is narrower.
 do $$
 declare r jsonb;
 begin
   if (select count(*) from public.eavesly_calls) < 1020
-    or (select count(*) from public.agent_manager_mapping) <> 2
-    or exists (select 1 from public.agent_manager_mapping
-               where manager_email = 'other-manager@example.test') then
+    or (select count(*) from public.agent_manager_mapping) <> 5 then
     raise exception 'authenticated calls or manager-directory RLS changed';
   end if;
   r := public.eavesly_team_pitch_risk('2026-01-06+00', '2026-01-06 23:59:59+00');
@@ -374,6 +414,27 @@ begin
     or exists (select 1 from jsonb_array_elements(r) x
         where x->>'agent_email' = 'out-agent@example.test') then
     raise exception 'manager pitch scope/counts failed: %', r;
+  end if;
+end $$;
+reset role;
+
+-- JWT and mapping email comparisons are exact, matching fetchUserScope.
+select set_config('request.jwt.claims', '{"email":"Manager@example.test"}', false);
+set role authenticated;
+do $$
+begin
+  if public.eavesly_team_pitch_risk('2026-01-06+00', '2026-01-06 23:59:59+00') <> '[]'::jsonb then
+    raise exception 'case-mismatched manager JWT broadened Team scope';
+  end if;
+end $$;
+reset role;
+
+select set_config('request.jwt.claims', '{}', false);
+set role authenticated;
+do $$
+begin
+  if public.eavesly_team_pitch_risk('2026-01-06+00', '2026-01-06 23:59:59+00') <> '[]'::jsonb then
+    raise exception 'missing-email JWT received Team scope';
   end if;
 end $$;
 reset role;
@@ -415,6 +476,46 @@ begin
   begin
     perform public.eavesly_calls_page(
       '2026-01-01+00', '2026-01-08+00', null, null, 'all', null, 'not-a-sort', true, 0, 25);
+    raise exception 'TEST_EXPECTED_FAILURE_MISSING';
+  exception when others then
+    if sqlerrm = 'TEST_EXPECTED_FAILURE_MISSING' or sqlerrm <> 'EAVESLY_INVALID_CALLS_QUERY' then raise; end if;
+  end;
+  begin
+    perform public.eavesly_calls_page(
+      '2026-01-01+00', '2026-01-08+00', null, null, 'all', null, 'time', true, -1, 25);
+    raise exception 'TEST_EXPECTED_FAILURE_MISSING';
+  exception when others then
+    if sqlerrm = 'TEST_EXPECTED_FAILURE_MISSING' or sqlerrm <> 'EAVESLY_INVALID_CALLS_QUERY' then raise; end if;
+  end;
+  begin
+    perform public.eavesly_calls_page(
+      '2026-01-01+00', '2026-01-08+00', null, null, 'all', null, 'time', true, 0, -1);
+    raise exception 'TEST_EXPECTED_FAILURE_MISSING';
+  exception when others then
+    if sqlerrm = 'TEST_EXPECTED_FAILURE_MISSING' or sqlerrm <> 'EAVESLY_INVALID_CALLS_QUERY' then raise; end if;
+  end;
+  begin
+    perform public.eavesly_calls_page(
+      '-infinity', 'infinity', null, null, 'all', null, 'time', true, 0, 25);
+    raise exception 'TEST_EXPECTED_FAILURE_MISSING';
+  exception when others then
+    if sqlerrm = 'TEST_EXPECTED_FAILURE_MISSING' or sqlerrm <> 'EAVESLY_INVALID_CALLS_QUERY' then raise; end if;
+  end;
+  begin
+    perform public.eavesly_calls_summary(
+      '-infinity', 'infinity', null, null, 'all', null);
+    raise exception 'TEST_EXPECTED_FAILURE_MISSING';
+  exception when others then
+    if sqlerrm = 'TEST_EXPECTED_FAILURE_MISSING' or sqlerrm <> 'EAVESLY_INVALID_CALLS_QUERY' then raise; end if;
+  end;
+  begin
+    perform public.eavesly_active_call_agents('-infinity');
+    raise exception 'TEST_EXPECTED_FAILURE_MISSING';
+  exception when others then
+    if sqlerrm = 'TEST_EXPECTED_FAILURE_MISSING' or sqlerrm <> 'EAVESLY_INVALID_CALLS_QUERY' then raise; end if;
+  end;
+  begin
+    perform public.eavesly_team_pitch_risk('-infinity', 'infinity');
     raise exception 'TEST_EXPECTED_FAILURE_MISSING';
   exception when others then
     if sqlerrm = 'TEST_EXPECTED_FAILURE_MISSING' or sqlerrm <> 'EAVESLY_INVALID_CALLS_QUERY' then raise; end if;
@@ -493,13 +594,14 @@ set role authenticated;
 \o /dev/null
 $page_sql;
 SQL
-if ! grep -q 'eavesly_transcription_qa_latest_idx' "$tmp/page-plan" \
-  || ! grep -Eq 'eavesly_transcription_qa_latest_idx.*loops=(2[56])' "$tmp/page-plan"; then
+if ! grep -q 'idx_eavesly_calls_started_at_desc' "$tmp/page-plan" \
+  || ! grep -q 'eavesly_transcription_qa_latest_idx' "$tmp/page-plan" \
+  || ! grep -Eq 'eavesly_transcription_qa_latest_idx.*loops=(2[5-9]|30)' "$tmp/page-plan"; then
   cat "$tmp/page-plan" >&2
   echo 'default page plan did not use bounded latest-QA index lookups' >&2
   exit 1
 fi
-grep -E 'eavesly_calls_started_at_idx|eavesly_transcription_qa_latest_idx' "$tmp/page-plan" | head -4
+grep -E 'idx_eavesly_calls_started_at_desc|eavesly_transcription_qa_latest_idx' "$tmp/page-plan" | head -4
 
 printf '%s\n' 'synthetic PostgreSQL 17 benchmark (70k calls; not production latency)'
 benchmark page "$page_sql"
