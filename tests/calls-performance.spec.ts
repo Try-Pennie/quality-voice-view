@@ -171,7 +171,8 @@ test('Next, call detail, and Back restore exact page, sort, filters, and scroll 
   await expect.poll(() => page.evaluate(() => window.scrollY)).toBeGreaterThanOrEqual(scrollBefore - 2)
 })
 
-test('filter loading keeps honest summary, table, and pagination geometry without old rows', async ({ page }) => {
+test('filter and uncached-page loading keep honest, stable results geometry without old rows', async ({ page }) => {
+  test.setTimeout(60_000)
   const { state } = await fixture(page)
   await page.goto(url)
   await expect(page.getByText('Showing 1–25 of 65')).toBeVisible()
@@ -194,6 +195,34 @@ test('filter loading keeps honest summary, table, and pagination geometry withou
     summaryLoad.release()
   }
   await expect(visibleRows(page)).toHaveCount(1)
+
+  for (const width of [1280, 375]) {
+    await page.setViewportSize({ width, height: 844 })
+    await page.goto(url)
+    const results = page.getByRole('region', { name: 'Calls results' })
+    await expect(page.getByText('Showing 1–25 of 65')).toBeVisible()
+    const next = results.getByRole('button', { name: 'Next', exact: true })
+    const loadedResults = await results.boundingBox()
+    const loadedNext = await next.boundingBox()
+    expect(loadedResults).not.toBeNull()
+    expect(loadedNext).not.toBeNull()
+
+    const nextPage = gate()
+    state.pageGate = nextPage.promise
+    try {
+      // DOM activation exercises the real button without hover/focus intent
+      // warming the exact page that this pending-state regression needs.
+      await next.evaluate((button: HTMLButtonElement) => button.click())
+      await expect(results.getByRole('status')).toHaveText('Loading calls…')
+      const pendingResults = await results.boundingBox()
+      const pendingNext = await results.getByRole('button', { name: 'Next', exact: true }).boundingBox()
+      expect(pendingResults?.height).toBeGreaterThanOrEqual((loadedResults?.height ?? 0) - 1)
+      expect(pendingNext?.y).toBeGreaterThanOrEqual((loadedNext?.y ?? 0) - 1)
+    } finally {
+      nextPage.release()
+    }
+    await expect(page.getByText('Showing 26–50 of 65')).toBeVisible()
+  }
 })
 
 test('returning to a previous filter still resets to page one', async ({ page }) => {

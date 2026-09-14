@@ -190,11 +190,52 @@ export default function DashboardPage() {
   const refreshing = pageQuery.isFetching && !loading
   const paginatedCalls = pageQuery.data?.rows ?? []
   const summary = summaryQuery.data
+  const resultsSectionRef = useRef<HTMLElement>(null)
+  const resultsBodyRef = useRef<HTMLDivElement>(null)
+  const lastResultsGeometry = useRef<{
+    viewportWidth: number
+    bodyHeight: number
+    sectionHeight: number
+  } | null>(null)
+  const restoredHistoryKey = useRef<string | null>(null)
   useLayoutEffect(() => {
     if (!pageQuery.data || pageQuery.data.rows.length === 0) return
+    if (restoredHistoryKey.current === location.key) return
     const scrollY = callsScrollFor(location.key)
-    if (scrollY !== undefined) window.scrollTo(0, scrollY)
+    if (scrollY === undefined) return
+    restoredHistoryKey.current = location.key
+    window.scrollTo(0, scrollY)
   }, [location.key, pageQuery.data])
+  useLayoutEffect(() => {
+    if (
+      loading ||
+      isError ||
+      !pageQuery.data ||
+      !resultsBodyRef.current ||
+      !resultsSectionRef.current
+    ) return
+    const bodyHeight = resultsBodyRef.current.getBoundingClientRect().height
+    const sectionHeight = resultsSectionRef.current.getBoundingClientRect().height
+    if (bodyHeight > 0 && sectionHeight > 0) {
+      lastResultsGeometry.current = {
+        viewportWidth: window.innerWidth,
+        bodyHeight,
+        sectionHeight,
+      }
+    }
+  }, [loading, isError, pageQuery.data])
+  const previousResultsGeometry = lastResultsGeometry.current
+  const sameResultsViewport =
+    previousResultsGeometry?.viewportWidth === window.innerWidth
+  const pendingResultsBodyMinHeight = loading
+    ? sameResultsViewport
+      ? previousResultsGeometry?.bodyHeight
+      : '50vh'
+    : undefined
+  const pendingResultsSectionMinHeight =
+    loading && sameResultsViewport
+      ? previousResultsGeometry?.sectionHeight
+      : undefined
   const availableDispositions = summary?.dispositions ?? []
   const isFiltered = selectedDispositions.length > 0 || quickFilter !== 'all'
   const activeFilterCount =
@@ -501,10 +542,13 @@ export default function DashboardPage() {
           card list with the most-scannable fields. Both views drive the same
           navigation handler so keyboard / click semantics match. */}
       <section
+        ref={resultsSectionRef}
         aria-label="Calls results"
         aria-busy={loading}
+        style={{ minHeight: pendingResultsSectionMinHeight }}
         className="min-w-0 max-w-full bg-pennie-white rounded-3xl shadow-resting overflow-hidden"
       >
+        <div ref={resultsBodyRef} style={{ minHeight: pendingResultsBodyMinHeight }}>
         {/* Mobile card list */}
         <ul className="lg:hidden divide-y divide-border/60">
           {loading
@@ -777,10 +821,11 @@ export default function DashboardPage() {
             </tbody>
           </table>
         </div>
+        </div>
 
         {/* Pagination remains present while rows change so pending data is
             never presented as a genuine zero-result page. */}
-        <div className="bg-pennie-beige/40 px-4 sm:px-6 py-3 sm:py-4 flex min-h-[68px] flex-wrap items-center justify-between gap-3 border-t border-border">
+        <div className="flex min-h-[68px] flex-col items-stretch justify-between gap-3 border-t border-border bg-pennie-beige/40 px-4 py-3 sm:flex-row sm:flex-wrap sm:items-center sm:px-6 sm:py-4">
           {loading ? (
             <p role="status" className="text-sm text-muted-foreground">Loading calls…</p>
           ) : isError ? (
@@ -792,7 +837,7 @@ export default function DashboardPage() {
               {summary ? ` of ${summary.total_calls}` : ' · total pending'}
             </p>
           )}
-          <div className="flex gap-2">
+          <div className="flex justify-end gap-2">
             <button
               type="button"
               onClick={() => setCurrentPage(Math.max(1, currentPage - 1))}
