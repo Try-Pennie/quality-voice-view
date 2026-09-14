@@ -15,17 +15,23 @@
   Default accent is Blue. Other families (green/yellow/peach/indigo) are
   reserved for encoding meaning (status, severity).
 
-  PP Mori is the brand font. Font files are not bundled in this repo, so we
-  fall back to Inter per the brand guide. To enable PP Mori, drop woff2 files
-  into /public/fonts/ and uncomment the @font-face blocks below.
+  PP Mori is the brand font. Inter is the bundled brand-guide fallback so the
+  interface does not depend on a third-party font request at runtime.
 */
 
-/*
-@font-face { font-family: 'PPMori'; src: url('/fonts/pp-mori-medium.woff2') format('woff2'); font-weight: 500; font-display: swap; }
-@font-face { font-family: 'PPMori'; src: url('/fonts/pp-mori-semibold.woff2') format('woff2'); font-weight: 600; font-display: swap; }
-@font-face { font-family: 'PPMori'; src: url('/fonts/pp-mori-bold.woff2') format('woff2'); font-weight: 700; font-display: swap; }
-@font-face { font-family: 'PPMori'; src: url('/fonts/pp-mori-extrabold.woff2') format('woff2'); font-weight: 800; font-display: swap; }
-*/
+/* Inter Latin variable subset distributed by Google Fonts under SIL OFL 1.1.
+   Source: https://fonts.gstatic.com/s/inter/v20/UcCo3FwrK3iLTcviYwY.woff2
+   License: /public/fonts/LICENSE-Inter.txt */
+@font-face {
+  font-family: 'Inter';
+  src: url('/fonts/InterVariable.woff2') format('woff2');
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC,
+    U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F,
+    U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
 
 @layer base {
   :root {
@@ -74,10 +80,12 @@
     --pennie-green-light: #F0F9F1;
     --pennie-green-main: #86E7B3;
     --pennie-green-dark: #55CF90;
+    --pennie-green-deeper: #25734A;
 
     --pennie-yellow-light: #FFF7E7;
     --pennie-yellow-main: #FFD073;
     --pennie-yellow-dark: #D69938;
+    --pennie-yellow-deeper: #855A12;
 
     --pennie-peach-light: #FFF5F2;
     --pennie-peach-main: #FF966F;
@@ -185,13 +193,10 @@
   }
 }
 
-/* Honor reduced-motion preferences. The Pennie entry animation and the
-   chevron-slide hover both add perceived latency for managers clearing the
-   queue on a slow connection or with motion-sensitivity preferences set.
-   Drawer/dialog open transitions are short enough to keep — Radix primitives
-   already gate them appropriately. */
+/* Honor reduced-motion preferences. The chevron-slide hover adds needless
+   movement for motion-sensitive users. Drawer/dialog open transitions are
+   short enough to keep — Radix primitives already gate them appropriately. */
 @media (prefers-reduced-motion: reduce) {
-  .animate-pennie-rise,
   .animate-accordion-down,
   .animate-accordion-up {
     animation: none !important;

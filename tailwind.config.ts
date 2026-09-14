@@ -1,4 +1,5 @@
 import type { Config } from "tailwindcss";
+import tailwindcssAnimate from "tailwindcss-animate";
 
 export default {
   content: ["./pages/**/*.{ts,tsx}", "./components/**/*.{ts,tsx}", "./app/**/*.{ts,tsx}", "./src/**/*.{ts,tsx}"],
@@ -65,9 +66,13 @@ export default {
           "green-light": "#F0F9F1",
           "green-main": "#86E7B3",
           "green-dark": "#55CF90",
+          // Readable green text on green-light; keep green-dark for fills/icons.
+          "green-deeper": "#25734A",
           "yellow-light": "#FFF7E7",
           "yellow-main": "#FFD073",
           "yellow-dark": "#D69938",
+          // Readable yellow text on yellow-light; keep yellow-dark for fills/icons.
+          "yellow-deeper": "#855A12",
           "peach-light": "#FFF5F2",
           "peach-main": "#FF966F",
           "peach-dark": "#E7704C",
@@ -114,17 +119,12 @@ export default {
           from: { height: "var(--radix-accordion-content-height)" },
           to: { height: "0" },
         },
-        "pennie-rise": {
-          from: { transform: "translateY(20px)", opacity: "0" },
-          to: { transform: "translateY(0)", opacity: "1" },
-        },
       },
       animation: {
         "accordion-down": "accordion-down 0.2s ease-out",
         "accordion-up": "accordion-up 0.2s ease-out",
-        "pennie-rise": "pennie-rise 0.6s cubic-bezier(0.16, 1, 0.3, 1) both",
       },
     },
   },
-  plugins: [require("tailwindcss-animate")],
+  plugins: [tailwindcssAnimate],
 } satisfies Config;

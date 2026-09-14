@@ -1,0 +1,152 @@
+import { expect, test } from '@playwright/test'
+import { reviewFixture } from './review-fixture'
+
+function deferred() {
+  let release = () => {}
+  const promise = new Promise<void>(resolve => {
+    release = resolve
+  })
+  return { promise, release }
+}
+
+test('route loading keeps dashboard navigation usable', async ({ page }) => {
+  await reviewFixture(page, [])
+  await page.goto('/dashboard?start=2026-08-09&end=2026-09-07')
+
+  const helpChunk = deferred()
+  await page.route('**/src/pages/HelpPage.tsx*', async route => {
+    await helpChunk.promise
+    await route.continue()
+  })
+
+  await page.getByRole('link', { name: 'Open glossary' }).click()
+  await expect(page.getByRole('status', { name: 'Loading page' })).toBeVisible()
+  await expect(page.getByRole('link', { name: 'Eavesly' })).toBeVisible()
+
+  helpChunk.release()
+  await expect(page.getByRole('heading', { name: 'What everything means' })).toBeVisible()
+})
+
+test('a failed route chunk offers an explicit reload without hiding navigation', async ({ page }) => {
+  await reviewFixture(page, [])
+  await page.goto('/dashboard?start=2026-08-09&end=2026-09-07')
+  await page.route('**/src/pages/TeamPage.tsx*', route => route.abort(), {
+    times: 1,
+  })
+
+  await page.getByRole('link', { name: 'Team', exact: true }).click()
+  await expect(page.getByRole('heading', { name: "This page didn't load" })).toBeVisible()
+  await expect(page.getByRole('link', { name: 'Eavesly' })).toBeVisible()
+
+  await page.getByRole('button', { name: 'Reload page' }).click()
+  await expect(page.getByText('AI-evaluated calls', { exact: true })).toBeVisible()
+})
+
+test('public routes stay public and dashboard routes stay protected', async ({ page }) => {
+  await page.goto('/dashboard')
+  await expect(page).toHaveURL(/\/login$/)
+  await expect(page.getByRole('button', { name: 'Continue with Google' })).toBeVisible()
+
+  await page.goto('/achieve')
+  await expect(page).toHaveURL(/\/achieve$/)
+  await expect(page.getByRole('heading', { name: 'Achieve welcome-call review' })).toBeVisible()
+
+  await reviewFixture(page, [])
+  await page.goto('/dashboard?start=2026-08-09&end=2026-09-07')
+  await expect(page.getByRole('link', { name: 'Calls', exact: true })).toHaveAttribute('aria-current', 'page')
+})
+
+test('pages render immediately while control and reduced-motion behavior remain useful', async ({ page }) => {
+  await page.goto('/login')
+  const panel = page.locator('main > div')
+  const signIn = page.getByRole('button', { name: 'Continue with Google' })
+
+  expect(await panel.evaluate(element => getComputedStyle(element).animationName)).toBe('none')
+  expect(await signIn.evaluate(element => parseFloat(getComputedStyle(element).transitionDuration))).toBeGreaterThan(0)
+
+  await page.emulateMedia({ reducedMotion: 'reduce' })
+  expect(await signIn.evaluate(element => parseFloat(getComputedStyle(element).transitionDuration))).toBeLessThanOrEqual(0.00001)
+})
+
+test('green and yellow status badges meet normal-text AA contrast', async ({ page }) => {
+  await reviewFixture(page, [])
+  await page.route('**/rest/v1/rpc/eavesly_*', route => {
+    const name = new URL(route.request().url()).pathname.split('/').pop()
+    if (name === 'eavesly_calls_page') {
+      return route.fulfill({
+        json: {
+          has_more: false,
+          rows: ['good', 'fair'].map((score, index) => ({
+            id: index + 1,
+            call_id: `contrast-${index}`,
+            started_at: '2026-09-04T16:00:00Z',
+            agent_email: 'agent@example.test',
+            agent_full_name: 'Agent Contrast',
+            contact_phone: null,
+            talk_time: 300,
+            handle_time: null,
+            disposition: 'Cal.com Meeting',
+            campaign_name: null,
+            qa: {
+              call_id: `contrast-${index}`,
+              overall_score: score,
+              compliance_rating: 'pass',
+              customer_satisfaction_likely: 'high',
+              manager_escalation: false,
+            },
+          })),
+        },
+      })
+    }
+    if (name === 'eavesly_calls_summary') {
+      return route.fulfill({
+        json: {
+          total_calls: 2,
+          window_calls: 2,
+          calls_requiring_attention: 0,
+          avg_talk_time: 300,
+          avg_handle_time: 0,
+          compliance_pass_rate: 100,
+          high_sat_rate: 100,
+          dispositions: ['Cal.com Meeting'],
+        },
+      })
+    }
+    return route.fulfill({ json: [] })
+  })
+  await page.goto('/dashboard?start=2026-08-09&end=2026-09-07')
+
+  for (const label of ['fair', 'good']) {
+    const ratio = await page.locator('.pennie-pill', { hasText: label }).first().evaluate(element => {
+      const parseRgb = (value: string) => value.match(/\d+(?:\.\d+)?/g)?.slice(0, 3).map(Number) ?? []
+      const luminance = (value: string) => {
+        const [red = 0, green = 0, blue = 0] = parseRgb(value)
+        const linear = [red, green, blue].map(channel => {
+          const normalized = channel / 255
+          return normalized <= 0.04045
+            ? normalized / 12.92
+            : ((normalized + 0.055) / 1.055) ** 2.4
+        })
+        return 0.2126 * linear[0] + 0.7152 * linear[1] + 0.0722 * linear[2]
+      }
+      const style = getComputedStyle(element)
+      const foreground = luminance(style.color)
+      const background = luminance(style.backgroundColor)
+      return (Math.max(foreground, background) + 0.05) / (Math.min(foreground, background) + 0.05)
+    })
+    expect(ratio, label).toBeGreaterThanOrEqual(4.5)
+  }
+})
+
+test('the licensed Inter fallback is served locally and usable', async ({ page }) => {
+  const fontResponse = page.waitForResponse(response =>
+    response.url().endsWith('/fonts/InterVariable.woff2'),
+  )
+  await page.goto('/login')
+
+  expect((await fontResponse).status()).toBe(200)
+  expect(await page.evaluate(async () => {
+    await document.fonts.load('500 16px Inter')
+    return document.fonts.check('500 16px Inter')
+  })).toBe(true)
+})
