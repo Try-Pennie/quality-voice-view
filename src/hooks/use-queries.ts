@@ -18,13 +18,17 @@ import {
   fetchAgentManagerMapping,
   fetchAgentManagerMappingAt,
   fetchManagerNames,
-  fetchPitchRiskCounts,
 } from '../lib/team-queries'
+import { fetchCallDetail } from '../lib/queries'
 import {
-  fetchDashboardData,
-  fetchUniqueAgents,
-  fetchCallDetail,
-} from '../lib/queries'
+  fetchCallsPage,
+  fetchCallsSummary,
+  fetchActiveCallAgents,
+  fetchTeamPitchRisk,
+  callsQueryValue,
+  type CallsFilters,
+  type CallsSort,
+} from '../lib/calls-queries'
 import { fetchRecentNotifications } from '../lib/notification-queries'
 import { fetchGotaEvaluations } from '../lib/gota-queries'
 import {
@@ -139,7 +143,7 @@ export function usePitchRiskCounts(
       dateKey(startDate),
       dateKey(endDate),
     ],
-    queryFn: () => fetchPitchRiskCounts(scope!, startDate, endDate),
+    queryFn: async ({ signal }) => callsQueryValue(await fetchTeamPitchRisk(startDate, endDate, { signal })),
     enabled: !!scope,
     placeholderData: keepPreviousData,
   })
@@ -296,28 +300,37 @@ export function useInsightsReport(
   })
 }
 
-export function useDashboardData(
-  startDate: Date,
-  endDate: Date,
-  selectedAgents: string[],
-) {
+/** Filters are the server query identity; page and summary never reuse different-filter rows. */
+function callsFiltersKey(filters: CallsFilters) {
+  return { ...filters, startDate: dateKey(filters.startDate), endDate: dateKey(filters.endDate),
+    agents: [...filters.agents].sort(), dispositions: [...filters.dispositions].sort() }
+}
+
+/** The first usable page does not wait for whole-window KPIs. */
+export function useCallsPage(filters: CallsFilters, sort: CallsSort, page: number) {
   return useQuery({
-    queryKey: [
-      'dashboardData',
-      dateKey(startDate),
-      dateKey(endDate),
-      [...selectedAgents].sort(),
-    ],
-    queryFn: () => fetchDashboardData(startDate, endDate, selectedAgents),
-    placeholderData: keepPreviousData,
+    queryKey: ['callsPage', callsFiltersKey(filters), sort, page],
+    queryFn: async ({ signal }) => callsQueryValue(await fetchCallsPage(filters, sort, (page - 1) * 25, 25, { signal })),
   })
 }
 
+/** Counts/options load independently; changing pages or sort does not recompute them. */
+export function useCallsSummary(filters: CallsFilters) {
+  return useQuery({
+    queryKey: ['callsSummary', callsFiltersKey(filters)],
+    queryFn: async ({ signal }) => callsQueryValue(await fetchCallsSummary(filters, { signal })),
+  })
+}
+
+/** Small active-agent result, cached for five minutes like the previous dropdown. */
 export function useUniqueAgents() {
   return useQuery({
     queryKey: ['uniqueAgents'],
-    queryFn: fetchUniqueAgents,
-    // Active-agents list is built off the last 30 days — refresh sparingly.
+    queryFn: async ({ signal }) => {
+      const since = new Date()
+      since.setDate(since.getDate() - 30)
+      return callsQueryValue(await fetchActiveCallAgents(since, { signal }))
+    },
     staleTime: 5 * 60_000,
   })
 }

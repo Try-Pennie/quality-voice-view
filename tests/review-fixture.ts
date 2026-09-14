@@ -66,6 +66,9 @@ export async function reviewFixture(page: Page, rows: AlertWithFeedback[], optio
     if (table === 'agent_directory') {
       return respond(Object.entries(options.managerNames ?? {}).map(([agent_email, agent_full_name]) => ({ agent_email, agent_full_name })))
     }
+    if (table === 'eavesly_calls_page') return respond({ rows: [], has_more: false })
+    if (table === 'eavesly_calls_summary') return respond({ total_calls: 0, window_calls: 0, calls_requiring_attention: 0, avg_talk_time: 0, avg_handle_time: 0, compliance_pass_rate: 0, high_sat_rate: 0, dispositions: [] })
+    if (table === 'eavesly_active_call_agents' || table === 'eavesly_team_pitch_risk') return respond([])
     if (table === 'team_daily_metrics') return respond(options.dailyMetrics ?? [])
     if (table === 'agent_daily_metrics') {
       const email = url.searchParams.get('p_agent_email')?.replace(/^eq\./, '')
