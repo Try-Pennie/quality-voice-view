@@ -421,7 +421,7 @@ export default function CallDetailPage() {
 
           {qaData.call_overview.manager_review_required && (
             <div className="bg-pennie-yellow-light/60 border border-pennie-yellow-main/50 rounded-2xl p-4 mt-4">
-              <p className="font-semibold text-pennie-yellow-dark flex items-center gap-2 text-sm">
+              <p className="font-semibold text-pennie-yellow-deeper flex items-center gap-2 text-sm">
                 <AlertTriangle className="w-4 h-4" aria-hidden="true" />
                 Manager review required
               </p>

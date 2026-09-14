@@ -1,0 +1,124 @@
+{
+  "commit": "588421d41f80bc7e2f227c946398a308b4d05f20",
+  "harnessCommit": "329baa8b4396ee0546910a2ceac3e97c67029482",
+  "dirtyTree": false,
+  "scenario": "Production Vite preview; 5 fresh Chromium contexts; 4x CPU; 10 Mbit/s download, 40ms transport latency; synthetic API responses delayed 180ms; no live data.",
+  "limitations": "HTTP routing disables browser HTTP cache. Back uses the app query cache. Timings include browser automation wait/action overhead, and first-rows is observed DOM plus two animation frames, not field RUM. Wire bytes include response headers and preview-server compression, not Cloudflare CDN delivery. No production backend timing or authenticated production session is implied.",
+  "samples": [
+    {
+      "firstRowsMs": 3121,
+      "settledRowsMs": 3219,
+      "filterMs": 585,
+      "nextMs": 861,
+      "backMs": 1367,
+      "restoredPage": false,
+      "scriptDurationMs": 809.907,
+      "initialResources": [
+        {
+          "path": "/assets/index-DGK0B3y5.css",
+          "decodedBytes": 91131,
+          "transferredBytes": 15681,
+          "contentEncoding": "gzip"
+        },
+        {
+          "path": "/assets/index-B6oEaALq.js",
+          "decodedBytes": 1670416,
+          "transferredBytes": 460566,
+          "contentEncoding": "gzip"
+        }
+      ]
+    },
+    {
+      "firstRowsMs": 3140,
+      "settledRowsMs": 3233,
+      "filterMs": 770,
+      "nextMs": 682,
+      "backMs": 1369,
+      "restoredPage": false,
+      "scriptDurationMs": 667.327,
+      "initialResources": [
+        {
+          "path": "/assets/index-DGK0B3y5.css",
+          "decodedBytes": 91131,
+          "transferredBytes": 15681,
+          "contentEncoding": "gzip"
+        },
+        {
+          "path": "/assets/index-B6oEaALq.js",
+          "decodedBytes": 1670416,
+          "transferredBytes": 460566,
+          "contentEncoding": "gzip"
+        }
+      ]
+    },
+    {
+      "firstRowsMs": 3056,
+      "settledRowsMs": 3168,
+      "filterMs": 647,
+      "nextMs": 649,
+      "backMs": 1388,
+      "restoredPage": false,
+      "scriptDurationMs": 799.485,
+      "initialResources": [
+        {
+          "path": "/assets/index-DGK0B3y5.css",
+          "decodedBytes": 91131,
+          "transferredBytes": 15681,
+          "contentEncoding": "gzip"
+        },
+        {
+          "path": "/assets/index-B6oEaALq.js",
+          "decodedBytes": 1670416,
+          "transferredBytes": 460566,
+          "contentEncoding": "gzip"
+        }
+      ]
+    },
+    {
+      "firstRowsMs": 3216,
+      "settledRowsMs": 3313,
+      "filterMs": 588,
+      "nextMs": 850,
+      "backMs": 1425,
+      "restoredPage": false,
+      "scriptDurationMs": 596.4209999999999,
+      "initialResources": [
+        {
+          "path": "/assets/index-DGK0B3y5.css",
+          "decodedBytes": 91131,
+          "transferredBytes": 15681,
+          "contentEncoding": "gzip"
+        },
+        {
+          "path": "/assets/index-B6oEaALq.js",
+          "decodedBytes": 1670416,
+          "transferredBytes": 460566,
+          "contentEncoding": "gzip"
+        }
+      ]
+    },
+    {
+      "firstRowsMs": 3184,
+      "settledRowsMs": 3281,
+      "filterMs": 660,
+      "nextMs": 605,
+      "backMs": 1301,
+      "restoredPage": false,
+      "scriptDurationMs": 804.451,
+      "initialResources": [
+        {
+          "path": "/assets/index-DGK0B3y5.css",
+          "decodedBytes": 91131,
+          "transferredBytes": 15681,
+          "contentEncoding": "gzip"
+        },
+        {
+          "path": "/assets/index-B6oEaALq.js",
+          "decodedBytes": 1670416,
+          "transferredBytes": 460566,
+          "contentEncoding": "gzip"
+        }
+      ]
+    }
+  ]
+}

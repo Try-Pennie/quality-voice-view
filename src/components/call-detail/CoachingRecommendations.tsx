@@ -37,7 +37,7 @@ export function CoachingRecommendations({ data }: { data: any }) {
         <div className="px-6 sm:px-8 pb-6 sm:pb-8 space-y-4">
           {data.strengths?.length > 0 && (
             <div>
-              <p className="font-semibold text-pennie-green-dark mb-2 flex items-center gap-2 text-sm">
+              <p className="font-semibold text-pennie-green-deeper mb-2 flex items-center gap-2 text-sm">
                 <CheckCircle2 className="w-4 h-4" aria-hidden="true" /> Strengths
               </p>
               <ul className="list-disc list-inside space-y-1 text-sm text-pennie-graphite bg-pennie-green-light/60 border border-pennie-green-light rounded-2xl p-4">
@@ -50,7 +50,7 @@ export function CoachingRecommendations({ data }: { data: any }) {
 
           {data.areas_for_improvement?.length > 0 && (
             <div>
-              <p className="font-semibold text-pennie-yellow-dark mb-2 flex items-center gap-2 text-sm">
+              <p className="font-semibold text-pennie-yellow-deeper mb-2 flex items-center gap-2 text-sm">
                 <AlertTriangle className="w-4 h-4" aria-hidden="true" /> Areas for improvement
               </p>
               <ul className="list-disc list-inside space-y-1 text-sm text-pennie-graphite bg-pennie-yellow-light/60 border border-pennie-yellow-main/40 rounded-2xl p-4">

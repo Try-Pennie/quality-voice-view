@@ -1268,7 +1268,7 @@ function ManagerReviewSummary({
     accurate === true ? 'Real issue' : accurate === false ? 'False alarm' : 'Reviewed'
   const verdictTone =
     accurate === true
-      ? 'bg-pennie-green-light text-pennie-green-dark'
+      ? 'bg-pennie-green-light text-pennie-green-deeper'
       : accurate === false
         ? 'bg-pennie-peach-light text-pennie-peach-deeper'
         : 'bg-pennie-beige text-pennie-graphite'
@@ -1666,7 +1666,7 @@ function MessageItem({
             <span
               className={`text-[10px] uppercase tracking-wider px-1.5 py-0.5 rounded-full font-bold ${
                 acknowledged
-                  ? 'bg-pennie-green-light text-pennie-green-dark'
+                  ? 'bg-pennie-green-light text-pennie-green-deeper'
                   : 'bg-pennie-peach-light text-pennie-peach-deeper'
               }`}
             >

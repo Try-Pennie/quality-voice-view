@@ -77,7 +77,7 @@ export function SalesProcessScorecard({ data }: { data: any }) {
 
           {data.missed_opportunities?.length > 0 && (
             <div className="bg-pennie-yellow-light/60 border border-pennie-yellow-main/50 rounded-2xl p-4">
-              <p className="font-semibold text-pennie-yellow-dark mb-2 text-sm">
+              <p className="font-semibold text-pennie-yellow-deeper mb-2 text-sm">
                 Missed opportunities
               </p>
               <ul className="list-disc list-inside space-y-1 text-sm text-pennie-graphite">

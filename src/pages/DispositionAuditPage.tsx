@@ -314,7 +314,7 @@ export default function DispositionAuditPage() {
                       <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-bold uppercase tracking-wider ${
                         !r.is_reviewed ? 'bg-pennie-blue-light text-pennie-blue-deeper'
                           : r.accurate === false ? 'bg-pennie-peach-light text-pennie-peach-deeper'
-                          : 'bg-pennie-green-light text-pennie-green-dark'
+                          : 'bg-pennie-green-light text-pennie-green-deeper'
                       }`}>
                         {!r.is_reviewed ? 'New' : r.accurate === false ? 'False alarm' : 'Reviewed'}
                       </span>

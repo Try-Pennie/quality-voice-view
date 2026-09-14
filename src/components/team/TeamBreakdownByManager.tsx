@@ -291,6 +291,6 @@ function Bar({
   positiveAbove: boolean
 }) {
   const isGood = positiveAbove ? value >= target : value < target
-  const tone = isGood ? 'text-pennie-green-dark' : 'text-pennie-peach-deeper'
+  const tone = isGood ? 'text-pennie-green-deeper' : 'text-pennie-peach-deeper'
   return <span className={`font-semibold ${tone}`}>{value}%</span>
 }

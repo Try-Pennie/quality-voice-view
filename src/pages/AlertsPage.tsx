@@ -1286,7 +1286,7 @@ function ActivityBadges({ alert, showLegacyAcks }: { alert: AlertWithFeedback; s
       )}
       {ackCount > 0 && (
         <span
-          className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-pennie-green-light/70 text-pennie-green-dark text-[11px] font-semibold tabular-nums"
+          className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-pennie-green-light/70 text-pennie-green-deeper text-[11px] font-semibold tabular-nums"
           title={`Reviewed by ${alert.acker_emails.join(', ')}`}
         >
           <CheckCheck className="w-3 h-3" aria-hidden="true" />

@@ -1,41 +1,48 @@
-import { Toaster as Sonner } from "@/components/ui/sonner";
-import { TooltipProvider } from "@/components/ui/tooltip";
+import { lazy, type ReactNode } from 'react'
+import { Toaster as Sonner } from '@/components/ui/sonner'
+import { TooltipProvider } from '@/components/ui/tooltip'
 import {
+  QueryCache,
   QueryClient,
   QueryClientProvider,
-  QueryCache,
-} from "@tanstack/react-query";
-import { toast } from "sonner";
-import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
-import { AuthProvider } from "./hooks/useAuth";
-import { ProtectedRoute } from "./components/ProtectedRoute";
-import { DashboardLayout } from "./components/DashboardLayout";
-import LoginPage from "./pages/LoginPage";
-import DashboardPage from "./pages/DashboardPage";
-import CallDetailPage from "./pages/CallDetailPage";
-import AlertsPage from "./pages/AlertsPage";
-import DispositionAuditPage from "./pages/DispositionAuditPage";
-import TeamPage from "./pages/TeamPage";
-import SalesFloorInsightsPage from "./pages/SalesFloorInsightsPage";
-import GotaAdoptionPage from "./pages/GotaAdoptionPage";
-import AgentProfilePage from "./pages/AgentProfilePage";
-import HelpPage from "./pages/HelpPage";
-import AdminPage from "./pages/AdminPage";
-import AchievePortalPage from "./pages/AchievePortalPage";
-import NotFound from "./pages/NotFound";
+} from '@tanstack/react-query'
+import { Navigate, BrowserRouter, Route, Routes } from 'react-router-dom'
+import { toast } from 'sonner'
+import { DashboardLayout } from './components/DashboardLayout'
+import { ProtectedRoute } from './components/ProtectedRoute'
+import { RouteBoundary } from './components/RouteBoundary'
+import { AuthProvider } from './hooks/useAuth'
+import DashboardPage from './pages/DashboardPage'
 
-// Backstop so no read failure is ever fully silent, even on a surface we
-// don't individually wire. Inline <ErrorState> remains the primary
-// treatment; this dedupes bursts to one toast per few seconds.
-let lastErrorToastAt = 0;
+const AdminPage = lazy(() => import('./pages/AdminPage'))
+const AchievePortalPage = lazy(() => import('./pages/AchievePortalPage'))
+const AgentProfilePage = lazy(() => import('./pages/AgentProfilePage'))
+const AlertsPage = lazy(() => import('./pages/AlertsPage'))
+const CallDetailPage = lazy(() => import('./pages/CallDetailPage'))
+const DispositionAuditPage = lazy(() => import('./pages/DispositionAuditPage'))
+const GotaAdoptionPage = lazy(() => import('./pages/GotaAdoptionPage'))
+const HelpPage = lazy(() => import('./pages/HelpPage'))
+const LoginPage = lazy(() => import('./pages/LoginPage'))
+const NotFound = lazy(() => import('./pages/NotFound'))
+const SalesFloorInsightsPage = lazy(
+  () => import('./pages/SalesFloorInsightsPage'),
+)
+const TeamPage = lazy(() => import('./pages/TeamPage'))
+
+// Backstop so no observed read failure is fully silent, even on a surface we
+// don't individually wire. Unobserved prefetch failures stay silent; inline
+// <ErrorState> remains the primary treatment for active queries. This dedupes
+// bursts to one toast per few seconds.
+let lastErrorToastAt = 0
 const queryCache = new QueryCache({
-  onError: () => {
-    const now = Date.now();
-    if (now - lastErrorToastAt < 4000) return;
-    lastErrorToastAt = now;
-    toast.error("Something went wrong loading data. Try again in a moment.");
+  onError: (_error, query) => {
+    if (query.getObserversCount() === 0) return
+    const now = Date.now()
+    if (now - lastErrorToastAt < 4000) return
+    lastErrorToastAt = now
+    toast.error('Something went wrong loading data. Try again in a moment.')
   },
-});
+})
 
 const queryClient = new QueryClient({
   queryCache,
@@ -53,7 +60,17 @@ const queryClient = new QueryClient({
       retry: 1,
     },
   },
-});
+})
+
+function ProtectedDashboardRoute({ children }: { children: ReactNode }) {
+  return (
+    <ProtectedRoute>
+      <DashboardLayout>
+        <RouteBoundary>{children}</RouteBoundary>
+      </DashboardLayout>
+    </ProtectedRoute>
+  )
+}
 
 const App = () => (
   <QueryClientProvider client={queryClient}>
@@ -62,138 +79,127 @@ const App = () => (
         <Sonner />
         <BrowserRouter>
           <Routes>
-            <Route path="/login" element={<LoginPage />} />
-            <Route path="/achieve" element={<AchievePortalPage />} />
-            
+            <Route
+              path="/login"
+              element={
+                <RouteBoundary>
+                  <LoginPage />
+                </RouteBoundary>
+              }
+            />
+            <Route
+              path="/achieve"
+              element={
+                <RouteBoundary>
+                  <AchievePortalPage />
+                </RouteBoundary>
+              }
+            />
+
             <Route
               path="/dashboard"
               element={
-                <ProtectedRoute>
-                  <DashboardLayout>
-                    <DashboardPage />
-                  </DashboardLayout>
-                </ProtectedRoute>
+                <ProtectedDashboardRoute>
+                  <DashboardPage />
+                </ProtectedDashboardRoute>
               }
             />
-
             <Route
               path="/dashboard/team"
               element={
-                <ProtectedRoute>
-                  <DashboardLayout>
-                    <TeamPage />
-                  </DashboardLayout>
-                </ProtectedRoute>
+                <ProtectedDashboardRoute>
+                  <TeamPage />
+                </ProtectedDashboardRoute>
               }
             />
-
             <Route
               path="/dashboard/team/:agentEmail"
               element={
-                <ProtectedRoute>
-                  <DashboardLayout>
-                    <AgentProfilePage />
-                  </DashboardLayout>
-                </ProtectedRoute>
+                <ProtectedDashboardRoute>
+                  <AgentProfilePage />
+                </ProtectedDashboardRoute>
               }
             />
-
             <Route
               path="/dashboard/calls/:callId"
               element={
-                <ProtectedRoute>
-                  <DashboardLayout>
-                    <CallDetailPage />
-                  </DashboardLayout>
-                </ProtectedRoute>
+                <ProtectedDashboardRoute>
+                  <CallDetailPage />
+                </ProtectedDashboardRoute>
               }
             />
-
             <Route
               path="/dashboard/insights"
               element={
-                <ProtectedRoute>
-                  <DashboardLayout>
-                    <SalesFloorInsightsPage />
-                  </DashboardLayout>
-                </ProtectedRoute>
+                <ProtectedDashboardRoute>
+                  <SalesFloorInsightsPage />
+                </ProtectedDashboardRoute>
               }
             />
-
             <Route
               path="/dashboard/gota"
               element={
-                <ProtectedRoute>
-                  <DashboardLayout>
-                    <GotaAdoptionPage />
-                  </DashboardLayout>
-                </ProtectedRoute>
+                <ProtectedDashboardRoute>
+                  <GotaAdoptionPage />
+                </ProtectedDashboardRoute>
               }
             />
-
             <Route
               path="/dashboard/alerts"
               element={
-                <ProtectedRoute>
-                  <DashboardLayout>
-                    <AlertsPage />
-                  </DashboardLayout>
-                </ProtectedRoute>
+                <ProtectedDashboardRoute>
+                  <AlertsPage />
+                </ProtectedDashboardRoute>
               }
             />
-
             <Route
               path="/dashboard/alerts/:callId/:moduleName"
               element={
-                <ProtectedRoute>
-                  <DashboardLayout>
-                    <AlertsPage />
-                  </DashboardLayout>
-                </ProtectedRoute>
+                <ProtectedDashboardRoute>
+                  <AlertsPage />
+                </ProtectedDashboardRoute>
               }
             />
-
             <Route
               path="/dashboard/disposition-audit"
               element={
-                <ProtectedRoute>
-                  <DashboardLayout>
-                    <DispositionAuditPage />
-                  </DashboardLayout>
-                </ProtectedRoute>
+                <ProtectedDashboardRoute>
+                  <DispositionAuditPage />
+                </ProtectedDashboardRoute>
               }
             />
-
             <Route
               path="/dashboard/help"
               element={
-                <ProtectedRoute>
-                  <DashboardLayout>
-                    <HelpPage />
-                  </DashboardLayout>
-                </ProtectedRoute>
+                <ProtectedDashboardRoute>
+                  <HelpPage />
+                </ProtectedDashboardRoute>
               }
             />
-
             <Route
               path="/dashboard/admin"
               element={
-                <ProtectedRoute>
-                  <DashboardLayout>
-                    <AdminPage />
-                  </DashboardLayout>
-                </ProtectedRoute>
+                <ProtectedDashboardRoute>
+                  <AdminPage />
+                </ProtectedDashboardRoute>
               }
             />
 
             <Route path="/" element={<Navigate to="/login" replace />} />
             {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
-            <Route path="*" element={<NotFound />} />
+            <Route
+              path="*"
+              element={
+                <RouteBoundary>
+                  <NotFound />
+                </RouteBoundary>
+              }
+            />
           </Routes>
         </BrowserRouter>
       </AuthProvider>
     </TooltipProvider>
   </QueryClientProvider>
-);
+)
 
-export default App;
+export default App

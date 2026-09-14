@@ -178,7 +178,7 @@ export function AlertHeatmap({
                   <span
                     className={`min-w-[44px] h-9 px-2.5 rounded-full inline-flex items-center justify-center text-sm font-semibold tabular-nums ${
                       flagFP
-                        ? 'bg-pennie-yellow-light text-pennie-yellow-dark ring-1 ring-pennie-yellow-dark'
+                        ? 'bg-pennie-yellow-light text-pennie-yellow-deeper ring-1 ring-pennie-yellow-dark'
                         : 'bg-pennie-peach-light text-pennie-peach-deeper'
                     }`}
                     title={
