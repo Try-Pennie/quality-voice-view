@@ -29,12 +29,14 @@ const SalesFloorInsightsPage = lazy(
 )
 const TeamPage = lazy(() => import('./pages/TeamPage'))
 
-// Backstop so no read failure is ever fully silent, even on a surface we
-// don't individually wire. Inline <ErrorState> remains the primary
-// treatment; this dedupes bursts to one toast per few seconds.
+// Backstop so no observed read failure is fully silent, even on a surface we
+// don't individually wire. Unobserved prefetch failures stay silent; inline
+// <ErrorState> remains the primary treatment for active queries. This dedupes
+// bursts to one toast per few seconds.
 let lastErrorToastAt = 0
 const queryCache = new QueryCache({
-  onError: () => {
+  onError: (_error, query) => {
+    if (query.getObserversCount() === 0) return
     const now = Date.now()
     if (now - lastErrorToastAt < 4000) return
     lastErrorToastAt = now

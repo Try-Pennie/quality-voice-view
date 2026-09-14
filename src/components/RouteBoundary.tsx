@@ -59,8 +59,10 @@ function RouteLoading() {
 export function RouteBoundary({ children }: { children: ReactNode }) {
   const location = useLocation()
 
+  // Search params are in-page state; only a real route change should reset
+  // healthy children or clear a failed route boundary.
   return (
-    <RouteErrorBoundary key={`${location.pathname}${location.search}`}>
+    <RouteErrorBoundary key={location.pathname}>
       <Suspense fallback={<RouteLoading />}>{children}</Suspense>
     </RouteErrorBoundary>
   )

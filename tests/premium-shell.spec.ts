@@ -27,6 +27,20 @@ test('route loading keeps dashboard navigation usable', async ({ page }) => {
   await expect(page.getByRole('heading', { name: 'What everything means' })).toBeVisible()
 })
 
+test('same-route query updates preserve the active page and focus', async ({ page }) => {
+  await reviewFixture(page, [])
+  await page.goto('/dashboard?start=2026-08-09&end=2026-09-07')
+
+  const filter = page.getByRole('button', {
+    name: 'Compliance failures',
+    exact: true,
+  })
+  await filter.click()
+
+  await expect(page).toHaveURL(/qf=compliance/)
+  await expect(filter).toBeFocused()
+})
+
 test('a failed route chunk offers an explicit reload without hiding navigation', async ({ page }) => {
   await reviewFixture(page, [])
   await page.goto('/dashboard?start=2026-08-09&end=2026-09-07')
