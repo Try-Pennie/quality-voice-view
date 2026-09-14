@@ -371,7 +371,9 @@ export async function fetchFullQaOccurrences(agentEmail: string, start: Date, en
       || typeof input.call_id !== 'string' || !positiveInteger(input.feedback_revision) || !(input.call_started_at === null || timestamp(input.call_started_at))
       || (input.window_basis !== 'call_started_at' && input.window_basis !== 'alert_created_at_fallback')
       || (input.status !== 'approved' && input.status !== 'pending' && input.status !== 'changes_requested' && input.status !== 'legacy_unmapped')
-      || typeof input.confirmed !== 'boolean' || !timestamp(input.review_saved_at)) throw new Error('The Full QA occurrence service returned an invalid row.')
+      || typeof input.confirmed !== 'boolean' || !timestamp(input.review_saved_at)
+      || (input.occurrence_kind === 'finding' && !category(input.category))
+      || (input.confirmed && (input.occurrence_kind !== 'finding' || input.status !== 'approved'))) throw new Error('The Full QA occurrence service returned an invalid row.')
     const reviewSavedAt = input.review_saved_at
     const rawCallStartedAt = input.call_started_at
     if (!timestamp(reviewSavedAt)) throw new Error('The Full QA occurrence service returned an invalid date.')

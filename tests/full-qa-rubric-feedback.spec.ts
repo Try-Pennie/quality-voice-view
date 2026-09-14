@@ -124,6 +124,18 @@ test('Full QA provenance never presents an unknown stamped hash as current, whil
   await expect(page.getByText('Exact synthetic rule for Call recording disclosure.')).toBeVisible()
 })
 
+test('an unmapped approved finding fails closed rather than disappearing from recurrence totals', async ({ page }) => {
+  await reviewFixture(page, [], { fullQaOccurrences: [{
+    occurrence_kind: 'finding', call_id: 'unmapped', feedback_revision: 1,
+    call_started_at: '2026-09-06T12:00:00Z', window_basis: 'call_started_at',
+    status: 'approved', confirmed: true, category: 'unrecognized_category',
+    review_saved_at: '2026-09-07T12:00:00Z',
+  }] })
+  await page.goto('/dashboard/team/agent%40example.test?start=2026-08-09&end=2026-09-07')
+  await expect(page.getByText("Couldn't load Full QA recurrence")).toBeVisible()
+  await expect(page.getByText('Confirmed occurrence rows (0)')).toHaveCount(0)
+})
+
 test('Agent profile reconciles approved findings and keeps pending, needs-context, and legacy rows uncounted', async ({ page }, testInfo) => {
   const occurrences = [
     { occurrence_kind: 'finding', call_id: 'dismissed-real', feedback_revision: 2, call_started_at: '2026-09-06T12:00:00Z', window_basis: 'call_started_at', status: 'approved', confirmed: true, finding_id: 'finding-1', category: 'compliance', related_criteria: ['credit_pull_consent'], summary: findingSummary, evidence: findingEvidence, action_taken: 'coached', action_details: actionDetails, review_saved_at: '2026-09-05T12:00:00Z', coaching_review_proxy_saved_at: '2026-09-05T12:00:00Z', coaching_timing: 'after_recorded_coached_review' },
