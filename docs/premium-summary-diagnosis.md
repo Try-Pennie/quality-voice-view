@@ -3,16 +3,16 @@
 ## Decision
 
 Propose `20260916010000_optimize_calls_summary.sql`, a query-only replacement of
-`eavesly_calls_summary`. It removes the two `MATERIALIZED` summary stages and
-aggregates the date/agent window once. It adds no index, cache, timeout change,
-or persisted summary.
+`eavesly_calls_summary`. It keeps the shared date/agent window materialized for
+window totals and disposition options, but streams the latest-QA join into the
+single filtered KPI aggregate. It adds no index, cache, timeout change, or
+persisted summary.
 
-Confidence is **high** that the old plan performs avoidable temp-file work,
-**medium** that removing it provides a useful latency reduction under load, and
-**low** that it explains the production 6.881 s first execution by itself. The
-69,204 deterministic latest-QA probes remain the dominant work. Production
-cache/I/O effects are plausible but are not proven by a fresh database
-connection.
+Confidence is **high** that the old `joined` materialization performs avoidable
+temp writes and **medium** that removing it provides a useful latency reduction
+under load. Confidence is **low** that it explains the production 6.881 s first
+execution by itself. Production cache/I/O effects are plausible but are not
+proven by a fresh database connection.
 
 ## Production facts supplied for this investigation
 
@@ -58,30 +58,42 @@ At 8 kB per buffer block, one representative full-window plan changed from:
 
 | | Applied function | Proposed function |
 |---|---:|---:|
-| Shared buffers | 211,684 | 211,684 |
-| Temp blocks read | 1,036 (~8.1 MiB) | 498 (~3.9 MiB) |
-| Temp blocks written | 1,307 (~10.2 MiB) | 499 (~3.9 MiB) |
-| Materialized CTE scans | `windowed`, `joined` | none |
-| Latest-QA index probes | 69,204 | 69,204 |
+| Shared buffers | 211,684 | 211,687 |
+| Temp blocks read | 1,036 (~8.1 MiB) | 1,036 (~8.1 MiB) |
+| Temp blocks written | 1,307 (~10.2 MiB) | 518 (~4.0 MiB) |
+| Materialized CTE scans | `windowed`, `joined` | `windowed` only |
+| Latest-QA probes, `all` | 69,204 | 69,204 |
+| Latest-QA probes, `rushed` | 69,204 | 5,472 |
 
-Five-run warm medians varied on the shared development host:
+A review found that the first one-pass candidate let PostgreSQL inline the
+`selected` expression into every aggregate `FILTER`. That candidate regressed
+the rushed median from 631.751 ms to 2,968.999 ms (4.7x) and was superseded.
+The final shape restores one `filtered` predicate and lets PostgreSQL apply the
+Calls-only rushed predicate before the latest-QA join.
 
-| Run | Applied | Proposed | Change |
+Representative medians from the corrected run were:
+
+| Case | Applied | Proposed | Change |
 |---|---:|---:|---:|
-| research A | 450.227 ms | 357.988 ms | -20.5% |
-| research B | 367.695 ms | 337.463 ms | -8.2% |
-| research C | 383.033 ms | 309.639 ms | -19.2% |
-| integration A | 461.610 ms | 458.041 ms | -0.8% |
-| integration B | 381.669 ms | 379.567 ms | -0.6% |
-| final verification | 470.466 ms | 421.432 ms | -10.4% |
+| all, full window | 393.110 ms | 360.274 ms | -8.4% |
+| rushed, full window | 674.037 ms | 422.008 ms | -37.4% |
+| threshold, full window | 420.899 ms | 348.126 ms | -17.3% |
+| compliance, full window | 409.449 ms | 338.893 ms | -17.2% |
+| one agent, full window | 50.314 ms | 50.916 ms | +1.2% |
+| all agents, six-hour window | 171.711 ms | 172.478 ms | +0.4% |
 
-These are synthetic database timings, not claims of production or browser
-speedup. Concurrent work on the host produced visible variance. Each timed run
-starts a fresh `psql` connection, but that clears neither PostgreSQL/host file
+Full-window `all` uses five runs; the added filter/selectivity checks use three
+to keep the 846k/497k fixture bounded. A runtime gate rejects any over-25%
+median regression for every measured case. These are synthetic database
+timings, not claims of production or browser speedup. Concurrent work on the
+host produced visible variance. Each timed run starts a fresh `psql`
+connection, but that clears neither PostgreSQL/host file
 cache state consistently nor the host OS page cache. Restarting the owned
 container clears PostgreSQL shared buffers only; it is still not a cold-OS-cache
-measurement. The stable evidence is reduced temp work with identical results;
-the wall-clock benefit should be rechecked serialized on the review machine.
+measurement. The stable evidence is removal of the `joined` temp write, one
+rushed predicate in the plan, and identical results; wall-clock benefit should
+still be rechecked
+serialized on the review machine.
 
 ## Alternatives rejected
 
@@ -118,5 +130,6 @@ bash supabase/migrations/ui-load-performance.integration.check.sh
 
 The check uses a unique Docker container name, removes that container and its
 anonymous volume on exit, exercises the public RPC as `authenticated`, prints
-old/new five-run medians and nested plan buffer lines, and labels fresh
-connections and synthetic latency limits explicitly.
+old/new medians for all/rushed/threshold/compliance/selective-agent/selective-
+date calls, rejects material regressions, verifies one rushed predicate in the
+plan, and labels fresh connections and synthetic latency limits explicitly.

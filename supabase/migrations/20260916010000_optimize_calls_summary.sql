@@ -1,6 +1,7 @@
--- Aggregate the Calls summary in one pass. The previous pair of MATERIALIZED
--- CTEs spilled the 69k-row window twice at production work_mem. Latest QA
--- selection, KPI denominators, filters, RLS, and the RPC contract are unchanged.
+-- Representative PostgreSQL 17 fixture plans at the production-configured
+-- work_mem showed that the joined MATERIALIZED CTE added avoidable temp writes.
+-- Keep the shared window materialized for window totals/options, but stream the
+-- filtered latest-QA rows into the KPI aggregate so each filter runs once.
 
 create or replace function public.eavesly_calls_summary(
   p_start timestamptz,
@@ -32,11 +33,15 @@ begin
     else '{"overallScore":"needs_improvement","compliance":"fail","customerSat":"low"}'::jsonb
   end;
 
-  with joined as (
-    select c.disposition, c.campaign_name, c.talk_time, c.handle_time,
-      qa.qa_id, qa.overall_score, qa.compliance_rating,
-      qa.customer_satisfaction_likely, qa.manager_escalation
+  with windowed as materialized (
+    select c.call_id, c.disposition, c.campaign_name, c.talk_time, c.handle_time
     from public.eavesly_calls c
+    where c.started_at >= p_start and c.started_at <= p_end
+      and (coalesce(cardinality(p_agents), 0) = 0 or c.agent_email = any(p_agents))
+  ), joined as (
+    select c.*, qa.qa_id, qa.overall_score, qa.compliance_rating,
+      qa.customer_satisfaction_likely, qa.manager_escalation
+    from windowed c
     left join lateral (
       select q.id as qa_id, q.overall_score, q.compliance_rating,
         q.customer_satisfaction_likely, q.manager_escalation
@@ -45,100 +50,84 @@ begin
       order by q.created_at desc nulls last, q.id desc
       limit 1
     ) qa on true
-    where c.started_at >= p_start and c.started_at <= p_end
-      and (coalesce(cardinality(p_agents), 0) = 0 or c.agent_email = any(p_agents))
-  ), classified as (
-    select *,
-      (coalesce(cardinality(p_dispositions), 0) = 0 or disposition = any(p_dispositions))
+  ), filtered as (
+    select *
+    from joined c
+    where (coalesce(cardinality(p_dispositions), 0) = 0 or c.disposition = any(p_dispositions))
       and case p_quick_filter
         when 'all' then true
-        when 'escalations' then manager_escalation is true
-        when 'compliance' then compliance_rating = 'fail'
+        when 'escalations' then c.manager_escalation is true
+        when 'compliance' then c.compliance_rating = 'fail'
         when 'threshold' then
-          manager_escalation is true
-          or compliance_rating = (v_thresholds ->> 'compliance')
+          c.manager_escalation is true
+          or c.compliance_rating = (v_thresholds ->> 'compliance')
           or (
-            overall_score = any(array['excellent','good','needs_improvement','poor'])
+            c.overall_score = any(array['excellent','good','needs_improvement','poor'])
             and (
               not coalesce((v_thresholds ->> 'overallScore') = any(array['excellent','good','needs_improvement','poor']), false)
-              or array_position(array['excellent','good','needs_improvement','poor'], overall_score)
+              or array_position(array['excellent','good','needs_improvement','poor'], c.overall_score)
                 >= array_position(array['excellent','good','needs_improvement','poor'], v_thresholds ->> 'overallScore')
             )
           )
           or (
-            customer_satisfaction_likely = any(array['high','medium','low'])
+            c.customer_satisfaction_likely = any(array['high','medium','low'])
             and (
               not coalesce((v_thresholds ->> 'customerSat') = any(array['high','medium','low']), false)
-              or array_position(array['high','medium','low'], customer_satisfaction_likely)
+              or array_position(array['high','medium','low'], c.customer_satisfaction_likely)
                 >= array_position(array['high','medium','low'], v_thresholds ->> 'customerSat')
             )
           )
         else
-          position('no show' in trim(regexp_replace(lower(coalesce(disposition, '')), '[^a-z0-9]+', ' ', 'g'))) = 0
+          position('no show' in trim(regexp_replace(lower(coalesce(c.disposition, '')), '[^a-z0-9]+', ' ', 'g'))) = 0
           and (
             position('cal com meeting' in concat(
-              trim(regexp_replace(lower(coalesce(campaign_name, '')), '[^a-z0-9]+', ' ', 'g')),
-              ' ', trim(regexp_replace(lower(coalesce(disposition, '')), '[^a-z0-9]+', ' ', 'g'))
+              trim(regexp_replace(lower(coalesce(c.campaign_name, '')), '[^a-z0-9]+', ' ', 'g')),
+              ' ', trim(regexp_replace(lower(coalesce(c.disposition, '')), '[^a-z0-9]+', ' ', 'g'))
             )) > 0
             or position('call now requested' in concat(
-              trim(regexp_replace(lower(coalesce(campaign_name, '')), '[^a-z0-9]+', ' ', 'g')),
-              ' ', trim(regexp_replace(lower(coalesce(disposition, '')), '[^a-z0-9]+', ' ', 'g'))
+              trim(regexp_replace(lower(coalesce(c.campaign_name, '')), '[^a-z0-9]+', ' ', 'g')),
+              ' ', trim(regexp_replace(lower(coalesce(c.disposition, '')), '[^a-z0-9]+', ' ', 'g'))
             )) > 0
           )
-          and talk_time > 0 and talk_time < 1800
-      end as selected
-    from joined
+          and c.talk_time > 0 and c.talk_time < 1800
+      end
   ), metrics as (
     select
-      count(*) filter (where selected) as total_calls,
-      count(*) filter (where selected and (
+      count(*) as total_calls,
+      count(*) filter (where
         manager_escalation is true
         or compliance_rating = 'fail'
         or overall_score in ('poor', 'needs_improvement')
         or customer_satisfaction_likely = 'low'
-      )) as calls_requiring_attention,
-      floor(coalesce(
-        (sum(coalesce(talk_time, 0)) filter (where selected))::numeric
-          / nullif(count(*) filter (where selected), 0),
-        0
-      ) + 0.5) as avg_talk_time,
-      floor(coalesce(
-        (sum(coalesce(handle_time, 0)) filter (where selected))::numeric
-          / nullif(count(*) filter (where selected), 0),
-        0
-      ) + 0.5) as avg_handle_time,
-      case when count(qa_id) filter (where selected) = 0 then 0 else
-        round(
-          100.0 * count(*) filter (where selected and compliance_rating = 'pass')
-          / (count(qa_id) filter (where selected))
-        )
+      ) as calls_requiring_attention,
+      floor(coalesce(sum(coalesce(talk_time, 0))::numeric / nullif(count(*), 0), 0) + 0.5) as avg_talk_time,
+      floor(coalesce(sum(coalesce(handle_time, 0))::numeric / nullif(count(*), 0), 0) + 0.5) as avg_handle_time,
+      case when count(qa_id) = 0 then 0 else
+        round(100.0 * count(*) filter (where compliance_rating = 'pass') / count(qa_id))
       end as compliance_pass_rate,
-      case when count(qa_id) filter (where selected) = 0 then 0 else
-        round(
-          100.0 * count(*) filter (where selected and customer_satisfaction_likely = 'high')
-          / (count(qa_id) filter (where selected))
-        )
-      end as high_sat_rate,
-      count(*) as window_calls,
-      coalesce(
-        jsonb_agg(distinct disposition collate "C" order by disposition collate "C")
-          filter (where disposition is not null and disposition <> ''),
-        '[]'::jsonb
-      ) as dispositions
-    from classified
+      case when count(qa_id) = 0 then 0 else
+        round(100.0 * count(*) filter (where customer_satisfaction_likely = 'high') / count(qa_id))
+      end as high_sat_rate
+    from filtered
+  ), window_metrics as (
+    select count(*) as window_calls
+    from windowed
+  ), disposition_options as (
+    select coalesce(jsonb_agg(disposition order by disposition collate "C"), '[]'::jsonb) as dispositions
+    from (select distinct disposition from windowed where disposition is not null and disposition <> '') d
   )
   select jsonb_build_object(
-    'total_calls', total_calls,
-    'window_calls', window_calls,
-    'calls_requiring_attention', calls_requiring_attention,
-    'avg_talk_time', avg_talk_time,
-    'avg_handle_time', avg_handle_time,
-    'compliance_pass_rate', compliance_pass_rate,
-    'high_sat_rate', high_sat_rate,
-    'dispositions', dispositions
+    'total_calls', m.total_calls,
+    'window_calls', w.window_calls,
+    'calls_requiring_attention', m.calls_requiring_attention,
+    'avg_talk_time', m.avg_talk_time,
+    'avg_handle_time', m.avg_handle_time,
+    'compliance_pass_rate', m.compliance_pass_rate,
+    'high_sat_rate', m.high_sat_rate,
+    'dispositions', d.dispositions
   )
   into v_result
-  from metrics;
+  from metrics m cross join window_metrics w cross join disposition_options d;
 
   return v_result;
 end;

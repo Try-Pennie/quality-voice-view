@@ -678,12 +678,22 @@ SQL
 
 claims='{"email":"god@example.test"}'
 page_sql="select public.eavesly_calls_page('2026-08-01+00','2026-09-01+00',array[]::text[],array[]::text[],'all','{}'::jsonb,'time',true,0,25)"
-baseline_summary_sql="select public.eavesly_calls_summary_baseline('2026-08-01+00','2026-09-01+00',array[]::text[],array[]::text[],'all','{}'::jsonb)"
-summary_sql="select public.eavesly_calls_summary('2026-08-01+00','2026-09-01+00',array[]::text[],array[]::text[],'all','{}'::jsonb)"
+summary_call() {
+  local function="$1" quick_filter="$2" start="${3:-2026-08-01+00}" agents="${4:-array[]::text[]}"
+  local thresholds='{}'
+  if [[ "$quick_filter" == threshold ]]; then
+    thresholds='{"overallScore":"needs_improvement","compliance":"fail","customerSat":"low"}'
+  fi
+  printf "select public.%s('%s','2026-09-01+00',%s,array[]::text[],'%s','%s'::jsonb)" \
+    "$function" "$start" "$agents" "$quick_filter" "$thresholds"
+}
+
+baseline_summary_sql="$(summary_call eavesly_calls_summary_baseline all)"
+summary_sql="$(summary_call eavesly_calls_summary all)"
 
 benchmark() {
-  local label="$1" sql="$2" times=() output value
-  for _ in $(seq 1 5); do
+  local label="$1" sql="$2" runs="${3:-5}" times=() output value median_line
+  for _ in $(seq 1 "$runs"); do
     output="$(docker exec -i "$container" psql -X -At -v ON_ERROR_STOP=1 -U postgres -d postgres <<SQL
 select set_config('request.jwt.claims', '$claims', false);
 set role authenticated;
@@ -695,8 +705,20 @@ SQL
     times+=("$value")
   done
   printf '%s\n' "${times[@]}" | sort -n >"$tmp/$label-times"
+  median_line=$((runs / 2 + 1))
   printf 'benchmark %s_ms median=%s runs=%s\n' \
-    "$label" "$(sed -n '3p' "$tmp/$label-times")" "$(paste -sd, "$tmp/$label-times")"
+    "$label" "$(sed -n "${median_line}p" "$tmp/$label-times")" "$(paste -sd, "$tmp/$label-times")"
+}
+
+assert_not_materially_slower() {
+  local label="$1" allowed_ratio="${2:-1.25}" baseline optimized
+  baseline="$(sed -n "$(( $(wc -l <"$tmp/${label}_baseline-times") / 2 + 1 ))p" "$tmp/${label}_baseline-times")"
+  optimized="$(sed -n "$(( $(wc -l <"$tmp/${label}_optimized-times") / 2 + 1 ))p" "$tmp/${label}_optimized-times")"
+  awk -v baseline="$baseline" -v optimized="$optimized" -v allowed="$allowed_ratio" \
+    'BEGIN { if (optimized > baseline * allowed) exit 1 }' || {
+      echo "$label summary regressed materially: baseline=${baseline}ms optimized=${optimized}ms" >&2
+      exit 1
+    }
 }
 
 # auto_explain exposes the nested invoker-function plan; the assertion guards
@@ -729,6 +751,24 @@ benchmark page "$page_sql"
 benchmark score_page "select public.eavesly_calls_page('2026-08-01+00','2026-09-01+00',array[]::text[],array[]::text[],'all','{}'::jsonb,'score',true,0,25)"
 benchmark summary_baseline "$baseline_summary_sql"
 benchmark summary_optimized "$summary_sql"
+assert_not_materially_slower summary
+for quick_filter in rushed threshold compliance; do
+  benchmark "${quick_filter}_baseline" \
+    "$(summary_call eavesly_calls_summary_baseline "$quick_filter")" 3
+  benchmark "${quick_filter}_optimized" \
+    "$(summary_call eavesly_calls_summary "$quick_filter")" 3
+  assert_not_materially_slower "$quick_filter"
+done
+benchmark agent_selective_baseline \
+  "$(summary_call eavesly_calls_summary_baseline all '2026-08-01+00' "array['agent-7@example.test']")" 3
+benchmark agent_selective_optimized \
+  "$(summary_call eavesly_calls_summary all '2026-08-01+00' "array['agent-7@example.test']")" 3
+assert_not_materially_slower agent_selective
+benchmark date_selective_baseline \
+  "$(summary_call eavesly_calls_summary_baseline all '2026-08-31 18:00+00')" 3
+benchmark date_selective_optimized \
+  "$(summary_call eavesly_calls_summary all '2026-08-31 18:00+00')" 3
+assert_not_materially_slower date_selective
 
 capture_summary_plan() {
   local label="$1" sql="$2"
@@ -747,15 +787,22 @@ SQL
 }
 capture_summary_plan summary-baseline "$baseline_summary_sql"
 capture_summary_plan summary-optimized "$summary_sql"
+capture_summary_plan summary-rushed \
+  "$(summary_call eavesly_calls_summary rushed)"
 if ! grep -q 'CTE Scan on joined' "$tmp/summary-baseline-plan" \
-  || grep -Eq 'CTE Scan on (joined|windowed)' "$tmp/summary-optimized-plan"; then
-  cat "$tmp/summary-baseline-plan" "$tmp/summary-optimized-plan" >&2
-  echo 'summary plan did not remove the materialized CTE scans' >&2
+  || grep -q 'CTE Scan on joined' "$tmp/summary-optimized-plan" \
+  || ! grep -q 'CTE Scan on windowed' "$tmp/summary-optimized-plan" \
+  || [[ "$(grep -o "cal com meeting" "$tmp/summary-rushed-plan" | wc -l)" -gt 2 ]]; then
+  cat "$tmp/summary-baseline-plan" "$tmp/summary-optimized-plan" \
+    "$tmp/summary-rushed-plan" >&2
+  echo 'summary plan did not stream joined rows or repeated the rushed predicate' >&2
   exit 1
 fi
 printf '%s\n' 'summary baseline plan (buffers/temp):'
 grep -E 'CTE Scan on (joined|windowed)|Buffers:.*temp|Execution Time' "$tmp/summary-baseline-plan" | tail -8
 printf '%s\n' 'summary optimized plan (buffers/temp):'
 grep -E 'CTE Scan on (joined|windowed)|Buffers:.*temp|Execution Time' "$tmp/summary-optimized-plan" | tail -8
+printf 'summary rushed predicate plan occurrences=%s (query text + one Filter)\n' \
+  "$(grep -o "cal com meeting" "$tmp/summary-rushed-plan" | wc -l)"
 
 printf '%s\n' 'ui-load-performance.integration.check.sh: all assertions passed'
