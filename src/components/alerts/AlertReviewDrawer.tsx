@@ -41,6 +41,7 @@ import {
 import { useAgentFeedbackForCall, useAlertThread } from '@/hooks/use-queries'
 import { registerHistoryNavigationGuard } from '@/lib/history-navigation-guard'
 import { PennieAgentFeedbackSection } from '@/components/PennieAgentFeedbackSection'
+import { FullQaRubricReview } from './FullQaRubricReview'
 import { VIOLATION_HELP_IDS } from '@/lib/help-content'
 import {
   INTERNAL_REVIEW_TEXT_LIMITS,
@@ -145,6 +146,7 @@ export function AlertReviewDrawer({
   hasPrev,
   queuePosition,
 }: Props) {
+  const isFullQa = workload === 'internal' && alert?.module_name === 'full_qa'
   const [accurate, setAccurate] = useState<boolean | null>(null)
   const [action, setAction] = useState<AlertActionTaken | null>(null)
   const [reason, setReason] = useState<AlertInaccuracyReason | null>(null)
@@ -164,6 +166,8 @@ export function AlertReviewDrawer({
   const [posting, setPosting] = useState(false)
   const [editingId, setEditingId] = useState<number | null>(null)
   const [ackPending, setAckPending] = useState(false)
+  const [fullQaDraftDirty, setFullQaDraftDirty] = useState(false)
+  const [fullQaBusy, setFullQaBusy] = useState(false)
   const commentId = useId()
   const violationDetailsId = useId()
   const actionDetailsId = useId()
@@ -201,6 +205,8 @@ export function AlertReviewDrawer({
     setReplyTo(null)
     setRequireAck(false)
     setEditingId(null)
+    setFullQaDraftDirty(false)
+    setFullQaBusy(false)
     // Identity changes initialize a fresh form; list enrichment must not erase a draft.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [alert?.call_id, alert?.module_name])
@@ -342,7 +348,7 @@ export function AlertReviewDrawer({
   }
 
   const handleSubmit = async () => {
-    if (!alert || !currentUserEmail || submissionPending.current || !showStructuredForm) return
+    if (!alert || !currentUserEmail || submissionPending.current || !showStructuredForm || isFullQa) return
     submissionPending.current = true
     setSubmitting(true)
 
@@ -479,18 +485,18 @@ export function AlertReviewDrawer({
   const showStructuredForm = !!alert && (workload === 'internal'
     ? (!alert.is_reviewed || reviewedByMe || returnedToCurrentManager)
     : (!alert.is_reviewed || reviewedByMe || overrideMode))
-  const reviewDraftDirty = !!alert && showStructuredForm && (accurate !== alert.accurate ||
+  const reviewDraftDirty = !!alert && !isFullQa && showStructuredForm && (accurate !== alert.accurate ||
     action !== alert.action_taken || reason !== alert.inaccuracy_reason || comment !== (alert.feedback_comment ?? '') ||
     violationDetails !== (alert.violation_details ?? '') || actionDetails !== (alert.action_details ?? ''))
-  const dirty = reviewDraftDirty || !!changeInstructions.trim() || !!draftBody.trim() || editingId !== null
+  const dirty = reviewDraftDirty || fullQaDraftDirty || !!changeInstructions.trim() || !!draftBody.trim() || editingId !== null
   useEffect(() => {
-    if (!dirty && !submitting && !posting && !decisionPending) return
+    if (!dirty && !submitting && !posting && !decisionPending && !fullQaBusy) return
     const handler = (event: BeforeUnloadEvent) => { event.preventDefault(); event.returnValue = '' }
     window.addEventListener('beforeunload', handler)
     return () => window.removeEventListener('beforeunload', handler)
-  }, [dirty, submitting, posting, decisionPending])
+  }, [dirty, submitting, posting, decisionPending, fullQaBusy])
   const canLeave = () => {
-    if (submitting || posting || ackPending || decisionPending) {
+    if (submitting || posting || ackPending || decisionPending || fullQaBusy) {
       toast.info('Wait for the current save to finish.')
       return false
     }
@@ -500,7 +506,7 @@ export function AlertReviewDrawer({
   const requestAdvance = (delta: 1 | -1) => { if (canLeave()) onAdvance(delta) }
 
   useEffect(() => {
-    if (!dirty && !submitting && !posting && !ackPending && !decisionPending) return
+    if (!dirty && !submitting && !posting && !ackPending && !decisionPending && !fullQaBusy) return
     const indexOf = (state: unknown): number | null =>
       state && typeof state === 'object' && 'idx' in state && typeof state.idx === 'number' && Number.isInteger(state.idx)
         ? state.idx : null
@@ -514,7 +520,7 @@ export function AlertReviewDrawer({
         event.stopImmediatePropagation()
         return
       }
-      const pending = submitting || posting || ackPending || decisionPending
+      const pending = submitting || posting || ackPending || decisionPending || fullQaBusy
       if (!pending && window.confirm('Discard your unsaved review or message?')) return
       if (pending) toast.info('Wait for the current save to finish.')
       // BrowserRouter stores entry indices. Capture before its listener, then
@@ -525,7 +531,7 @@ export function AlertReviewDrawer({
       window.history.go(currentIndex - nextIndex)
     }
     return registerHistoryNavigationGuard(handler)
-  }, [dirty, submitting, posting, ackPending, decisionPending])
+  }, [dirty, submitting, posting, ackPending, decisionPending, fullQaBusy])
 
   if (!alert) return null
 
@@ -538,7 +544,7 @@ export function AlertReviewDrawer({
   const showLegacyAckBar = workload === 'partner_qa' && reviewedByOther
   const showInternalDecisionBar = workload === 'internal' && isHumanReviewed(alert) &&
     (scope.isGodMode || alert.current_decision !== null)
-  const showManagerReviewSummary = reviewedByOther
+  const showManagerReviewSummary = reviewedByOther && !isFullQa
   const parsedInitial = alert.review_revision && alert.review_revision > 1
     ? parseInitialManagerReview(alert.initial_manager_review)
     : null
@@ -569,7 +575,7 @@ export function AlertReviewDrawer({
     : accurate === null || (accurate && !action) || (!accurate && !reason) || legacyNotesInvalid)
   // Approval targets the persisted review; unchanged legacy reviews remain eligible.
   const approvalBlockedByDraft = workload === 'internal' && showStructuredForm &&
-    (reviewDraftDirty || submitting)
+    (reviewDraftDirty || fullQaDraftDirty || fullQaBusy || submitting)
 
   return (
     <Sheet open={!!alert} onOpenChange={open => !open && requestClose()}>
@@ -815,6 +821,17 @@ export function AlertReviewDrawer({
               (achieve_welcome_call_qa alerts only; hidden when no submission). */}
           <PennieAgentFeedbackSection feedback={agentFeedback} compact />
 
+          {isFullQa && (
+            <FullQaRubricReview
+              alert={alert}
+              scope={scope}
+              editable={showStructuredForm}
+              onDirtyChange={setFullQaDraftDirty}
+              onBusyChange={setFullQaBusy}
+              onSubmitted={onSubmitted}
+            />
+          )}
+
           {showInternalDecisionBar && (
             <InternalDecisionSection
               alert={alert}
@@ -849,7 +866,7 @@ export function AlertReviewDrawer({
               Coaching follow-up is still open. Update the action after follow-up through the review form when available. Approval or discussion does not complete it.
             </p>}
 
-            {showStructuredForm && (
+            {showStructuredForm && !isFullQa && (
               <>
                 <fieldset disabled={submitting}>
                   <legend className="flex items-center justify-between w-full mb-3 gap-3">
@@ -1076,7 +1093,7 @@ export function AlertReviewDrawer({
               <p className="mb-2 text-xs text-pennie-graphite/70">Complete and save review changes before approval.</p>
             )}
             <div className="flex flex-wrap items-center justify-end gap-2">
-              {showStructuredForm && (
+              {showStructuredForm && !isFullQa && (
                 <button
                   type="button"
                   onClick={handleSubmit}

@@ -88,7 +88,7 @@ test('my-team counts clear unrelated queue filters and account for system closur
 
 test('an unchanged legacy self-review can be approved without inventing new review details', async ({ page }) => {
   const email = 'director@example.test'
-  const state = await reviewFixture(page, [alertRow('legacy-own', {
+  const state = await reviewFixture(page, [alertRow('legacy-own', { module_name: 'budget_inputs',
     is_reviewed: true, accurate: true, action_taken: 'coached', feedback_by: email,
     feedback_comment: 'Legacy combined note describing the finding and coaching action.',
   })], { god: true, email })
@@ -238,7 +238,7 @@ test('discussion count excludes deleted messages while keeping the thread on dem
 
 test('a director editing their own manager review must save before approving it', async ({ page }) => {
   const email = 'director@example.test'
-  const state = await reviewFixture(page, [alertRow('own-review', {
+  const state = await reviewFixture(page, [alertRow('own-review', { module_name: 'budget_inputs',
     is_reviewed: true,
     accurate: true,
     action_taken: 'coached',
