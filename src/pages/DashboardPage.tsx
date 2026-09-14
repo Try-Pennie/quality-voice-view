@@ -108,6 +108,7 @@ export default function DashboardPage() {
   const pageIdentity = JSON.stringify([filters, sort])
   const [pagination, setPagination] = useState({ identity: pageIdentity, page: 1 })
   const currentPage = pagination.identity === pageIdentity ? pagination.page : 1
+  if (pagination.identity !== pageIdentity) setPagination({ identity: pageIdentity, page: 1 })
   const setCurrentPage = (page: number) => setPagination({ identity: pageIdentity, page })
   const pageQuery = useCallsPage(filters, sort, currentPage)
   const summaryQuery = useCallsSummary(filters)

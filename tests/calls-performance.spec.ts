@@ -111,6 +111,18 @@ test('server sort/filter resets offset immediately; URL/ET bounds preserved; war
   expect(state.requests.filter(r => r.name === 'eavesly_calls_page').at(-1)?.args).toMatchObject({ p_offset: 0, p_quick_filter: 'rushed', p_sort: 'agent' })
 })
 
+test('returning to a previous filter still resets to page one', async ({ page }) => {
+  await fixture(page)
+  await page.goto(url)
+  await expect(page.getByText('Showing 1–25 of 65')).toBeVisible()
+  await page.getByRole('button', { name: 'Next', exact: true }).click()
+  await expect(page.getByText('Showing 26–50 of 65')).toBeVisible()
+  await page.getByRole('button', { name: 'Compliance failures', exact: true }).click()
+  await expect(visibleRows(page)).toHaveCount(1)
+  await page.getByRole('button', { name: 'All calls', exact: true }).click()
+  await expect(page.getByText('Showing 1–25 of 65')).toBeVisible()
+})
+
 test('summary and agent failures are recoverable without hiding loaded rows', async ({ page }) => {
   const { state } = await fixture(page)
   state.failSummary = true
