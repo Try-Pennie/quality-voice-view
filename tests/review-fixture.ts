@@ -84,6 +84,7 @@ export async function reviewFixture(page: Page, rows: AlertWithFeedback[], optio
         if (key === 'module_name' && value.startsWith('in.')) selected = selected.filter(row => value.includes(row.module_name))
         if (key === 'alert_sent' && value === 'eq.true') selected = selected.filter(row => row.alert_sent === true)
         if (key === 'agent_email' && value.startsWith('in.')) selected = selected.filter(row => value.includes(row.agent_email ?? 'no-agent'))
+        if (key === 'agent_email' && value.startsWith('eq.')) selected = selected.filter(row => row.agent_email === value.slice(3))
         if (key === 'alert_created_at' && value.startsWith('gte.')) selected = selected.filter(row => row.alert_created_at >= value.slice(4))
         if (key === 'alert_created_at' && value.startsWith('lte.')) selected = selected.filter(row => row.alert_created_at <= value.slice(4))
       }

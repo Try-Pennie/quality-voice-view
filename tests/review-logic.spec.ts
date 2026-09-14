@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test'
 import {
-  ALERT_QUEUE_VIEWS, defaultAlertWindow, isClosedForReviewer, isReviewOverdue,
+  ALERT_QUEUE_VIEWS, defaultAlertWindow, isClosedForReviewer, isOutstandingReviewWork, isReviewOverdue,
   matchesAlertQueueView, needsCoachingFollowUp, parseAlertQueueView,
   reviewAgeLabel, summarizeReviewWorkload,
 } from '../src/lib/alert-review-queue'
@@ -31,6 +31,7 @@ test('overdue uses elapsed 24h and only first-pass review, including DST', () =>
 test('manager review, director approval, coaching, and system closure stay distinct', () => {
   const deferred = { ...open, is_reviewed: true, accurate: true, action_taken: 'follow_up_later' as const, feedback_by: 'Manager@example.test' }
   expect(ALERT_QUEUE_VIEWS).toEqual({
+    outstanding: 'All outstanding',
     awaiting_manager: 'Awaiting manager',
     awaiting_approval: 'Awaiting Kris’s approval',
     changes_requested: 'Changes requested',
@@ -49,6 +50,13 @@ test('manager review, director approval, coaching, and system closure stay disti
   expect(matchesAlertQueueView(returned, 'awaiting_approval', true, 'director@example.test', now)).toBe(false)
   expect(matchesAlertQueueView(approved, 'coaching_due', true, 'director@example.test', now)).toBe(true)
   expect(matchesAlertQueueView(deferred, 'reviewed', true, 'director@example.test', now)).toBe(true)
+  expect(isOutstandingReviewWork(open, false, 'manager@example.test')).toBe(true)
+  expect(isOutstandingReviewWork(deferred, true, 'director@example.test')).toBe(true)
+  expect(isOutstandingReviewWork(deferred, false, 'manager@example.test')).toBe(true)
+  expect(isOutstandingReviewWork({ ...deferred, action_taken: 'coached' }, false, 'manager@example.test')).toBe(false)
+  expect(isOutstandingReviewWork(returned, false, 'manager@example.test')).toBe(true)
+  expect(isOutstandingReviewWork(approved, true, 'director@example.test')).toBe(true)
+  expect(isOutstandingReviewWork({ ...approved, action_taken: 'coached' }, true, 'director@example.test')).toBe(false)
   expect(needsCoachingFollowUp({ ...deferred, accurate: false })).toBe(false)
   expect(needsCoachingFollowUp({ ...deferred, action_taken: 'coached' })).toBe(false)
   expect(needsCoachingFollowUp({ ...deferred, is_reviewed: false })).toBe(false)

@@ -73,7 +73,7 @@ export function ManagerWorkloadSummary({
                 <th className="py-2 pr-4">Manager</th>
                 <th className="py-2 px-2 text-right">Received</th>
                 <th className="py-2 px-2 text-right">Manager reviewed</th>
-                <th className="py-2 px-2 text-right">Real</th>
+                <th className="py-2 px-2 text-right">Real alerts</th>
                 <th className="py-2 px-2 text-right">False alarm</th>
                 <th className="py-2 px-2 text-right">Awaiting manager</th>
                 <th className="py-2 px-2 text-right">Awaiting Kris’s approval</th>
@@ -88,7 +88,7 @@ export function ManagerWorkloadSummary({
                   <th scope="row" className="py-3 pr-4 text-left font-semibold text-pennie-navy">{row.name}</th>
                   <CountCell manager={row} label="Received" value={row.counts.received} view="all" outcome="all" onSelect={onSelect} />
                   <CountCell manager={row} label="Manager reviewed" value={row.counts.reviewed} view="reviewed" outcome="all" onSelect={onSelect} />
-                  <CountCell manager={row} label="Real" value={row.counts.real} view="reviewed" outcome="real" onSelect={onSelect} />
+                  <CountCell manager={row} label="Real alerts" value={row.counts.real} view="reviewed" outcome="real" onSelect={onSelect} />
                   <CountCell manager={row} label="False alarm" value={row.counts.falseAlarm} view="reviewed" outcome="false_alarm" onSelect={onSelect} />
                   <CountCell manager={row} label="Awaiting manager" value={row.counts.awaitingManager} view="awaiting_manager" outcome="all" onSelect={onSelect} />
                   <CountCell manager={row} label="Awaiting Kris’s approval" value={row.counts.awaitingApproval} view="awaiting_approval" outcome="all" onSelect={onSelect} />
