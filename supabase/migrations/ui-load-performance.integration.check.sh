@@ -605,5 +605,7 @@ grep -E 'idx_eavesly_calls_started_at_desc|eavesly_transcription_qa_latest_idx' 
 
 printf '%s\n' 'synthetic PostgreSQL 17 benchmark (70k calls; not production latency)'
 benchmark page "$page_sql"
+# QA-based sorts must evaluate the window to rank it; only the response is page-bounded.
+benchmark score_page "select public.eavesly_calls_page('2026-08-01+00','2026-09-01+00',array[]::text[],array[]::text[],'all','{}'::jsonb,'score',true,0,25)"
 benchmark summary "$summary_sql"
 printf '%s\n' 'ui-load-performance.integration.check.sh: all assertions passed'

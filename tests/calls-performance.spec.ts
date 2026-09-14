@@ -25,7 +25,7 @@ async function fixture(page: Page, size = 65) {
     requests: [] as { name: string; args: Record<string, unknown> }[],
     rows: Array.from({ length: size }, (_, i) => call(size - i)),
     summaryGate: Promise.resolve(), pageGate: Promise.resolve(),
-    failSummary: false, failPage: false, malformedPage: false, failAgents: false, failExportOffset: -1,
+    failSummary: false, failPage: false, malformedPage: false, failAgents: false, failExportOffset: -1, repeatExportPage: false,
   }
   await page.route('**/rest/v1/rpc/eavesly_*', async route => {
     const name = new URL(route.request().url()).pathname.split('/').pop() ?? ''
@@ -47,7 +47,8 @@ async function fixture(page: Page, size = 65) {
       const limit = Number(args.p_limit)
       const rows = args.p_quick_filter === 'all' ? [...state.rows] : [call(9999)]
       if (args.p_sort === 'agent') rows.sort((a, b) => (a.agent_full_name ?? '').localeCompare(b.agent_full_name ?? '') * (args.p_desc ? -1 : 1))
-      const response = { rows: rows.slice(offset, offset + limit), has_more: rows.length > offset + limit }
+      const resultOffset = limit === 1000 && state.repeatExportPage ? 0 : offset
+      const response = { rows: rows.slice(resultOffset, resultOffset + limit), has_more: rows.length > resultOffset + limit }
       await state.pageGate
       if (state.failPage || (limit === 1000 && offset === state.failExportOffset)) return respond({ message: 'Synthetic page error' }, 500)
       if (state.malformedPage) return respond({ rows: [{ id: 'bad' }], has_more: false })
@@ -166,11 +167,47 @@ test('failed export never downloads a partial PDF', async ({ page }) => {
   expect(downloads).toEqual([])
 })
 
+test('an offset shift during export fails explicitly instead of duplicating rows in a PDF', async ({ page }) => {
+  const { state } = await fixture(page, 1002)
+  state.repeatExportPage = true
+  const downloads: string[] = []
+  page.on('download', value => downloads.push(value.suggestedFilename()))
+  await page.goto(url)
+  await expect(visibleRows(page)).toHaveCount(25)
+  await page.getByRole('button', { name: 'Export PDF', exact: true }).click()
+  await expect(page.getByText('Calls changed during export. Please try again.')).toBeVisible()
+  expect(downloads).toEqual([])
+})
+
 test('Team pitch counts use one aggregate request, never pitch call pagination', async ({ page }) => {
   const { state, requests } = await fixture(page)
   await page.goto(`/dashboard/team?${period}`)
   await expect.poll(() => state.requests.filter(r => r.name === 'eavesly_team_pitch_risk').length).toBe(1)
   expect(requests.filter(r => r.pathname.endsWith('/eavesly_calls') && r.searchParams.get('select')?.includes('campaign_name'))).toHaveLength(0)
+})
+
+test('agent/disposition URL filters and local quick thresholds reach both RPCs', async ({ page }) => {
+  const { state } = await fixture(page)
+  await page.addInitScript(() => localStorage.setItem('dashboardThresholds', JSON.stringify({ overallScore: 'good', compliance: 'fail', customerSat: 'medium' })))
+  await page.goto(`${url}&agents=agent%40example.test&dispo=Cal.com%20Meeting&qf=threshold`)
+  await expect(visibleRows(page)).toHaveCount(1)
+  const expected = { p_agents: ['agent@example.test'], p_dispositions: ['Cal.com Meeting'], p_quick_filter: 'threshold',
+    p_thresholds: { overallScore: 'good', compliance: 'fail', customerSat: 'medium' } }
+  expect(state.requests.find(r => r.name === 'eavesly_calls_page')?.args).toMatchObject(expected)
+  expect(state.requests.find(r => r.name === 'eavesly_calls_summary')?.args).toMatchObject(expected)
+  await page.getByRole('combobox').first().selectOption('')
+  await expect.poll(() => state.requests.filter(r => r.name === 'eavesly_calls_page').at(-1)?.args.p_agents).toEqual([])
+  await page.getByRole('combobox').nth(1).selectOption('')
+  await expect.poll(() => state.requests.filter(r => r.name === 'eavesly_calls_page').at(-1)?.args.p_dispositions).toEqual([])
+})
+
+test('empty data shows a genuine zero summary and disables Next', async ({ page }) => {
+  await fixture(page, 0)
+  await page.goto(url)
+  await expect(page.getByText('No calls match your filters.')).toBeVisible()
+  await expect(page.getByText('Showing 0–0 of 0')).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Next', exact: true })).toBeDisabled()
+  await expect(page.getByText("Couldn't load calls")).toHaveCount(0)
 })
 
 test('desktop/mobile Calls screenshots', async ({ page }, testInfo) => {

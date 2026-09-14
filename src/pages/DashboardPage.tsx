@@ -166,6 +166,7 @@ export default function DashboardPage() {
   }
 
   const handleExportPDF = async () => {
+    if (exportController.current) return
     setExporting(true)
     setExportError(null)
     const controller = new AbortController()
@@ -263,7 +264,7 @@ export default function DashboardPage() {
         }
       />
 
-      {summaryQuery.isPending && <p role="status" className="text-sm text-muted-foreground">Loading summary… Calls are available below.</p>}
+      {summaryQuery.isPending && <p role="status" className="text-sm text-muted-foreground">Loading summary…</p>}
       {summaryQuery.isError && <ErrorState title="Couldn't load call summary" message="Call rows are independent of totals. Retry to load counts and disposition options." onRetry={() => summaryQuery.refetch()} />}
       {agentsQuery.isError && <ErrorState title="Couldn't load agent options" message="Retry to reload the agent filter." onRetry={() => agentsQuery.refetch()} />}
       {exportError && <ErrorState title="Couldn't export calls" message={exportError} onRetry={handleExportPDF} />}
