@@ -7,8 +7,9 @@ export function defaultAlertWindow(now: Date): { start: Date; end: Date } {
   return { start: new Date(y, m - 1, d - 29), end: new Date(y, m - 1, d, 23, 59, 59, 999) }
 }
 
-/** Explicit views over the scoped alerts in the selected date window. */
+/** Explicit views over scoped alerts; outstanding can use the separate all-time lens. */
 export const ALERT_QUEUE_VIEWS = {
+  outstanding: 'All outstanding',
   awaiting_manager: 'Awaiting manager',
   awaiting_approval: 'Awaiting Kris’s approval',
   changes_requested: 'Changes requested',
@@ -77,6 +78,7 @@ export function parseAlertQueueView(value: string | null, isGodMode = false): Al
   switch (value) {
     case 'awaiting_approval':
       return isGodMode ? 'awaiting_approval' : 'awaiting_manager'
+    case 'outstanding':
     case 'awaiting_manager':
     case 'changes_requested':
     case 'coaching_due':
@@ -113,6 +115,18 @@ export function needsCoachingFollowUp(alert: ReviewState): boolean {
   return isHumanReviewed(alert) && alert.accurate === true && alert.action_taken === 'follow_up_later'
 }
 
+/** Actionable work across first review, approval, correction, and deferred coaching. */
+export function isOutstandingReviewWork(
+  alert: ReviewState,
+  isGodMode: boolean,
+  email: string | null | undefined,
+): boolean {
+  if (isSystemClosed(alert)) return false
+  if (!isHumanReviewed(alert)) return true
+  if (alert.current_decision === 'changes_requested' || needsCoachingFollowUp(alert)) return true
+  return isGodMode && !isClosedForReviewer(alert, email)
+}
+
 /** The documented 24-hour target applies to the first structured manager review. */
 export function isReviewOverdue(alert: ReviewState, now: number): boolean {
   const created = Date.parse(alert.alert_created_at)
@@ -129,6 +143,7 @@ export function matchesAlertQueueView(
   workload: 'internal' | 'partner_qa' = 'internal',
 ): boolean {
   switch (view) {
+    case 'outstanding': return isOutstandingReviewWork(alert, isGodMode, email)
     case 'awaiting_manager': return !isHumanReviewed(alert) && !isSystemClosed(alert)
     case 'awaiting_approval': return isGodMode && isHumanReviewed(alert) &&
       alert.current_decision !== 'changes_requested' && !isClosedForReviewer(alert, email, workload)
