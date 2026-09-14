@@ -57,7 +57,7 @@ test('production-build user journeys (synthetic data, controlled latency)', asyn
     const resourceReads: Promise<void>[] = []
     try {
       await fixture(page)
-      const resources: Array<{ path: string; decodedBytes: number; transferredBytes: number }> = []
+      const resources: Array<{ path: string; decodedBytes: number; transferredBytes: number; contentEncoding: string }> = []
       const resourceFailures: string[] = []
       page.on('response', response => {
         const url = new URL(response.url())
@@ -67,7 +67,8 @@ test('production-build user journeys (synthetic data, controlled latency)', asyn
         resourceReads.push(response.body().then(async body => {
           const sizes = await response.request().sizes()
           resources.push({ path: url.pathname, decodedBytes: body.byteLength,
-            transferredBytes: sizes.responseBodySize + sizes.responseHeadersSize })
+            transferredBytes: sizes.responseBodySize + sizes.responseHeadersSize,
+            contentEncoding: response.headers()['content-encoding'] ?? 'identity' })
         }).catch(() => { resourceFailures.push(url.pathname) }))
       })
       const cdp = await context.newCDPSession(page)
@@ -133,10 +134,11 @@ test('production-build user journeys (synthetic data, controlled latency)', asyn
     }
   }
   const report = {
-    commit: execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim(),
+    commit: process.env.EXPERIENCE_SOURCE_COMMIT ?? execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim(),
+    harnessCommit: execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim(),
     dirtyTree: execFileSync('git', ['status', '--porcelain'], { encoding: 'utf8' }).trim().length > 0,
     scenario: 'Production Vite preview; 5 fresh Chromium contexts; 4x CPU; 10 Mbit/s download, 40ms transport latency; synthetic API responses delayed 180ms; no live data.',
-    limitations: 'HTTP routing disables browser HTTP cache. Back uses the app query cache. Timings include browser automation wait/action overhead, and first-rows is observed DOM plus two animation frames, not field RUM. No production backend timing or authenticated production session is implied.',
+    limitations: 'HTTP routing disables browser HTTP cache. Back uses the app query cache. Timings include browser automation wait/action overhead, and first-rows is observed DOM plus two animation frames, not field RUM. Wire bytes include response headers and preview-server compression, not Cloudflare CDN delivery. No production backend timing or authenticated production session is implied.',
     samples,
   }
   const json = JSON.stringify(report, null, 2)
