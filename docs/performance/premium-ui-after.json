@@ -1,0 +1,154 @@
+{
+  "commit": "a823e997a62f4b1146770b5223080441a0dae21a",
+  "harnessCommit": "a823e997a62f4b1146770b5223080441a0dae21a",
+  "dirtyTree": false,
+  "scenario": "Production Vite preview; 5 fresh Chromium contexts; 4x CPU; 10 Mbit/s download, 40ms transport latency; synthetic API responses delayed 180ms; no live data.",
+  "limitations": "HTTP routing disables browser HTTP cache. Back uses the app query cache. Timings include browser automation wait/action overhead, and first-rows is observed DOM plus two animation frames, not field RUM. Wire bytes include response headers and preview-server compression, not Cloudflare CDN delivery. No production backend timing or authenticated production session is implied.",
+  "samples": [
+    {
+      "firstRowsMs": 2116,
+      "settledRowsMs": 2209,
+      "filterMs": 586,
+      "nextMs": 434,
+      "backMs": 349,
+      "restoredPage": true,
+      "scriptDurationMs": 676.2,
+      "initialResources": [
+        {
+          "path": "/assets/index-D0EUJtWu.css",
+          "decodedBytes": 93255,
+          "transferredBytes": 16162,
+          "contentEncoding": "gzip"
+        },
+        {
+          "path": "/assets/index-CoqYXli8.js",
+          "decodedBytes": 816322,
+          "transferredBytes": 232984,
+          "contentEncoding": "gzip"
+        },
+        {
+          "path": "/fonts/InterVariable.woff2",
+          "decodedBytes": 72920,
+          "transferredBytes": 73240,
+          "contentEncoding": "identity"
+        }
+      ]
+    },
+    {
+      "firstRowsMs": 2641,
+      "settledRowsMs": 2737,
+      "filterMs": 574,
+      "nextMs": 362,
+      "backMs": 335,
+      "restoredPage": true,
+      "scriptDurationMs": 775.7049999999999,
+      "initialResources": [
+        {
+          "path": "/assets/index-D0EUJtWu.css",
+          "decodedBytes": 93255,
+          "transferredBytes": 16162,
+          "contentEncoding": "gzip"
+        },
+        {
+          "path": "/assets/index-CoqYXli8.js",
+          "decodedBytes": 816322,
+          "transferredBytes": 232984,
+          "contentEncoding": "gzip"
+        },
+        {
+          "path": "/fonts/InterVariable.woff2",
+          "decodedBytes": 72920,
+          "transferredBytes": 73240,
+          "contentEncoding": "identity"
+        }
+      ]
+    },
+    {
+      "firstRowsMs": 2464,
+      "settledRowsMs": 2561,
+      "filterMs": 583,
+      "nextMs": 380,
+      "backMs": 312,
+      "restoredPage": true,
+      "scriptDurationMs": 778.808,
+      "initialResources": [
+        {
+          "path": "/assets/index-D0EUJtWu.css",
+          "decodedBytes": 93255,
+          "transferredBytes": 16162,
+          "contentEncoding": "gzip"
+        },
+        {
+          "path": "/assets/index-CoqYXli8.js",
+          "decodedBytes": 816322,
+          "transferredBytes": 232984,
+          "contentEncoding": "gzip"
+        },
+        {
+          "path": "/fonts/InterVariable.woff2",
+          "decodedBytes": 72920,
+          "transferredBytes": 73240,
+          "contentEncoding": "identity"
+        }
+      ]
+    },
+    {
+      "firstRowsMs": 2288,
+      "settledRowsMs": 2385,
+      "filterMs": 538,
+      "nextMs": 477,
+      "backMs": 296,
+      "restoredPage": true,
+      "scriptDurationMs": 670.886,
+      "initialResources": [
+        {
+          "path": "/assets/index-D0EUJtWu.css",
+          "decodedBytes": 93255,
+          "transferredBytes": 16162,
+          "contentEncoding": "gzip"
+        },
+        {
+          "path": "/assets/index-CoqYXli8.js",
+          "decodedBytes": 816322,
+          "transferredBytes": 232984,
+          "contentEncoding": "gzip"
+        },
+        {
+          "path": "/fonts/InterVariable.woff2",
+          "decodedBytes": 72920,
+          "transferredBytes": 73240,
+          "contentEncoding": "identity"
+        }
+      ]
+    },
+    {
+      "firstRowsMs": 1944,
+      "settledRowsMs": 2049,
+      "filterMs": 633,
+      "nextMs": 479,
+      "backMs": 292,
+      "restoredPage": true,
+      "scriptDurationMs": 617.158,
+      "initialResources": [
+        {
+          "path": "/assets/index-D0EUJtWu.css",
+          "decodedBytes": 93255,
+          "transferredBytes": 16162,
+          "contentEncoding": "gzip"
+        },
+        {
+          "path": "/assets/index-CoqYXli8.js",
+          "decodedBytes": 816322,
+          "transferredBytes": 232984,
+          "contentEncoding": "gzip"
+        },
+        {
+          "path": "/fonts/InterVariable.woff2",
+          "decodedBytes": 72920,
+          "transferredBytes": 73240,
+          "contentEncoding": "identity"
+        }
+      ]
+    }
+  ]
+}

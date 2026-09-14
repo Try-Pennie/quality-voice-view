@@ -1,0 +1,26 @@
+synthetic PostgreSQL 17 benchmark (846,429 Calls / 496,959 QA / 69,204-window Calls; not production latency)
+each timed run uses a fresh connection, which is not a cold OS-page-cache run
+benchmark page_ms median=14.059 runs=11.299,13.288,14.059,15.110,15.532
+benchmark score_page_ms median=877.423 runs=831.307,846.466,877.423,997.786,1147.047
+benchmark summary_baseline_ms median=482.043 runs=382.556,431.388,482.043,575.930,653.962
+benchmark summary_optimized_ms median=355.892 runs=342.646,352.735,355.892,381.776,428.377
+benchmark rushed_baseline_ms median=644.682 runs=638.991,644.682,651.082
+benchmark rushed_optimized_ms median=392.072 runs=372.490,392.072,417.288
+benchmark threshold_baseline_ms median=398.115 runs=388.279,398.115,433.360
+benchmark threshold_optimized_ms median=349.155 runs=343.318,349.155,351.746
+benchmark compliance_baseline_ms median=379.055 runs=374.546,379.055,399.147
+benchmark compliance_optimized_ms median=339.042 runs=323.644,339.042,371.520
+benchmark agent_selective_baseline_ms median=43.933 runs=43.222,43.933,44.303
+benchmark agent_selective_optimized_ms median=45.703 runs=43.467,45.703,47.289
+benchmark date_selective_baseline_ms median=154.877 runs=143.062,154.877,158.456
+benchmark date_selective_optimized_ms median=133.634 runs=127.809,133.634,134.167
+summary baseline plan (buffers/temp):
+        Buffers: shared hit=3, temp read=518
+              Buffers: shared hit=3, temp read=518
+  Buffers: shared hit=211684 read=3, temp read=1036 written=1307
+summary optimized plan (buffers/temp):
+        Buffers: shared hit=3, temp read=518
+              Buffers: shared hit=3, temp read=518
+  Buffers: shared hit=211687, temp read=1036 written=518
+summary rushed predicate plan occurrences=2 (query text + one Filter)
+ui-load-performance.integration.check.sh: all assertions passed
