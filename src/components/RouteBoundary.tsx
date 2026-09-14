@@ -3,19 +3,30 @@ import { useLocation } from 'react-router-dom'
 
 type RouteErrorBoundaryProps = {
   readonly children: ReactNode
+  readonly resetKey: string
 }
 
 type RouteErrorBoundaryState = {
   readonly failed: boolean
+  readonly resetKey: string
 }
 
 class RouteErrorBoundary extends Component<
   RouteErrorBoundaryProps,
   RouteErrorBoundaryState
 > {
-  state: RouteErrorBoundaryState = { failed: false }
+  state: RouteErrorBoundaryState = { failed: false, resetKey: this.props.resetKey }
 
-  static getDerivedStateFromError(): RouteErrorBoundaryState {
+  static getDerivedStateFromProps(
+    props: RouteErrorBoundaryProps,
+    state: RouteErrorBoundaryState,
+  ): RouteErrorBoundaryState | null {
+    return props.resetKey === state.resetKey
+      ? null
+      : { failed: false, resetKey: props.resetKey }
+  }
+
+  static getDerivedStateFromError(): { failed: boolean } {
     return { failed: true }
   }
 
@@ -63,10 +74,10 @@ function RouteLoading() {
 export function RouteBoundary({ children }: { children: ReactNode }) {
   const location = useLocation()
 
-  // Search params are in-page state; only a real route change should reset
-  // healthy children or clear a failed route boundary.
+  // Paths can be in-page state too (the Review drawer has its own URL).
+  // Reset errors on navigation without remounting healthy page children.
   return (
-    <RouteErrorBoundary key={location.pathname}>
+    <RouteErrorBoundary resetKey={location.pathname}>
       <Suspense fallback={<RouteLoading />}>{children}</Suspense>
     </RouteErrorBoundary>
   )

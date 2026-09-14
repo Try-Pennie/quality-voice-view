@@ -74,6 +74,10 @@ test('a failed route chunk offers an explicit reload without hiding navigation',
   await expect(page.getByRole('heading', { name: "This page couldn't open" })).toBeVisible()
   await expect(page.getByRole('link', { name: 'Eavesly' })).toBeVisible()
 
+  await page.getByRole('link', { name: 'Calls', exact: true }).click()
+  await expect(page.getByText('No calls match your filters.', { exact: true })).toBeVisible()
+  await page.getByRole('link', { name: 'Team', exact: true }).click()
+  await expect(page.getByRole('heading', { name: "This page couldn't open" })).toBeVisible()
   await page.getByRole('button', { name: 'Reload page' }).click()
   await expect(page.getByText('AI-evaluated calls', { exact: true })).toBeVisible()
 })

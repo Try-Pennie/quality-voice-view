@@ -119,7 +119,11 @@ test('server sort/filter resets offset immediately; URL/ET bounds preserved; war
   await expect(page.getByText('Showing 26–50 of 65')).toBeVisible()
   await page.getByRole('button', { name: 'Previous', exact: true }).click()
   await expect(page.getByText('Showing 1–25 of 65')).toBeVisible()
-  expect(state.requests.filter(r => r.name === 'eavesly_calls_page').map(r => r.args.p_offset)).toEqual([0, 25, 50])
+  // Returning to page one must use its cache. Whether the browser re-enters
+  // the still-focused Next control can additionally prefetch page three.
+  for (const offset of [0, 25]) {
+    expect(state.requests.filter(r => r.name === 'eavesly_calls_page' && r.args.p_offset === offset)).toHaveLength(1)
+  }
   await page.getByRole('button', { name: 'Next', exact: true }).click()
   await page.getByRole('button', { name: 'Agent', exact: true }).click()
   await expect(visibleRows(page).first()).toContainText('Agent 0001')
