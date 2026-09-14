@@ -57,6 +57,16 @@ Base: `588421d` (`Try-Pennie/quality-voice-view`, merged PR #115). Target branch
 
 Workers use separate Git worktrees. They must commit only their owned files and never push, merge, deploy, or use production writes. Each browser worker gets its own port and output directory; no agent may stop another agent's process. The parent alone owns the final integrated suite and PR. New SQL and route-loading changes receive independent correctness/security review.
 
+## Independent plan review — approved with correctness pins
+
+The independent review approved implementation with these requirements, assigned to the relevant workers:
+- Never hide a Calls filter change behind previous-filter data. Prefetch must use the same complete query identity/parser, require `has_more`, skip active fetches, and remain one intent-triggered next page.
+- Capture only numeric scroll synchronously when leaving a row; restore after the matching rows render. Verify page/sort/filter URL state has reached history before detail navigation.
+- Selected agents absent from the last-30-day options must remain applied and removable; preserve string-array RPC values and keyboard access.
+- Keep Calls eager and route Suspense inside the existing dashboard chrome/auth boundary. Chunk recovery must not automatically reload in a loop.
+- Add darker badge text tokens rather than changing the semantic fills. Bundle the actual licensed fallback font.
+- Any SQL rewrite must compare row-identical old/new JSONB results across filter/threshold combinations and preserve invoker grants, latest-QA ordering and QA-present denominators.
+
 ## Existing verification limits
 
 The baseline full-browser suite passed 74 tests in the prior work. Repository-wide lint and app TypeScript already contain unrelated failures; compare exact diagnostics rather than weakening checks. Signed-in production browser behavior is still not established by database-role smoke checks or static HTTP delivery checks. The planned browser benchmark uses explicit synthetic data and must remain labeled as such.
