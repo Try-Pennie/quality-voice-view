@@ -1,0 +1,23 @@
+{
+  "result": "passed",
+  "commit": "8969cda72dfb6560ff9516f9a36b4e3213d419db",
+  "initialManagerCriteria": 2,
+  "fullManagerCriteria": 23,
+  "krisEditableCriteria": 0,
+  "requestCount": 53,
+  "origins": [
+    "https://xuvveqaizlletsqvwpgx.supabase.co",
+    "https://rubric-staging.eavesly.pages.dev",
+    "https://27545996.eavesly.pages.dev"
+  ],
+  "problems": [],
+  "checks": [
+    "real auth on distinct same-browser origins",
+    "focused issues default, full scorecard on demand",
+    "unsaved needs-context edit survives collapse",
+    "Kris saved human corrections stay visible, never editable",
+    "mobile widths 320/375/414/768 no horizontal overflow",
+    "no saved review or approval changes",
+    "staging-only requests and no browser errors"
+  ]
+}
