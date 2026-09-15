@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test'
-import { alertRow, FULL_QA_RESULT, openAlert, reviewFixture } from './review-fixture'
+import { alertRow, FULL_QA_CRITERIA, FULL_QA_RESULT, openAlert, reviewFixture } from './review-fixture'
 
 const correctionReason = 'The available call context confirms the corrected judgment.'
 const contextReason = 'The audio is unavailable, so this criterion remains uncertain.'
@@ -13,16 +13,29 @@ test('Full QA saves string-scale corrections, uncertainty, and a retained findin
   await page.goto('/dashboard/alerts?status=awaiting_manager')
   await openAlert(page, 'rubric-flow')
 
+  await expect(page.getByRole('heading', { name: 'Flagged issues & review changes' })).toBeVisible()
+  await expect(page.getByRole('combobox', { name: 'Call recording disclosure disposition' })).toBeHidden()
+  await page.getByText('Scoring policy & source', { exact: true }).click()
   await expect(page.getByText(/Exact production rubric/)).toContainText('1396c17a6ae639b1172a1ff5d04ee21b22e4ab5ceb08c5915c090a34da291e37')
   await expect(page.locator('select[aria-label$="disposition"]')).toHaveCount(23)
   await expect(page.getByText('Original AI: fail').first()).toBeVisible()
-  await expect(page.getByText('Original AI evidence').first()).toBeVisible()
+  await expect(page.locator('article:visible').getByText('Original AI evidence').first()).toBeVisible()
+  await page.getByText('Scoring policy & source', { exact: true }).click()
+  await page.getByRole('button', { name: 'View full scorecard · 23 criteria' }).click()
+  await expect(page.getByRole('combobox', { name: /disposition$/ })).toHaveCount(23)
 
   await page.getByRole('combobox', { name: 'Call recording disclosure disposition' }).selectOption('needs_context')
   await page.getByRole('textbox', { name: 'Call recording disclosure correction reason' }).fill(contextReason)
   await page.getByRole('combobox', { name: 'Credit pull consent disposition' }).selectOption('corrected')
   await expect(page.getByRole('combobox', { name: 'Credit pull consent corrected value' })).toHaveValue('pass')
   await page.getByRole('textbox', { name: 'Credit pull consent correction reason' }).fill(correctionReason)
+  await page.getByRole('combobox', { name: 'professional tone disposition' }).selectOption('corrected')
+  await page.getByRole('combobox', { name: 'professional tone corrected value' }).selectOption('poor')
+  await page.getByRole('textbox', { name: 'professional tone correction reason' }).fill('The manager identified a tone concern the AI initially missed.')
+  await page.getByRole('button', { name: 'Show only issues & changes' }).click()
+  await expect(page.getByRole('combobox', { name: 'Call recording disclosure disposition' })).toHaveValue('needs_context')
+  await expect(page.getByRole('combobox', { name: 'professional tone corrected value' })).toHaveValue('poor')
+  await expect(page.getByRole('combobox', { name: 'Social security verification disposition' })).toBeHidden()
   await page.setViewportSize({ width: 390, height: 844 })
   await page.getByRole('combobox', { name: 'Credit pull consent disposition' }).scrollIntoViewIfNeeded()
   await expect(page.getByRole('combobox', { name: 'Credit pull consent corrected value' })).toBeVisible()
@@ -53,6 +66,11 @@ test('Full QA saves string-scale corrections, uncertainty, and a retained findin
   })
   expect(write).toHaveProperty('p_corrections')
   expect((write as { p_corrections: unknown[] }).p_corrections).toHaveLength(23)
+  expect((write as { p_corrections: unknown[] }).p_corrections).toEqual(expect.arrayContaining([
+    { criterion_key: 'social_security_verification', disposition: 'confirmed', corrected_value: 'pass', reason: null },
+    { criterion_key: 'step4_paydown_projections', disposition: 'confirmed', corrected_value: 'not_applicable', reason: null },
+    { criterion_key: 'professional_tone', disposition: 'corrected', corrected_value: 'poor', reason: 'The manager identified a tone concern the AI initially missed.' },
+  ]))
   expect((write as { p_findings: unknown[] }).p_findings).toHaveLength(1)
   expect(state.writes.some(value => value && typeof value === 'object' && 'p_verdict' in value)).toBe(false)
   expect(state.rows[0].accurate).toBe(false)
@@ -80,6 +98,12 @@ test('Full QA saves string-scale corrections, uncertainty, and a retained findin
   await openAlert(adminPage, 'rubric-flow')
   await expect(adminPage.locator('select[aria-label$="disposition"]')).toHaveCount(0)
   await expect(adminPage.getByText('Saved human treatment: Needs context / uncertain')).toBeVisible()
+  await expect(adminPage.getByText('Saved human treatment: Corrected to poor')).toBeVisible()
+  await expect(adminPage.getByRole('heading', { name: 'Social security verification', exact: true })).toBeHidden()
+  await adminPage.getByRole('button', { name: 'View full scorecard · 23 criteria' }).click()
+  await expect(adminPage.getByRole('heading', { name: 'Social security verification', exact: true })).toBeVisible()
+  await expect(adminPage.locator('select[aria-label$="disposition"]')).toHaveCount(0)
+  await adminPage.getByRole('button', { name: 'Show only issues & changes' }).click()
   const savedTreatment = adminPage.getByText('Saved human treatment: Corrected to pass')
   await expect(savedTreatment).toBeVisible()
   await savedTreatment.scrollIntoViewIfNeeded()
@@ -92,6 +116,65 @@ test('Full QA saves string-scale corrections, uncertainty, and a retained findin
   await adminPage.getByRole('button', { name: 'Approve review' }).click()
   await expect(adminPage.getByText('Review approved')).toBeVisible()
   await adminPage.close()
+})
+
+test('focused scorecard respects categorical concerns and enrollment gating, while toggling preserves edits', async ({ page }, testInfo) => {
+  const result = {
+    ...structuredClone(FULL_QA_RESULT),
+    customer_experience_scorecard: { ...FULL_QA_RESULT.customer_experience_scorecard, professional_tone: 'poor' },
+    sales_process_scorecard: { ...FULL_QA_RESULT.sales_process_scorecard, step2_credit_review: 'missing' },
+    program_expectations_scorecard: { ...FULL_QA_RESULT.program_expectations_scorecard, enrollment_completed: false, section_status: 'not_applicable' },
+  }
+  await reviewFixture(page, [alertRow('focused', { result_json: result })])
+  await page.goto('/dashboard/alerts?status=awaiting_manager')
+  await openAlert(page, 'focused')
+  await expect(page.getByRole('combobox', { name: /disposition$/ })).toHaveCount(6)
+  for (const label of ['Credit pull consent', 'Accurate representations', 'professional tone', 'patience empathy', 'step2 credit review', 'step6 debt resolution']) {
+    await expect(page.getByRole('combobox', { name: `${label} disposition` })).toBeVisible()
+  }
+  for (const label of ['Call recording disclosure', 'active listening', 'step1 agenda setting', 'step4 paydown projections', 'phase recovery covered']) {
+    await expect(page.getByRole('combobox', { name: `${label} disposition` })).toBeHidden()
+  }
+  const expand = page.getByRole('button', { name: 'View full scorecard · 23 criteria' })
+  await expand.focus()
+  await page.keyboard.press('Enter')
+  await expect(page.getByRole('combobox', { name: /disposition$/ })).toHaveCount(23)
+  await page.getByRole('combobox', { name: 'phase recovery covered disposition' }).selectOption('needs_context')
+  await page.getByRole('textbox', { name: 'phase recovery covered correction reason' }).fill(contextReason)
+  await page.getByRole('button', { name: 'Show only issues & changes' }).click()
+  await expect(page.getByRole('combobox', { name: /disposition$/ })).toHaveCount(7)
+  await expect(page.getByRole('textbox', { name: 'phase recovery covered correction reason' })).toHaveValue(contextReason)
+  for (const width of [320, 375, 414, 768]) {
+    await page.setViewportSize({ width, height: 844 })
+    await expand.scrollIntoViewIfNeeded()
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
+    await expect(expand).toBeVisible()
+  }
+  await page.screenshot({ path: testInfo.outputPath('focused-scorecard.png'), animations: 'disabled' })
+})
+
+test('empty focus is not a cleared alert and an unavailable score stays visible for context', async ({ page }) => {
+  const scorecards: Record<string, Record<string, unknown>> = {}
+  for (const criterion of FULL_QA_CRITERIA) {
+    const [section, field] = criterion.score_path.split('.')
+    scorecards[section] ??= {}
+    scorecards[section][field] = criterion.domain[0]
+  }
+  const clean = { ...FULL_QA_RESULT, ...scorecards }
+  const missing = { ...clean, compliance_scorecard: { ...scorecards.compliance_scorecard, social_security_verification: null } }
+  await reviewFixture(page, [alertRow('no-concerns', { result_json: clean }), alertRow('missing-score', { result_json: missing })])
+  await page.goto('/dashboard/alerts?status=awaiting_manager')
+  await openAlert(page, 'no-concerns')
+  await expect(page.getByText(/No flagged criteria or review changes to show/)).toContainText('this does not clear the alert')
+  await expect(page.getByRole('combobox', { name: /disposition$/ })).toHaveCount(0)
+  await expect(page.getByRole('button', { name: 'Save Full QA review' })).toBeDisabled()
+  await page.getByRole('button', { name: 'View full scorecard · 23 criteria' }).click()
+  await expect(page.getByRole('combobox', { name: /disposition$/ })).toHaveCount(23)
+  await page.getByRole('button', { name: 'Close (Esc)' }).click()
+  await openAlert(page, 'missing-score')
+  await expect(page.getByRole('combobox', { name: /disposition$/ })).toHaveCount(1)
+  await expect(page.getByRole('combobox', { name: 'Social security verification disposition' })).toHaveValue('needs_context')
+  await expect(page.getByRole('textbox', { name: 'Social security verification correction reason' })).toBeVisible()
 })
 
 test('a stale Full QA source keeps the draft but cannot silently pair it with a refreshed token', async ({ page }) => {
@@ -120,14 +203,16 @@ test('Full QA provenance never presents an unknown stamped hash as current, whil
   await page.goto('/dashboard/alerts?status=awaiting_manager')
 
   await openAlert(page, 'unknown-hash')
+  await expect(page.getByText('Original rubric unavailable for this stamped hash; current field map only.')).toBeVisible()
+  await page.getByText('Scoring policy & source', { exact: true }).click()
   await expect(page.getByText(/Original rubric unavailable for stamped hash/)).toContainText('f'.repeat(64))
-  await expect(page.getByText('Original rule unavailable for this stamped hash.').first()).toBeVisible()
+  await expect(page.locator('article:visible').getByText('Original rule unavailable for this stamped hash.').first()).toBeVisible()
   await expect(page.getByText('Exact synthetic rule for Call recording disclosure.')).toHaveCount(0)
   await page.getByRole('button', { name: 'Close (Esc)' }).click()
 
   await openAlert(page, 'legacy-source')
-  await expect(page.getByText(/Original rubric unknown; current reference only/)).toBeVisible()
-  await expect(page.getByText('Exact synthetic rule for Call recording disclosure.')).toBeVisible()
+  await expect(page.getByText('Original rubric unknown; current reference only.', { exact: true })).toBeVisible()
+  await expect(page.getByText('Exact synthetic rule for Credit pull consent.')).toBeVisible()
 })
 
 test('an unmapped approved finding fails closed rather than disappearing from recurrence totals', async ({ page }) => {

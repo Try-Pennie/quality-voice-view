@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { ChevronDown, Plus, Trash2 } from 'lucide-react'
 import { toast } from 'sonner'
@@ -49,6 +49,8 @@ function sourceNotice(context: FullQaReviewContext) {
 /** Full QA-specific review: immutable AI judgments, 23 criterion treatments, distinct findings, and escalation. */
 export function FullQaRubricReview({ alert, scope, editable, onDirtyChange, onBusyChange, onSubmitted }: Props) {
   const queryClient = useQueryClient()
+  const scorecardId = useId()
+  const [showFullScorecard, setShowFullScorecard] = useState(false)
   const query = useQuery({ queryKey: ['fullQaReviewContext', alert.call_id], queryFn: () => fetchFullQaReviewContext(alert.call_id) })
   const context = query.data
   const initializedFor = useRef<string | null>(null)
@@ -82,6 +84,7 @@ export function FullQaRubricReview({ alert, scope, editable, onDirtyChange, onBu
     setCorrections(next.corrections); setFindings(next.findings); setEscalationJustified(next.escalationJustified)
     setEscalationReason(next.escalationReason); setInaccuracyReason(next.inaccuracyReason); setActionTaken(next.actionTaken); setActionDetails(next.actionDetails)
     setProposalCriterion(nextContext.criteria[0]?.key ?? '')
+    setShowFullScorecard(false)
     baseline.current = serializeDraft({ ...next,
       inaccuracyReason: next.escalationJustified ? null : next.inaccuracyReason,
       actionTaken: next.findings.length ? next.actionTaken : null,
@@ -96,7 +99,9 @@ export function FullQaRubricReview({ alert, scope, editable, onDirtyChange, onBu
     loadContext(context)
   }, [context, alert.call_id, loadContext])
 
-  const reviewDirty = !!context && serializeDraft(draft) !== baseline.current
+  // Loading the initial server snapshot is not a user edit (including the render
+  // before loadContext initializes the local draft).
+  const reviewDirty = !!context && initializedFor.current === alert.call_id && serializeDraft(draft) !== baseline.current
   const proposalDirty = !!proposalText.trim() || !!proposalWhy.trim() || Object.values(decisionReason).some(value => !!value.trim())
   const dirty = reviewDirty || proposalDirty
   const busy = saving || proposalPending || proposalDecisionPending
@@ -113,6 +118,20 @@ export function FullQaRubricReview({ alert, scope, editable, onDirtyChange, onBu
     <button type="button" onClick={() => query.refetch()} className="mt-3 min-h-[36px] rounded-full border border-border px-3 font-semibold">Retry</button>
   </section>
 
+  // This is a display filter, not an escalation rule. Keep the immutable AI concerns
+  // and saved/draft human changes visible even after a score is corrected to pass.
+  const attentionKeys = new Set(context.criteria.filter(criterion => {
+    const original = valueAtPath(context.sourceResult, criterion.scorePath)
+    const treatments = [corrections, context.review?.corrections ?? []]
+    if (treatments.some(items => items.some(item => item.criterionKey === criterion.key && item.disposition !== 'confirmed'))
+      || [...findings, ...(context.review?.findings ?? [])].some(item => item.relatedCriteria.includes(criterion.key))
+      || !criterion.domain.some(value => value === original)) return true
+    if (criterion.findingCategory === 'program_expectations') {
+      return original === false && valueAtPath(context.sourceResult, 'program_expectations_scorecard.section_status') !== 'not_applicable'
+        && valueAtPath(context.sourceResult, 'program_expectations_scorecard.enrollment_completed') !== false
+    }
+    return original === 'fail' || original === 'poor' || original === 'fair' || original === 'partial' || original === 'missing'
+  }).map(criterion => criterion.key))
   const parsed = parseFullQaReviewDraft(context, draft)
   const updateCorrection = (key: string, patch: Partial<FullQaCriterionCorrection>) => setCorrections(items => items.map(item => item.criterionKey === key ? { ...item, ...patch } : item))
   const addFinding = () => setFindings(items => [...items, { findingId: crypto.randomUUID(), category: 'compliance', relatedCriteria: [context.criteria[0]?.key ?? 'call_recording_disclosure'], summary: '', evidence: '' }])
@@ -162,13 +181,14 @@ export function FullQaRubricReview({ alert, scope, editable, onDirtyChange, onBu
   }
 
   return <section className="space-y-5" aria-label="Full QA rubric review">
-    <div className={`rounded-2xl border px-4 py-3 ${context.sourceReferenceKind === 'known' ? 'border-pennie-green-light bg-pennie-green-light/20' : 'border-pennie-peach-dark bg-pennie-peach-light/30'}`}>
-      <p className="text-xs font-semibold uppercase tracking-wider text-pennie-navy">Rubric provenance</p>
+    {context.sourceReferenceKind !== 'known' && <p className="rounded-xl border border-pennie-peach-dark bg-pennie-peach-light/30 p-3 text-xs text-pennie-graphite">{context.sourceReferenceKind === 'legacy_current_reference' ? 'Original rubric unknown; current reference only.' : 'Original rubric unavailable for this stamped hash; current field map only.'}</p>}
+    <details className="rounded-2xl border border-border px-4 py-3">
+      <summary className="pennie-focus-ring min-h-[36px] cursor-pointer text-sm font-semibold text-pennie-blue-deeper">Scoring policy &amp; source</summary>
       <p className="mt-1 break-all text-xs text-pennie-graphite">{sourceNotice(context)}</p>
       <p className="mt-1 text-xs text-pennie-graphite/70">The reviewed AI JSON is snapshotted per saved revision. No model or replay identity is claimed.</p>
       {context.sourceReferenceKind !== 'unknown_hash' && <div className="mt-3 rounded-xl bg-white/70 p-3 text-xs text-pennie-graphite"><p><strong>Escalation:</strong> two or more distinct confirmed compliance findings, or an explicit severe customer-mistreatment finding. Poor CX alone is not severe.</p><p className="mt-1"><strong>Program expectations:</strong> enrollment gating applies; only handling-agent delivery counts, and ACDR/GOTA-only delivery does not count for discussion points.</p></div>}
       {context.rubricPromptText && <details className="mt-3"><summary className="cursor-pointer text-xs font-semibold text-pennie-blue-deeper">{context.sourceReferenceKind === 'known' ? 'Full exact scoring policy used' : 'Full current scoring policy — reference only'}</summary><pre className="mt-2 max-h-80 overflow-auto whitespace-pre-wrap break-words rounded-xl bg-white p-3 text-[11px] text-pennie-graphite">{context.rubricPromptText}</pre></details>}
-    </div>
+    </details>
 
     {contextChanged && <div className="rounded-2xl border border-pennie-peach-dark bg-pennie-peach-light/40 p-4 text-sm"><p className="font-semibold text-pennie-navy">Saved source or revision changed</p><p className="mt-1 text-xs text-pennie-graphite">Your draft was not paired with the new token. Reload explicitly to discard it and review the authoritative source.</p><button type="button" onClick={() => loadContext(context)} className="mt-3 min-h-[40px] rounded-full border border-pennie-navy px-4 text-xs font-semibold">Reload review and discard draft</button></div>}
 
@@ -177,23 +197,28 @@ export function FullQaRubricReview({ alert, scope, editable, onDirtyChange, onBu
       <p className="text-xs text-muted-foreground">Saved {formatDateTime(context.review.savedAt)} by {context.review.savedBy}</p>
     </div>}
 
-    <div>
-      <h2 className="text-base font-semibold text-pennie-navy">23 criterion judgments</h2>
-      <p className="mt-1 text-xs text-pennie-graphite/70">Confirm the AI value, correct it with a reason, or mark needs context. A correction does not create a confirmed finding.</p>
+    <div className="space-y-3">
+      <div>
+        <h2 className="text-base font-semibold text-pennie-navy">{showFullScorecard ? 'Full scorecard' : 'Flagged issues & review changes'}</h2>
+        <p className="mt-1 text-xs text-pennie-graphite/70">{editable ? 'Review the AI concerns below. Correct a judgment or mark it needs context; other scores stay unchanged.' : 'Review the manager’s changes and unresolved items below, then approve or request changes.'}</p>
+        <p className="mt-1 text-xs text-pennie-graphite/70">{attentionKeys.size} of {context.criteria.length} criteria need attention. Includes weak or incomplete scores, not just escalation triggers.</p>
+      </div>
+      <button type="button" aria-expanded={showFullScorecard} aria-controls={scorecardId} onClick={() => setShowFullScorecard(value => !value)} className="pennie-focus-ring min-h-[44px] rounded-full border border-border px-4 py-2 text-sm font-semibold text-pennie-blue-deeper hover:bg-pennie-blue-light active:bg-pennie-beige">
+        {showFullScorecard ? 'Show only issues & changes' : `View full scorecard · ${context.criteria.length} criteria`}
+      </button>
+      {!showFullScorecard && attentionKeys.size === 0 && <p className="text-sm text-pennie-graphite">No flagged criteria or review changes to show. Open the full scorecard to inspect other scores; this does not clear the alert.</p>}
     </div>
-    {['Compliance', 'Customer experience', 'Sales process', 'Program expectations'].map(section => <details key={section} className="group rounded-2xl border border-border px-4 py-3" open={section === 'Compliance'}>
-      <summary className="flex cursor-pointer list-none items-center justify-between text-sm font-semibold text-pennie-blue-deeper">{section}<ChevronDown className="h-4 w-4 transition-transform group-open:rotate-180" /></summary>
-      <div className="mt-3 space-y-3">{context.criteria.filter(item => item.section === section).map(criterion => {
+    <div id={scorecardId} className="space-y-3">{context.criteria.map(criterion => {
         const correction = corrections.find(item => item.criterionKey === criterion.key)
         if (!correction) return null
         const original = valueAtPath(context.sourceResult, criterion.scorePath)
         const evidence = valueAtPath(context.sourceResult, criterion.evidencePath)
-        return <article key={criterion.key} className="rounded-xl bg-pennie-beige/60 p-3">
+        return <article key={criterion.key} hidden={!showFullScorecard && !attentionKeys.has(criterion.key)} className="rounded-xl bg-pennie-beige/60 p-3">
           <div className="flex flex-wrap items-start justify-between gap-2"><div><h3 className="text-sm font-semibold text-pennie-navy">{criterion.label}</h3>
             {context.sourceReferenceKind !== 'unknown_hash' ? <p className="mt-1 text-xs leading-relaxed text-pennie-graphite">{criterion.rule}</p> : <p className="mt-1 text-xs text-pennie-peach-deeper">Original rule unavailable for this stamped hash.</p>}</div>
             <span className="rounded-full bg-pennie-white px-2 py-1 text-xs font-semibold">Original AI: {String(original ?? 'unavailable')}</span></div>
-          <details className="mt-2"><summary className="cursor-pointer text-xs font-semibold text-pennie-blue-deeper">Original AI evidence</summary><pre className="mt-2 whitespace-pre-wrap break-words text-xs text-pennie-graphite">{JSON.stringify(evidence ?? 'No evidence saved', null, 2)}</pre></details>
-          {context.review && <div className="mt-2 rounded-lg border border-border bg-white px-3 py-2 text-xs"><p className="font-semibold text-pennie-navy">Saved human treatment: {correction.disposition === 'confirmed' ? 'Retained original AI value' : correction.disposition === 'corrected' ? `Corrected to ${String(correction.correctedValue)}` : 'Needs context / uncertain'}</p>{correction.reason && <p className="mt-1 text-pennie-graphite">Reason: {correction.reason}</p>}</div>}
+          <details className="mt-2" open={attentionKeys.has(criterion.key)}><summary className="pennie-focus-ring cursor-pointer text-xs font-semibold text-pennie-blue-deeper">Original AI evidence</summary><pre className="mt-2 whitespace-pre-wrap break-words text-xs text-pennie-graphite">{JSON.stringify(evidence ?? 'No evidence saved', null, 2)}</pre></details>
+          {context.review?.corrections.filter(item => item.criterionKey === criterion.key).map(saved => <div key={saved.criterionKey} className="mt-2 rounded-lg border border-border bg-white px-3 py-2 text-xs"><p className="font-semibold text-pennie-navy">Saved human treatment: {saved.disposition === 'confirmed' ? 'Retained original AI value' : saved.disposition === 'corrected' ? `Corrected to ${String(saved.correctedValue)}` : 'Needs context / uncertain'}</p>{saved.reason && <p className="mt-1 text-pennie-graphite">Reason: {saved.reason}</p>}</div>)}
           {editable && <div className="mt-3 grid gap-2 sm:grid-cols-2">
             <label className="text-xs font-semibold">Review disposition<select aria-label={`${criterion.label} disposition`} value={correction.disposition} onChange={event => {
               const disposition = event.target.value as FullQaCriterionCorrection['disposition']
@@ -205,8 +230,7 @@ export function FullQaRubricReview({ alert, scope, editable, onDirtyChange, onBu
             {correction.disposition !== 'confirmed' && <label className="text-xs font-semibold sm:col-span-2">Required reason<textarea aria-label={`${criterion.label} correction reason`} value={correction.reason ?? ''} onChange={event => updateCorrection(criterion.key, { reason: event.target.value })} className="mt-1 min-h-20 w-full rounded-lg border border-border bg-white p-2 font-normal" /></label>}
           </div>}
         </article>
-      })}</div>
-    </details>)}
+    })}</div>
 
     <div className="rounded-2xl border border-border p-4 space-y-3">
       <div><h2 className="text-base font-semibold text-pennie-navy">Individual findings</h2><p className="mt-1 text-xs text-pennie-graphite/70">Record each distinct underlying confirmed issue once. Retaining an AI failure or correcting a score does not create a finding.</p></div>
