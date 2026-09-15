@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { ChevronDown, Plus, Trash2 } from 'lucide-react'
+import { ChevronDown, Flag, MessageSquare, Plus, Trash2 } from 'lucide-react'
 import { toast } from 'sonner'
 import { ACTION_TAKEN_LABELS, INACCURACY_REASON_LABELS } from '../../lib/alert-queries'
 import {
@@ -38,6 +38,49 @@ interface Props {
 
 function serializeDraft(value: unknown): string {
   return JSON.stringify(value)
+}
+
+function scoreLabel(value: unknown): string {
+  switch (value) {
+    case 'pass': return 'Meets the rule'
+    case 'fail': return 'Does not meet the rule'
+    case 'not_applicable': return 'Not required on this call'
+    case true: return 'Covered'
+    case false: case 'missing': return 'Not covered'
+    case 'partial': return 'Partly covered'
+    case 'complete': return 'Complete'
+    case 'excellent': return 'Excellent'
+    case 'good': return 'Good'
+    case 'fair': return 'Could improve'
+    case 'poor': return 'Poor'
+    default: return typeof value === 'string' ? value.replace(/_/g, ' ') : 'Unavailable'
+  }
+}
+
+// Stored evidence can be a note, a list of notes, or structured speaker/quote/context
+// entries. Only explicit quote fields are presented as quotations; notes stay notes.
+function CriterionEvidence({ evidence }: { readonly evidence: unknown }) {
+  const entries = Array.isArray(evidence) ? evidence : evidence == null ? [] : [evidence]
+  const excerpts = entries.flatMap((entry, index) => {
+    if (typeof entry === 'string' && entry.trim()) return [<p key={index} className="whitespace-pre-wrap break-words text-sm leading-relaxed">{entry}</p>]
+    const quote = valueAtPath(entry, 'quote')
+    if (typeof quote !== 'string' || !quote.trim()) return []
+    const speaker = valueAtPath(entry, 'speaker')
+    const context = valueAtPath(entry, 'context')
+    const step = valueAtPath(entry, 'process_step')
+    const attribution = [speaker, step].filter(value => typeof value === 'string' && value.trim()).join(' · ')
+    return [<figure key={index} className="space-y-1">
+      <blockquote className="whitespace-pre-wrap break-words border-l-2 border-pennie-yellow-dark pl-3 text-sm leading-relaxed">{quote}</blockquote>
+      {attribution && <figcaption className="text-xs text-pennie-graphite/70">{attribution}</figcaption>}
+      {typeof context === 'string' && context.trim() && <p className="whitespace-pre-wrap break-words text-sm leading-relaxed">{context}</p>}
+    </figure>]
+  })
+  return <div className="space-y-2 text-pennie-graphite">
+    <p className="text-xs font-semibold">Evidence Eavesly used</p>
+    {excerpts.length ? excerpts : <p className="text-sm">No readable excerpt was saved. Check the transcript before deciding.</p>}
+    {entries.length > excerpts.length && excerpts.length > 0 && <p className="text-xs">Some evidence is only available in the saved details below.</p>}
+    {entries.length > 0 && <details><summary className="pennie-focus-ring cursor-pointer text-xs text-pennie-blue-deeper">View saved evidence details</summary><pre className="mt-2 whitespace-pre-wrap break-words text-xs">{JSON.stringify(evidence, null, 2)}</pre></details>}
+  </div>
 }
 
 function sourceNotice(context: FullQaReviewContext) {
@@ -120,18 +163,19 @@ export function FullQaRubricReview({ alert, scope, editable, onDirtyChange, onBu
 
   // This is a display filter, not an escalation rule. Keep the immutable AI concerns
   // and saved/draft human changes visible even after a score is corrected to pass.
-  const attentionKeys = new Set(context.criteria.filter(criterion => {
+  const aiConcernKeys = new Set(context.criteria.filter(criterion => {
     const original = valueAtPath(context.sourceResult, criterion.scorePath)
-    const treatments = [corrections, context.review?.corrections ?? []]
-    if (treatments.some(items => items.some(item => item.criterionKey === criterion.key && item.disposition !== 'confirmed'))
-      || [...findings, ...(context.review?.findings ?? [])].some(item => item.relatedCriteria.includes(criterion.key))
-      || !criterion.domain.some(value => value === original)) return true
+    if (!criterion.domain.some(value => value === original)) return false
     if (criterion.findingCategory === 'program_expectations') {
       return original === false && valueAtPath(context.sourceResult, 'program_expectations_scorecard.section_status') !== 'not_applicable'
         && valueAtPath(context.sourceResult, 'program_expectations_scorecard.enrollment_completed') !== false
     }
     return original === 'fail' || original === 'poor' || original === 'fair' || original === 'partial' || original === 'missing'
   }).map(criterion => criterion.key))
+  const attentionKeys = new Set(context.criteria.filter(criterion => aiConcernKeys.has(criterion.key)
+    || [corrections, context.review?.corrections ?? []].some(items => items.some(item => item.criterionKey === criterion.key && item.disposition !== 'confirmed'))
+    || [...findings, ...(context.review?.findings ?? [])].some(item => item.relatedCriteria.includes(criterion.key))
+    || !criterion.domain.some(value => value === valueAtPath(context.sourceResult, criterion.scorePath))).map(criterion => criterion.key))
   const parsed = parseFullQaReviewDraft(context, draft)
   const updateCorrection = (key: string, patch: Partial<FullQaCriterionCorrection>) => setCorrections(items => items.map(item => item.criterionKey === key ? { ...item, ...patch } : item))
   const addFinding = () => setFindings(items => [...items, { findingId: crypto.randomUUID(), category: 'compliance', relatedCriteria: [context.criteria[0]?.key ?? 'call_recording_disclosure'], summary: '', evidence: '' }])
@@ -199,11 +243,10 @@ export function FullQaRubricReview({ alert, scope, editable, onDirtyChange, onBu
 
     <div className="space-y-3">
       <div>
-        <h2 className="text-base font-semibold text-pennie-navy">{showFullScorecard ? 'Full scorecard' : 'Flagged issues & review changes'}</h2>
-        <p className="mt-1 text-xs text-pennie-graphite/70">{editable ? 'Review the AI concerns below. Correct a judgment or mark it needs context; other scores stay unchanged.' : 'Review the manager’s changes and unresolved items below, then approve or request changes.'}</p>
-        <p className="mt-1 text-xs text-pennie-graphite/70">{attentionKeys.size} of {context.criteria.length} criteria need attention. Includes weak or incomplete scores, not just escalation triggers.</p>
+        <h2 className="text-lg font-semibold text-pennie-navy">{showFullScorecard ? 'Full scorecard' : editable ? 'Check what Eavesly found' : 'Check the manager’s review'}</h2>
+        <p className="mt-1 text-sm text-pennie-graphite">{editable ? 'Read the evidence, then give your response. Eavesly’s results are kept unless you change them. Save your review below.' : 'Amber shows Eavesly’s concerns. Blue shows the manager’s saved response. Check their reasoning, then approve or request changes below.'}</p>
       </div>
-      <button type="button" aria-expanded={showFullScorecard} aria-controls={scorecardId} onClick={() => setShowFullScorecard(value => !value)} className="pennie-focus-ring min-h-[44px] rounded-full border border-border px-4 py-2 text-sm font-semibold text-pennie-blue-deeper hover:bg-pennie-blue-light active:bg-pennie-beige">
+      <button type="button" aria-expanded={showFullScorecard} aria-controls={scorecardId} onClick={() => setShowFullScorecard(value => !value)} className="pennie-focus-ring min-h-[44px] rounded-lg py-2 text-sm font-semibold text-pennie-blue-deeper underline-offset-4 hover:underline active:bg-pennie-beige">
         {showFullScorecard ? 'Show only issues & changes' : `View full scorecard · ${context.criteria.length} criteria`}
       </button>
       {!showFullScorecard && attentionKeys.size === 0 && <p className="text-sm text-pennie-graphite">No flagged criteria or review changes to show. Open the full scorecard to inspect other scores; this does not clear the alert.</p>}
@@ -213,27 +256,49 @@ export function FullQaRubricReview({ alert, scope, editable, onDirtyChange, onBu
         if (!correction) return null
         const original = valueAtPath(context.sourceResult, criterion.scorePath)
         const evidence = valueAtPath(context.sourceResult, criterion.evidencePath)
-        return <article key={criterion.key} hidden={!showFullScorecard && !attentionKeys.has(criterion.key)} className="rounded-xl bg-pennie-beige/60 p-3">
-          <div className="flex flex-wrap items-start justify-between gap-2"><div><h3 className="text-sm font-semibold text-pennie-navy">{criterion.label}</h3>
-            {context.sourceReferenceKind !== 'unknown_hash' ? <p className="mt-1 text-xs leading-relaxed text-pennie-graphite">{criterion.rule}</p> : <p className="mt-1 text-xs text-pennie-peach-deeper">Original rule unavailable for this stamped hash.</p>}</div>
-            <span className="rounded-full bg-pennie-white px-2 py-1 text-xs font-semibold">Original AI: {String(original ?? 'unavailable')}</span></div>
-          <details className="mt-2" open={attentionKeys.has(criterion.key)}><summary className="pennie-focus-ring cursor-pointer text-xs font-semibold text-pennie-blue-deeper">Original AI evidence</summary><pre className="mt-2 whitespace-pre-wrap break-words text-xs text-pennie-graphite">{JSON.stringify(evidence ?? 'No evidence saved', null, 2)}</pre></details>
-          {context.review?.corrections.filter(item => item.criterionKey === criterion.key).map(saved => <div key={saved.criterionKey} className="mt-2 rounded-lg border border-border bg-white px-3 py-2 text-xs"><p className="font-semibold text-pennie-navy">Saved human treatment: {saved.disposition === 'confirmed' ? 'Retained original AI value' : saved.disposition === 'corrected' ? `Corrected to ${String(saved.correctedValue)}` : 'Needs context / uncertain'}</p>{saved.reason && <p className="mt-1 text-pennie-graphite">Reason: {saved.reason}</p>}</div>)}
-          {editable && <div className="mt-3 grid gap-2 sm:grid-cols-2">
-            <label className="text-xs font-semibold">Review disposition<select aria-label={`${criterion.label} disposition`} value={correction.disposition} onChange={event => {
-              const disposition = event.target.value as FullQaCriterionCorrection['disposition']
-              updateCorrection(criterion.key, disposition === 'confirmed' ? { disposition, correctedValue: original as string | boolean, reason: null }
-                : disposition === 'needs_context' ? { disposition, correctedValue: null, reason: '' }
-                  : { disposition, correctedValue: criterion.domain.find(value => value !== original) ?? null, reason: '' })
-            }} className="mt-1 min-h-[40px] w-full rounded-lg border border-border bg-white px-2 font-normal"><option value="confirmed">Retain original</option><option value="corrected">Correct AI judgment</option><option value="needs_context">Needs context / uncertain</option></select></label>
-            {correction.disposition === 'corrected' && <label className="text-xs font-semibold">Corrected value<select aria-label={`${criterion.label} corrected value`} value={String(correction.correctedValue)} onChange={event => updateCorrection(criterion.key, { correctedValue: criterion.domain.find(value => String(value) === event.target.value) ?? null })} className="mt-1 min-h-[40px] w-full rounded-lg border border-border bg-white px-2 font-normal">{criterion.domain.map(value => <option key={String(value)} value={String(value)}>{String(value)}</option>)}</select></label>}
-            {correction.disposition !== 'confirmed' && <label className="text-xs font-semibold sm:col-span-2">Required reason<textarea aria-label={`${criterion.label} correction reason`} value={correction.reason ?? ''} onChange={event => updateCorrection(criterion.key, { reason: event.target.value })} className="mt-1 min-h-20 w-full rounded-lg border border-border bg-white p-2 font-normal" /></label>}
+        const aiConcern = aiConcernKeys.has(criterion.key)
+        const originalValue = criterion.domain.find(value => value === original)
+        const saved = context.review?.corrections.find(item => item.criterionKey === criterion.key)
+        const humanChanged = [correction, saved].some(item => item && item.disposition !== 'confirmed')
+        const label = aiConcern ? original === 'fail' ? 'Eavesly flagged this' : 'Eavesly coaching concern'
+          : originalValue === undefined ? 'Eavesly score unavailable' : humanChanged ? 'Manager review item'
+            : attentionKeys.has(criterion.key) ? 'Included in this review' : 'Other Eavesly score'
+        return <article key={criterion.key} aria-label={criterion.label} hidden={!showFullScorecard && !attentionKeys.has(criterion.key)} className={`space-y-4 rounded-2xl border border-l-4 p-4 sm:p-5 ${aiConcern ? 'border-pennie-yellow-main bg-pennie-yellow-light/50' : attentionKeys.has(criterion.key) ? 'border-pennie-blue-main bg-pennie-blue-light/30' : 'border-border bg-pennie-beige/40'}`}>
+          <div>
+            <p className={`mb-2 inline-flex items-center gap-2 text-xs font-bold ${aiConcern ? 'text-pennie-yellow-deeper' : 'text-pennie-blue-deeper'}`}>{aiConcern ? <Flag className="h-4 w-4 shrink-0" aria-hidden="true" /> : <MessageSquare className="h-4 w-4 shrink-0" aria-hidden="true" />}{label}</p>
+            <h3 className="break-words text-lg font-semibold text-pennie-navy">{criterion.label}</h3>
+            <p className="mt-1 text-sm text-pennie-graphite">Eavesly’s result: <strong>{scoreLabel(originalValue)}</strong></p>
+          </div>
+          <CriterionEvidence evidence={evidence} />
+          {saved && <div className="rounded-xl border border-pennie-blue-main bg-pennie-blue-light p-3 text-sm">
+            <p className="mb-1 text-xs font-bold text-pennie-blue-deeper">Manager’s saved response</p>
+            <p className="font-semibold text-pennie-navy">{saved.disposition === 'confirmed' ? 'Kept Eavesly’s result' : saved.disposition === 'corrected' ? `Changed to: ${scoreLabel(saved.correctedValue)}` : 'Needs more context'}</p>
+            {saved.reason && <p className="mt-1 whitespace-pre-wrap break-words text-pennie-graphite">{saved.reason}</p>}
           </div>}
+          {editable && <div className="space-y-3 rounded-xl border border-pennie-blue-main bg-white p-3">
+            <fieldset disabled={busy || contextChanged} role="radiogroup" aria-label={`${criterion.label} disposition`}>
+              <legend className="mb-2 text-sm font-semibold text-pennie-navy">Your response</legend>
+              <div className="flex flex-wrap gap-2">{(['confirmed', 'corrected', 'needs_context'] as const).map(disposition => <label key={disposition} className={`flex min-h-[44px] cursor-pointer items-center gap-2 rounded-xl border px-3 py-2 text-sm has-[:disabled]:cursor-not-allowed has-[:disabled]:opacity-50 ${correction.disposition === disposition ? 'border-pennie-blue-deeper bg-pennie-blue-light text-pennie-navy' : 'border-border text-pennie-graphite hover:bg-pennie-blue-light/50'}`}>
+                <input type="radio" name={`${scorecardId}-${criterion.key}`} checked={correction.disposition === disposition} disabled={disposition === 'confirmed' && originalValue === undefined} className="pennie-focus-ring h-4 w-4 accent-pennie-blue-deeper" onChange={() => {
+                  if (correction.disposition === disposition) return
+                  if (disposition === 'confirmed') {
+                    if (originalValue !== undefined) updateCorrection(criterion.key, { disposition, correctedValue: originalValue, reason: null })
+                  } else updateCorrection(criterion.key, disposition === 'needs_context' ? { disposition, correctedValue: null, reason: '' }
+                    : { disposition, correctedValue: criterion.domain.find(value => value !== original) ?? null, reason: '' })
+                }} />
+                <span className="whitespace-nowrap">{disposition === 'confirmed' ? 'Agree with Eavesly' : disposition === 'corrected' ? 'Disagree' : 'Need more context'}</span>
+              </label>)}</div>
+            </fieldset>
+            {correction.disposition === 'corrected' && <label className="block text-sm font-semibold">What should the result be?<select aria-label={`${criterion.label} corrected value`} disabled={busy || contextChanged} value={String(correction.correctedValue)} onChange={event => updateCorrection(criterion.key, { correctedValue: criterion.domain.find(value => String(value) === event.target.value) ?? null })} className="mt-1 min-h-[44px] w-full rounded-lg border border-border bg-white px-2 font-normal">{criterion.domain.map(value => <option key={String(value)} value={String(value)}>{scoreLabel(value)}</option>)}</select></label>}
+            {correction.disposition !== 'confirmed' && <label className="block text-sm font-semibold">{correction.disposition === 'corrected' ? 'Why do you disagree?' : 'What context is missing?'}<textarea aria-label={`${criterion.label} correction reason`} disabled={busy || contextChanged} value={correction.reason ?? ''} onChange={event => updateCorrection(criterion.key, { reason: event.target.value })} className="mt-1 min-h-20 w-full rounded-lg border border-border bg-white p-2 font-normal" /></label>}
+            <p className="text-xs text-pennie-graphite/70">Changes are submitted when you save your review below.</p>
+          </div>}
+          {context.sourceReferenceKind !== 'unknown_hash' ? <details><summary className="pennie-focus-ring cursor-pointer text-xs font-semibold text-pennie-blue-deeper">View scoring rule</summary><p className="mt-2 text-sm leading-relaxed text-pennie-graphite">{criterion.rule}</p></details> : <p className="text-xs text-pennie-peach-deeper">Original rule unavailable for this stamped hash.</p>}
         </article>
     })}</div>
 
     <div className="rounded-2xl border border-border p-4 space-y-3">
-      <div><h2 className="text-base font-semibold text-pennie-navy">Individual findings</h2><p className="mt-1 text-xs text-pennie-graphite/70">Record each distinct underlying confirmed issue once. Retaining an AI failure or correcting a score does not create a finding.</p></div>
+      <div><h2 className="text-base font-semibold text-pennie-navy">Issues to coach</h2><p className="mt-1 text-sm text-pennie-graphite">Add each separate issue you confirmed. If several flags describe the same issue, add it once. Changing a score above does not add an issue here.</p></div>
       {findings.map((finding, index) => <fieldset key={finding.findingId} disabled={!editable} className="rounded-xl bg-pennie-beige/60 p-3 space-y-2"><legend className="px-1 text-xs font-semibold">Finding {index + 1}</legend>
         <div className="grid gap-2 sm:grid-cols-2"><label className="text-xs font-semibold">Category<select aria-label={`Finding ${index + 1} category`} value={finding.category} onChange={event => updateFinding(finding.findingId, { category: event.target.value as FullQaFindingCategory })} className="mt-1 min-h-[40px] w-full rounded-lg border bg-white px-2 font-normal">{Object.entries(CATEGORY_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
         <label className="text-xs font-semibold">Related criteria<select multiple aria-label={`Finding ${index + 1} related criteria`} value={[...finding.relatedCriteria]} onChange={event => updateFinding(finding.findingId, { relatedCriteria: Array.from(event.target.selectedOptions, option => option.value) })} className="mt-1 h-24 w-full rounded-lg border bg-white px-2 font-normal">{context.criteria.map(item => <option key={item.key} value={item.key}>{item.label}</option>)}</select></label></div>
@@ -241,17 +306,17 @@ export function FullQaRubricReview({ alert, scope, editable, onDirtyChange, onBu
         <label className="block text-xs font-semibold">Evidence<textarea aria-label={`Finding ${index + 1} evidence`} value={finding.evidence} onChange={event => updateFinding(finding.findingId, { evidence: event.target.value })} className="mt-1 min-h-16 w-full rounded-lg border bg-white p-2 font-normal" /></label>
         {editable && <button type="button" onClick={() => setFindings(items => items.filter(item => item.findingId !== finding.findingId))} className="min-h-[36px] text-xs font-semibold text-pennie-peach-deeper"><Trash2 className="mr-1 inline h-3.5 w-3.5" />Remove finding</button>}
       </fieldset>)}
-      {editable && <button type="button" onClick={addFinding} className="min-h-[40px] rounded-full border border-border px-3 text-xs font-semibold text-pennie-blue-deeper"><Plus className="mr-1 inline h-4 w-4" />Add distinct finding</button>}
+      {editable && <button type="button" onClick={addFinding} className="min-h-[40px] rounded-full border border-border px-3 text-xs font-semibold text-pennie-blue-deeper"><Plus className="mr-1 inline h-4 w-4" />Add confirmed issue</button>}
     </div>
 
-    <fieldset disabled={!editable} className="rounded-2xl border border-border p-4 space-y-3"><legend className="px-1 text-base font-semibold text-pennie-navy">Escalation judgment</legend>
-      <p className="text-xs text-pennie-graphite/70">Alert validity is separate from individual finding validity. A not-justified escalation may retain real findings and coaching.</p>
-      <div className="flex flex-wrap gap-2"><button type="button" aria-pressed={escalationJustified} onClick={() => setEscalationJustified(true)} className={`min-h-[40px] rounded-full border px-4 text-sm font-semibold ${escalationJustified ? 'bg-pennie-navy text-white' : 'bg-white'}`}>Escalation justified</button><button type="button" aria-pressed={!escalationJustified} onClick={() => setEscalationJustified(false)} className={`min-h-[40px] rounded-full border px-4 text-sm font-semibold ${!escalationJustified ? 'bg-pennie-navy text-white' : 'bg-white'}`}>Escalation not justified</button></div>
-      <label className="block text-xs font-semibold">Escalation judgment reason<textarea aria-label="Escalation judgment reason" value={escalationReason} onChange={event => setEscalationReason(event.target.value)} className="mt-1 min-h-20 w-full rounded-lg border p-2 font-normal" /></label>
-      {!escalationJustified && <label className="block text-xs font-semibold">Why was escalation unnecessary?<select aria-label="Why was escalation unnecessary?" value={inaccuracyReason ?? ''} onChange={event => setInaccuracyReason(event.target.value as AlertInaccuracyReason)} className="mt-1 min-h-[40px] w-full rounded-lg border bg-white px-2 font-normal"><option value="">Choose a reason</option>{REASONS.map(value => <option key={value} value={value}>{INACCURACY_REASON_LABELS[value]}</option>)}</select></label>}
-      {findings.length > 0 && <><label className="block text-xs font-semibold">Finding coaching / action<select aria-label="Finding coaching / action" value={actionTaken ?? ''} onChange={event => setActionTaken(event.target.value as AlertActionTaken)} className="mt-1 min-h-[40px] w-full rounded-lg border bg-white px-2 font-normal"><option value="">Choose an action</option>{ACTIONS.map(value => <option key={value} value={value}>{ACTION_TAKEN_LABELS[value]}</option>)}</select></label>
-      <label className="block text-xs font-semibold">Action details<textarea aria-label="Full QA action details" value={actionDetails} onChange={event => setActionDetails(event.target.value)} className="mt-1 min-h-20 w-full rounded-lg border p-2 font-normal" /></label></>}
-      {editable && <><button type="button" onClick={save} disabled={saving || !parsed.ok || !reviewDirty || contextChanged} className="min-h-[44px] rounded-full bg-pennie-navy px-5 text-sm font-semibold text-white disabled:opacity-40">{saving ? 'Saving…' : context.review ? 'Update Full QA review' : 'Save Full QA review'}</button>{parsed.ok === false && <p className="text-xs text-pennie-peach-deeper" role="status">{parsed.message}</p>}</>}
+    <fieldset disabled={!editable} className="rounded-2xl border border-border p-4 space-y-3"><legend className="px-1 text-base font-semibold text-pennie-navy">Should this alert have been sent?</legend>
+      <p className="text-sm text-pennie-graphite">You can say the alert was unnecessary and still record a real issue that needs coaching.</p>
+      <div className="flex flex-wrap gap-2"><button type="button" aria-pressed={escalationJustified} onClick={() => setEscalationJustified(true)} className={`min-h-[40px] rounded-full border px-4 text-sm font-semibold ${escalationJustified ? 'bg-pennie-navy text-white' : 'bg-white'}`}>Yes, the alert was needed</button><button type="button" aria-pressed={!escalationJustified} onClick={() => setEscalationJustified(false)} className={`min-h-[40px] rounded-full border px-4 text-sm font-semibold ${!escalationJustified ? 'bg-pennie-navy text-white' : 'bg-white'}`}>No, the alert was unnecessary</button></div>
+      <label className="block text-xs font-semibold">Explain your decision<textarea aria-label="Explain your decision" value={escalationReason} onChange={event => setEscalationReason(event.target.value)} className="mt-1 min-h-20 w-full rounded-lg border p-2 font-normal" /></label>
+      {!escalationJustified && <label className="block text-xs font-semibold">Why was the alert unnecessary?<select aria-label="Why was the alert unnecessary?" value={inaccuracyReason ?? ''} onChange={event => setInaccuracyReason(event.target.value as AlertInaccuracyReason)} className="mt-1 min-h-[40px] w-full rounded-lg border bg-white px-2 font-normal"><option value="">Choose a reason</option>{REASONS.map(value => <option key={value} value={value}>{INACCURACY_REASON_LABELS[value]}</option>)}</select></label>}
+      {findings.length > 0 && <><label className="block text-xs font-semibold">What did you do about the issue?<select aria-label="What did you do about the issue?" value={actionTaken ?? ''} onChange={event => setActionTaken(event.target.value as AlertActionTaken)} className="mt-1 min-h-[40px] w-full rounded-lg border bg-white px-2 font-normal"><option value="">Choose an action</option>{ACTIONS.map(value => <option key={value} value={value}>{ACTION_TAKEN_LABELS[value]}</option>)}</select></label>
+      <label className="block text-xs font-semibold">What happened, or what will you do next?<textarea aria-label="Coaching or next steps" value={actionDetails} onChange={event => setActionDetails(event.target.value)} className="mt-1 min-h-20 w-full rounded-lg border p-2 font-normal" /></label></>}
+      {editable && <><button type="button" onClick={save} disabled={saving || !parsed.ok || !reviewDirty || contextChanged} className="min-h-[44px] rounded-full bg-pennie-navy px-5 text-sm font-semibold text-white disabled:opacity-40">{saving ? 'Saving…' : context.review ? 'Update review' : 'Save review'}</button>{parsed.ok === false && <p className="text-xs text-pennie-peach-deeper" role="status">{parsed.message}</p>}</>}
     </fieldset>
 
     <details className="group rounded-2xl border border-border px-4 py-3"><summary className="flex cursor-pointer list-none items-center justify-between text-sm font-semibold text-pennie-blue-deeper">Candidate rule proposals <ChevronDown className="h-4 w-4 transition-transform group-open:rotate-180" /></summary><div className="mt-3 space-y-3">

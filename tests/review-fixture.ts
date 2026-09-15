@@ -61,7 +61,7 @@ export function genericAlertRow(id: string, overrides: Partial<AlertWithFeedback
  * It exercises real hooks, queries, pagination requests and mutations, not patched modules.
  * This proves client behavior, not production RLS/SQL execution.
  */
-export async function reviewFixture(page: Page, rows: AlertWithFeedback[], options: { god?: boolean; noAgents?: boolean; managedAgents?: string[]; managerNames?: Record<string, string>; dailyMetrics?: unknown[]; email?: string; messages?: AlertMessage[]; fullQaOccurrences?: unknown[]; fullQaReviews?: ReadonlyMap<string, Record<string, unknown>>; fullQaProposals?: ReadonlyMap<string, Record<string, unknown>[]> } = {}) {
+export async function reviewFixture(page: Page, rows: AlertWithFeedback[], options: { god?: boolean; noAgents?: boolean; managedAgents?: string[]; managerNames?: Record<string, string>; dailyMetrics?: unknown[]; email?: string; messages?: AlertMessage[]; fullQaOccurrences?: unknown[]; fullQaCriteria?: typeof FULL_QA_CRITERIA; fullQaReviews?: ReadonlyMap<string, Record<string, unknown>>; fullQaProposals?: ReadonlyMap<string, Record<string, unknown>[]> } = {}) {
   const fixtureEmail = options.email ?? EMAIL
   const state = {
     rows, writes: [] as unknown[], requests: [] as URL[], transcript: TRANSCRIPT as string | null,
@@ -159,7 +159,7 @@ export async function reviewFixture(page: Page, rows: AlertWithFeedback[], optio
       return respond({ source_fingerprint: state.fullQaSourceFingerprints.get(callId) ?? 'c'.repeat(64), source_result_json: result, source_prompt_sha256: promptHash,
         reference_prompt_sha256: FULL_QA_PROMPT_SHA, source_reference_kind: referenceKind,
         criteria_reference_kind: referenceKind === 'known' ? 'exact_evaluation_rubric' : referenceKind === 'legacy_current_reference' ? 'current_reference_only' : 'current_field_map_only',
-        rubric_prompt_text: referenceKind === 'unknown_hash' ? null : 'Synthetic exact scoring policy. Two distinct compliance findings or explicit severe customer mistreatment justify escalation. Program expectations use enrollment gating, handling-agent delivery, and exclude ACDR/GOTA-only discussion points.', criteria_manifest: FULL_QA_CRITERIA,
+        rubric_prompt_text: referenceKind === 'unknown_hash' ? null : 'Synthetic exact scoring policy. Two distinct compliance findings or explicit severe customer mistreatment justify escalation. Program expectations use enrollment gating, handling-agent delivery, and exclude ACDR/GOTA-only discussion points.', criteria_manifest: options.fullQaCriteria ?? FULL_QA_CRITERIA,
         review: state.fullQaReviews.get(callId) ?? null, proposals: state.fullQaProposals.get(callId) ?? [] })
     }
     if (table === 'submit_full_qa_review' && request.method() === 'POST') {
