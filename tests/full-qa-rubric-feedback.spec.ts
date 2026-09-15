@@ -145,7 +145,7 @@ test('focused scorecard respects categorical concerns and enrollment gating, whi
     await expect(response(page, label)).toBeHidden()
   }
   const coaching = page.getByRole('article', { name: 'professional tone', exact: true })
-  await expect(coaching.getByText('Eavesly coaching concern', { exact: true })).toBeVisible()
+  await expect(coaching.getByText('Eavesly score concern', { exact: true })).toBeVisible()
   await expect(coaching.getByText('Eavesly flagged this', { exact: true })).toHaveCount(0)
   const agree = response(page, 'Credit pull consent').getByRole('radio', { name: 'Agree with Eavesly', exact: true })
   await agree.focus()
@@ -186,7 +186,8 @@ test('evidence shows readable quotes with context, keeps notes distinct, and pre
   await expect(consent.getByText('Eavesly flagged this', { exact: true })).toBeVisible()
   await expect(consent.locator('blockquote')).toHaveText('Yes, I authorize that credit review.')
   await expect(consent.locator('figcaption')).toHaveText('Customer · Step 1 Agenda Setting')
-  await expect(consent.getByText('The agent asked permission immediately before this response.', { exact: true })).toBeVisible()
+  await expect(consent.getByText('Saved context: The agent asked permission immediately before this response.', { exact: true })).toBeVisible()
+  await expect(consent).toContainText('No explanation was saved for this score.')
   await expect(consent.getByText('Some evidence is only available in the saved details below.', { exact: true })).toBeVisible()
   await expect(consent.locator('pre')).toBeHidden()
   await consent.getByText('View saved evidence details', { exact: true }).click()
@@ -313,4 +314,112 @@ test('Agent profile reconciles approved findings and keeps pending, needs-contex
   await expect(panel).toContainText('Legacy review — no criterion mapping')
   await expect(panel).toContainText('Call time missing; timing unknown')
   await page.screenshot({ path: testInfo.outputPath('agent-full-qa-recurrence-desktop.png'), fullPage: true, animations: 'disabled' })
+})
+
+test('saved alert reasons and criterion context explain concerns without turning coaching scores into triggers', async ({ page }) => {
+  const reason = 'Review requested because credit was pulled after a refusal and the agent guaranteed a debt-free date.'
+  const note = 'The agent announced the credit pull immediately after the customer refused permission.'
+  const result = { ...FULL_QA_RESULT,
+    call_overview: { manager_review_required: true, manager_review_reason: reason },
+    compliance_scorecard: { ...FULL_QA_RESULT.compliance_scorecard,
+      compliance_violations: ['Credit pulled despite refusal.', 'A guaranteed debt-free date.'],
+      credit_pull_consent_evidence: [
+        { speaker: 'Customer', quote: 'No, do not pull my credit.', context: note, process_step: 'Step 2 Credit Review' },
+        { speaker: 'Agent', quote: 'I have pulled it anyway.', context: '', process_step: 'Step 2 Credit Review' },
+      ],
+    },
+  }
+  await reviewFixture(page, [alertRow('saved-reasons', { result_json: result })])
+  await page.goto('/dashboard/alerts/saved-reasons/full_qa')
+  const summary = page.getByRole('region', { name: 'Why Eavesly requested review', exact: true })
+  await expect(summary.getByText(reason, { exact: true })).toBeVisible()
+  await expect(summary.getByRole('listitem')).toHaveText(['Credit pulled despite refusal.', 'A guaranteed debt-free date.'])
+  await expect(summary).toContainText('not all alert triggers')
+  await expect(page.getByText('Why it fired', { exact: true })).toHaveCount(0)
+  const consent = page.getByRole('article', { name: 'Credit pull consent', exact: true })
+  await expect(consent.getByText('Why Eavesly flagged this', { exact: true })).toBeVisible()
+  await expect(consent.getByText(`Saved context: ${note}`, { exact: true })).toHaveCount(1)
+  await expect(consent).toContainText('No explanation was saved for this score.')
+  await expect(consent.locator('blockquote')).toHaveText(['No, do not pull my credit.', 'I have pulled it anyway.'])
+  await expect(consent.locator('figcaption')).toHaveText(['Customer · Step 2 Credit Review', 'Agent · Step 2 Credit Review'])
+  await expect(consent.getByText('Did the customer give permission before credit was pulled?', { exact: true })).toBeVisible()
+  await expect(consent.getByText('Agree keeps Eavesly’s result above. Disagree lets you correct it.', { exact: true })).toBeVisible()
+  const coaching = page.getByRole('article', { name: 'patience empathy', exact: true })
+  await expect(coaching.getByText('Why Eavesly noted a concern', { exact: true })).toBeVisible()
+  await expect(coaching.getByText('Why Eavesly flagged this', { exact: true })).toHaveCount(0)
+})
+
+test('missing or malformed explanations never become invented reasons or confirmed findings', async ({ page }) => {
+  const result = { ...FULL_QA_RESULT,
+    _synthetic_staging: true,
+    call_overview: { manager_review_reason: { invented: 'Never render me as a saved reason.' }, manager_review_required: false },
+    compliance_scorecard: { ...FULL_QA_RESULT.compliance_scorecard,
+      compliance_violations: [null, {}, false, '  '],
+      credit_pull_consent_evidence: [{ quote: 'Yes, I authorize that credit review.', context: { invalid: true } }],
+    },
+  }
+  await reviewFixture(page, [alertRow('DEMO-REVIEW-001', { result_json: result })])
+  await page.goto('/dashboard/alerts/DEMO-REVIEW-001/full_qa')
+  const summary = page.getByRole('region', { name: 'Why Eavesly requested review', exact: true })
+  await expect(summary).toContainText('No explanation was saved for this alert.')
+  await expect(summary).not.toContainText('The reason above explains the request.')
+  await expect(summary).toContainText('saved assessment says manager review was not required')
+  await expect(summary.getByRole('listitem')).toHaveCount(0)
+  await expect(page.getByText('Never render me as a saved reason.', { exact: true })).toHaveCount(0)
+  const consent = page.getByRole('article', { name: 'Credit pull consent', exact: true })
+  await expect(consent).toContainText('No explanation was saved for this score.')
+  await expect(consent.locator('blockquote')).toHaveText('Yes, I authorize that credit review.')
+  await expect(consent.locator('figcaption')).toHaveText('Speaker not saved')
+  await expect(consent.getByRole('radio', { name: 'Agree with Eavesly', exact: true })).toBeChecked()
+  // A production-mode render never adds staging guidance, even for a matching synthetic ID.
+  await expect(page.getByRole('complementary', { name: 'Staging practice guidance' })).toHaveCount(0)
+})
+
+test('severe-treatment reason survives without compliance counts and step notes stay scoped', async ({ page }) => {
+  const reason = 'Manager review requested for the explicit refusal to end the call after repeated requests.'
+  const result = { ...FULL_QA_RESULT,
+    call_overview: { manager_review_reason: reason },
+    sales_process_scorecard: { ...FULL_QA_RESULT.sales_process_scorecard,
+      section_gap_reasons: [{ section: 6, reason: 'The debt-resolution discussion ended before options were explained.' }, { section: 2, reason: 'Unrelated credit-review gap.' }],
+    },
+  }
+  await reviewFixture(page, [alertRow('severe-reason', { result_json: result })])
+  await page.goto('/dashboard/alerts/severe-reason/full_qa')
+  const summary = page.getByRole('region', { name: 'Why Eavesly requested review', exact: true })
+  await expect(summary.getByText(reason, { exact: true })).toBeVisible()
+  await expect(summary.getByRole('listitem')).toHaveCount(0)
+  const step = page.getByRole('article', { name: 'step6 debt resolution', exact: true })
+  await expect(step).toContainText('The debt-resolution discussion ended before options were explained.')
+  await expect(step).not.toContainText('Unrelated credit-review gap.')
+})
+
+test('program gaps remain section-level notes rather than invented per-criterion reasons', async ({ page }) => {
+  const summary = 'The enrollment discussion omitted recovery and rebuild.'
+  const result = { ...FULL_QA_RESULT, program_expectations_scorecard: { ...FULL_QA_RESULT.program_expectations_scorecard,
+    enrollment_completed: true, section_status: 'fail', section_summary: summary, missing_elements: ['Recovery phase', 'Rebuild phase'],
+  } }
+  await reviewFixture(page, [alertRow('section-notes', { result_json: result })])
+  await page.goto('/dashboard/alerts/section-notes/full_qa')
+  const section = page.getByRole('complementary', { name: 'Program expectations section notes' })
+  await expect(section.getByText(summary, { exact: true })).toBeVisible()
+  await expect(section).toContainText('gaps alone do not trigger this alert')
+  const criterion = page.getByRole('article', { name: 'phase recovery covered', exact: true })
+  await expect(criterion).toContainText('see the saved section notes above')
+  await expect(criterion.getByText(summary, { exact: true })).toHaveCount(0)
+})
+
+test('Full QA summary, raw source and transcript highlights all use the pinned review source', async ({ page }) => {
+  const live = { ...FULL_QA_RESULT, call_overview: { manager_review_reason: 'LIVE SOURCE MUST NOT APPEAR', manager_focus_areas: [{ quote: 'LIVE QUOTE MUST NOT APPEAR' }] } }
+  const state = await reviewFixture(page, [alertRow('pinned-source', { result_json: live })])
+  state.fullQaSources.set('pinned-source', structuredClone(FULL_QA_RESULT))
+  await page.goto('/dashboard/alerts/pinned-source/full_qa')
+  await expect(page.getByRole('region', { name: 'Why Eavesly requested review', exact: true })).toContainText('Review both quoted passages in context.')
+  await expect(page.getByRole('dialog').getByText('Synthetic call for manager review checks.', { exact: true })).toBeVisible()
+  await page.getByText('Technical details', { exact: true }).click()
+  await page.getByRole('button', { name: 'Show raw evaluation JSON', exact: true }).click()
+  await expect(page.locator('pre:visible')).toContainText('Review both quoted passages in context.')
+  await expect(page.locator('pre:visible')).not.toContainText('LIVE SOURCE MUST NOT APPEAR')
+  await page.getByRole('button', { name: 'Inspect transcript context', exact: true }).click()
+  await expect(page.locator('mark').first()).toBeVisible()
+  await expect(page.getByRole('dialog')).not.toContainText('LIVE QUOTE MUST NOT APPEAR')
 })

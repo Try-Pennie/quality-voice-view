@@ -1,6 +1,6 @@
 import { useEffect, useId, useMemo, useRef, useState } from 'react'
 import { toast } from 'sonner'
-import { useQueryClient } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   Sheet,
   SheetContent,
@@ -42,6 +42,7 @@ import { useAgentFeedbackForCall, useAlertThread } from '@/hooks/use-queries'
 import { registerHistoryNavigationGuard } from '@/lib/history-navigation-guard'
 import { PennieAgentFeedbackSection } from '@/components/PennieAgentFeedbackSection'
 import { FullQaRubricReview } from './FullQaRubricReview'
+import { fetchFullQaReviewContext } from '@/lib/full-qa-review'
 import { VIOLATION_HELP_IDS } from '@/lib/help-content'
 import {
   INTERNAL_REVIEW_TEXT_LIMITS,
@@ -173,6 +174,9 @@ export function AlertReviewDrawer({
   const actionDetailsId = useId()
   const rawJsonId = useId()
   const queryClient = useQueryClient()
+  // Share the rubric's cached, revision-pinned source for every Full QA evidence surface.
+  const fullQaContext = useQuery({ queryKey: ['fullQaReviewContext', alert?.call_id],
+    queryFn: () => fetchFullQaReviewContext(alert?.call_id ?? ''), enabled: isFullQa })
 
   const { data: thread, refetch: refetchThread } = useAlertThread(
     alert?.call_id,
@@ -535,8 +539,9 @@ export function AlertReviewDrawer({
 
   if (!alert) return null
 
-  const evidence = extractEvidence(alert.violation_type, alert.result_json)
-  const reasonText = extractReason(alert.violation_type, alert.result_json)
+  const reviewSource = isFullQa ? fullQaContext.isError ? undefined : fullQaContext.data?.sourceResult : alert.result_json
+  const evidence = extractEvidence(alert.violation_type, reviewSource)
+  const reasonText = extractReason(alert.violation_type, reviewSource)
   const violationLabel =
     VIOLATION_TYPE_LABELS[alert.violation_type] || alert.violation_type
 
@@ -771,7 +776,7 @@ export function AlertReviewDrawer({
             </div>
           </section>
 
-          <section>
+          {!isFullQa && <section>
             <h2 className="pennie-label mb-3 inline-flex items-center gap-1.5">
               <Info className="w-3.5 h-3.5" aria-hidden="true" />
               Why it fired
@@ -799,7 +804,8 @@ export function AlertReviewDrawer({
                 <CallSummary summary={alert.call_summary} />
               )}
             </div>
-          </section>
+          </section>}
+          {isFullQa && alert.call_summary && <CallSummary summary={alert.call_summary} />}
 
           <section>
             <button
@@ -813,7 +819,7 @@ export function AlertReviewDrawer({
             {showTranscript && <div className="mt-4"><AlertTranscript
               key={alert.call_id}
               callId={alert.call_id}
-              evidence={extractEvidenceQuotes(alert.violation_type, alert.result_json)}
+              evidence={extractEvidenceQuotes(alert.violation_type, reviewSource)}
             /></div>}
           </section>
 
@@ -1052,7 +1058,7 @@ export function AlertReviewDrawer({
             </button>
             {showRaw && (
               <pre id={rawJsonId} className="mt-3 bg-pennie-beige p-4 rounded-2xl text-xs overflow-x-auto text-pennie-graphite">
-                {JSON.stringify(alert.result_json, null, 2)}
+                {reviewSource === undefined ? 'Original assessment unavailable. Reload the rubric before inspecting its evidence.' : JSON.stringify(reviewSource, null, 2)}
               </pre>
             )}
           </details>

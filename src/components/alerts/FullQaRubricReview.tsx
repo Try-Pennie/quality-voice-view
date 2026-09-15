@@ -57,28 +57,52 @@ function scoreLabel(value: unknown): string {
   }
 }
 
+function savedText(input: unknown): string | null {
+  return typeof input === 'string' && input.trim() ? input.trim() : null
+}
+
+function savedNotes(input: unknown): readonly string[] {
+  return Array.isArray(input) ? input.flatMap(value => {
+    const text = savedText(value)
+    return text ? [text] : []
+  }) : []
+}
+
+// These are saved criterion notes, not reasons inferred from the score or the rule.
+function criterionNotes(source: unknown, key: string, evidence: unknown): readonly string[] {
+  if (key === 'accurate_representations' || key === 'no_misleading_claims') return savedNotes(evidence)
+  const step = /^step([1-6])_/.exec(key)
+  const gaps = valueAtPath(source, 'sales_process_scorecard.section_gap_reasons')
+  if (step && Array.isArray(gaps)) return gaps.flatMap(gap => {
+    const reason = savedText(valueAtPath(gap, 'reason'))
+    return valueAtPath(gap, 'section') === Number(step[1]) && reason ? [reason] : []
+  })
+  // Evidence context describes when/where a quote occurred; it is not model rationale.
+  return []
+}
+
 // Stored evidence can be a note, a list of notes, or structured speaker/quote/context
 // entries. Only explicit quote fields are presented as quotations; notes stay notes.
-function CriterionEvidence({ evidence }: { readonly evidence: unknown }) {
+function CriterionEvidence({ evidence, displayedNotes = [] }: { readonly evidence: unknown; readonly displayedNotes?: readonly string[] }) {
   const entries = Array.isArray(evidence) ? evidence : evidence == null ? [] : [evidence]
   const excerpts = entries.flatMap((entry, index) => {
-    if (typeof entry === 'string' && entry.trim()) return [<p key={index} className="whitespace-pre-wrap break-words text-sm leading-relaxed">{entry}</p>]
+    if (typeof entry === 'string' && entry.trim()) return displayedNotes.includes(entry.trim()) ? [] : [<p key={index} className="whitespace-pre-wrap break-words text-sm leading-relaxed">{entry}</p>]
     const quote = valueAtPath(entry, 'quote')
     if (typeof quote !== 'string' || !quote.trim()) return []
     const speaker = valueAtPath(entry, 'speaker')
     const context = valueAtPath(entry, 'context')
     const step = valueAtPath(entry, 'process_step')
-    const attribution = [speaker, step].filter(value => typeof value === 'string' && value.trim()).join(' · ')
+    const attribution = [savedText(speaker) ?? 'Speaker not saved', savedText(step)].filter(value => value !== null).join(' · ')
     return [<figure key={index} className="space-y-1">
+      <figcaption className="text-xs font-semibold text-pennie-graphite/70">{attribution}</figcaption>
       <blockquote className="whitespace-pre-wrap break-words border-l-2 border-pennie-yellow-dark pl-3 text-sm leading-relaxed">{quote}</blockquote>
-      {attribution && <figcaption className="text-xs text-pennie-graphite/70">{attribution}</figcaption>}
-      {typeof context === 'string' && context.trim() && <p className="whitespace-pre-wrap break-words text-sm leading-relaxed">{context}</p>}
+      {typeof context === 'string' && context.trim() && !displayedNotes.includes(context.trim()) && <p className="whitespace-pre-wrap break-words text-sm leading-relaxed"><span className="font-semibold">Saved context: </span>{context}</p>}
     </figure>]
   })
   return <div className="space-y-2 text-pennie-graphite">
     <p className="text-xs font-semibold">Evidence Eavesly used</p>
     {excerpts.length ? excerpts : <p className="text-sm">No readable excerpt was saved. Check the transcript before deciding.</p>}
-    {entries.length > excerpts.length && excerpts.length > 0 && <p className="text-xs">Some evidence is only available in the saved details below.</p>}
+    {entries.some(entry => !savedText(entry) && !savedText(valueAtPath(entry, 'quote')) && !savedText(valueAtPath(entry, 'context'))) && excerpts.length > 0 && <p className="text-xs">Some evidence is only available in the saved details below.</p>}
     {entries.length > 0 && <details><summary className="pennie-focus-ring cursor-pointer text-xs text-pennie-blue-deeper">View saved evidence details</summary><pre className="mt-2 whitespace-pre-wrap break-words text-xs">{JSON.stringify(evidence, null, 2)}</pre></details>}
   </div>
 }
@@ -176,6 +200,17 @@ export function FullQaRubricReview({ alert, scope, editable, onDirtyChange, onBu
     || [corrections, context.review?.corrections ?? []].some(items => items.some(item => item.criterionKey === criterion.key && item.disposition !== 'confirmed'))
     || [...findings, ...(context.review?.findings ?? [])].some(item => item.relatedCriteria.includes(criterion.key))
     || !criterion.domain.some(value => value === valueAtPath(context.sourceResult, criterion.scorePath))).map(criterion => criterion.key))
+  const reviewReason = savedText(valueAtPath(context.sourceResult, 'call_overview.manager_review_reason'))
+  const recordedViolations = savedNotes(valueAtPath(context.sourceResult, 'compliance_scorecard.compliance_violations'))
+  const requestedReview = valueAtPath(context.sourceResult, 'call_overview.manager_review_required')
+  const programSummary = savedText(valueAtPath(context.sourceResult, 'program_expectations_scorecard.section_summary'))
+  const programGaps = savedNotes(valueAtPath(context.sourceResult, 'program_expectations_scorecard.missing_elements'))
+  const hasProgramConcerns = context.criteria.some(criterion => criterion.findingCategory === 'program_expectations' && aiConcernKeys.has(criterion.key))
+  const practiceFalsePositive = import.meta.env.MODE === 'staging'
+    && valueAtPath(context.sourceResult, '_synthetic_staging') === true
+    && ['DEMO-REVIEW-001', 'DEMO-REVIEW-002', 'DEMO-REVIEW-003', 'DEMO-APPROVAL-001', 'DEMO-CONFIRMED-001', 'DEMO-OLDER-001', 'DEMO-OTHER-TEAM-001'].includes(alert.call_id)
+  const practiceSupported = import.meta.env.MODE === 'staging'
+    && valueAtPath(context.sourceResult, '_synthetic_staging') === true && alert.call_id === 'DEMO-SUPPORTED-001'
   const parsed = parseFullQaReviewDraft(context, draft)
   const updateCorrection = (key: string, patch: Partial<FullQaCriterionCorrection>) => setCorrections(items => items.map(item => item.criterionKey === key ? { ...item, ...patch } : item))
   const addFinding = () => setFindings(items => [...items, { findingId: crypto.randomUUID(), category: 'compliance', relatedCriteria: [context.criteria[0]?.key ?? 'call_recording_disclosure'], summary: '', evidence: '' }])
@@ -225,6 +260,18 @@ export function FullQaRubricReview({ alert, scope, editable, onDirtyChange, onBu
   }
 
   return <section className="space-y-5" aria-label="Full QA rubric review">
+    {(practiceFalsePositive || practiceSupported) && <aside className="rounded-xl border border-pennie-blue-main bg-pennie-blue-light p-4 text-sm" aria-label="Staging practice guidance">
+      <p className="font-semibold text-pennie-navy">{practiceFalsePositive ? 'Practice example: intentionally incorrect AI score' : 'Practice example: two supported compliance issues'}</p>
+      <p className="mt-1 text-pennie-graphite">{practiceFalsePositive ? 'The consent failure is deliberately wrong: the fictional customer gave permission. Practice correcting that score. The separate outcome promise still needs review.' : 'The fictional agent pulls credit after the customer refuses permission, then guarantees a debt-free date. Review the two separate issues and the coaching needed.'} These are synthetic scores, not a real model evaluation.</p>
+    </aside>}
+    <section aria-label="Why Eavesly requested review" className="rounded-2xl border border-pennie-yellow-main bg-pennie-yellow-light/50 p-4 sm:p-5">
+      <h2 className="text-lg font-semibold text-pennie-navy">Why Eavesly requested review</h2>
+      <p className="mt-1 text-xs text-pennie-graphite/70">Eavesly’s saved assessment — not a confirmed manager finding.</p>
+      <p className="mt-3 whitespace-pre-wrap break-words text-sm leading-relaxed text-pennie-graphite">{reviewReason ?? 'No explanation was saved for this alert. A failed score alone does not tell us why it was sent; check the conversation before deciding.'}</p>
+      {requestedReview === false && <p className="mt-2 text-sm font-semibold text-pennie-peach-deeper">The saved assessment says manager review was not required, but this alert was sent. The reason for that mismatch is not available here.</p>}
+      {recordedViolations.length > 0 && <div className="mt-3"><p className="text-sm font-semibold text-pennie-navy">Compliance issues Eavesly recorded</p><ul className="mt-1 list-disc space-y-1 pl-5 text-sm text-pennie-graphite">{recordedViolations.map((text, index) => <li key={index} className="whitespace-pre-wrap break-words">{text}</li>)}</ul></div>}
+      <p className="mt-3 text-xs text-pennie-graphite/70">The cards below also include other score concerns and manager changes; they are not all alert triggers. Repeated descriptions may refer to the same issue.</p>
+    </section>
     {context.sourceReferenceKind !== 'known' && <p className="rounded-xl border border-pennie-peach-dark bg-pennie-peach-light/30 p-3 text-xs text-pennie-graphite">{context.sourceReferenceKind === 'legacy_current_reference' ? 'Original rubric unknown; current reference only.' : 'Original rubric unavailable for this stamped hash; current field map only.'}</p>}
     <details className="rounded-2xl border border-border px-4 py-3">
       <summary className="pennie-focus-ring min-h-[36px] cursor-pointer text-sm font-semibold text-pennie-blue-deeper">Scoring policy &amp; source</summary>
@@ -246,6 +293,12 @@ export function FullQaRubricReview({ alert, scope, editable, onDirtyChange, onBu
         <h2 className="text-lg font-semibold text-pennie-navy">{showFullScorecard ? 'Full scorecard' : editable ? 'Check what Eavesly found' : 'Check the manager’s review'}</h2>
         <p className="mt-1 text-sm text-pennie-graphite">{editable ? 'Read the evidence, then give your response. Eavesly’s results are kept unless you change them. Save your review below.' : 'Amber shows Eavesly’s concerns. Blue shows the manager’s saved response. Check their reasoning, then approve or request changes below.'}</p>
       </div>
+      {hasProgramConcerns && (programSummary || programGaps.length > 0) && <aside aria-label="Program expectations section notes" className="rounded-xl border border-border p-3 text-sm text-pennie-graphite">
+        <p className="font-semibold">Program expectations — saved section notes</p>
+        <p className="mt-1 text-xs">These notes cover the whole section, not an individual score. Program-expectations gaps alone do not trigger this alert.</p>
+        {programSummary && <p className="mt-2 whitespace-pre-wrap break-words">{programSummary}</p>}
+        {programGaps.length > 0 && <ul className="mt-2 list-disc pl-5">{programGaps.map((gap, index) => <li key={index}>{gap}</li>)}</ul>}
+      </aside>}
       <button type="button" aria-expanded={showFullScorecard} aria-controls={scorecardId} onClick={() => setShowFullScorecard(value => !value)} className="pennie-focus-ring min-h-[44px] rounded-lg py-2 text-sm font-semibold text-pennie-blue-deeper underline-offset-4 hover:underline active:bg-pennie-beige">
         {showFullScorecard ? 'Show only issues & changes' : `View full scorecard · ${context.criteria.length} criteria`}
       </button>
@@ -258,9 +311,13 @@ export function FullQaRubricReview({ alert, scope, editable, onDirtyChange, onBu
         const evidence = valueAtPath(context.sourceResult, criterion.evidencePath)
         const aiConcern = aiConcernKeys.has(criterion.key)
         const originalValue = criterion.domain.find(value => value === original)
+        const notes = criterionNotes(context.sourceResult, criterion.key, evidence)
+        const question = criterion.key === 'credit_pull_consent'
+          ? 'Did the customer give permission before credit was pulled?'
+          : `Does Eavesly’s assessment of “${criterion.label}” match the call?`
         const saved = context.review?.corrections.find(item => item.criterionKey === criterion.key)
         const humanChanged = [correction, saved].some(item => item && item.disposition !== 'confirmed')
-        const label = aiConcern ? original === 'fail' ? 'Eavesly flagged this' : 'Eavesly coaching concern'
+        const label = aiConcern ? original === 'fail' ? 'Eavesly flagged this' : 'Eavesly score concern'
           : originalValue === undefined ? 'Eavesly score unavailable' : humanChanged ? 'Manager review item'
             : attentionKeys.has(criterion.key) ? 'Included in this review' : 'Other Eavesly score'
         return <article key={criterion.key} aria-label={criterion.label} hidden={!showFullScorecard && !attentionKeys.has(criterion.key)} className={`space-y-4 rounded-2xl border border-l-4 p-4 sm:p-5 ${aiConcern ? 'border-pennie-yellow-main bg-pennie-yellow-light/50' : attentionKeys.has(criterion.key) ? 'border-pennie-blue-main bg-pennie-blue-light/30' : 'border-border bg-pennie-beige/40'}`}>
@@ -269,7 +326,11 @@ export function FullQaRubricReview({ alert, scope, editable, onDirtyChange, onBu
             <h3 className="break-words text-lg font-semibold text-pennie-navy">{criterion.label}</h3>
             <p className="mt-1 text-sm text-pennie-graphite">Eavesly’s result: <strong>{scoreLabel(originalValue)}</strong></p>
           </div>
-          <CriterionEvidence evidence={evidence} />
+          {aiConcern && <div className="space-y-1 text-sm text-pennie-graphite">
+            <p className="font-semibold">{original === 'fail' ? 'Why Eavesly flagged this' : 'Why Eavesly noted a concern'}</p>
+            {notes.length > 0 ? <><p className="text-xs text-pennie-graphite/70">Saved assessment notes</p>{notes.map((note, index) => <p key={index} className="whitespace-pre-wrap break-words leading-relaxed">{note}</p>)}</> : <p>{criterion.findingCategory === 'program_expectations' && (programSummary || programGaps.length > 0) ? 'No separate explanation was saved for this score; see the saved section notes above.' : 'No explanation was saved for this score. The result and any excerpt below are not an explanation by themselves.'}</p>}
+          </div>}
+          <CriterionEvidence evidence={evidence} displayedNotes={aiConcern ? notes : []} />
           {saved && <div className="rounded-xl border border-pennie-blue-main bg-pennie-blue-light p-3 text-sm">
             <p className="mb-1 text-xs font-bold text-pennie-blue-deeper">Manager’s saved response</p>
             <p className="font-semibold text-pennie-navy">{saved.disposition === 'confirmed' ? 'Kept Eavesly’s result' : saved.disposition === 'corrected' ? `Changed to: ${scoreLabel(saved.correctedValue)}` : 'Needs more context'}</p>
@@ -278,6 +339,8 @@ export function FullQaRubricReview({ alert, scope, editable, onDirtyChange, onBu
           {editable && <div className="space-y-3 rounded-xl border border-pennie-blue-main bg-white p-3">
             <fieldset disabled={busy || contextChanged} role="radiogroup" aria-label={`${criterion.label} disposition`}>
               <legend className="mb-2 text-sm font-semibold text-pennie-navy">Your response</legend>
+              <p className="mb-2 text-sm text-pennie-navy">{question}</p>
+              <p className="mb-3 text-xs text-pennie-graphite/70">Agree keeps Eavesly’s result above. Disagree lets you correct it.</p>
               <div className="flex flex-wrap gap-2">{(['confirmed', 'corrected', 'needs_context'] as const).map(disposition => <label key={disposition} className={`flex min-h-[44px] cursor-pointer items-center gap-2 rounded-xl border px-3 py-2 text-sm has-[:disabled]:cursor-not-allowed has-[:disabled]:opacity-50 ${correction.disposition === disposition ? 'border-pennie-blue-deeper bg-pennie-blue-light text-pennie-navy' : 'border-border text-pennie-graphite hover:bg-pennie-blue-light/50'}`}>
                 <input type="radio" name={`${scorecardId}-${criterion.key}`} checked={correction.disposition === disposition} disabled={disposition === 'confirmed' && originalValue === undefined} className="pennie-focus-ring h-4 w-4 accent-pennie-blue-deeper" onChange={() => {
                   if (correction.disposition === disposition) return

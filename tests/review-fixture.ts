@@ -73,6 +73,7 @@ export async function reviewFixture(page: Page, rows: AlertWithFeedback[], optio
     fullQaReviews: new Map<string, Record<string, unknown>>(options.fullQaReviews),
     fullQaProposals: new Map<string, Record<string, unknown>[]>(options.fullQaProposals),
     fullQaSourceFingerprints: new Map(rows.map(row => [row.call_id, 'c'.repeat(64)])),
+    fullQaSources: new Map<string, Record<string, unknown>>(),
   }
   await page.clock.setFixedTime(NOW)
   await page.addInitScript(({ email }) => {
@@ -152,7 +153,8 @@ export async function reviewFixture(page: Page, rows: AlertWithFeedback[], optio
       const callId = input && typeof input === 'object' && 'p_call_id' in input && typeof input.p_call_id === 'string' ? input.p_call_id : ''
       const row = state.rows.find(candidate => candidate.call_id === callId)
       if (!row) return respond({ message: 'EAVESLY_ALERT_NOT_FOUND' }, 400)
-      const result = row.result_json && typeof row.result_json === 'object' ? row.result_json as Record<string, unknown> : {}
+      const currentResult = row.result_json && typeof row.result_json === 'object' ? row.result_json as Record<string, unknown> : {}
+      const result = state.fullQaSources.get(callId) ?? currentResult
       const provenance = result._evaluation_provenance && typeof result._evaluation_provenance === 'object' ? result._evaluation_provenance as Record<string, unknown> : null
       const promptHash = provenance && typeof provenance.prompt_sha256 === 'string' ? provenance.prompt_sha256 : null
       const referenceKind = promptHash === FULL_QA_PROMPT_SHA ? 'known' : promptHash === null ? 'legacy_current_reference' : 'unknown_hash'
