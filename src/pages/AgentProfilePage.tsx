@@ -10,6 +10,7 @@ import { CallVolumeChart } from '../components/team/CallVolumeChart'
 import { CoachingThemesPanel } from '../components/team/CoachingThemesPanel'
 import { AgentAlertsPanel } from '../components/team/AgentAlertsPanel'
 import { AgentRecentCalls } from '../components/team/AgentRecentCalls'
+import { AgentFullQaRecurrence } from '../components/team/AgentFullQaRecurrence'
 import { ChevronLeft } from 'lucide-react'
 import { formatDateParam, parseDateParam } from '../lib/url-filters'
 import { defaultAlertWindow } from '../lib/alert-review-queue'
@@ -134,6 +135,8 @@ export default function AgentProfilePage() {
           </div>
 
           <CoachingThemesPanel themes={profile?.coaching_themes ?? null} loading={loading} />
+
+          <AgentFullQaRecurrence agentEmail={agentEmail} startDate={startDate} endDate={endDate} enabled={!!scope && !!allowed} />
 
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
             <AgentAlertsPanel alerts={profile?.alerts ?? []} loading={loading} />

@@ -5,6 +5,30 @@ export const NOW = new Date('2026-09-07T16:00:00Z')
 export const EMAIL = 'manager@example.test'
 export const QUOTES = ['Your credit may be affected.', 'You can cancel at any time.']
 export const TRANSCRIPT = `[handling agent]: Hello, let us discuss your program.\n[contact]: I have questions about my credit.\n[handling agent]: ${QUOTES[0]} Please consider the implications.\n[contact]: What if I change my mind?\n[handling agent]: ${QUOTES[1]} We can explain the process.\n[contact]: Thank you for explaining.`
+export const FULL_QA_PROMPT_SHA = '1396c17a6ae639b1172a1ff5d04ee21b22e4ab5ceb08c5915c090a34da291e37'
+
+const criterion = (key: string, label: string, section: string, scorePath: string, evidencePath: string, domain: readonly (string | boolean)[], findingCategory: string) => ({
+  key, label, section, rule: `Exact synthetic rule for ${label}.`, score_path: scorePath, evidence_path: evidencePath, domain, finding_category: findingCategory,
+})
+export const FULL_QA_CRITERIA = [
+  criterion('call_recording_disclosure', 'Call recording disclosure', 'Compliance', 'compliance_scorecard.call_recording_disclosure', 'compliance_scorecard.call_recording_disclosure_evidence', ['pass', 'fail', 'not_applicable'], 'compliance'),
+  criterion('credit_pull_consent', 'Credit pull consent', 'Compliance', 'compliance_scorecard.credit_pull_consent', 'compliance_scorecard.credit_pull_consent_evidence', ['pass', 'fail', 'not_applicable'], 'compliance'),
+  criterion('social_security_verification', 'Social security verification', 'Compliance', 'compliance_scorecard.social_security_verification', 'compliance_scorecard.social_security_verification_evidence', ['pass', 'fail', 'not_applicable'], 'compliance'),
+  criterion('accurate_representations', 'Accurate representations', 'Compliance', 'compliance_scorecard.accurate_representations', 'compliance_scorecard.accurate_representations_violations', ['pass', 'fail'], 'compliance'),
+  criterion('no_misleading_claims', 'No misleading claims', 'Compliance', 'compliance_scorecard.no_misleading_claims', 'compliance_scorecard.misleading_claims_violations', ['pass', 'fail'], 'compliance'),
+  ...['professional_tone', 'active_listening', 'patience_empathy', 'clear_communication', 'customer_focused'].map(key => criterion(key, key.split('_').join(' '), 'Customer experience', `customer_experience_scorecard.${key}`, `customer_experience_scorecard.${key}_examples`, ['excellent', 'good', 'fair', 'poor'], 'customer_experience')),
+  ...['step1_agenda_setting', 'step2_credit_review', 'step3_agent_inputs', 'step4_paydown_projections', 'step5_offers_review', 'step6_debt_resolution'].map(key => criterion(key, key.split('_').join(' '), 'Sales process', `sales_process_scorecard.${key}`, `sales_process_scorecard.${key.replace(/_(agenda_setting|credit_review|agent_inputs|paydown_projections|offers_review|debt_resolution)$/, '_location')}`, ['complete', 'partial', 'missing', 'not_applicable'], 'sales_process')),
+  ...['phase_impact_covered', 'phase_stabilization_covered', 'phase_recovery_covered', 'phase_rebuild_covered', 'payments_point_covered', 'creditor_calls_point_covered', 'legal_action_point_covered'].map(key => criterion(key, key.split('_').join(' '), 'Program expectations', `program_expectations_scorecard.${key}`, `program_expectations_scorecard.${key.replace('_covered', '_evidence')}`, [true, false], 'program_expectations')),
+]
+
+export const FULL_QA_RESULT = {
+  _evaluation_provenance: { version: 1, module_name: 'full_qa', prompt_sha256: FULL_QA_PROMPT_SHA, user_prompt_sha256: 'a'.repeat(64), transcript_sha256: 'b'.repeat(64) },
+  call_overview: { manager_review_reason: 'Review both quoted passages in context.', manager_focus_areas: QUOTES.map(quote => ({ quote })) },
+  compliance_scorecard: { call_recording_disclosure: 'pass', call_recording_disclosure_evidence: [{ quote: QUOTES[1] }], credit_pull_consent: 'fail', credit_pull_consent_evidence: [{ quote: QUOTES[0] }], social_security_verification: 'pass', social_security_verification_evidence: [], accurate_representations: 'fail', accurate_representations_violations: ['Synthetic inaccurate statement'], no_misleading_claims: 'pass', misleading_claims_violations: [] },
+  customer_experience_scorecard: { professional_tone: 'good', professional_tone_examples: [], active_listening: 'good', active_listening_examples: [], patience_empathy: 'fair', patience_empathy_examples: [], clear_communication: 'good', clear_communication_examples: [], customer_focused: 'good', customer_focused_examples: [] },
+  sales_process_scorecard: { step1_agenda_setting: 'complete', step1_location: 'opening', step2_credit_review: 'complete', step2_location: 'review', step3_agent_inputs: 'complete', step3_location: 'inputs', step4_paydown_projections: 'not_applicable', step4_location: null, step5_offers_review: 'complete', step5_location: 'offers', step6_debt_resolution: 'partial', step6_location: 'closing' },
+  program_expectations_scorecard: { phase_impact_covered: true, phase_impact_evidence: 'quote', phase_stabilization_covered: true, phase_stabilization_evidence: 'quote', phase_recovery_covered: false, phase_recovery_evidence: '', phase_rebuild_covered: false, phase_rebuild_evidence: '', payments_point_covered: true, payments_point_evidence: 'quote', creditor_calls_point_covered: false, creditor_calls_point_evidence: '', legal_action_point_covered: false, legal_action_point_evidence: '' },
+}
 
 /** Synthetic records only; never reads or writes live customer data. */
 export function alertRow(id: string, overrides: Partial<AlertWithFeedback> = {}): AlertWithFeedback {
@@ -23,16 +47,21 @@ export function alertRow(id: string, overrides: Partial<AlertWithFeedback> = {})
     current_decided_at: null, current_decision_source: null,
     message_count: 0, last_message_at: null, acker_emails: [], recording_link: null,
     transcript_url: null,
-    result_json: { call_overview: { manager_review_reason: 'Review both quoted passages in context.', manager_focus_areas: QUOTES.map(quote => ({ quote })) } },
+    result_json: FULL_QA_RESULT,
     ...overrides,
   }
+}
+
+/** A non-Full-QA row for tests that exercise the shared legacy review lifecycle. */
+export function genericAlertRow(id: string, overrides: Partial<AlertWithFeedback> = {}): AlertWithFeedback {
+  return alertRow(id, { module_name: 'budget_inputs', ...overrides })
 }
 
 /** Supabase HTTP contract fixture. Auth/data traffic is intercepted before leaving the browser.
  * It exercises real hooks, queries, pagination requests and mutations, not patched modules.
  * This proves client behavior, not production RLS/SQL execution.
  */
-export async function reviewFixture(page: Page, rows: AlertWithFeedback[], options: { god?: boolean; noAgents?: boolean; managedAgents?: string[]; managerNames?: Record<string, string>; dailyMetrics?: unknown[]; email?: string; messages?: AlertMessage[] } = {}) {
+export async function reviewFixture(page: Page, rows: AlertWithFeedback[], options: { god?: boolean; noAgents?: boolean; managedAgents?: string[]; managerNames?: Record<string, string>; dailyMetrics?: unknown[]; email?: string; messages?: AlertMessage[]; fullQaOccurrences?: unknown[]; fullQaCriteria?: typeof FULL_QA_CRITERIA; fullQaReviews?: ReadonlyMap<string, Record<string, unknown>>; fullQaProposals?: ReadonlyMap<string, Record<string, unknown>[]> } = {}) {
   const fixtureEmail = options.email ?? EMAIL
   const state = {
     rows, writes: [] as unknown[], requests: [] as URL[], transcript: TRANSCRIPT as string | null,
@@ -40,7 +69,11 @@ export async function reviewFixture(page: Page, rows: AlertWithFeedback[], optio
     transcriptGate: Promise.resolve(), alertGate: Promise.resolve(), queueGate: Promise.resolve(), ackGate: Promise.resolve(), decisionGate: Promise.resolve(),
     failedAckIds: new Set<string>(), failedDecisionIds: new Set<string>(),
     ackInFlight: 0, maxAckInFlight: 0, decisionInFlight: 0, maxDecisionInFlight: 0,
-    nextDecisionId: 100,
+    nextDecisionId: 100, nextProposalId: 1,
+    fullQaReviews: new Map<string, Record<string, unknown>>(options.fullQaReviews),
+    fullQaProposals: new Map<string, Record<string, unknown>[]>(options.fullQaProposals),
+    fullQaSourceFingerprints: new Map(rows.map(row => [row.call_id, 'c'.repeat(64)])),
+    fullQaSources: new Map<string, Record<string, unknown>>(),
   }
   await page.clock.setFixedTime(NOW)
   await page.addInitScript(({ email }) => {
@@ -115,6 +148,64 @@ export async function reviewFixture(page: Page, rows: AlertWithFeedback[], optio
       }
       return respond(pageRows)
     }
+    if (table === 'get_full_qa_review_context' && request.method() === 'POST') {
+      const input: unknown = request.postDataJSON()
+      const callId = input && typeof input === 'object' && 'p_call_id' in input && typeof input.p_call_id === 'string' ? input.p_call_id : ''
+      const row = state.rows.find(candidate => candidate.call_id === callId)
+      if (!row) return respond({ message: 'EAVESLY_ALERT_NOT_FOUND' }, 400)
+      const currentResult = row.result_json && typeof row.result_json === 'object' ? row.result_json as Record<string, unknown> : {}
+      const result = state.fullQaSources.get(callId) ?? currentResult
+      const provenance = result._evaluation_provenance && typeof result._evaluation_provenance === 'object' ? result._evaluation_provenance as Record<string, unknown> : null
+      const promptHash = provenance && typeof provenance.prompt_sha256 === 'string' ? provenance.prompt_sha256 : null
+      const referenceKind = promptHash === FULL_QA_PROMPT_SHA ? 'known' : promptHash === null ? 'legacy_current_reference' : 'unknown_hash'
+      return respond({ source_fingerprint: state.fullQaSourceFingerprints.get(callId) ?? 'c'.repeat(64), source_result_json: result, source_prompt_sha256: promptHash,
+        reference_prompt_sha256: FULL_QA_PROMPT_SHA, source_reference_kind: referenceKind,
+        criteria_reference_kind: referenceKind === 'known' ? 'exact_evaluation_rubric' : referenceKind === 'legacy_current_reference' ? 'current_reference_only' : 'current_field_map_only',
+        rubric_prompt_text: referenceKind === 'unknown_hash' ? null : 'Synthetic exact scoring policy. Two distinct compliance findings or explicit severe customer mistreatment justify escalation. Program expectations use enrollment gating, handling-agent delivery, and exclude ACDR/GOTA-only discussion points.', criteria_manifest: options.fullQaCriteria ?? FULL_QA_CRITERIA,
+        review: state.fullQaReviews.get(callId) ?? null, proposals: state.fullQaProposals.get(callId) ?? [] })
+    }
+    if (table === 'submit_full_qa_review' && request.method() === 'POST') {
+      const input: unknown = request.postDataJSON()
+      state.writes.push(input)
+      if (state.failFeedback) return respond({ message: 'Synthetic save failure' }, 500)
+      if (!input || typeof input !== 'object' || !('p_call_id' in input) || typeof input.p_call_id !== 'string'
+        || !('p_expected_revision' in input) || typeof input.p_expected_revision !== 'number'
+        || !('p_expected_source_fingerprint' in input) || typeof input.p_expected_source_fingerprint !== 'string'
+        || !('p_corrections' in input) || !Array.isArray(input.p_corrections) || input.p_corrections.length !== 23
+        || !('p_findings' in input) || !Array.isArray(input.p_findings) || !('p_escalation_justified' in input) || typeof input.p_escalation_justified !== 'boolean') return respond({ message: 'EAVESLY_INVALID_FULL_QA_REVIEW' }, 400)
+      const row = state.rows.find(candidate => candidate.call_id === input.p_call_id)
+      if (row && input.p_expected_source_fingerprint !== state.fullQaSourceFingerprints.get(row.call_id)) return respond({ message: 'EAVESLY_STALE_FULL_QA_SOURCE' }, 400)
+      if (!row || input.p_expected_revision !== (row.review_revision ?? 0) || !('p_expected_decision_id' in input) || input.p_expected_decision_id !== row.current_decision_id) return respond({ message: 'EAVESLY_STALE_REVIEW' }, 400)
+      row.feedback_id ??= 1; row.feedback_by = fixtureEmail; row.is_reviewed = true; row.review_revision = (row.review_revision ?? 0) + 1
+      row.accurate = input.p_escalation_justified
+      row.inaccuracy_reason = !input.p_escalation_justified && 'p_inaccuracy_reason' in input ? input.p_inaccuracy_reason as AlertWithFeedback['inaccuracy_reason'] : null
+      row.action_taken = 'p_action' in input ? input.p_action as AlertWithFeedback['action_taken'] : null
+      row.action_details = 'p_action_details' in input && typeof input.p_action_details === 'string' ? input.p_action_details : null
+      row.violation_details = 'p_escalation_reason' in input && typeof input.p_escalation_reason === 'string' ? input.p_escalation_reason : null
+      row.feedback_comment = input.p_escalation_justified ? null : row.violation_details
+      row.reviewed_at = NOW.toISOString(); row.current_decision_id = null; row.current_decision = null; row.current_decision_by = null; row.current_decision_instructions = null; row.current_decided_at = null; row.current_decision_source = null
+      state.fullQaReviews.set(input.p_call_id, { feedback_revision: row.review_revision, corrections: input.p_corrections, findings: input.p_findings,
+        escalation_justified: input.p_escalation_justified, escalation_reason: row.violation_details,
+        escalation_inaccuracy_reason: row.inaccuracy_reason, action_taken: row.action_taken,
+        action_details: row.action_details, saved_by: fixtureEmail, saved_at: row.reviewed_at })
+      return respond({ feedback_id: row.feedback_id, review_revision: row.review_revision, reviewed_at: row.reviewed_at, idempotent: false })
+    }
+    if (table === 'propose_full_qa_rule' && request.method() === 'POST') {
+      const input: unknown = request.postDataJSON(); state.writes.push(input)
+      if (!input || typeof input !== 'object' || !('p_call_id' in input) || typeof input.p_call_id !== 'string') return respond({ message: 'EAVESLY_INVALID_RULE_PROPOSAL' }, 400)
+      const proposal = { id: state.nextProposalId++, criterion_key: 'p_criterion_key' in input ? input.p_criterion_key : '', proposed_rule: 'p_proposed_rule' in input ? input.p_proposed_rule : '', why: 'p_why' in input ? input.p_why : '', proposed_by: fixtureEmail, proposed_at: NOW.toISOString(), decision: 'pending', decided_by: null, decided_at: null, decision_reason: null }
+      state.fullQaProposals.set(input.p_call_id, [...(state.fullQaProposals.get(input.p_call_id) ?? []), proposal])
+      return respond({ proposal_id: proposal.id, proposed_at: proposal.proposed_at, decision: 'pending' })
+    }
+    if (table === 'decide_full_qa_rule_proposal' && request.method() === 'POST') {
+      const input: unknown = request.postDataJSON(); state.writes.push(input)
+      if (!input || typeof input !== 'object' || !('p_proposal_id' in input)) return respond({ message: 'EAVESLY_INVALID_RULE_PROPOSAL_DECISION' }, 400)
+      const proposal = [...state.fullQaProposals.values()].flat().find(item => item.id === input.p_proposal_id)
+      if (!proposal || proposal.decision !== 'pending') return respond({ message: 'EAVESLY_RULE_PROPOSAL_DECISION_CONFLICT' }, 400)
+      proposal.decision = 'p_decision' in input ? input.p_decision : 'rejected'; proposal.decided_by = fixtureEmail; proposal.decided_at = NOW.toISOString(); proposal.decision_reason = 'p_reason' in input ? input.p_reason : ''
+      return respond({ proposal_id: proposal.id, decision: proposal.decision, decided_at: proposal.decided_at, idempotent: false })
+    }
+    if (table === 'full_qa_finding_occurrences' && request.method() === 'POST') return respond(options.fullQaOccurrences ?? [])
     if (table === 'submit_internal_alert_feedback' && request.method() === 'POST') {
       const input: unknown = request.postDataJSON()
       state.writes.push(input)

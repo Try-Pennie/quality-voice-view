@@ -1,8 +1,8 @@
 import { test, expect } from '@playwright/test'
-import { alertRow, openAlert, reviewFixture } from './review-fixture'
+import { genericAlertRow, openAlert, reviewFixture } from './review-fixture'
 
 test('browser Back and Forward can be cancelled without losing notes or corrupting history', async ({ page }) => {
-  await reviewFixture(page, [alertRow('history-a'), alertRow('history-b')])
+  await reviewFixture(page, [genericAlertRow('history-a'), genericAlertRow('history-b')])
   await page.goto('/dashboard/alerts?status=awaiting_manager')
   await openAlert(page, 'history-a')
   const firstUrl = page.url()
@@ -33,7 +33,7 @@ test('browser Back and Forward can be cancelled without losing notes or corrupti
 
 test('a mobile follow-up can inspect evidence and reach its save button', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 })
-  const state = await reviewFixture(page, [alertRow('mobile-coaching', {
+  const state = await reviewFixture(page, [genericAlertRow('mobile-coaching', {
     is_reviewed: true, accurate: true, action_taken: 'follow_up_later', feedback_by: 'manager@example.test',
     violation_details: 'The required disclosure was omitted from the call.',
     action_details: 'Coaching is scheduled for our next one-to-one session.',

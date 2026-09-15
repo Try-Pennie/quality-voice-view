@@ -160,10 +160,12 @@ export function classifyInternalReviewMutationError(input: unknown): InternalRev
   const rawMessage = isRecord(input) && 'message' in input && typeof input.message === 'string'
     ? input.message
     : ''
-  if (rawMessage.includes('EAVESLY_STALE_REVIEW') || rawMessage.includes('EAVESLY_DECISION_CONFLICT')) {
+  if (rawMessage.includes('EAVESLY_STALE_REVIEW') || rawMessage.includes('EAVESLY_DECISION_CONFLICT')
+    || rawMessage.includes('EAVESLY_STALE_FULL_QA_SOURCE') || rawMessage.includes('EAVESLY_RULE_PROPOSAL_DECISION_CONFLICT')) {
     return { _tag: 'StaleReview', message: 'This review changed while you were working. Your draft is still here.' }
   }
-  if (rawMessage.includes('EAVESLY_INVALID_FEEDBACK') || rawMessage.includes('EAVESLY_INVALID_DECISION')) {
+  if (rawMessage.includes('EAVESLY_INVALID_FEEDBACK') || rawMessage.includes('EAVESLY_INVALID_DECISION')
+    || rawMessage.includes('EAVESLY_INVALID_FULL_QA_REVIEW') || rawMessage.includes('EAVESLY_INVALID_RULE_PROPOSAL')) {
     return { _tag: 'InvalidReview', message: 'Review details did not meet the required format.' }
   }
   if (rawMessage.includes('EAVESLY_FORBIDDEN') || rawMessage.includes('EAVESLY_UNAUTHENTICATED')) {
