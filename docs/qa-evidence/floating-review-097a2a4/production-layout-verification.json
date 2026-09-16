@@ -1,0 +1,50 @@
+{
+  "application_commit": "097a2a45ed6ddce07e224ccae3069199aa00e1fa",
+  "result": "passed",
+  "record_count": 24,
+  "browser_scenarios": 40,
+  "roles": {
+    "manager": 24,
+    "kris": 16
+  },
+  "selection": "Purposive real sent Full QA alerts from the preceding90days; not an accuracy estimate",
+  "coverage": {
+    "manager_confirmed_alerts": 11,
+    "manager_marked_false_alerts": 5,
+    "unreviewed": 8,
+    "historical_feedback": 16,
+    "no_prompt_stamp": 24,
+    "saved_reason_characters": {
+      "min": 106,
+      "max": 828
+    },
+    "max_stored_result_characters": 19093
+  },
+  "viewports": [
+    {
+      "width": 1440,
+      "height": 900
+    },
+    {
+      "width": 375,
+      "height": 812
+    }
+  ],
+  "external_browser_network": 0,
+  "review_writes": 0,
+  "page_console_errors": 0,
+  "checks": [
+    "centered1080px desktop modal and full-screen mobile",
+    "entire saved reason readable without expansion",
+    "no horizontal overflow and action footer within viewport",
+    "original historical manager feedback visible",
+    "evidence and response adjacent on desktop",
+    "all23 criteria available and unsaved context draft retained"
+  ],
+  "verification_boundaries": [
+    "Production reads only; customer records/screenshots retained privately, never uploaded to staging or Git",
+    "Local HTTP-contract replay uses real source/feedback plus current-reference catalog; not native production Auth/RPC verification",
+    "No statistical accuracy or model-quality claim",
+    "Separate full-transcript, recording, customer-phone and CRM-link fields were not fetched"
+  ]
+}

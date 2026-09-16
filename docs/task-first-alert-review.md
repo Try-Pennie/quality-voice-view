@@ -1,5 +1,7 @@
 # Task-first alert review
 
+Historical iteration. See [Floating Full QA review](floating-alert-review.md) for the current centered window, staging origins, production-data checks and screenshots.
+
 ## Plan and delivered behavior
 
 The problem was not missing information: it was that managers had to scan too much before finding the decision. This iteration keeps the existing scoring/review contract and changes the order and emphasis.
