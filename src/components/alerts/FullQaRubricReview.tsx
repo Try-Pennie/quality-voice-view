@@ -398,19 +398,14 @@ export function FullQaRubricReview({ alert, scope, editable, onDirtyChange, onBu
   }
 
   const scorecard = <>
-    <div className="space-y-3">
-      <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
-        <h2 className="text-base font-semibold text-pennie-navy">{showFullScorecard ? 'Full scorecard' : editable ? 'Check Eavesly’s assessments' : 'Eavesly’s scores'}</h2>
-        <p className="text-xs text-pennie-graphite/80">{editable ? `${attentionKeys.size} ${attentionKeys.size === 1 ? 'item' : 'items'} to check` : 'Amber: Eavesly’s concern. Blue: manager’s saved response.'}</p>
-      </div>
+    {showFullScorecard && <h2 className="text-base font-semibold text-pennie-navy">Full scorecard</h2>}
       {hasProgramConcerns && (programSummary || programGaps.length > 0) && <aside aria-label="Program expectations section notes" className="rounded-xl border border-border p-3 text-sm text-pennie-graphite">
         <p className="font-semibold">Program expectations — saved section notes</p>
         <p className="mt-1 text-xs">These notes cover the whole section, not an individual score. Program-expectations gaps alone do not trigger this alert.</p>
         {programSummary && <p className="mt-2 whitespace-pre-wrap break-words">{programSummary}</p>}
         {programGaps.length > 0 && <ul className="mt-2 list-disc pl-5">{programGaps.map((gap, index) => <li key={index}>{gap}</li>)}</ul>}
       </aside>}
-      {!showFullScorecard && attentionKeys.size === 0 && <p className="text-sm text-pennie-graphite">No flagged criteria or review changes to show. Open the full scorecard to inspect other scores; this does not clear the alert.</p>}
-    </div>
+    {!showFullScorecard && attentionKeys.size === 0 && <p className="text-sm text-pennie-graphite">No flagged criteria or review changes to show. Open the full scorecard to inspect other scores; this does not clear the alert.</p>}
     <div id={scorecardId} className="space-y-3">{context.criteria.map(criterion => {
         const correction = corrections.find(item => item.criterionKey === criterion.key)
         if (!correction) return null
@@ -454,7 +449,7 @@ export function FullQaRubricReview({ alert, scope, editable, onDirtyChange, onBu
                   } else updateCorrection(criterion.key, disposition === 'needs_context' ? { disposition, correctedValue: null, reason: '' }
                     : { disposition, correctedValue: criterion.domain.find(value => value !== original) ?? null, reason: '' })
                 }} />
-                <span className="whitespace-nowrap">{disposition === 'confirmed' ? 'Assessment is correct' : disposition === 'corrected' ? 'Incorrect' : 'Need more context'}</span>
+                <span className="whitespace-nowrap">{disposition === 'confirmed' ? 'Correct' : disposition === 'corrected' ? 'Incorrect' : 'Need more context'}</span>
               </label>)}</div>
             </fieldset>
             {correction.disposition === 'corrected' && <label className="block text-sm font-semibold">What should the result be?<select aria-label={`${criterion.label} corrected value`} disabled={locked} value={String(correction.correctedValue)} onChange={event => updateCorrection(criterion.key, { correctedValue: criterion.domain.find(value => String(value) === event.target.value) ?? null })} className="mt-1 min-h-[44px] w-full rounded-lg border border-border bg-white px-2 font-normal">{criterion.domain.map(value => <option key={String(value)} value={String(value)}>{scoreLabel(value)}</option>)}</select></label>}
@@ -471,9 +466,12 @@ export function FullQaRubricReview({ alert, scope, editable, onDirtyChange, onBu
           </details>
         </article>
     })}</div>
+    <div className="flex flex-wrap items-center justify-between gap-x-3">
+    <p className="text-xs text-pennie-graphite/80">{attentionKeys.size} {attentionKeys.size === 1 ? 'item' : 'items'} to check</p>
     <button type="button" aria-expanded={showFullScorecard} aria-controls={scorecardId} onClick={() => setShowFullScorecard(value => !value)} className="pennie-focus-ring min-h-[44px] rounded-lg py-2 text-sm font-semibold text-pennie-blue-deeper underline-offset-4 hover:underline active:bg-pennie-beige">
       {showFullScorecard ? 'Show only items to check' : `View full scorecard · ${context.criteria.length} criteria`}
     </button>
+    </div>
   </>
 
   return <form id={FULL_QA_FORM_ID} onSubmit={event => { event.preventDefault(); void save() }} className="space-y-5" aria-label="Full QA rubric review">

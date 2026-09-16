@@ -6,6 +6,22 @@ const response = (page: Page, criterion: string) => page.getByRole('radiogroup',
 const dispositions = (page: Page) => page.getByRole('radiogroup', { name: / disposition$/ })
 const saveButton = (page: Page) => page.getByRole('button', { name: /^(Save|Update) review$/ })
 
+async function expectFirstChoicesAboveFooter(page: Page) {
+  const footer = await page.getByRole('dialog').locator('footer').boundingBox()
+  expect(footer).not.toBeNull()
+  for (const choice of ['Correct', 'Incorrect', 'Need more context']) {
+    const box = await response(page, 'Credit pull consent').getByRole('radio', { name: choice, exact: true }).evaluate(input => {
+      const label = input.closest('label') ?? input
+      const rect = label.getBoundingClientRect()
+      const hit = document.elementFromPoint(rect.x + rect.width / 2, rect.y + rect.height / 2)
+      return { top: rect.top, bottom: rect.bottom, covered: !hit || !label.contains(hit) }
+    })
+    expect(box.top, choice).toBeGreaterThanOrEqual(0)
+    expect(box.bottom, choice).toBeLessThanOrEqual(footer?.y ?? 0)
+    expect(box.covered, choice).toBe(false)
+  }
+}
+
 const correctionReason = 'The available call context confirms the corrected judgment.'
 const contextReason = 'The audio is unavailable, so this criterion remains uncertain.'
 const findingSummary = 'A distinct inaccurate representation requires coaching.'
@@ -18,18 +34,17 @@ test('Full QA saves string-scale corrections, uncertainty, and a retained findin
   await page.goto('/dashboard/alerts?status=awaiting_manager')
   await openAlert(page, 'rubric-flow')
 
-  // The first decision and the primary action are on screen without scrolling, desktop and phone.
-  const firstChoice = response(page, 'Credit pull consent').getByRole('radio', { name: 'Assessment is correct', exact: true })
+  // Every response choice and the primary action are usable without scrolling, desktop and phone.
   for (const viewport of [{ width: 1440, height: 900 }, { width: 375, height: 812 }]) {
     await page.setViewportSize(viewport)
     await expect(page.getByRole('region', { name: 'Why Eavesly requested review', exact: true })).toBeInViewport()
-    await expect(firstChoice).toBeInViewport()
+    await expectFirstChoicesAboveFooter(page)
     await expect(saveButton(page)).toBeInViewport()
     await expect(page.getByText('Recording not available')).toBeHidden()
   }
   await page.setViewportSize({ width: 1280, height: 720 })
 
-  await expect(page.getByRole('heading', { name: 'Check Eavesly’s assessments' })).toBeVisible()
+  await expect(page.getByRole('form', { name: 'Full QA rubric review' })).toBeVisible()
   await expect(page.getByText(/^\d+ items to check$/)).toBeVisible()
   await expect(response(page, 'Call recording disclosure')).toBeHidden()
   await page.getByText('Scoring policy & source', { exact: true }).click()
@@ -199,7 +214,7 @@ test('score answers and an explicit verdict save without manufacturing any coach
   await page.goto('/dashboard/alerts/no-silent-findings/full_qa')
   await response(page, 'Credit pull consent').getByRole('radio', { name: 'Incorrect', exact: true }).check()
   await page.getByRole('textbox', { name: 'Credit pull consent correction reason' }).fill(correctionReason)
-  await response(page, 'Accurate representations').getByRole('radio', { name: 'Assessment is correct', exact: true }).check()
+  await response(page, 'Accurate representations').getByRole('radio', { name: 'Correct', exact: true }).check()
   await expect(page.getByText('No coaching issues added.', { exact: true })).toBeVisible()
   await expect(page.getByRole('combobox', { name: 'What did you do about the issue?' })).toHaveCount(0)
   await expect(saveButton(page)).toBeDisabled()
@@ -290,13 +305,12 @@ test('a realistic supported seed keeps the reason, first evidence, and first dec
   await page.goto('/dashboard/alerts/DEMO-SUPPORTED-001/full_qa')
   const summary = page.getByRole('region', { name: 'Why Eavesly requested review', exact: true })
   const consent = page.getByRole('article', { name: 'Credit pull consent', exact: true })
-  const firstChoice = response(page, 'Credit pull consent').getByRole('radio', { name: 'Assessment is correct', exact: true })
   for (const viewport of [{ width: 1440, height: 900 }, { width: 375, height: 812 }]) {
     await page.setViewportSize(viewport)
     await expect(summary).toBeInViewport()
     await expect(summary.getByRole('button', { name: 'Full reason' })).toBeInViewport()
     await expect(consent.locator('blockquote').first()).toBeInViewport()
-    await expect(firstChoice).toBeInViewport()
+    await expectFirstChoicesAboveFooter(page)
     await expect(saveButton(page)).toBeInViewport()
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
   }
@@ -330,7 +344,7 @@ test('focused scorecard respects categorical concerns and enrollment gating, whi
   const coaching = page.getByRole('article', { name: 'professional tone', exact: true })
   await expect(coaching.getByText('Eavesly score concern', { exact: true })).toBeVisible()
   await expect(coaching.getByText('Eavesly flagged this', { exact: true })).toHaveCount(0)
-  const agree = response(page, 'Credit pull consent').getByRole('radio', { name: 'Assessment is correct', exact: true })
+  const agree = response(page, 'Credit pull consent').getByRole('radio', { name: 'Correct', exact: true })
   await agree.focus()
   await page.keyboard.press('ArrowRight')
   await expect(response(page, 'Credit pull consent').getByRole('radio', { name: 'Incorrect', exact: true })).toBeChecked()
@@ -427,7 +441,7 @@ test('empty focus is not a cleared alert and an unavailable score stays visible 
   await openAlert(page, 'missing-score')
   await expect(dispositions(page)).toHaveCount(1)
   await expect(response(page, 'Social security verification').getByRole('radio', { name: 'Need more context', exact: true })).toBeChecked()
-  await expect(response(page, 'Social security verification').getByRole('radio', { name: 'Assessment is correct', exact: true })).toBeDisabled()
+  await expect(response(page, 'Social security verification').getByRole('radio', { name: 'Correct', exact: true })).toBeDisabled()
   await expect(page.getByRole('textbox', { name: 'Social security verification correction reason' })).toBeVisible()
 })
 
@@ -578,7 +592,7 @@ test('missing or malformed explanations never become invented reasons or confirm
   await expect(consent).toContainText('No reason saved for this score.')
   await expect(consent.locator('blockquote')).toHaveText('Yes, I authorize that credit review.')
   await expect(consent.locator('figcaption')).toHaveText('Speaker not saved')
-  await expect(consent.getByRole('radio', { name: 'Assessment is correct', exact: true })).toBeChecked()
+  await expect(consent.getByRole('radio', { name: 'Correct', exact: true })).toBeChecked()
   await expect(page.getByText('No coaching issues added.', { exact: true })).toBeVisible()
   // A production-mode render never adds staging guidance, even for a matching synthetic ID.
   await expect(page.getByRole('complementary', { name: 'Staging practice guidance' })).toHaveCount(0)
