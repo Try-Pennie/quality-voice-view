@@ -146,6 +146,7 @@ test('Full QA saves string-scale corrections, uncertainty, and a retained findin
   await reviewFixture(adminPage, state.rows, { god: true, email: 'director@example.test', fullQaReviews: state.fullQaReviews, fullQaProposals: state.fullQaProposals })
   await adminPage.goto('/dashboard/alerts?status=awaiting_approval')
   await openAlert(adminPage, 'rubric-flow')
+  await expect(adminPage.getByText('This manager review is awaiting Kris’s approval.', { exact: true })).toHaveCount(0)
   // Kris sees the manager's outcome first, then decides; no form or disabled inputs.
   const outcome = adminPage.getByRole('region', { name: 'Manager’s review', exact: true })
   for (const viewport of [{ width: 1440, height: 900 }, { width: 375, height: 812 }]) {

@@ -761,7 +761,6 @@ export function AlertReviewDrawer({
               onInstructionsChange={setChangeInstructions}
               pending={decisionPending}
               requesting={requestingChanges}
-              onRequestChanges={() => setRequestingChanges(true)}
             />
           )}
 
@@ -1437,7 +1436,6 @@ function InternalDecisionSection({
   onInstructionsChange,
   pending,
   requesting,
-  onRequestChanges,
 }: {
   alert: AlertWithFeedback
   instructions: string
@@ -1445,7 +1443,6 @@ function InternalDecisionSection({
   pending: boolean
   /** When provided, the instructions box stays behind an explicit button until requested. */
   requesting?: boolean
-  onRequestChanges?: () => void
 }) {
   if (alert.current_decision === 'approved') {
     return <section className="flex items-center justify-between gap-3 px-4 py-4 rounded-2xl bg-pennie-green-light/40 border border-pennie-green-light">
@@ -1463,16 +1460,11 @@ function InternalDecisionSection({
     </section>
   }
 
-  const collapsed = onRequestChanges !== undefined && !requesting
+  // Full QA starts with the manager's outcome; its persistent footer opens this editor.
+  if (requesting === false) return null
   return <section className="px-4 py-4 rounded-2xl bg-pennie-blue-light/30 border border-pennie-blue-light space-y-3">
     <p className="text-sm font-semibold text-pennie-navy">This manager review is awaiting Kris’s approval.</p>
-    {collapsed ? <button
-      type="button"
-      onClick={onRequestChanges}
-      className="pennie-focus-ring min-h-[40px] px-4 rounded-full border border-border text-xs font-semibold text-pennie-graphite hover:bg-pennie-peach-light transition-colors"
-    >
-      Write change instructions
-    </button> : <label className="block text-xs font-semibold text-pennie-graphite">
+    <label className="block text-xs font-semibold text-pennie-graphite">
       Request changes with instructions
       <textarea
         autoFocus={requesting === true}
@@ -1484,7 +1476,7 @@ function InternalDecisionSection({
         placeholder="Explain what the current manager should correct."
         className="mt-1 w-full px-3 py-2 rounded-2xl border border-border bg-pennie-white text-base sm:text-sm font-medium resize-none focus:outline-none focus:ring-2 focus:ring-pennie-blue-deeper/40"
       />
-    </label>}
+    </label>
   </section>
 }
 
