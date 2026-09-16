@@ -714,6 +714,22 @@ export function AlertReviewDrawer({
           </dl>
         </SheetHeader>
 
+        <section aria-label="Call recording" className="shrink-0 border-b border-border px-4 sm:px-8 py-3">
+          {alert.recording_link ? <>
+            <div className="mb-2 flex items-center justify-between gap-3">
+              <h2 className="pennie-label inline-flex items-center gap-1.5">
+                <Headphones className="w-3.5 h-3.5" aria-hidden="true" />Recording
+              </h2>
+              <a href={alert.recording_link} target="_blank" rel="noopener noreferrer" className="pennie-focus-ring inline-flex min-h-[44px] sm:min-h-0 items-center gap-1 text-xs font-semibold text-pennie-blue-deeper hover:underline">
+                Open recording <ExternalLink className="w-3 h-3" aria-hidden="true" />
+              </a>
+            </div>
+            <AudioPlayer key={alert.call_id} recordingUrl={alert.recording_link} />
+          </> : alert.recording_link === undefined
+            ? <p aria-busy="true" className="min-h-[160px] sm:min-h-[68px] text-xs text-pennie-graphite/70">Loading recording…</p>
+            : <p className="text-xs text-pennie-graphite/70">Recording not available</p>}
+        </section>
+
         {showLegacyAckBar && (
           <AckSection
             ackers={alert.acker_emails ?? []}
@@ -779,12 +795,7 @@ export function AlertReviewDrawer({
           )}
 
           {!isFullQa && <section>
-            <h2 className="pennie-label mb-2 inline-flex items-center gap-1.5">
-              <Headphones className="w-3.5 h-3.5" aria-hidden="true" />
-              Recording
-            </h2>
-            <AudioPlayer recordingUrl={alert.recording_link} />
-            <div className="mt-3 flex flex-wrap gap-4 text-sm">
+            <div className="flex flex-wrap gap-4 text-sm">
               {alert.transcript_url && (
                 <a
                   href={alert.transcript_url}
@@ -793,16 +804,6 @@ export function AlertReviewDrawer({
                   className="inline-flex items-center gap-1 text-pennie-blue-deeper font-semibold hover:underline underline-offset-4"
                 >
                   Transcript <ExternalLink className="w-3 h-3" aria-hidden="true" />
-                </a>
-              )}
-              {alert.recording_link && (
-                <a
-                  href={alert.recording_link}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="inline-flex items-center gap-1 text-pennie-blue-deeper font-semibold hover:underline underline-offset-4"
-                >
-                  Open recording <ExternalLink className="w-3 h-3" aria-hidden="true" />
                 </a>
               )}
               {alert.sfdc_lead_id && (
@@ -897,20 +898,14 @@ export function AlertReviewDrawer({
           {isFullQa && (
             <details className="group rounded-2xl border border-border px-4 py-3">
               <summary className="pennie-focus-ring cursor-pointer list-none flex items-center justify-between gap-2 rounded-full text-sm font-semibold text-pennie-blue-deeper">
-                <span className="inline-flex items-center gap-2"><Headphones className="w-3.5 h-3.5" aria-hidden="true" />Recording, transcript and call summary</span>
+                Transcript and call summary
                 <ChevronDown className="w-4 h-4 transition-transform group-open:rotate-180" aria-hidden="true" />
               </summary>
               <div className="mt-4 space-y-4">
-                <AudioPlayer recordingUrl={alert.recording_link} />
                 <div className="flex flex-wrap gap-4 text-sm">
                   {alert.transcript_url && (
                     <a href={alert.transcript_url} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-pennie-blue-deeper font-semibold hover:underline underline-offset-4">
                       Transcript <ExternalLink className="w-3 h-3" aria-hidden="true" />
-                    </a>
-                  )}
-                  {alert.recording_link && (
-                    <a href={alert.recording_link} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-pennie-blue-deeper font-semibold hover:underline underline-offset-4">
-                      Open recording <ExternalLink className="w-3 h-3" aria-hidden="true" />
                     </a>
                   )}
                   {alert.sfdc_lead_id && (

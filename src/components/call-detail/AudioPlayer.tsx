@@ -26,6 +26,7 @@ function isInteractiveTarget(target: EventTarget | null): boolean {
     tag === 'TEXTAREA' ||
     tag === 'SELECT' ||
     tag === 'BUTTON' ||
+    tag === 'SUMMARY' ||
     tag === 'A' ||
     el.isContentEditable
   )
@@ -176,10 +177,11 @@ export function AudioPlayer({
           disabled={!hasDuration}
           onChange={(e) => {
             const newTime = parseFloat(e.target.value)
+            setCurrentTime(newTime)
             if (audioRef.current) audioRef.current.currentTime = newTime
           }}
           aria-label="Seek"
-          className="flex-1 h-2 cursor-pointer touch-pan-x disabled:cursor-not-allowed accent-pennie-blue-dark"
+          className="min-w-0 flex-1 h-2 cursor-pointer touch-pan-x disabled:cursor-not-allowed accent-pennie-blue-dark"
         />
 
         <span className="text-sm text-muted-foreground min-w-[72px] sm:min-w-[80px] text-right tabular-nums">

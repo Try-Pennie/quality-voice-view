@@ -175,6 +175,15 @@ export default function CallDetailPage() {
         </div>
       </div>
 
+      <section aria-label="Call recording" className="pennie-card p-4 sm:p-8">
+        {call.qa?.recording_link ? <>
+          <h2 className="pennie-label mb-3 inline-flex items-center gap-1.5">
+            <Headphones className="w-3.5 h-3.5" aria-hidden="true" />Recording
+          </h2>
+          <AudioPlayer key={call.call_id} recordingUrl={call.qa.recording_link} />
+        </> : <p className="text-xs text-pennie-graphite/70">Recording not available</p>}
+      </section>
+
       {/* SECTION 1: Call header */}
       <header className="pennie-card">
         <div className="flex flex-wrap items-start justify-between gap-4">
@@ -270,15 +279,6 @@ export default function CallDetailPage() {
 
       {/* SECTION 1.6: Pennie agent feedback about the Achieve welcome-call rep */}
       <PennieAgentFeedbackSection feedback={agentFeedback} />
-
-      {/* SECTION 2: Audio player */}
-      <section className="pennie-card">
-        <h2 className="pennie-label mb-4 inline-flex items-center gap-1.5">
-          <Headphones className="w-3.5 h-3.5" aria-hidden="true" />
-          Recording
-        </h2>
-        <AudioPlayer recordingUrl={call.qa?.recording_link} />
-      </section>
 
       {/* SECTION 3: Call metrics */}
       <section className="pennie-card">

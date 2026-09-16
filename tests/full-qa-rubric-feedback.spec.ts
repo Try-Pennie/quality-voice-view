@@ -108,7 +108,7 @@ test('Full QA saves string-scale corrections and a retained finding independentl
   expect(responseBox?.x).toBeGreaterThanOrEqual((evidenceBox?.x ?? 0) + (evidenceBox?.width ?? 0))
   await page.screenshot({ path: testInfo.outputPath('full-qa-floating-initial-desktop.png'), animations: 'disabled' })
   await expect(saveButton(page)).toBeInViewport()
-  await expect(page.getByText('Recording not available')).toBeHidden()
+  await expect(page.getByRole('region', { name: 'Call recording', exact: true })).toHaveText('Recording not available')
   await expectFullscreenMobileDialog(page)
   await page.screenshot({ path: testInfo.outputPath('full-qa-floating-initial-mobile.png'), animations: 'disabled' })
   await expect(evidenceColumn).toBeVisible()
@@ -486,8 +486,8 @@ test('a realistic supported seed keeps the reason, first evidence, and first dec
   await expect(page.getByRole('article', { name: 'Accurate representations', exact: true }).getByText('You will be debt-free in 48 months, guaranteed.', { exact: true })).toBeVisible()
   // The base fixture retains four program gaps, one CX concern and one process gap alongside two compliance concerns.
   await expect(page.getByText('8 items to check', { exact: true })).toBeVisible()
-  await expect(page.getByText('Recording, transcript and call summary', { exact: true })).toBeVisible()
-  await expect(page.getByRole('link', { name: /Open recording/ })).toBeHidden()
+  await expect(page.getByText('Transcript and call summary', { exact: true })).toBeVisible()
+  await expect(page.getByRole('link', { name: /Open recording/ })).toBeInViewport()
 })
 
 test('the floating review traps focus, guards outside and Escape closes while dirty, and returns focus', async ({ page }) => {
@@ -848,7 +848,7 @@ test('Full QA summary, raw source and transcript highlights all use the pinned r
   await page.goto('/dashboard/alerts/pinned-source/full_qa')
   await expect(page.getByRole('region', { name: 'Why Eavesly requested review', exact: true })).toContainText('Review both quoted passages in context.')
   await expect(page.getByRole('dialog').getByText('Synthetic call for manager review checks.', { exact: true })).toBeHidden()
-  await page.getByText('Recording, transcript and call summary', { exact: true }).click()
+  await page.getByText('Transcript and call summary', { exact: true }).click()
   await expect(page.getByRole('dialog').getByText('Synthetic call for manager review checks.', { exact: true })).toBeVisible()
   await page.getByText('Technical details', { exact: true }).click()
   await page.getByRole('button', { name: 'Show raw evaluation JSON', exact: true }).click()
