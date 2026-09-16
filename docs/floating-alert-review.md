@@ -1,5 +1,17 @@
 # Floating Full QA review
 
+## Latest follow-up: two response choices
+
+Source `a155517` removes **Need more context** from new responses. Managers choose **Correct** or **Incorrect**; corrections still require a result and explanation. Saved historical needs-context responses remain visible and unchanged in both roles. An unavailable AI score has no preselected response/result and cannot save until a manager explicitly supplies one. No database or scoring contract changed.
+
+Independent Claude Code Fable 5.1 review approved after catching and fixing a missing-score default that could have preselected `pass`. The regression now proves that entering a reason alone cannot enable Save without an explicit result.
+
+Fresh full regression on `a155517`: `npm test -- --workers=1` → **118 passed (6.4m), exit 0**, including all 21 rubric scenarios. An earlier command-budget interruption and subsequent stale-port start were discarded; the final fresh run completed without retries or weakened assertions.
+
+Native staging verification: **199 staging-only requests, zero errors**, both roles and mobile widths, no review/approval/proposal writes; all eight calls and three feedback records have unchanged feedback content. Application TypeScript, changed-file ESLint, normal build, staging build-seam and bundle-isolation checks passed.
+
+Latest screenshots (synthetic only): [Manager desktop](qa-evidence/two-options-a155517/manager-first-1440.png), [manager mobile](qa-evidence/two-options-a155517/manager-first-375.png), [score correction](qa-evidence/two-options-a155517/manager-correction.png), [Kris](qa-evidence/two-options-a155517/kris-first-1440.png), [native verification](qa-evidence/two-options-a155517/verification.json). Earlier screenshots below document the original floating-window iteration.
+
 ## Plan delivered
 
 Use more desktop space without adding more information: a centered, viewport-bounded review window, evidence beside the response, and secondary details on demand. Reuse the existing Radix dialog primitive; preserve the existing review contract.
@@ -24,7 +36,7 @@ Read-only inspection of the Eavesly production Supabase project found 1,550 sent
 
 The real-data inspection exposed the historical-feedback visibility gap fixed above; testing only the synthetic structured-review examples would have missed it.
 
-## Verification
+## Original floating-window verification
 
 - Final `npm test -- --workers=1`: **117 passed (5.6m), exit 0** on application source `097a2a4`.
 - Focused Full QA suite: **20/20 passed**; adjacent manager suite: **12/12 passed**.
@@ -38,10 +50,10 @@ During implementation, assertions that expected an expansion button or a gap bet
 
 ## Isolated staging
 
-Application source **`097a2a45ed6ddce07e224ccae3069199aa00e1fa`**; deployed runtime **`ae24e4eb5bb6ed74e54c027329bc3c8912a752e5`** with staging-only configuration. Subsequent documentation-only commits do not alter runtime.
+Latest application source **`a155517c5969913e3384339fe786a7d70a590de0`**; deployed runtime **`5fe9bb3d5b0f04d6f957ed1e7f7e08a431f732a9`** with staging-only configuration. Subsequent documentation-only commits do not alter runtime.
 
 - Manager: https://rubric-staging.eavesly.pages.dev — start with `DEMO-SUPPORTED-001`.
-- Kris: https://fe8276c8.eavesly.pages.dev — start with `DEMO-APPROVAL-001`.
+- Kris: https://63aa7a17.eavesly.pages.dev — start with `DEMO-APPROVAL-001`.
 
 Private one-use native-auth links are delivered separately. These two origins isolate browser storage for the two test accounts. **Automatic PR previews are not this sandbox; do not use them for test saves.** Hosted examples remain synthetic.
 
