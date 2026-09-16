@@ -1,6 +1,34 @@
 # Floating Full QA review
 
-## Latest follow-up: two response choices
+## Latest follow-up: clearer next steps and quieter motion
+
+Application source **`f62e74a`**, isolated staging runtime **`c83ca1b`**. The final pass applies the `emil-design-eng` and `better-ui` guidance without adding another panel, stepper or response choice.
+
+| Before | After | Why |
+| --- | --- | --- |
+| Disabled Save with no first-open guidance | Neutral guidance and **Continue review**, which focuses/scrolls to incomplete scores, coaching or decision | Managers can see what to do next; navigation never changes an answer |
+| Small mobile evidence/coaching controls | At least 44px mobile targets; unchanged desktop typography and density | Easier to tap without making the review busier |
+| Full QA panel/overlay entrance animation | Instant centered review window for pointer and keyboard | Repeated reviews feel immediate; generic slide-outs keep their existing motion |
+
+Loading, error, stale-source and busy states suppress the Continue link. Saved reviews state that there are no unsaved changes. The manager still records corrections/coaching and a separate alert verdict; Kris still sees the saved outcome first with Approve / Request changes. No SQL, RPC, scoring, permission or production-auth changes.
+
+Independent **Claude Code Fable 5.1** read-only review approved the final diff after a one-line TypeScript narrowing cleanup. Remaining low-severity design notes were evaluated: neutral inline instructions and section-level navigation are intentional. Changed/unresolved scores stay visible in the focused scorecard. The reviewer did not run browsers; the implementation owner ran the checks below.
+
+Fresh final-source regression: `npm test -- --workers=1` → **120 passed (8.4m), exit 0**, including 23 Full QA scenarios. New checks cover first-open guidance, score/coaching/decision focus without mutations, loading/stale/busy guards, actual panel/overlay CSS for pointer and keyboard, generic-drawer motion preservation and mobile hit areas. Private local replay of the existing 24 real alerts also passed **40/40 manager/Kris layouts (178.0s)** on this source; no new production export, external browser traffic or writes. This is layout coverage, not an accuracy evaluation.
+
+Native deployed-browser verification passed: **199 staging-only requests, zero errors**, manager/Kris native Auth, section focus/scroll, initial guidance, instant panel, 44px mobile targets, full scorecard, draft retention and persistent actions. No review/approval/proposal writes; **8 calls / 3 feedback records with unchanged content**. Both origins returned HTTP 200 with stage-only CSP, noindex, no-referrer and no-store. Application TypeScript, changed-file ESLint, normal build and staging build/isolation checks passed. Existing Browserslist/chunk warnings remain unrelated.
+
+Latest screenshots are synthetic and pinned to the runtime above:
+
+| Manager desktop | Kris desktop |
+| --- | --- |
+| ![Manager with next-step guidance](qa-evidence/ui-polish-f62e74a/manager-first-1440.png) | ![Kris approval view](qa-evidence/ui-polish-f62e74a/kris-first-1440.png) |
+
+- [Manager mobile](qa-evidence/ui-polish-f62e74a/manager-first-375.png) · [Kris mobile](qa-evidence/ui-polish-f62e74a/kris-first-375.png)
+- [Correction](qa-evidence/ui-polish-f62e74a/manager-correction.png) · [Coaching draft](qa-evidence/ui-polish-f62e74a/manager-coaching-draft.png)
+- [Native browser evidence](qa-evidence/ui-polish-f62e74a/verification.json) · [Sanitized real-layout aggregate](qa-evidence/ui-polish-f62e74a/production-layout-verification.json)
+
+## Previous follow-up: two response choices
 
 Source `a155517` removes **Need more context** from new responses. Managers choose **Correct** or **Incorrect**; corrections still require a result and explanation. Saved historical needs-context responses remain visible and unchanged in both roles. An unavailable AI score has no preselected response/result and cannot save until a manager explicitly supplies one. No database or scoring contract changed.
 
@@ -10,7 +38,7 @@ Fresh full regression on `a155517`: `npm test -- --workers=1` → **118 passed (
 
 Native staging verification: **199 staging-only requests, zero errors**, both roles and mobile widths, no review/approval/proposal writes; all eight calls and three feedback records have unchanged feedback content. Application TypeScript, changed-file ESLint, normal build, staging build-seam and bundle-isolation checks passed.
 
-Latest screenshots (synthetic only): [Manager desktop](qa-evidence/two-options-a155517/manager-first-1440.png), [manager mobile](qa-evidence/two-options-a155517/manager-first-375.png), [score correction](qa-evidence/two-options-a155517/manager-correction.png), [Kris](qa-evidence/two-options-a155517/kris-first-1440.png), [native verification](qa-evidence/two-options-a155517/verification.json). Earlier screenshots below document the original floating-window iteration.
+Previous screenshots (synthetic only): [Manager desktop](qa-evidence/two-options-a155517/manager-first-1440.png), [manager mobile](qa-evidence/two-options-a155517/manager-first-375.png), [score correction](qa-evidence/two-options-a155517/manager-correction.png), [Kris](qa-evidence/two-options-a155517/kris-first-1440.png), [native verification](qa-evidence/two-options-a155517/verification.json). Earlier screenshots below document the original floating-window iteration.
 
 ## Plan delivered
 
@@ -50,10 +78,10 @@ During implementation, assertions that expected an expansion button or a gap bet
 
 ## Isolated staging
 
-Latest application source **`a155517c5969913e3384339fe786a7d70a590de0`**; deployed runtime **`5fe9bb3d5b0f04d6f957ed1e7f7e08a431f732a9`** with staging-only configuration. Subsequent documentation-only commits do not alter runtime.
+Latest application source **`f62e74ae20655e13c4870d46d1dba68105b23815`**; deployed runtime **`c83ca1bf872e16d98b7c579c422d950a94b3c45c`** with staging-only configuration. Subsequent documentation-only commits do not alter runtime.
 
 - Manager: https://rubric-staging.eavesly.pages.dev — start with `DEMO-SUPPORTED-001`.
-- Kris: https://63aa7a17.eavesly.pages.dev — start with `DEMO-APPROVAL-001`.
+- Kris: https://8b44c524.eavesly.pages.dev — start with `DEMO-APPROVAL-001`.
 
 Private one-use native-auth links are delivered separately. These two origins isolate browser storage for the two test accounts. **Automatic PR previews are not this sandbox; do not use them for test saves.** Hosted examples remain synthetic.
 
