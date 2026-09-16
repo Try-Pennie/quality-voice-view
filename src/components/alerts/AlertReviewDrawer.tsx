@@ -41,7 +41,7 @@ import {
 import { useAgentFeedbackForCall, useAlertThread } from '@/hooks/use-queries'
 import { registerHistoryNavigationGuard } from '@/lib/history-navigation-guard'
 import { PennieAgentFeedbackSection } from '@/components/PennieAgentFeedbackSection'
-import { FullQaRubricReview } from './FullQaRubricReview'
+import { FULL_QA_FORM_ID, FullQaRubricReview, type FullQaSaveState } from './FullQaRubricReview'
 import { fetchFullQaReviewContext } from '@/lib/full-qa-review'
 import { VIOLATION_HELP_IDS } from '@/lib/help-content'
 import {
@@ -169,6 +169,8 @@ export function AlertReviewDrawer({
   const [ackPending, setAckPending] = useState(false)
   const [fullQaDraftDirty, setFullQaDraftDirty] = useState(false)
   const [fullQaBusy, setFullQaBusy] = useState(false)
+  const [fullQaSave, setFullQaSave] = useState<FullQaSaveState>({ disabled: true, label: 'Save review', message: null })
+  const [requestingChanges, setRequestingChanges] = useState(false)
   const commentId = useId()
   const violationDetailsId = useId()
   const actionDetailsId = useId()
@@ -211,6 +213,8 @@ export function AlertReviewDrawer({
     setEditingId(null)
     setFullQaDraftDirty(false)
     setFullQaBusy(false)
+    setFullQaSave({ disabled: true, label: 'Save review', message: null })
+    setRequestingChanges(false)
     // Identity changes initialize a fresh form; list enrichment must not erase a draft.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [alert?.call_id, alert?.module_name])
@@ -227,6 +231,12 @@ export function AlertReviewDrawer({
           target.isContentEditable)
       if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
         e.preventDefault()
+        if (isFullQa) {
+          // The Full QA form owns its own guards (dirty, valid, stale, busy); submit through it.
+          const form = document.getElementById(FULL_QA_FORM_ID)
+          if (form instanceof HTMLFormElement && showStructuredForm) form.requestSubmit()
+          return
+        }
         handleSubmit()
         return
       }
@@ -590,7 +600,7 @@ export function AlertReviewDrawer({
         className="w-full sm:max-w-2xl flex flex-col gap-0 p-0 overflow-hidden bg-pennie-white"
       >
         {/* Header */}
-        <SheetHeader className="shrink-0 px-4 sm:px-8 pt-4 pb-5 sm:py-5 border-b border-border space-y-3 text-left">
+        <SheetHeader className={`shrink-0 px-4 sm:px-8 pt-4 sm:py-5 border-b border-border space-y-3 text-left ${isFullQa ? 'pb-3' : 'pb-5'}`}>
           <div className="flex items-center gap-2 sm:gap-3">
             <button
               type="button"
@@ -655,13 +665,21 @@ export function AlertReviewDrawer({
               {formatDateTime(alert.alert_created_at)}
             </span>
           </div>
-          <SheetTitle className="text-xl font-semibold text-pennie-navy text-left inline-flex items-center gap-1.5">
+          <SheetTitle className={`text-xl font-semibold text-pennie-navy text-left inline-flex items-center gap-1.5 ${isFullQa ? 'sr-only sm:not-sr-only' : ''}`}>
             {violationLabel}
             {VIOLATION_HELP_IDS[alert.violation_type] && (
               <HelpHint id={VIOLATION_HELP_IDS[alert.violation_type]} size={4} />
             )}
           </SheetTitle>
-          <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-sm">
+          {isFullQa && (
+            <p className="sm:hidden text-sm text-pennie-graphite break-words">
+              <span className="font-medium">{alert.agent_email || 'Unknown agent'}</span>
+              <span className="text-pennie-graphite/60"> · </span>
+              {alert.contact_name || 'Unknown'}
+              {alert.contact_phone && <span className="text-pennie-graphite/70 ml-2 tabular-nums">{formatPhoneNumber(alert.contact_phone)}</span>}
+            </p>
+          )}
+          <dl className={`grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-sm ${isFullQa ? 'hidden sm:grid' : 'grid'}`}>
             <dt className="text-[11px] font-semibold uppercase tracking-wider text-pennie-graphite/60 pt-0.5">
               Agent
             </dt>
@@ -693,7 +711,7 @@ export function AlertReviewDrawer({
           />
         )}
         {/* One scrolling review flow: evidence, required inputs, and secondary details. */}
-        <div className="flex-1 min-h-0 overflow-y-auto px-4 sm:px-8 py-5 sm:py-6 space-y-6 sm:space-y-7">
+        <div className={`flex-1 min-h-0 overflow-y-auto px-4 sm:px-8 sm:py-6 space-y-6 sm:space-y-7 ${isFullQa ? 'py-3' : 'py-5'}`}>
           {returnedToCurrentManager && alert.current_decision_instructions && (
             <div className="rounded-2xl bg-pennie-peach-light/60 px-4 py-3">
               <p className="pennie-label mb-1">Requested correction</p>
@@ -736,7 +754,18 @@ export function AlertReviewDrawer({
             </details>
           )}
 
-          <section>
+          {isFullQa && showInternalDecisionBar && (
+            <InternalDecisionSection
+              alert={alert}
+              instructions={changeInstructions}
+              onInstructionsChange={setChangeInstructions}
+              pending={decisionPending}
+              requesting={requestingChanges}
+              onRequestChanges={() => setRequestingChanges(true)}
+            />
+          )}
+
+          {!isFullQa && <section>
             <h2 className="pennie-label mb-2 inline-flex items-center gap-1.5">
               <Headphones className="w-3.5 h-3.5" aria-hidden="true" />
               Recording
@@ -774,7 +803,7 @@ export function AlertReviewDrawer({
                 </a>
               )}
             </div>
-          </section>
+          </section>}
 
           {!isFullQa && <section>
             <h2 className="pennie-label mb-3 inline-flex items-center gap-1.5">
@@ -805,9 +834,7 @@ export function AlertReviewDrawer({
               )}
             </div>
           </section>}
-          {isFullQa && alert.call_summary && <CallSummary summary={alert.call_summary} />}
-
-          <section>
+          {!isFullQa && <section>
             <button
               type="button"
               onClick={() => setShowTranscript(value => !value)}
@@ -821,7 +848,7 @@ export function AlertReviewDrawer({
               callId={alert.call_id}
               evidence={extractEvidenceQuotes(alert.violation_type, reviewSource)}
             /></div>}
-          </section>
+          </section>}
 
           {/* What the Pennie agent said about the Achieve welcome-call rep
               (achieve_welcome_call_qa alerts only; hidden when no submission). */}
@@ -834,11 +861,57 @@ export function AlertReviewDrawer({
               editable={showStructuredForm}
               onDirtyChange={setFullQaDraftDirty}
               onBusyChange={setFullQaBusy}
+              onSaveStateChange={setFullQaSave}
               onSubmitted={onSubmitted}
             />
           )}
 
-          {showInternalDecisionBar && (
+          {isFullQa && (
+            <details className="group rounded-2xl border border-border px-4 py-3">
+              <summary className="pennie-focus-ring cursor-pointer list-none flex items-center justify-between gap-2 rounded-full text-sm font-semibold text-pennie-blue-deeper">
+                <span className="inline-flex items-center gap-2"><Headphones className="w-3.5 h-3.5" aria-hidden="true" />Recording, transcript and call summary</span>
+                <ChevronDown className="w-4 h-4 transition-transform group-open:rotate-180" aria-hidden="true" />
+              </summary>
+              <div className="mt-4 space-y-4">
+                <AudioPlayer recordingUrl={alert.recording_link} />
+                <div className="flex flex-wrap gap-4 text-sm">
+                  {alert.transcript_url && (
+                    <a href={alert.transcript_url} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-pennie-blue-deeper font-semibold hover:underline underline-offset-4">
+                      Transcript <ExternalLink className="w-3 h-3" aria-hidden="true" />
+                    </a>
+                  )}
+                  {alert.recording_link && (
+                    <a href={alert.recording_link} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-pennie-blue-deeper font-semibold hover:underline underline-offset-4">
+                      Open recording <ExternalLink className="w-3 h-3" aria-hidden="true" />
+                    </a>
+                  )}
+                  {alert.sfdc_lead_id && (
+                    <a href={`https://trypennie.lightning.force.com/lightning/r/Lead/${alert.sfdc_lead_id}/view`} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-pennie-blue-deeper font-semibold hover:underline underline-offset-4">
+                      SFDC: {alert.sfdc_lead_id} <ExternalLink className="w-3 h-3" aria-hidden="true" />
+                    </a>
+                  )}
+                </div>
+                {alert.call_summary && <CallSummary summary={alert.call_summary} />}
+                <div>
+                  <button
+                    type="button"
+                    onClick={() => setShowTranscript(value => !value)}
+                    aria-expanded={showTranscript}
+                    className="pennie-focus-ring min-h-[44px] px-4 py-2 rounded-full border border-border text-sm font-semibold text-pennie-blue-deeper"
+                  >
+                    {showTranscript ? 'Hide transcript context' : 'Inspect transcript context'}
+                  </button>
+                  {showTranscript && <div className="mt-4"><AlertTranscript
+                    key={alert.call_id}
+                    callId={alert.call_id}
+                    evidence={extractEvidenceQuotes(alert.violation_type, reviewSource)}
+                  /></div>}
+                </div>
+              </div>
+            </details>
+          )}
+
+          {!isFullQa && showInternalDecisionBar && (
             <InternalDecisionSection
               alert={alert}
               instructions={changeInstructions}
@@ -848,7 +921,7 @@ export function AlertReviewDrawer({
           )}
 
           {/* Review form stays in the same scrolling flow. */}
-          <div className="-mx-4 sm:-mx-8 border-t border-border bg-pennie-beige/40 px-4 sm:px-8 py-5 space-y-4">
+          {(!isFullQa || needsCoachingFollowUp(alert)) && <div className="-mx-4 sm:-mx-8 border-t border-border bg-pennie-beige/40 px-4 sm:px-8 py-5 space-y-4">
             {/* In State B (reviewing a teammate's review), the structured form is
                 gated behind an explicit Override affordance. Approve via the bar
                 at the top; comment via Discussion. */}
@@ -1036,7 +1109,7 @@ export function AlertReviewDrawer({
                 </div>
               </>
             )}
-          </div>
+          </div>}
 
           <details className="group rounded-2xl border border-border px-4 py-3">
             <summary className="pennie-focus-ring cursor-pointer list-none flex items-center justify-between gap-2 rounded-full text-sm font-semibold text-pennie-blue-deeper">
@@ -1098,7 +1171,23 @@ export function AlertReviewDrawer({
             {approvalBlockedByDraft && scope.isGodMode && alert.current_decision === null && (
               <p className="mb-2 text-xs text-pennie-graphite/70">Complete and save review changes before approval.</p>
             )}
+            {isFullQa && scope.isGodMode && alert.current_decision === null && changeInstructions.trim() && (
+              <p className="mb-2 text-xs text-pennie-graphite/70">Send or clear the change instructions before approving.</p>
+            )}
+            {showStructuredForm && isFullQa && fullQaDraftDirty && fullQaSave.message && (
+              <p className="mb-2 text-xs text-pennie-peach-deeper" role="status">{fullQaSave.message}</p>
+            )}
             <div className="flex flex-wrap items-center justify-end gap-2">
+              {showStructuredForm && isFullQa && (
+                <button
+                  type="submit"
+                  form={FULL_QA_FORM_ID}
+                  disabled={fullQaSave.disabled || decisionPending}
+                  className="min-h-[44px] whitespace-nowrap px-4 rounded-full bg-pennie-navy text-pennie-white text-sm font-semibold hover:bg-pennie-navy/90 disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  {fullQaSave.label}
+                </button>
+              )}
               {showStructuredForm && !isFullQa && (
                 <button
                   type="button"
@@ -1122,15 +1211,18 @@ export function AlertReviewDrawer({
                   <button
                     type="button"
                     onClick={() => handleDecision('approved')}
-                    disabled={decisionPending || approvalBlockedByDraft}
+                    disabled={decisionPending || approvalBlockedByDraft || (isFullQa && !!changeInstructions.trim())}
                     className="min-h-[44px] whitespace-nowrap px-4 rounded-full bg-pennie-navy text-pennie-white text-xs sm:text-sm font-semibold disabled:opacity-40"
                   >
                     Approve review
                   </button>
                   <button
                     type="button"
-                    onClick={() => handleDecision('changes_requested')}
-                    disabled={decisionPending || approvalBlockedByDraft || changeInstructions.trim().length < INTERNAL_REVIEW_TEXT_LIMITS.min}
+                    onClick={() => {
+                      if (isFullQa && !requestingChanges) { setRequestingChanges(true); return }
+                      void handleDecision('changes_requested')
+                    }}
+                    disabled={decisionPending || approvalBlockedByDraft || ((!isFullQa || requestingChanges) && changeInstructions.trim().length < INTERNAL_REVIEW_TEXT_LIMITS.min)}
                     className="min-h-[44px] whitespace-nowrap px-4 rounded-full border border-pennie-peach-dark text-pennie-peach-deeper text-xs sm:text-sm font-semibold disabled:opacity-40"
                   >
                     Request changes
@@ -1344,11 +1436,16 @@ function InternalDecisionSection({
   instructions,
   onInstructionsChange,
   pending,
+  requesting,
+  onRequestChanges,
 }: {
   alert: AlertWithFeedback
   instructions: string
   onInstructionsChange: (value: string) => void
   pending: boolean
+  /** When provided, the instructions box stays behind an explicit button until requested. */
+  requesting?: boolean
+  onRequestChanges?: () => void
 }) {
   if (alert.current_decision === 'approved') {
     return <section className="flex items-center justify-between gap-3 px-4 py-4 rounded-2xl bg-pennie-green-light/40 border border-pennie-green-light">
@@ -1366,11 +1463,19 @@ function InternalDecisionSection({
     </section>
   }
 
+  const collapsed = onRequestChanges !== undefined && !requesting
   return <section className="px-4 py-4 rounded-2xl bg-pennie-blue-light/30 border border-pennie-blue-light space-y-3">
     <p className="text-sm font-semibold text-pennie-navy">This manager review is awaiting Kris’s approval.</p>
-    <label className="block text-xs font-semibold text-pennie-graphite">
+    {collapsed ? <button
+      type="button"
+      onClick={onRequestChanges}
+      className="pennie-focus-ring min-h-[40px] px-4 rounded-full border border-border text-xs font-semibold text-pennie-graphite hover:bg-pennie-peach-light transition-colors"
+    >
+      Write change instructions
+    </button> : <label className="block text-xs font-semibold text-pennie-graphite">
       Request changes with instructions
       <textarea
+        autoFocus={requesting === true}
         value={instructions}
         disabled={pending}
         onChange={event => onInstructionsChange(event.target.value)}
@@ -1379,7 +1484,7 @@ function InternalDecisionSection({
         placeholder="Explain what the current manager should correct."
         className="mt-1 w-full px-3 py-2 rounded-2xl border border-border bg-pennie-white text-base sm:text-sm font-medium resize-none focus:outline-none focus:ring-2 focus:ring-pennie-blue-deeper/40"
       />
-    </label>
+    </label>}
   </section>
 }
 

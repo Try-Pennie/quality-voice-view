@@ -66,7 +66,7 @@ export async function reviewFixture(page: Page, rows: AlertWithFeedback[], optio
   const state = {
     rows, writes: [] as unknown[], requests: [] as URL[], transcript: TRANSCRIPT as string | null,
     failFeedback: false, failTranscript: false, failQueueOffset: -1, failBreakdown: false,
-    transcriptGate: Promise.resolve(), alertGate: Promise.resolve(), queueGate: Promise.resolve(), ackGate: Promise.resolve(), decisionGate: Promise.resolve(),
+    transcriptGate: Promise.resolve(), alertGate: Promise.resolve(), queueGate: Promise.resolve(), ackGate: Promise.resolve(), decisionGate: Promise.resolve(), fullQaSubmitGate: Promise.resolve(),
     failedAckIds: new Set<string>(), failedDecisionIds: new Set<string>(),
     ackInFlight: 0, maxAckInFlight: 0, decisionInFlight: 0, maxDecisionInFlight: 0,
     nextDecisionId: 100, nextProposalId: 1,
@@ -167,6 +167,7 @@ export async function reviewFixture(page: Page, rows: AlertWithFeedback[], optio
     if (table === 'submit_full_qa_review' && request.method() === 'POST') {
       const input: unknown = request.postDataJSON()
       state.writes.push(input)
+      await state.fullQaSubmitGate
       if (state.failFeedback) return respond({ message: 'Synthetic save failure' }, 500)
       if (!input || typeof input !== 'object' || !('p_call_id' in input) || typeof input.p_call_id !== 'string'
         || !('p_expected_revision' in input) || typeof input.p_expected_revision !== 'number'
