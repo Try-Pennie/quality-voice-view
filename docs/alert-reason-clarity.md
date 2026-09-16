@@ -1,5 +1,7 @@
 # Explain why an alert needs review
 
+Historical iteration. See [Task-first alert review](task-first-alert-review.md) for the current UI, staging origins, screenshots and verification.
+
 <!-- Hallmark · component-scope, inherited Pennie tokens; pre-emit critique: P4 H4 E4 S5 R4 V3. No theme/layout rebuild. -->
 
 ## Delivered
