@@ -253,7 +253,13 @@ test('a late pre-submit detail response cannot overwrite the saved revision', as
   let release = () => {}
   state.alertGate = new Promise<void>(resolve => { release = resolve })
   await page.goto('/dashboard/alerts?status=all')
-  await openAlert(page, 'late-detail')
+  const requested = page.waitForRequest(request => {
+    const url = new URL(request.url())
+    return url.pathname.endsWith('/eavesly_alerts_with_feedback') && url.searchParams.get('select') === '*' && url.searchParams.get('call_id') === 'eq.late-detail'
+  })
+  await page.getByRole('button', { name: 'Review Manager escalation alert for Example late-detail', exact: true }).click()
+  await requested
+  await expect(page.getByRole('region', { name: 'Call recording', exact: true })).toHaveText('Loading recording…')
   await page.getByRole('button', { name: 'Real issue (Y)' }).click()
   await page.getByRole('button', { name: '1. Coached the agent' }).click()
   await page.getByRole('textbox', { name: /What happened/ }).fill(violation)
@@ -261,6 +267,7 @@ test('a late pre-submit detail response cannot overwrite the saved revision', as
   await page.getByRole('button', { name: 'Save review' }).click()
   await expect(page.getByText('Review saved')).toBeVisible()
   release()
+  await expect(page.getByText('Review both quoted passages in context.')).toBeVisible()
   await expect(page.getByRole('button', { name: 'Update review' })).toBeVisible()
   await expect(page.getByRole('textbox', { name: /What happened/ })).toHaveValue(violation)
   expect(state.rows[0].review_revision).toBe(1)
