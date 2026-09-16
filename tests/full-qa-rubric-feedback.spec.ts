@@ -1,5 +1,5 @@
 import { test, expect, type Page } from '@playwright/test'
-import { alertRow, EMAIL, FULL_QA_CRITERIA, FULL_QA_RESULT, openAlert, reviewFixture } from './review-fixture'
+import { alertRow, genericAlertRow, EMAIL, FULL_QA_CRITERIA, FULL_QA_RESULT, openAlert, reviewFixture } from './review-fixture'
 
 const response = (page: Page, criterion: string) => page.getByRole('radiogroup', { name: `${criterion} disposition` })
 // Criterion assessments only; the alert-verdict radiogroup is counted separately.
@@ -30,6 +30,68 @@ const findingSummary = 'A distinct inaccurate representation requires coaching.'
 const findingEvidence = 'The manager heard the guarantee repeated at 14:20 after the disclosure.'
 const escalationReason = 'The alert escalation is unnecessary because only one distinct compliance issue is confirmed.'
 const actionDetails = 'The manager retained the finding and scheduled specific coaching despite dismissing escalation.'
+
+test('neutral guidance links to the incomplete decision, score or coaching section without changing the draft', async ({ page }) => {
+  const state = await reviewFixture(page, [alertRow('guided-review')])
+  await page.goto('/dashboard/alerts/guided-review/full_qa')
+  const next = page.getByRole('button', { name: 'Continue review', exact: true })
+  const status = page.getByRole('status')
+  await expect(status).toHaveText('Check the scores and add any coaching issues, then finish your decision.')
+  await expect(saveButton(page)).toBeDisabled()
+  await next.click()
+  await expect(page.locator('legend', { hasText: 'Was this alert warranted?' })).toBeFocused()
+  await expect(page.locator('legend', { hasText: 'Was this alert warranted?' })).toBeInViewport()
+  await expect(page.getByRole('radio', { name: 'No, the alert was unnecessary', exact: true })).not.toBeChecked()
+  await page.getByRole('radio', { name: 'No, the alert was unnecessary', exact: true }).check()
+  await page.getByRole('textbox', { name: 'Explain your decision' }).fill(escalationReason)
+  await page.getByRole('combobox', { name: 'Why was the alert unnecessary?' }).selectOption('wrong_context')
+  await expect(saveButton(page)).toBeEnabled()
+  await expect(next).toHaveCount(0)
+
+  const consent = page.getByRole('article', { name: 'Credit pull consent', exact: true })
+  await consent.getByRole('radio', { name: 'Incorrect', exact: true }).check()
+  await expect(status).toContainText('Credit pull consent needs a different value and a reason.')
+  await next.click()
+  await expect(page.getByRole('heading', { name: 'Scores to review', exact: true })).toBeFocused()
+  await expect(consent.getByRole('radio', { name: 'Incorrect', exact: true })).toBeChecked()
+  await consent.getByRole('textbox').fill(correctionReason)
+  await consent.getByRole('button', { name: 'Add as coaching issue' }).click()
+  await next.click()
+  await expect(page.getByRole('heading', { name: 'Coaching issues', exact: true })).toBeFocused()
+  await expect(page.getByRole('textbox', { name: 'Finding 1 summary' })).toHaveValue('')
+  await page.getByRole('textbox', { name: 'Finding 1 summary' }).fill(findingSummary)
+  await expect(status).toContainText('Record the coaching or follow-up for retained findings.')
+  await next.click()
+  await expect(page.getByRole('heading', { name: 'Coaching issues', exact: true })).toBeInViewport()
+  await page.getByRole('combobox', { name: 'What did you do about the issue?' }).selectOption('coached')
+  await page.getByRole('textbox', { name: 'Coaching or next steps' }).fill(actionDetails)
+  await expect(saveButton(page)).toBeEnabled()
+  await expect(next).toHaveCount(0)
+  expect(state.writes).toEqual([])
+})
+
+test('Full QA panel and overlay open instantly for pointer and keyboard while generic drawers retain motion', async ({ page }) => {
+  await reviewFixture(page, [alertRow('instant-review'), genericAlertRow('generic-motion')])
+  await page.goto('/dashboard/alerts?status=awaiting_manager')
+  const opener = page.getByRole('button', { name: 'Review Manager escalation alert for Example instant-review', exact: true })
+  for (const keyboard of [false, true]) {
+    if (keyboard) { await opener.focus(); await page.keyboard.press('Enter') } else await opener.click()
+    const dialog = page.getByRole('dialog')
+    await expect(dialog).toBeVisible()
+    expect(await dialog.evaluate(element => getComputedStyle(element).animationName)).toBe('none')
+    expect(await dialog.evaluate(element => getComputedStyle(element).transitionProperty)).toBe('none')
+    // Radix renders its overlay beside the dialog in the same portal.
+    const overlay = page.locator('[data-state="open"].fixed.inset-0').filter({ hasNot: page.getByRole('heading') }).first()
+    await expect(overlay).toBeVisible()
+    expect(await overlay.evaluate(element => getComputedStyle(element).animationName)).toBe('none')
+    await page.keyboard.press('Escape')
+    await expect(dialog).toHaveCount(0)
+    await expect(opener).toBeFocused()
+  }
+  await page.goto('/dashboard/alerts/generic-motion/budget_inputs')
+  await expect(page.getByRole('dialog')).toBeVisible()
+  expect(await page.getByRole('dialog').evaluate(element => getComputedStyle(element).animationName)).toBe('enter')
+})
 
 test('Full QA saves string-scale corrections and a retained finding independently from dismissed escalation', async ({ page }, testInfo) => {
   const state = await reviewFixture(page, [alertRow('rubric-flow')])
@@ -86,6 +148,10 @@ test('Full QA saves string-scale corrections and a retained finding independentl
   await expect(page.getByRole('combobox', { name: 'professional tone corrected value' })).toHaveValue('poor')
   await expect(response(page, 'Social security verification')).toBeHidden()
   await page.setViewportSize({ width: 390, height: 844 })
+  for (const target of [consent.getByText('Rule and saved evidence', { exact: true }), consent.getByRole('button', { name: 'Add as coaching issue' })]) {
+    const box = await target.boundingBox()
+    expect(box?.height).toBeGreaterThanOrEqual(44)
+  }
   await response(page, 'Credit pull consent').scrollIntoViewIfNeeded()
   await expect(page.getByRole('combobox', { name: 'Credit pull consent corrected value' })).toBeVisible()
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
@@ -163,6 +229,7 @@ test('Full QA saves string-scale corrections and a retained finding independentl
     await adminPage.setViewportSize(viewport)
     await expect(outcome).toBeInViewport()
     await expect(adminPage.getByRole('button', { name: 'Approve review' })).toBeInViewport()
+    if (viewport.width === 375) expect((await outcome.getByText('Manager’s evidence', { exact: true }).boundingBox())?.height).toBeGreaterThanOrEqual(44)
   }
   await adminPage.setViewportSize({ width: 1280, height: 720 })
   await expect(outcome).toContainText('Alert warranted')
@@ -277,6 +344,7 @@ test('legacy Full QA feedback stays visible without inventing structured rubric 
   managerState.fullQaContextGate = new Promise<void>(resolve => { releaseContext = resolve })
   await managerPage.goto('/dashboard/alerts/legacy-feedback/full_qa')
   await expect(managerPage.getByText('Loading exact Full QA rubric…', { exact: true })).toBeVisible()
+  await expect(managerPage.getByRole('button', { name: 'Continue review', exact: true })).toHaveCount(0)
   await expect(managerPage.getByText('Earlier manager review', { exact: true })).toHaveCount(0)
   releaseContext()
   await expect(managerPage.getByText('Earlier manager review', { exact: true })).toBeVisible()
@@ -372,6 +440,7 @@ test('a warranted alert with two distinct issues records shared and repeated cri
   await page.getByRole('button', { name: 'Save review', exact: true }).click()
   const saving = page.getByRole('button', { name: 'Saving…', exact: true })
   await expect(saving).toBeDisabled()
+  await expect(page.getByRole('button', { name: 'Continue review', exact: true })).toHaveCount(0)
   await page.keyboard.press('ControlOrMeta+Enter')
   await expect(page.getByRole('button', { name: 'Add another issue' })).toBeDisabled()
   await expect(consent.getByRole('radio', { name: 'Incorrect', exact: true })).toBeDisabled()
@@ -599,6 +668,8 @@ test('a stale Full QA source keeps the draft but cannot silently pair it with a 
   await expect(page.getByText(/This review changed while you were working/)).toBeVisible()
   await expect(reason).toHaveValue('No escalation is justified after reviewing this synthetic call.')
   await expect(page.getByText('Saved source or revision changed')).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Continue review', exact: true })).toHaveCount(0)
+  await expect(page.getByRole('status')).toHaveText('This review changed. Reload it before continuing.')
   await expect(page.getByRole('button', { name: 'Save review', exact: true })).toBeDisabled()
   await page.getByRole('button', { name: 'Reload review and discard draft' }).click()
   await expect(reason).toHaveValue('')

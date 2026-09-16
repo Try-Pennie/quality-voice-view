@@ -13,6 +13,7 @@ import {
   valueAtPath,
   type FullQaCriterion,
   type FullQaCriterionCorrection,
+  type FullQaDraftResult,
   type FullQaFinding,
   type FullQaFindingCategory,
   type FullQaReviewContext,
@@ -25,8 +26,8 @@ import { formatDateTime } from '../../lib/utils'
 /** The review footer submits this form, so the primary action stays reachable while scrolling. */
 export const FULL_QA_FORM_ID = 'full-qa-review-form'
 
-/** Footer-facing save state. Disabled and message are surfaced, never hidden. */
-export type FullQaSaveState = { readonly disabled: boolean; readonly label: string; readonly message: string | null }
+/** Footer-facing save state and navigation to the incomplete section; never a separate validation policy. */
+export type FullQaSaveState = { readonly disabled: boolean; readonly label: string; readonly message: string | null; readonly nextSectionId: string | null }
 
 const CATEGORY_LABELS: Record<FullQaFindingCategory, string> = {
   compliance: 'Compliance', customer_experience: 'Customer experience', sales_process: 'Sales process',
@@ -34,7 +35,7 @@ const CATEGORY_LABELS: Record<FullQaFindingCategory, string> = {
 }
 const ACTIONS: readonly AlertActionTaken[] = ['coached', 'escalated', 'follow_up_later', 'no_action_needed']
 const REASONS: readonly AlertInaccuracyReason[] = ['addressed_off_call', 'evidence_misquoted', 'wrong_context', 'covered_not_verbatim', 'call_dropped_incomplete', 'policy_does_not_apply', 'soft_inquiry_misclassified', 'other']
-const IDLE_SAVE: FullQaSaveState = { disabled: true, label: 'Save review', message: null }
+const IDLE_SAVE: FullQaSaveState = { disabled: true, label: 'Save review', message: null, nextSectionId: null }
 
 interface Props {
   readonly alert: AlertWithFeedback
@@ -47,7 +48,6 @@ interface Props {
 }
 
 type LocalDraft = Omit<FullQaReviewDraft, 'escalationJustified'> & { readonly escalationJustified: boolean | null }
-type ParsedDraft = { readonly ok: true; readonly value: FullQaReviewDraft } | { readonly ok: false; readonly message: string }
 
 function serializeDraft(value: unknown): string {
   return JSON.stringify(value)
@@ -194,7 +194,7 @@ function ManagerReviewOutcome({ context }: { readonly context: FullQaReviewConte
     <div className="text-sm text-pennie-graphite">
       <p className="font-semibold text-pennie-navy">Coaching issues ({review.findings.length})</p>
       {review.findings.length ? <ul className="mt-1 list-disc space-y-1 pl-5">{review.findings.map(finding => <li key={finding.findingId} className="break-words">{finding.summary} <span className="text-xs text-pennie-graphite/70">({CATEGORY_LABELS[finding.category]} · {finding.relatedCriteria.map(label).join(', ')})</span>
-        <details className="mt-1"><summary className="pennie-focus-ring cursor-pointer text-xs font-semibold text-pennie-blue-deeper">Manager’s evidence</summary><p className="mt-1 whitespace-pre-wrap break-words text-sm">{finding.evidence}</p></details></li>)}</ul> : <p className="mt-1">None recorded.</p>}
+        <details className="mt-1"><summary className="pennie-focus-ring min-h-[44px] cursor-pointer py-3.5 text-xs font-semibold text-pennie-blue-deeper sm:min-h-0 sm:py-0">Manager’s evidence</summary><p className="mt-1 whitespace-pre-wrap break-words text-sm">{finding.evidence}</p></details></li>)}</ul> : <p className="mt-1">None recorded.</p>}
     </div>
     <div className="text-sm text-pennie-graphite">
       <p className="font-semibold text-pennie-navy">Changed or unresolved scores ({changed.length})</p>
@@ -268,16 +268,22 @@ export function FullQaRubricReview({ alert, scope, editable, onDirtyChange, onBu
   // Historical unresolved responses stay intact; a missing AI score needs an explicit result, never an invented pass.
   const unanswered = context?.criteria.find(criterion => corrections.some(item => item.criterionKey === criterion.key && item.disposition === 'needs_context')
     && !context.review?.corrections.some(item => item.criterionKey === criterion.key && item.disposition === 'needs_context'))
-  const parsed: ParsedDraft = !context ? { ok: false, message: 'Loading the Full QA rubric.' }
-    : draft.escalationJustified === null ? { ok: false, message: 'Choose whether this alert was warranted.' }
-      : unanswered ? { ok: false, message: `Choose a result for ${unanswered.label} before saving.` }
-        : parseFullQaReviewDraft(context, { ...draft, escalationJustified: draft.escalationJustified })
+  const parsed: FullQaDraftResult = !context ? { ok: false, message: 'Loading the Full QA rubric.', section: 'scores' }
+    : unanswered ? { ok: false, message: `Choose a result for ${unanswered.label} before saving.`, section: 'scores' }
+      : parseFullQaReviewDraft(context, draft)
   const saveDisabled = !editable || busy || parsed.ok === false || !reviewDirty || contextChanged
   const saveLabel = saving ? 'Saving…' : context?.review ? 'Update review' : 'Save review'
-  const saveMessage = parsed.ok === false ? parsed.message : null
+  const saveMessage = query.isError ? 'Review unavailable. Retry above.'
+    : !context || initializedFor.current !== alert.call_id ? 'Loading review…'
+      : contextChanged ? 'This review changed. Reload it before continuing.'
+        : busy ? 'Please wait for the current change to finish.'
+          : context.review && !reviewDirty ? 'No unsaved review changes.'
+            : parsed.ok === false ? reviewDirty ? parsed.message : 'Check the scores and add any coaching issues, then finish your decision.' : null
+  const nextSectionId = context && initializedFor.current === alert.call_id && !query.isError && !contextChanged && !busy && parsed.ok === false
+    ? `${scorecardId}-${parsed.section}` : null
   useEffect(() => { onDirtyChange(dirty) }, [dirty, onDirtyChange])
   useEffect(() => { onBusyChange(busy) }, [busy, onBusyChange])
-  useEffect(() => { onSaveStateChange({ disabled: saveDisabled, label: saveLabel, message: saveMessage }) }, [saveDisabled, saveLabel, saveMessage, onSaveStateChange])
+  useEffect(() => { onSaveStateChange({ disabled: saveDisabled, label: saveLabel, message: saveMessage, nextSectionId }) }, [saveDisabled, saveLabel, saveMessage, nextSectionId, onSaveStateChange])
   useEffect(() => () => { onDirtyChange(false); onBusyChange(false); onSaveStateChange(IDLE_SAVE) }, [onDirtyChange, onBusyChange, onSaveStateChange])
 
   if (query.isPending) return <section className="rounded-2xl border border-border p-4 text-sm text-muted-foreground">Loading exact Full QA rubric…</section>
@@ -375,7 +381,7 @@ export function FullQaRubricReview({ alert, scope, editable, onDirtyChange, onBu
 
   const scorecard = <>
     <div className="flex flex-wrap items-baseline justify-between gap-2 border-b border-border pb-3">
-      <h2 className="text-base font-semibold text-pennie-navy">{showFullScorecard ? 'Full scorecard' : 'Scores to review'}</h2>
+      <h2 id={`${scorecardId}-scores`} tabIndex={-1} className="pennie-focus-ring text-base font-semibold text-pennie-navy">{showFullScorecard ? 'Full scorecard' : 'Scores to review'}</h2>
       <p className="text-xs text-pennie-graphite/80">{attentionKeys.size} {attentionKeys.size === 1 ? 'item' : 'items'} to check</p>
     </div>
     {hasProgramConcerns && (programSummary || programGaps.length > 0) && <aside aria-label="Program expectations section notes" className="border-b border-border pb-4 text-sm text-pennie-graphite">
@@ -418,7 +424,7 @@ export function FullQaRubricReview({ alert, scope, editable, onDirtyChange, onBu
             </div> : <p className="text-xs text-pennie-graphite/70">{criterion.findingCategory === 'program_expectations' && (programSummary || programGaps.length > 0) ? 'No separate reason saved for this score; see the saved section notes above.' : 'No reason saved for this score.'}</p>)}
             <CriterionEvidence evidence={evidence} excerpts={excerpts} />
             <details>
-              <summary className="pennie-focus-ring cursor-pointer text-xs font-semibold text-pennie-blue-deeper">Rule and saved evidence</summary>
+              <summary className="pennie-focus-ring min-h-[44px] cursor-pointer py-3.5 text-xs font-semibold text-pennie-blue-deeper sm:min-h-0 sm:py-0">Rule and saved evidence</summary>
               {context.sourceReferenceKind !== 'unknown_hash' ? <p className="mt-2 text-sm leading-relaxed text-pennie-graphite">{criterion.rule}</p> : <p className="mt-2 text-xs text-pennie-peach-deeper">Original rule unavailable for this stamped hash.</p>}
               {entries.length > 0 && <pre className="mt-2 whitespace-pre-wrap break-words text-xs">{JSON.stringify(evidence, null, 2)}</pre>}
             </details>
@@ -449,8 +455,8 @@ export function FullQaRubricReview({ alert, scope, editable, onDirtyChange, onBu
             </div>}
             {!editable && !saved && <p className="text-sm text-pennie-graphite/70">No structured response was recorded for this criterion.</p>}
             {editable && (linkedIndex >= 0
-              ? <button type="button" disabled={locked} onClick={() => focusFinding(findings[linkedIndex].findingId)} className="pennie-focus-ring min-h-[36px] text-xs font-semibold text-pennie-blue-deeper underline-offset-4 hover:underline">Edit coaching issue {linkedIndex + 1}</button>
-              : <button type="button" disabled={locked} onClick={() => addIssueFromCriterion(criterion, evidence, notes)} className="pennie-focus-ring min-h-[36px] rounded-full border border-border px-3 text-xs font-semibold text-pennie-blue-deeper disabled:opacity-40"><Plus className="mr-1 inline h-3.5 w-3.5" aria-hidden="true" />Add as coaching issue</button>)}
+              ? <button type="button" disabled={locked} onClick={() => focusFinding(findings[linkedIndex].findingId)} className="pennie-focus-ring min-h-[44px] sm:min-h-[36px] text-xs font-semibold text-pennie-blue-deeper underline-offset-4 hover:underline">Edit coaching issue {linkedIndex + 1}</button>
+              : <button type="button" disabled={locked} onClick={() => addIssueFromCriterion(criterion, evidence, notes)} className="pennie-focus-ring min-h-[44px] sm:min-h-[36px] rounded-full border border-border px-3 text-xs font-semibold text-pennie-blue-deeper disabled:opacity-40"><Plus className="mr-1 inline h-3.5 w-3.5" aria-hidden="true" />Add as coaching issue</button>)}
           </section>
         </div>
       </article>
@@ -489,7 +495,7 @@ export function FullQaRubricReview({ alert, scope, editable, onDirtyChange, onBu
 
 
     {editable && <section aria-label="Coaching issues" className="space-y-4 border-t border-border pt-5">
-      <div><h2 className="text-base font-semibold text-pennie-navy">Coaching issues</h2><p className="mt-1 text-sm text-pennie-graphite">Add each distinct issue you confirmed. Changing a score does not add one.</p></div>
+      <div><h2 id={`${scorecardId}-coaching`} tabIndex={-1} className="pennie-focus-ring text-base font-semibold text-pennie-navy">Coaching issues</h2><p className="mt-1 text-sm text-pennie-graphite">Add each distinct issue you confirmed. Changing a score does not add one.</p></div>
       {findings.map((finding, index) => <fieldset key={finding.findingId} id={findingElementId(finding.findingId)} disabled={locked} className="rounded-xl bg-pennie-beige/60 p-3 space-y-2"><legend className="px-1 text-xs font-semibold">Issue {index + 1}</legend>
         <label className="block text-xs font-semibold">Category<select aria-label={`Finding ${index + 1} category`} value={finding.category} onChange={event => updateFinding(finding.findingId, { category: event.target.value as FullQaFindingCategory })} className="mt-1 min-h-[40px] w-full rounded-lg border bg-white px-2 font-normal">{Object.entries(CATEGORY_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
         <details className="text-xs">
@@ -508,7 +514,7 @@ export function FullQaRubricReview({ alert, scope, editable, onDirtyChange, onBu
       </fieldset>}
     </section>}
 
-    {editable && <fieldset disabled={locked} className="space-y-3 border-t border-border pt-5"><legend className="pr-2 text-base font-semibold text-pennie-navy">Was this alert warranted?</legend>
+    {editable && <fieldset disabled={locked} className="space-y-3 border-t border-border pt-5"><legend id={`${scorecardId}-decision`} tabIndex={-1} className="pennie-focus-ring pr-2 text-base font-semibold text-pennie-navy">Was this alert warranted?</legend>
       <p className="text-sm text-pennie-graphite">Coaching issues above stay recorded either way.</p>
       <div role="radiogroup" aria-label="Alert verdict" className="flex flex-wrap gap-2">{([true, false] as const).map(value => <label key={String(value)} className={`flex min-h-[44px] cursor-pointer items-center gap-2 rounded-xl border px-3 py-2 text-sm ${escalationJustified === value ? 'border-pennie-blue-deeper bg-pennie-blue-light text-pennie-navy' : 'border-border text-pennie-graphite hover:bg-pennie-blue-light/50'}`}>
         <input type="radio" name={`${scorecardId}-escalation`} checked={escalationJustified === value} onChange={() => setEscalationJustified(value)} className="pennie-focus-ring h-4 w-4 accent-pennie-blue-deeper" />

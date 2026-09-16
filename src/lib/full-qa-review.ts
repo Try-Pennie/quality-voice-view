@@ -273,31 +273,36 @@ function bounded(text: string | null): boolean {
   return length >= TEXT_MIN && length <= TEXT_MAX
 }
 
+/** Validation names the incomplete section so the UI can guide without duplicating review rules. */
+export type FullQaDraftResult = { readonly ok: true; readonly value: FullQaReviewDraft }
+  | { readonly ok: false; readonly message: string; readonly section: 'scores' | 'coaching' | 'decision' }
+
 /** Validate a Full QA draft before the mutation seam. Findings remain explicit and independent of score corrections. */
-export function parseFullQaReviewDraft(context: FullQaReviewContext, input: FullQaReviewDraft): ParseResult<FullQaReviewDraft> {
-  if (input.corrections.length !== 23 || new Set(input.corrections.map(item => item.criterionKey)).size !== 23) return { ok: false, message: 'Review all 23 criteria.' }
+export function parseFullQaReviewDraft(context: FullQaReviewContext, input: Omit<FullQaReviewDraft, 'escalationJustified'> & { readonly escalationJustified: boolean | null }): FullQaDraftResult {
+  if (input.corrections.length !== 23 || new Set(input.corrections.map(item => item.criterionKey)).size !== 23) return { ok: false, message: 'Review all 23 criteria.', section: 'scores' }
   for (const correction of input.corrections) {
     const criterion = context.criteria.find(item => item.key === correction.criterionKey)
     const original = criterion ? valueAtPath(context.sourceResult, criterion.scorePath) : undefined
-    if (!criterion) return { ok: false, message: 'A criterion is not part of this rubric.' }
-    if (correction.disposition === 'confirmed' && (correction.correctedValue !== original || correction.reason !== null)) return { ok: false, message: `${criterion.label} must retain the original AI value when confirmed.` }
-    if (correction.disposition === 'corrected' && (!criterion.domain.some(value => value === correction.correctedValue) || correction.correctedValue === original || !bounded(correction.reason))) return { ok: false, message: `${criterion.label} needs a different value and a reason.` }
-    if (correction.disposition === 'needs_context' && (correction.correctedValue !== null || !bounded(correction.reason))) return { ok: false, message: `${criterion.label} needs a context explanation.` }
+    if (!criterion) return { ok: false, message: 'A criterion is not part of this rubric.', section: 'scores' }
+    if (correction.disposition === 'confirmed' && (correction.correctedValue !== original || correction.reason !== null)) return { ok: false, message: `${criterion.label} must retain the original AI value when confirmed.`, section: 'scores' }
+    if (correction.disposition === 'corrected' && (!criterion.domain.some(value => value === correction.correctedValue) || correction.correctedValue === original || !bounded(correction.reason))) return { ok: false, message: `${criterion.label} needs a different value and a reason.`, section: 'scores' }
+    if (correction.disposition === 'needs_context' && (correction.correctedValue !== null || !bounded(correction.reason))) return { ok: false, message: `${criterion.label} needs a context explanation.`, section: 'scores' }
   }
   for (const finding of input.findings) {
     if (!category(finding.category) || new Set(finding.relatedCriteria).size !== finding.relatedCriteria.length || finding.relatedCriteria.length < 1
       || finding.relatedCriteria.some(key => !context.criteria.some(item => item.key === key)) || !bounded(finding.summary) || !bounded(finding.evidence)) {
-      return { ok: false, message: 'Each distinct finding needs a category, related criteria, summary, and evidence.' }
+      return { ok: false, message: 'Each distinct finding needs a category, related criteria, summary, and evidence.', section: 'coaching' }
     }
   }
+  if (input.escalationJustified === null) return { ok: false, message: 'Choose whether this alert was warranted.', section: 'decision' }
   const complianceCount = input.findings.filter(finding => finding.category === 'compliance').length
   const severe = input.findings.some(finding => finding.category === 'severe_customer_mistreatment')
-  if (input.escalationJustified && complianceCount < 2 && !severe) return { ok: false, message: 'Escalation requires two distinct compliance findings or an explicit severe-customer-mistreatment finding.' }
-  if (!bounded(input.escalationReason)) return { ok: false, message: 'Explain the escalation judgment.' }
-  if (input.escalationJustified ? input.inaccuracyReason !== null : !input.inaccuracyReason || !reason(input.inaccuracyReason)) return { ok: false, message: 'Choose why escalation was not justified.' }
-  if (input.findings.length === 0 && (input.actionTaken !== null || input.actionDetails?.trim())) return { ok: false, message: 'Actions apply only to retained findings.' }
-  if (input.findings.length > 0 && (!input.actionTaken || !action(input.actionTaken) || !bounded(input.actionDetails))) return { ok: false, message: 'Record the coaching or follow-up for retained findings.' }
-  return { ok: true, value: { ...input, escalationReason: input.escalationReason.trim(), actionDetails: input.actionDetails?.trim() ?? null,
+  if (input.escalationJustified && complianceCount < 2 && !severe) return { ok: false, message: 'Escalation requires two distinct compliance findings or an explicit severe-customer-mistreatment finding.', section: 'coaching' }
+  if (!bounded(input.escalationReason)) return { ok: false, message: 'Explain the escalation judgment.', section: 'decision' }
+  if (input.escalationJustified ? input.inaccuracyReason !== null : !input.inaccuracyReason || !reason(input.inaccuracyReason)) return { ok: false, message: 'Choose why escalation was not justified.', section: 'decision' }
+  if (input.findings.length === 0 && (input.actionTaken !== null || input.actionDetails?.trim())) return { ok: false, message: 'Actions apply only to retained findings.', section: 'coaching' }
+  if (input.findings.length > 0 && (!input.actionTaken || !action(input.actionTaken) || !bounded(input.actionDetails))) return { ok: false, message: 'Record the coaching or follow-up for retained findings.', section: 'coaching' }
+  return { ok: true, value: { ...input, escalationJustified: input.escalationJustified, escalationReason: input.escalationReason.trim(), actionDetails: input.actionDetails?.trim() ?? null,
     corrections: input.corrections.map(item => ({ ...item, reason: item.reason?.trim() ?? null })),
     findings: input.findings.map(item => ({ ...item, summary: item.summary.trim(), evidence: item.evidence.trim() })) } }
 }

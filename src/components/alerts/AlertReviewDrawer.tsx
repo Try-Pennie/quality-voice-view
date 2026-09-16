@@ -170,7 +170,7 @@ export function AlertReviewDrawer({
   const [ackPending, setAckPending] = useState(false)
   const [fullQaDraftDirty, setFullQaDraftDirty] = useState(false)
   const [fullQaBusy, setFullQaBusy] = useState(false)
-  const [fullQaSave, setFullQaSave] = useState<FullQaSaveState>({ disabled: true, label: 'Save review', message: null })
+  const [fullQaSave, setFullQaSave] = useState<FullQaSaveState>({ disabled: true, label: 'Save review', message: null, nextSectionId: null })
   const [requestingChanges, setRequestingChanges] = useState(false)
   const commentId = useId()
   const violationDetailsId = useId()
@@ -214,7 +214,7 @@ export function AlertReviewDrawer({
     setEditingId(null)
     setFullQaDraftDirty(false)
     setFullQaBusy(false)
-    setFullQaSave({ disabled: true, label: 'Save review', message: null })
+    setFullQaSave({ disabled: true, label: 'Save review', message: null, nextSectionId: null })
     setRequestingChanges(false)
     // Identity changes initialize a fresh form; list enrichment must not erase a draft.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1202,10 +1202,19 @@ export function AlertReviewDrawer({
             {isFullQa && scope.isGodMode && alert.current_decision === null && changeInstructions.trim() && (
               <p className="mb-2 text-xs text-pennie-graphite/70">Send or clear the change instructions before approving.</p>
             )}
-            {showStructuredForm && isFullQa && fullQaDraftDirty && fullQaSave.message && (
-              <p className="mb-2 text-xs text-pennie-peach-deeper" role="status">{fullQaSave.message}</p>
+            {showStructuredForm && isFullQa && fullQaSave.message && (
+              <p className="mb-1 text-xs text-pennie-graphite" role="status">{fullQaSave.message}</p>
             )}
             <div className="flex flex-wrap items-center justify-end gap-2">
+              {showStructuredForm && isFullQa && fullQaSave.nextSectionId && (
+                <button type="button" aria-controls={fullQaSave.nextSectionId} disabled={decisionPending} onClick={() => {
+                  const section = document.getElementById(fullQaSave.nextSectionId ?? '')
+                  section?.focus({ preventScroll: true })
+                  section?.scrollIntoView({ block: 'start', behavior: 'instant' })
+                }} className="pennie-focus-ring mr-auto min-h-[44px] text-sm font-semibold text-pennie-blue-deeper underline-offset-4 hover:underline disabled:opacity-40">
+                  Continue review
+                </button>
+              )}
               {showStructuredForm && isFullQa && (
                 <button
                   type="submit"
