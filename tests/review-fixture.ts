@@ -121,10 +121,13 @@ export async function reviewFixture(page: Page, rows: AlertWithFeedback[], optio
         if (key === 'alert_created_at' && value.startsWith('gte.')) selected = selected.filter(row => row.alert_created_at >= value.slice(4))
         if (key === 'alert_created_at' && value.startsWith('lte.')) selected = selected.filter(row => row.alert_created_at <= value.slice(4))
       }
-      if (request.headers().accept?.includes('vnd.pgrst.object')) {
+      const objectResponse = request.headers().accept?.includes('vnd.pgrst.object')
+      const detailQuery = params.get('select') === '*' && params.get('call_id')?.startsWith('eq.') && params.get('module_name')?.startsWith('eq.')
+      if (objectResponse || detailQuery) {
         const detail = selected[0] ? { ...selected[0] } : null
         await state.alertGate
-        return respond(detail)
+        // Newer PostgREST clients implement maybeSingle with an array response.
+        return respond(objectResponse ? detail : detail ? [detail] : [])
       }
       selected.sort((a, b) => b.alert_created_at.localeCompare(a.alert_created_at) || a.call_id.localeCompare(b.call_id) || a.module_name.localeCompare(b.module_name))
       const offset = Number(params.get('offset') ?? 0)
