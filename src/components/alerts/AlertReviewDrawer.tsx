@@ -160,6 +160,7 @@ export function AlertReviewDrawer({
   const [showRaw, setShowRaw] = useState(false)
   const [showTranscript, setShowTranscript] = useState(false)
   const submissionPending = useRef(false)
+  const returnFocusTarget = useRef<HTMLElement | null>(null)
   const [overrideMode, setOverrideMode] = useState(false)
   const [draftBody, setDraftBody] = useState('')
   const [replyTo, setReplyTo] = useState<AlertMessage | null>(null)
@@ -560,6 +561,7 @@ export function AlertReviewDrawer({
   const showInternalDecisionBar = workload === 'internal' && isHumanReviewed(alert) &&
     (scope.isGodMode || alert.current_decision !== null)
   const showManagerReviewSummary = reviewedByOther && !isFullQa
+  const showLegacyFullQaReviewSummary = isFullQa && fullQaContext.isSuccess && fullQaContext.data.review === null && isHumanReviewed(alert)
   const parsedInitial = alert.review_revision && alert.review_revision > 1
     ? parseInitialManagerReview(alert.initial_manager_review)
     : null
@@ -595,9 +597,21 @@ export function AlertReviewDrawer({
   return (
     <Sheet open={!!alert} onOpenChange={open => !open && requestClose()}>
       <SheetContent
-        side="right"
+        side={isFullQa ? 'center' : 'right'}
         hideClose
-        className="w-full sm:max-w-2xl flex flex-col gap-0 p-0 overflow-hidden bg-pennie-white"
+        onOpenAutoFocus={isFullQa ? () => {
+          const active = document.activeElement
+          returnFocusTarget.current = active instanceof HTMLElement && active !== document.body ? active : null
+        } : undefined}
+        onCloseAutoFocus={isFullQa ? event => {
+          const target = returnFocusTarget.current
+          if (!target?.isConnected) return
+          event.preventDefault()
+          target.focus()
+        } : undefined}
+        className={isFullQa
+          ? 'flex flex-col gap-0 overflow-hidden bg-pennie-white p-0 shadow-xl'
+          : 'w-full sm:max-w-2xl flex flex-col gap-0 p-0 overflow-hidden bg-pennie-white'}
       >
         {/* Header */}
         <SheetHeader className={`shrink-0 px-4 sm:px-8 pt-4 sm:py-5 border-b border-border space-y-3 text-left ${isFullQa ? 'pb-3' : 'pb-5'}`}>
@@ -711,7 +725,7 @@ export function AlertReviewDrawer({
           />
         )}
         {/* One scrolling review flow: evidence, required inputs, and secondary details. */}
-        <div className={`flex-1 min-h-0 overflow-y-auto px-4 sm:px-8 sm:py-6 space-y-6 sm:space-y-7 ${isFullQa ? 'py-3' : 'py-5'}`}>
+        <div className={`flex-1 min-h-0 overflow-y-auto px-4 sm:px-8 sm:py-6 space-y-6 sm:space-y-7 ${isFullQa ? 'py-4 lg:px-10' : 'py-5'}`}>
           {returnedToCurrentManager && alert.current_decision_instructions && (
             <div className="rounded-2xl bg-pennie-peach-light/60 px-4 py-3">
               <p className="pennie-label mb-1">Requested correction</p>
@@ -852,6 +866,21 @@ export function AlertReviewDrawer({
           {/* What the Pennie agent said about the Achieve welcome-call rep
               (achieve_welcome_call_qa alerts only; hidden when no submission). */}
           <PennieAgentFeedbackSection feedback={agentFeedback} compact />
+
+          {showLegacyFullQaReviewSummary && (
+            <ManagerReviewSummary
+              title="Earlier manager review"
+              description="This review was saved before individual scores could be reviewed. Original feedback is shown below."
+              authorEmail={alert.feedback_by}
+              reviewedAt={alert.reviewed_at}
+              accurate={alert.accurate}
+              actionTaken={alert.action_taken}
+              inaccuracyReason={alert.inaccuracy_reason}
+              comment={alert.feedback_comment}
+              violationDetails={alert.violation_details}
+              actionDetails={alert.action_details}
+            />
+          )}
 
           {isFullQa && (
             <FullQaRubricReview
@@ -1166,7 +1195,7 @@ export function AlertReviewDrawer({
         </div>
 
         {(showStructuredForm || (showInternalDecisionBar && scope.isGodMode && alert.current_decision === null)) && (
-          <footer className="shrink-0 border-t border-border bg-pennie-white px-4 sm:px-8 py-3">
+          <footer className={`shrink-0 border-t border-border bg-pennie-white px-4 sm:px-8 py-3 ${isFullQa ? 'lg:px-10' : ''}`}>
             {approvalBlockedByDraft && scope.isGodMode && alert.current_decision === null && (
               <p className="mb-2 text-xs text-pennie-graphite/70">Complete and save review changes before approval.</p>
             )}
@@ -1359,6 +1388,7 @@ export function Chip({
 
 function ManagerReviewSummary({
   title = 'Manager review',
+  description,
   authorEmail,
   reviewedAt,
   accurate,
@@ -1369,6 +1399,7 @@ function ManagerReviewSummary({
   actionDetails,
 }: {
   title?: string
+  description?: string
   authorEmail: string | null | undefined
   reviewedAt: string | null | undefined
   accurate: boolean | null | undefined
@@ -1398,6 +1429,7 @@ function ManagerReviewSummary({
           {reviewedAt && ` · ${formatDateTime(reviewedAt)}`}
         </span>
       </header>
+      {description && <p className="text-xs leading-relaxed text-pennie-graphite/70">{description}</p>}
       <div className="flex flex-wrap items-center gap-2">
         <span
           className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-bold uppercase tracking-wider ${verdictTone}`}

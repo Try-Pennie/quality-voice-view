@@ -1,25 +1,27 @@
 import { test, expect, type Page } from '@playwright/test'
-import { alertRow, FULL_QA_CRITERIA, FULL_QA_RESULT, openAlert, reviewFixture } from './review-fixture'
+import { alertRow, EMAIL, FULL_QA_CRITERIA, FULL_QA_RESULT, openAlert, reviewFixture } from './review-fixture'
 
 const response = (page: Page, criterion: string) => page.getByRole('radiogroup', { name: `${criterion} disposition` })
 // Criterion assessments only; the alert-verdict radiogroup is counted separately.
 const dispositions = (page: Page) => page.getByRole('radiogroup', { name: / disposition$/ })
 const saveButton = (page: Page) => page.getByRole('button', { name: /^(Save|Update) review$/ })
 
-async function expectFirstChoicesAboveFooter(page: Page) {
-  const footer = await page.getByRole('dialog').locator('footer').boundingBox()
-  expect(footer).not.toBeNull()
-  for (const choice of ['Correct', 'Incorrect', 'Need more context']) {
-    const box = await response(page, 'Credit pull consent').getByRole('radio', { name: choice, exact: true }).evaluate(input => {
-      const label = input.closest('label') ?? input
-      const rect = label.getBoundingClientRect()
-      const hit = document.elementFromPoint(rect.x + rect.width / 2, rect.y + rect.height / 2)
-      return { top: rect.top, bottom: rect.bottom, covered: !hit || !label.contains(hit) }
-    })
-    expect(box.top, choice).toBeGreaterThanOrEqual(0)
-    expect(box.bottom, choice).toBeLessThanOrEqual(footer?.y ?? 0)
-    expect(box.covered, choice).toBe(false)
-  }
+async function expectCenteredDesktopDialog(page: Page) {
+  await page.setViewportSize({ width: 1440, height: 900 })
+  const box = await page.getByRole('dialog').boundingBox()
+  expect(box).not.toBeNull()
+  expect(box?.width).toBeGreaterThanOrEqual(1040)
+  expect(box?.width).toBeLessThanOrEqual(1080)
+  expect(Math.abs((box?.x ?? 0) - (1440 - (box?.width ?? 0)) / 2)).toBeLessThanOrEqual(1)
+  expect(box?.height).toBe(810)
+  expect(box?.y).toBe(45)
+}
+
+async function expectFullscreenMobileDialog(page: Page) {
+  await page.setViewportSize({ width: 375, height: 812 })
+  const box = await page.getByRole('dialog').boundingBox()
+  expect(box).toEqual({ x: 0, y: 0, width: 375, height: 812 })
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
 }
 
 const correctionReason = 'The available call context confirms the corrected judgment.'
@@ -34,14 +36,21 @@ test('Full QA saves string-scale corrections, uncertainty, and a retained findin
   await page.goto('/dashboard/alerts?status=awaiting_manager')
   await openAlert(page, 'rubric-flow')
 
-  // Every response choice and the primary action are usable without scrolling, desktop and phone.
-  for (const viewport of [{ width: 1440, height: 900 }, { width: 375, height: 812 }]) {
-    await page.setViewportSize(viewport)
-    await expect(page.getByRole('region', { name: 'Why Eavesly requested review', exact: true })).toBeInViewport()
-    await expectFirstChoicesAboveFooter(page)
-    await expect(saveButton(page)).toBeInViewport()
-    await expect(page.getByText('Recording not available')).toBeHidden()
-  }
+  await expectCenteredDesktopDialog(page)
+  const evidenceColumn = page.getByRole('region', { name: 'Credit pull consent: What Eavesly flagged' })
+  const responseColumn = page.getByRole('region', { name: 'Credit pull consent: Your review' })
+  const [evidenceBox, responseBox] = await Promise.all([evidenceColumn.boundingBox(), responseColumn.boundingBox()])
+  expect(evidenceBox).not.toBeNull()
+  expect(responseBox).not.toBeNull()
+  expect(Math.abs((evidenceBox?.y ?? 0) - (responseBox?.y ?? 0))).toBeLessThanOrEqual(1)
+  expect(responseBox?.x).toBeGreaterThanOrEqual((evidenceBox?.x ?? 0) + (evidenceBox?.width ?? 0))
+  await page.screenshot({ path: testInfo.outputPath('full-qa-floating-initial-desktop.png'), animations: 'disabled' })
+  await expect(saveButton(page)).toBeInViewport()
+  await expect(page.getByText('Recording not available')).toBeHidden()
+  await expectFullscreenMobileDialog(page)
+  await page.screenshot({ path: testInfo.outputPath('full-qa-floating-initial-mobile.png'), animations: 'disabled' })
+  await expect(evidenceColumn).toBeVisible()
+  await expect(responseColumn).toBeVisible()
   await page.setViewportSize({ width: 1280, height: 720 })
 
   await expect(page.getByRole('form', { name: 'Full QA rubric review' })).toBeVisible()
@@ -210,6 +219,60 @@ test('Full QA saves string-scale corrections, uncertainty, and a retained findin
   await adminPage.close()
 })
 
+test('legacy Full QA feedback stays visible without inventing structured rubric responses', async ({ browser }) => {
+  const legacyResult = structuredClone(FULL_QA_RESULT) as Record<string, unknown>
+  delete legacyResult._evaluation_provenance
+  const row = alertRow('legacy-feedback', {
+    result_json: legacyResult,
+    is_reviewed: true,
+    feedback_id: 42,
+    feedback_by: EMAIL,
+    reviewed_at: '2026-09-05T14:00:00Z',
+    accurate: true,
+    action_taken: 'coached',
+    violation_details: 'The manager confirmed the disclosure gap from the saved call context.',
+    action_details: 'The manager coached the agent on the required disclosure after the call.',
+    feedback_comment: 'Original manager note retained with the earlier review.',
+  })
+
+  const managerPage = await browser.newPage()
+  const managerState = await reviewFixture(managerPage, [structuredClone(row)])
+  let releaseContext = () => {}
+  managerState.fullQaContextGate = new Promise<void>(resolve => { releaseContext = resolve })
+  await managerPage.goto('/dashboard/alerts/legacy-feedback/full_qa')
+  await expect(managerPage.getByText('Loading exact Full QA rubric…', { exact: true })).toBeVisible()
+  await expect(managerPage.getByText('Earlier manager review', { exact: true })).toHaveCount(0)
+  releaseContext()
+  await expect(managerPage.getByText('Earlier manager review', { exact: true })).toBeVisible()
+  await expect(managerPage.getByText(/Action: Coached the agent/)).toBeVisible()
+  await expect(managerPage.getByText(/What happened: The manager confirmed the disclosure gap/)).toBeVisible()
+  await expect(managerPage.getByText(/Action details: The manager coached the agent/)).toBeVisible()
+  await expect(managerPage.getByText('Original manager note retained with the earlier review.', { exact: true })).toBeVisible()
+  await expect(managerPage.getByText('This review was saved before individual scores could be reviewed. Original feedback is shown below.', { exact: true })).toBeVisible()
+  await expect(managerPage.getByText('Original rubric unknown; current reference only.', { exact: true })).toBeVisible()
+  await expect(managerPage.getByRole('region', { name: 'Manager’s review' })).toHaveCount(0)
+  await managerPage.close()
+
+  const adminPage = await browser.newPage()
+  await reviewFixture(adminPage, [structuredClone(row)], { god: true, email: 'director@example.test' })
+  await adminPage.goto('/dashboard/alerts/legacy-feedback/full_qa')
+  await expect(adminPage.getByText('Earlier manager review', { exact: true })).toBeVisible()
+  await expect(adminPage.getByText(/Action: Coached the agent/)).toBeVisible()
+  await expect(adminPage.getByText(/Action details: The manager coached the agent/)).toBeVisible()
+  await expect(adminPage.getByText('Original manager note retained with the earlier review.', { exact: true })).toBeVisible()
+  await expect(adminPage.getByRole('button', { name: 'Approve review' })).toBeEnabled()
+  await expect(adminPage.getByRole('region', { name: 'Manager’s review' })).toHaveCount(0)
+  await adminPage.close()
+
+  const errorPage = await browser.newPage()
+  const errorState = await reviewFixture(errorPage, [structuredClone(row)], { god: true, email: 'director@example.test' })
+  errorState.failFullQaContext = true
+  await errorPage.goto('/dashboard/alerts/legacy-feedback/full_qa')
+  await expect(errorPage.getByText('Full QA rubric context unavailable', { exact: true })).toBeVisible()
+  await expect(errorPage.getByText('Earlier manager review', { exact: true })).toHaveCount(0)
+  await errorPage.close()
+})
+
 test('score answers and an explicit verdict save without manufacturing any coaching issue', async ({ page }) => {
   const state = await reviewFixture(page, [alertRow('no-silent-findings')])
   await page.goto('/dashboard/alerts/no-silent-findings/full_qa')
@@ -306,16 +369,13 @@ test('a realistic supported seed keeps the reason, first evidence, and first dec
   await page.goto('/dashboard/alerts/DEMO-SUPPORTED-001/full_qa')
   const summary = page.getByRole('region', { name: 'Why Eavesly requested review', exact: true })
   const consent = page.getByRole('article', { name: 'Credit pull consent', exact: true })
-  for (const viewport of [{ width: 1440, height: 900 }, { width: 375, height: 812 }]) {
-    await page.setViewportSize(viewport)
-    await expect(summary).toBeInViewport()
-    await expect(summary.getByRole('button', { name: 'Full reason' })).toBeInViewport()
-    await expect(consent.locator('blockquote').first()).toBeInViewport()
-    await expectFirstChoicesAboveFooter(page)
-    await expect(saveButton(page)).toBeInViewport()
-    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
-  }
-  await expect(summary).not.toContainText('closing segment of the call.')
+  await expectCenteredDesktopDialog(page)
+  await expect(summary.getByText(reason, { exact: true })).toBeVisible()
+  await expect(summary.getByRole('button', { name: 'Full reason' })).toHaveCount(0)
+  await expect(consent.locator('blockquote').first()).toBeVisible()
+  await expectFullscreenMobileDialog(page)
+  await expect(summary.getByText(reason, { exact: true })).toBeVisible()
+  await expect(saveButton(page)).toBeInViewport()
   await expect(consent.locator('blockquote')).toHaveText(['No, do not pull my credit. I want to understand the options first.', 'I have pulled your credit report anyway so we can continue.'])
   await expect(consent.locator('figcaption')).toHaveText(['contact · Step 2 Credit Review', 'handling agent · Step 2 Credit Review'])
   await expect(page.getByRole('article', { name: 'Accurate representations', exact: true }).getByText('You will be debt-free in 48 months, guaranteed.', { exact: true })).toBeVisible()
@@ -323,6 +383,33 @@ test('a realistic supported seed keeps the reason, first evidence, and first dec
   await expect(page.getByText('8 items to check', { exact: true })).toBeVisible()
   await expect(page.getByText('Recording, transcript and call summary', { exact: true })).toBeVisible()
   await expect(page.getByRole('link', { name: /Open recording/ })).toBeHidden()
+})
+
+test('the floating review traps focus, guards outside and Escape closes while dirty, and returns focus', async ({ page }) => {
+  await reviewFixture(page, [alertRow('modal-guard')])
+  await page.goto('/dashboard/alerts?status=awaiting_manager')
+  const opener = page.getByRole('button', { name: 'Review Manager escalation alert for Example modal-guard', exact: true })
+  await opener.focus()
+  await opener.click()
+  const dialog = page.getByRole('dialog')
+  await expect(dialog).toBeVisible()
+  expect(await dialog.evaluate((element) => element.contains(document.activeElement))).toBe(true)
+  await page.keyboard.press('Shift+Tab')
+  expect(await dialog.evaluate((element) => element.contains(document.activeElement))).toBe(true)
+
+  await response(page, 'Credit pull consent').getByRole('radio', { name: 'Incorrect', exact: true }).check()
+  page.once('dialog', confirm => confirm.dismiss())
+  await page.mouse.click(10, 10)
+  await expect(dialog).toBeVisible()
+  await expect(response(page, 'Credit pull consent').getByRole('radio', { name: 'Incorrect', exact: true })).toBeChecked()
+
+  page.once('dialog', confirm => confirm.dismiss())
+  await page.keyboard.press('Escape')
+  await expect(dialog).toBeVisible()
+  page.once('dialog', confirm => confirm.accept())
+  await page.getByRole('button', { name: 'Close (Esc)', exact: true }).click()
+  await expect(dialog).toHaveCount(0)
+  await expect(opener).toBeFocused()
 })
 
 test('focused scorecard respects categorical concerns and enrollment gating, while toggling preserves edits', async ({ page }, testInfo) => {
@@ -549,7 +636,7 @@ test('saved alert reasons and criterion context explain concerns without turning
   const consent = page.getByRole('article', { name: 'Credit pull consent', exact: true })
   await expect(consent.getByText('Eavesly flagged this', { exact: true })).toBeVisible()
   await expect(consent.getByText(`Saved context (Customer · Step 2 Credit Review): ${note}`, { exact: true })).toHaveCount(1)
-  await expect(consent.getByText('More evidence', { exact: true })).toBeVisible()
+  await expect(consent.getByText('Evidence Eavesly used', { exact: true })).toBeVisible()
   await expect(consent).toContainText('No reason saved for this score.')
   await expect(consent.locator('blockquote')).toHaveText(['No, do not pull my credit.', 'I have pulled it anyway.'])
   await expect(consent.locator('figcaption')).toHaveText(['Customer · Step 2 Credit Review', 'Agent · Step 2 Credit Review'])
@@ -561,15 +648,13 @@ test('saved alert reasons and criterion context explain concerns without turning
   await expect(coaching).toContainText('No reason saved for this score.')
 })
 
-test('a long saved reason stays verbatim behind an expand control', async ({ page }) => {
-  const reason = `Review requested. ${'The agent restated the guaranteed outcome several times during the closing segment. '.repeat(5)}End of saved reason.`
+test('a maximum observed saved reason is visible verbatim without an expand step', async ({ page }) => {
+  const reason = `Review requested. ${'The agent restated the guaranteed outcome during the closing segment. '.repeat(12)}`.slice(0, 828)
   await reviewFixture(page, [alertRow('long-reason', { result_json: { ...FULL_QA_RESULT, call_overview: { manager_review_reason: reason } } })])
   await page.goto('/dashboard/alerts/long-reason/full_qa')
   const summary = page.getByRole('region', { name: 'Why Eavesly requested review', exact: true })
-  await expect(summary).not.toContainText('End of saved reason.')
-  await expect(summary).toContainText('Review requested. The agent restated')
-  await summary.getByRole('button', { name: 'Full reason' }).click()
   await expect(summary.getByText(reason, { exact: true })).toBeVisible()
+  await expect(summary.getByRole('button', { name: 'Full reason' })).toHaveCount(0)
 })
 
 test('missing or malformed explanations never become invented reasons or confirmed findings', async ({ page }) => {

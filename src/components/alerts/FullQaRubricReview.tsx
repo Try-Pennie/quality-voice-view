@@ -22,7 +22,7 @@ import type { AlertActionTaken, AlertInaccuracyReason, AlertWithFeedback } from 
 import type { UserScope } from '../../lib/alert-queries'
 import { formatDateTime } from '../../lib/utils'
 
-/** The drawer footer submits this form, so the primary action stays reachable while scrolling. */
+/** The review footer submits this form, so the primary action stays reachable while scrolling. */
 export const FULL_QA_FORM_ID = 'full-qa-review-form'
 
 /** Footer-facing save state. Disabled and message are surfaced, never hidden. */
@@ -34,7 +34,6 @@ const CATEGORY_LABELS: Record<FullQaFindingCategory, string> = {
 }
 const ACTIONS: readonly AlertActionTaken[] = ['coached', 'escalated', 'follow_up_later', 'no_action_needed']
 const REASONS: readonly AlertInaccuracyReason[] = ['addressed_off_call', 'evidence_misquoted', 'wrong_context', 'covered_not_verbatim', 'call_dropped_incomplete', 'policy_does_not_apply', 'soft_inquiry_misclassified', 'other']
-const REASON_PREVIEW = 100
 const IDLE_SAVE: FullQaSaveState = { disabled: true, label: 'Save review', message: null }
 
 interface Props {
@@ -141,51 +140,24 @@ function hasUnreadableEvidence(evidence: unknown): boolean {
   return evidenceEntries(evidence).some(entry => !savedText(entry) && !savedText(valueAtPath(entry, 'quote')) && !savedText(valueAtPath(entry, 'context')))
 }
 
-/** The first excerpt, shown before the response so a quote and the decision share the first screen. */
-function LeadEvidence({ excerpts }: { readonly excerpts: readonly Excerpt[] }) {
-  return <div className="space-y-2 text-pennie-graphite">
-    <p className="text-xs font-semibold">Evidence Eavesly used</p>
-    {excerpts.length ? excerpts[0].lead : <p className="text-sm">No readable excerpt was saved. Check the transcript before deciding.</p>}
-  </div>
-}
-
-/** Everything after the first excerpt: its saved context, remaining excerpts, and unreadable-entry notice. */
-function MoreEvidence({ evidence, excerpts }: { readonly evidence: unknown; readonly excerpts: readonly Excerpt[] }) {
-  const [first, ...rest] = excerpts
-  const unreadable = hasUnreadableEvidence(evidence) && excerpts.length > 0
-  if (!first?.context && rest.length === 0 && !unreadable) return null
-  return <div className="space-y-2 text-pennie-graphite">
-    <p className="text-xs font-semibold">More evidence</p>
-    {first && <ContextLine excerpt={first} attributed={rest.length > 0} />}
-    {rest.map(excerpt => <div key={excerpt.key} className="space-y-1">{excerpt.lead}<ContextLine excerpt={excerpt} /></div>)}
-    {unreadable && <p className="text-xs">Some evidence is only available in the saved details below.</p>}
-  </div>
-}
-
 /** Read-only view: all excerpts and contexts in one block. */
 function CriterionEvidence({ evidence, excerpts }: { readonly evidence: unknown; readonly excerpts: readonly Excerpt[] }) {
   const unreadable = hasUnreadableEvidence(evidence) && excerpts.length > 0
   return <div className="space-y-2 text-pennie-graphite">
     <p className="text-xs font-semibold">Evidence Eavesly used</p>
-    {excerpts.length ? excerpts.map(excerpt => <div key={excerpt.key} className="space-y-1">{excerpt.lead}<ContextLine excerpt={excerpt} /></div>) : <p className="text-sm">No readable excerpt was saved. Check the transcript before deciding.</p>}
+    {excerpts.length ? excerpts.map(excerpt => <div key={excerpt.key} className="space-y-1">{excerpt.lead}<ContextLine excerpt={excerpt} attributed={excerpts.length > 1} /></div>) : <p className="text-sm">No readable excerpt was saved. Check the transcript before deciding.</p>}
     {unreadable && <p className="text-xs">Some evidence is only available in the saved details below.</p>}
   </div>
 }
 
 function ReasonText({ text, violations }: { readonly text: string | null; readonly violations: readonly string[] }) {
-  const [expanded, setExpanded] = useState(false)
-  // Only truncate when the preview would actually hide a meaningful amount of text.
-  const long = !!text && text.length > REASON_PREVIEW * 1.5
   return <>
-    {text ? <p className="mt-1 whitespace-pre-wrap break-words text-sm leading-relaxed text-pennie-graphite">{long && !expanded ? `${text.slice(0, REASON_PREVIEW).trimEnd()}…` : text}</p>
-      : <p className="mt-1 text-sm text-pennie-graphite">No alert reason saved.</p>}
-    {(long || violations.length > 0) && <div className="mt-1 flex flex-wrap items-start gap-x-4">
-      {long && <button type="button" aria-expanded={expanded} onClick={() => setExpanded(value => !value)} className="pennie-focus-ring min-h-[36px] text-xs font-semibold text-pennie-blue-deeper">{expanded ? 'Show less' : 'Full reason'}</button>}
-      {violations.length > 0 && <details className="text-sm">
-        <summary className="pennie-focus-ring flex min-h-[36px] cursor-pointer items-center text-xs font-semibold text-pennie-blue-deeper">Recorded compliance issues ({violations.length})</summary>
-        <ul className="mt-1 list-disc space-y-1 pl-5 text-pennie-graphite">{violations.map((item, index) => <li key={index} className="whitespace-pre-wrap break-words">{item}</li>)}</ul>
-      </details>}
-    </div>}
+    {text ? <p className="mt-2 whitespace-pre-wrap break-words text-sm leading-relaxed text-pennie-graphite">{text}</p>
+      : <p className="mt-2 text-sm text-pennie-graphite">No alert reason saved.</p>}
+    {violations.length > 0 && <details className="mt-2 text-sm">
+      <summary className="pennie-focus-ring flex min-h-[36px] cursor-pointer items-center text-xs font-semibold text-pennie-blue-deeper">Recorded compliance issues ({violations.length})</summary>
+      <ul className="mt-1 list-disc space-y-1 pl-5 text-pennie-graphite">{violations.map((item, index) => <li key={index} className="whitespace-pre-wrap break-words">{item}</li>)}</ul>
+    </details>}
   </>
 }
 
@@ -398,83 +370,95 @@ export function FullQaRubricReview({ alert, scope, editable, onDirtyChange, onBu
   }
 
   const scorecard = <>
-    {showFullScorecard && <h2 className="text-base font-semibold text-pennie-navy">Full scorecard</h2>}
-      {hasProgramConcerns && (programSummary || programGaps.length > 0) && <aside aria-label="Program expectations section notes" className="rounded-xl border border-border p-3 text-sm text-pennie-graphite">
-        <p className="font-semibold">Program expectations — saved section notes</p>
-        <p className="mt-1 text-xs">These notes cover the whole section, not an individual score. Program-expectations gaps alone do not trigger this alert.</p>
-        {programSummary && <p className="mt-2 whitespace-pre-wrap break-words">{programSummary}</p>}
-        {programGaps.length > 0 && <ul className="mt-2 list-disc pl-5">{programGaps.map((gap, index) => <li key={index}>{gap}</li>)}</ul>}
-      </aside>}
-    {!showFullScorecard && attentionKeys.size === 0 && <p className="text-sm text-pennie-graphite">No flagged criteria or review changes to show. Open the full scorecard to inspect other scores; this does not clear the alert.</p>}
-    <div id={scorecardId} className="space-y-3">{context.criteria.map(criterion => {
-        const correction = corrections.find(item => item.criterionKey === criterion.key)
-        if (!correction) return null
-        const original = valueAtPath(context.sourceResult, criterion.scorePath)
-        const evidence = valueAtPath(context.sourceResult, criterion.evidencePath)
-        const aiConcern = aiConcernKeys.has(criterion.key)
-        const originalValue = criterion.domain.find(value => value === original)
-        const notes = criterionNotes(context.sourceResult, criterion.key, evidence)
-        const saved = context.review?.corrections.find(item => item.criterionKey === criterion.key)
-        const humanChanged = [correction, saved].some(item => item && item.disposition !== 'confirmed')
-        const linkedIndex = findings.findIndex(item => item.relatedCriteria.includes(criterion.key))
-        const label = aiConcern ? original === 'fail' ? 'Eavesly flagged this' : 'Eavesly score concern'
-          : originalValue === undefined ? 'Eavesly score unavailable' : humanChanged ? 'Manager review item'
-            : attentionKeys.has(criterion.key) ? 'Included in this review' : 'Other Eavesly score'
-        const entries = evidenceEntries(evidence)
-        const excerpts = excerptItems(evidence, aiConcern ? notes : [])
-        return <article key={criterion.key} aria-label={criterion.label} hidden={!showFullScorecard && !attentionKeys.has(criterion.key)} className={`space-y-2 rounded-2xl border border-l-4 p-3 sm:p-4 ${aiConcern ? 'border-pennie-yellow-main bg-pennie-yellow-light/50' : attentionKeys.has(criterion.key) ? 'border-pennie-blue-main bg-pennie-blue-light/30' : 'border-border bg-pennie-beige/40'}`}>
-          <div>
-            <p className={`mb-0.5 inline-flex items-center gap-2 text-xs font-bold ${aiConcern ? 'text-pennie-yellow-deeper' : 'text-pennie-blue-deeper'}`}>{aiConcern ? <Flag className="h-4 w-4 shrink-0" aria-hidden="true" /> : <MessageSquare className="h-4 w-4 shrink-0" aria-hidden="true" />}{label}</p>
-            <h3 className="break-words text-base font-semibold text-pennie-navy">{criterion.label}</h3>
-            <p className="mt-1 text-sm text-pennie-graphite">Eavesly’s result: <strong>{scoreLabel(originalValue)}</strong></p>
-          </div>
-          {aiConcern && (notes.length > 0 ? <div className="space-y-1 text-sm text-pennie-graphite">
-            <p className="text-xs font-semibold">{original === 'fail' ? 'Why Eavesly flagged this' : 'Why Eavesly noted a concern'}</p>
-            {notes.map((note, index) => <p key={index} className="whitespace-pre-wrap break-words leading-relaxed">{note}</p>)}
-          </div> : <p className="text-xs text-pennie-graphite/70">{criterion.findingCategory === 'program_expectations' && (programSummary || programGaps.length > 0) ? 'No separate reason saved for this score; see the saved section notes above.' : 'No reason saved for this score.'}</p>)}
-          {editable ? <LeadEvidence excerpts={excerpts} /> : <CriterionEvidence evidence={evidence} excerpts={excerpts} />}
-          {saved && <div className="rounded-xl border border-pennie-blue-main bg-pennie-blue-light p-3 text-sm">
-            <p className="mb-1 text-xs font-bold text-pennie-blue-deeper">Manager’s saved response</p>
-            <p className="font-semibold text-pennie-navy">{saved.disposition === 'confirmed' ? 'Kept Eavesly’s result' : saved.disposition === 'corrected' ? `Changed to: ${scoreLabel(saved.correctedValue)}` : 'Needs more context'}</p>
-            {saved.reason && <p className="mt-1 whitespace-pre-wrap break-words text-pennie-graphite">{saved.reason}</p>}
-          </div>}
-          {editable && <div className="space-y-3 rounded-xl border border-pennie-blue-main bg-white p-3">
-            <fieldset disabled={locked} role="radiogroup" aria-label={`${criterion.label} disposition`}>
-              <legend className="mb-2 text-sm font-semibold text-pennie-navy">Is Eavesly’s assessment correct?</legend>
-              <div className="flex flex-wrap gap-2">{(['confirmed', 'corrected', 'needs_context'] as const).map(disposition => <label key={disposition} className={`flex min-h-[44px] cursor-pointer items-center gap-2 rounded-xl border px-3 py-2 text-sm has-[:disabled]:cursor-not-allowed has-[:disabled]:opacity-50 ${correction.disposition === disposition ? 'border-pennie-blue-deeper bg-pennie-blue-light text-pennie-navy' : 'border-border text-pennie-graphite hover:bg-pennie-blue-light/50'}`}>
-                <input type="radio" name={`${scorecardId}-${criterion.key}`} checked={correction.disposition === disposition} disabled={disposition === 'confirmed' && originalValue === undefined} className="pennie-focus-ring h-4 w-4 accent-pennie-blue-deeper" onChange={() => {
-                  if (correction.disposition === disposition) return
-                  if (disposition === 'confirmed') {
-                    if (originalValue !== undefined) updateCorrection(criterion.key, { disposition, correctedValue: originalValue, reason: null })
-                  } else updateCorrection(criterion.key, disposition === 'needs_context' ? { disposition, correctedValue: null, reason: '' }
-                    : { disposition, correctedValue: criterion.domain.find(value => value !== original) ?? null, reason: '' })
-                }} />
-                <span className="whitespace-nowrap">{disposition === 'confirmed' ? 'Correct' : disposition === 'corrected' ? 'Incorrect' : 'Need more context'}</span>
-              </label>)}</div>
-            </fieldset>
-            {correction.disposition === 'corrected' && <label className="block text-sm font-semibold">What should the result be?<select aria-label={`${criterion.label} corrected value`} disabled={locked} value={String(correction.correctedValue)} onChange={event => updateCorrection(criterion.key, { correctedValue: criterion.domain.find(value => String(value) === event.target.value) ?? null })} className="mt-1 min-h-[44px] w-full rounded-lg border border-border bg-white px-2 font-normal">{criterion.domain.map(value => <option key={String(value)} value={String(value)}>{scoreLabel(value)}</option>)}</select></label>}
-            {correction.disposition !== 'confirmed' && <label className="block text-sm font-semibold">{correction.disposition === 'corrected' ? 'Why is the assessment incorrect?' : 'What context is missing?'}<textarea aria-label={`${criterion.label} correction reason`} disabled={locked} value={correction.reason ?? ''} onChange={event => updateCorrection(criterion.key, { reason: event.target.value })} className="mt-1 min-h-20 w-full rounded-lg border border-border bg-white p-2 font-normal" /></label>}
-          </div>}
-          {editable && <MoreEvidence evidence={evidence} excerpts={excerpts} />}
-          {editable && (linkedIndex >= 0
-            ? <button type="button" disabled={locked} onClick={() => focusFinding(findings[linkedIndex].findingId)} className="pennie-focus-ring min-h-[36px] text-xs font-semibold text-pennie-blue-deeper underline-offset-4 hover:underline">Edit coaching issue {linkedIndex + 1}</button>
-            : <button type="button" disabled={locked} onClick={() => addIssueFromCriterion(criterion, evidence, notes)} className="pennie-focus-ring min-h-[36px] rounded-full border border-border px-3 text-xs font-semibold text-pennie-blue-deeper disabled:opacity-40"><Plus className="mr-1 inline h-3.5 w-3.5" aria-hidden="true" />Add as coaching issue</button>)}
-          <details>
-            <summary className="pennie-focus-ring cursor-pointer text-xs font-semibold text-pennie-blue-deeper">Rule and saved evidence</summary>
-            {context.sourceReferenceKind !== 'unknown_hash' ? <p className="mt-2 text-sm leading-relaxed text-pennie-graphite">{criterion.rule}</p> : <p className="mt-2 text-xs text-pennie-peach-deeper">Original rule unavailable for this stamped hash.</p>}
-            {entries.length > 0 && <pre className="mt-2 whitespace-pre-wrap break-words text-xs">{JSON.stringify(evidence, null, 2)}</pre>}
-          </details>
-        </article>
+    <div className="flex flex-wrap items-baseline justify-between gap-2 border-b border-border pb-3">
+      <h2 className="text-base font-semibold text-pennie-navy">{showFullScorecard ? 'Full scorecard' : 'Scores to review'}</h2>
+      <p className="text-xs text-pennie-graphite/80">{attentionKeys.size} {attentionKeys.size === 1 ? 'item' : 'items'} to check</p>
+    </div>
+    {hasProgramConcerns && (programSummary || programGaps.length > 0) && <aside aria-label="Program expectations section notes" className="border-b border-border pb-4 text-sm text-pennie-graphite">
+      <p className="font-semibold">Program expectations — saved section notes</p>
+      <p className="mt-1 text-xs">These notes cover the whole section, not an individual score. Program-expectations gaps alone do not trigger this alert.</p>
+      {programSummary && <p className="mt-2 whitespace-pre-wrap break-words">{programSummary}</p>}
+      {programGaps.length > 0 && <ul className="mt-2 list-disc pl-5">{programGaps.map((gap, index) => <li key={index}>{gap}</li>)}</ul>}
+    </aside>}
+    {!showFullScorecard && attentionKeys.size === 0 && <p className="py-4 text-sm text-pennie-graphite">No flagged criteria or review changes to show. Open the full scorecard to inspect other scores; this does not clear the alert.</p>}
+    <div id={scorecardId}>{context.criteria.map(criterion => {
+      const correction = corrections.find(item => item.criterionKey === criterion.key)
+      if (!correction) return null
+      const original = valueAtPath(context.sourceResult, criterion.scorePath)
+      const evidence = valueAtPath(context.sourceResult, criterion.evidencePath)
+      const aiConcern = aiConcernKeys.has(criterion.key)
+      const originalValue = criterion.domain.find(value => value === original)
+      const notes = criterionNotes(context.sourceResult, criterion.key, evidence)
+      const saved = context.review?.corrections.find(item => item.criterionKey === criterion.key)
+      const humanChanged = [correction, saved].some(item => item && item.disposition !== 'confirmed')
+      const linkedIndex = findings.findIndex(item => item.relatedCriteria.includes(criterion.key))
+      const label = aiConcern ? original === 'fail' ? 'Eavesly flagged this' : 'Eavesly score concern'
+        : originalValue === undefined ? 'Eavesly score unavailable' : humanChanged ? 'Manager review item'
+          : attentionKeys.has(criterion.key) ? 'Included in this review' : 'Other Eavesly score'
+      const entries = evidenceEntries(evidence)
+      const excerpts = excerptItems(evidence, aiConcern ? notes : [])
+      const sourceHeading = aiConcern ? 'What Eavesly flagged' : 'Eavesly’s assessment'
+      const responseHeading = editable ? 'Your review' : 'Manager’s response'
+      return <article key={criterion.key} aria-label={criterion.label} hidden={!showFullScorecard && !attentionKeys.has(criterion.key)} className={`border-b py-5 ${aiConcern ? 'border-pennie-yellow-main' : 'border-border'}`}>
+        <div className="grid min-w-0 gap-5 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)] md:gap-0">
+          <section aria-label={`${criterion.label}: ${sourceHeading}`} className="min-w-0 space-y-3 md:pr-6">
+            <p className="pennie-label text-pennie-graphite/70">{sourceHeading}</p>
+            <div>
+              <p className={`mb-0.5 inline-flex items-center gap-2 text-xs font-bold ${aiConcern ? 'text-pennie-yellow-deeper' : 'text-pennie-blue-deeper'}`}>{aiConcern ? <Flag className="h-4 w-4 shrink-0" aria-hidden="true" /> : <MessageSquare className="h-4 w-4 shrink-0" aria-hidden="true" />}{label}</p>
+              <h3 className="min-w-0 break-words text-base font-semibold text-pennie-navy">{criterion.label}</h3>
+              <p className="mt-1 text-sm text-pennie-graphite">Eavesly’s result: <strong>{scoreLabel(originalValue)}</strong></p>
+            </div>
+            {aiConcern && (notes.length > 0 ? <div className="space-y-1 text-sm text-pennie-graphite">
+              <p className="text-xs font-semibold">{original === 'fail' ? 'Why Eavesly flagged this' : 'Why Eavesly noted a concern'}</p>
+              {notes.map((note, index) => <p key={index} className="whitespace-pre-wrap break-words leading-relaxed">{note}</p>)}
+            </div> : <p className="text-xs text-pennie-graphite/70">{criterion.findingCategory === 'program_expectations' && (programSummary || programGaps.length > 0) ? 'No separate reason saved for this score; see the saved section notes above.' : 'No reason saved for this score.'}</p>)}
+            <CriterionEvidence evidence={evidence} excerpts={excerpts} />
+            <details>
+              <summary className="pennie-focus-ring cursor-pointer text-xs font-semibold text-pennie-blue-deeper">Rule and saved evidence</summary>
+              {context.sourceReferenceKind !== 'unknown_hash' ? <p className="mt-2 text-sm leading-relaxed text-pennie-graphite">{criterion.rule}</p> : <p className="mt-2 text-xs text-pennie-peach-deeper">Original rule unavailable for this stamped hash.</p>}
+              {entries.length > 0 && <pre className="mt-2 whitespace-pre-wrap break-words text-xs">{JSON.stringify(evidence, null, 2)}</pre>}
+            </details>
+          </section>
+          <section aria-label={`${criterion.label}: ${responseHeading}`} className="min-w-0 space-y-3 border-t border-border pt-5 md:border-l md:border-t-0 md:pl-6 md:pt-0">
+            <p className="pennie-label text-pennie-graphite/70">{responseHeading}</p>
+            {saved && <div className="border-b border-pennie-blue-main pb-3 text-sm">
+              <p className="mb-1 text-xs font-bold text-pennie-blue-deeper">Manager’s saved response</p>
+              <p className="font-semibold text-pennie-navy">{saved.disposition === 'confirmed' ? 'Kept Eavesly’s result' : saved.disposition === 'corrected' ? `Changed to: ${scoreLabel(saved.correctedValue)}` : 'Needs more context'}</p>
+              {saved.reason && <p className="mt-1 whitespace-pre-wrap break-words text-pennie-graphite">{saved.reason}</p>}
+            </div>}
+            {editable && <div className="space-y-3">
+              <fieldset disabled={locked} role="radiogroup" aria-label={`${criterion.label} disposition`}>
+                <legend className="mb-2 text-sm font-semibold text-pennie-navy">Is Eavesly’s assessment correct?</legend>
+                <div className="flex flex-wrap gap-2">{(['confirmed', 'corrected', 'needs_context'] as const).map(disposition => <label key={disposition} className={`flex min-h-[44px] cursor-pointer items-center gap-2 rounded-xl border px-3 py-2 text-sm has-[:disabled]:cursor-not-allowed has-[:disabled]:opacity-50 ${correction.disposition === disposition ? 'border-pennie-blue-deeper bg-pennie-blue-light text-pennie-navy' : 'border-border text-pennie-graphite hover:bg-pennie-blue-light/50'}`}>
+                  <input type="radio" name={`${scorecardId}-${criterion.key}`} checked={correction.disposition === disposition} disabled={disposition === 'confirmed' && originalValue === undefined} className="pennie-focus-ring h-4 w-4 accent-pennie-blue-deeper" onChange={() => {
+                    if (correction.disposition === disposition) return
+                    if (disposition === 'confirmed') {
+                      if (originalValue !== undefined) updateCorrection(criterion.key, { disposition, correctedValue: originalValue, reason: null })
+                    } else updateCorrection(criterion.key, disposition === 'needs_context' ? { disposition, correctedValue: null, reason: '' }
+                      : { disposition, correctedValue: criterion.domain.find(value => value !== original) ?? null, reason: '' })
+                  }} />
+                  <span className="whitespace-nowrap">{disposition === 'confirmed' ? 'Correct' : disposition === 'corrected' ? 'Incorrect' : 'Need more context'}</span>
+                </label>)}</div>
+              </fieldset>
+              {correction.disposition === 'corrected' && <label className="block text-sm font-semibold">What should the result be?<select aria-label={`${criterion.label} corrected value`} disabled={locked} value={String(correction.correctedValue)} onChange={event => updateCorrection(criterion.key, { correctedValue: criterion.domain.find(value => String(value) === event.target.value) ?? null })} className="mt-1 min-h-[44px] w-full rounded-lg border border-border bg-white px-2 font-normal">{criterion.domain.map(value => <option key={String(value)} value={String(value)}>{scoreLabel(value)}</option>)}</select></label>}
+              {correction.disposition !== 'confirmed' && <label className="block text-sm font-semibold">{correction.disposition === 'corrected' ? 'Why is the assessment incorrect?' : 'What context is missing?'}<textarea aria-label={`${criterion.label} correction reason`} disabled={locked} value={correction.reason ?? ''} onChange={event => updateCorrection(criterion.key, { reason: event.target.value })} className="mt-1 min-h-20 w-full rounded-lg border border-border bg-white p-2 font-normal" /></label>}
+            </div>}
+            {!editable && !saved && <p className="text-sm text-pennie-graphite/70">No structured response was recorded for this criterion.</p>}
+            {editable && (linkedIndex >= 0
+              ? <button type="button" disabled={locked} onClick={() => focusFinding(findings[linkedIndex].findingId)} className="pennie-focus-ring min-h-[36px] text-xs font-semibold text-pennie-blue-deeper underline-offset-4 hover:underline">Edit coaching issue {linkedIndex + 1}</button>
+              : <button type="button" disabled={locked} onClick={() => addIssueFromCriterion(criterion, evidence, notes)} className="pennie-focus-ring min-h-[36px] rounded-full border border-border px-3 text-xs font-semibold text-pennie-blue-deeper disabled:opacity-40"><Plus className="mr-1 inline h-3.5 w-3.5" aria-hidden="true" />Add as coaching issue</button>)}
+          </section>
+        </div>
+      </article>
     })}</div>
-    <div className="flex flex-wrap items-center justify-between gap-x-3">
-    <p className="text-xs text-pennie-graphite/80">{attentionKeys.size} {attentionKeys.size === 1 ? 'item' : 'items'} to check</p>
-    <button type="button" aria-expanded={showFullScorecard} aria-controls={scorecardId} onClick={() => setShowFullScorecard(value => !value)} className="pennie-focus-ring min-h-[44px] rounded-lg py-2 text-sm font-semibold text-pennie-blue-deeper underline-offset-4 hover:underline active:bg-pennie-beige">
-      {showFullScorecard ? 'Show only items to check' : `View full scorecard · ${context.criteria.length} criteria`}
-    </button>
+    <div className="flex flex-wrap items-center justify-end gap-x-3">
+      <button type="button" aria-expanded={showFullScorecard} aria-controls={scorecardId} onClick={() => setShowFullScorecard(value => !value)} className="pennie-focus-ring min-h-[44px] rounded-lg py-2 text-sm font-semibold text-pennie-blue-deeper underline-offset-4 hover:underline active:bg-pennie-beige">
+        {showFullScorecard ? 'Show only items to check' : `View full scorecard · ${context.criteria.length} criteria`}
+      </button>
     </div>
   </>
 
-  return <form id={FULL_QA_FORM_ID} onSubmit={event => { event.preventDefault(); void save() }} className="space-y-5" aria-label="Full QA rubric review">
+  return <form id={FULL_QA_FORM_ID} onSubmit={event => { event.preventDefault(); void save() }} className="space-y-6" aria-label="Full QA rubric review">
     {(practiceFalsePositive || practiceSupported) && <aside aria-label="Staging practice guidance" className="text-xs text-pennie-graphite/70">
       <details>
         <summary className="pennie-focus-ring cursor-pointer font-semibold">Practice call (synthetic) · about this example</summary>
@@ -486,7 +470,7 @@ export function FullQaRubricReview({ alert, scope, editable, onDirtyChange, onBu
 
     {!editable && <ManagerReviewOutcome context={context} />}
 
-    <section aria-label="Why Eavesly requested review" className="rounded-2xl border border-pennie-yellow-main bg-pennie-yellow-light/50 p-3 sm:p-4">
+    <section aria-label="Why Eavesly requested review" className="border-y border-pennie-yellow-main bg-pennie-yellow-light/40 px-1 py-4 sm:px-4">
       <h2 className="pennie-label text-pennie-navy">Why Eavesly requested review</h2>
       <ReasonText text={reviewReason} violations={recordedViolations} />
       {requestedReview === false && <p className="mt-2 text-xs font-semibold text-pennie-peach-deeper">Eavesly’s saved assessment says manager review was not required, but this alert was sent.</p>}
@@ -494,13 +478,13 @@ export function FullQaRubricReview({ alert, scope, editable, onDirtyChange, onBu
     {context.sourceReferenceKind !== 'known' && <p className="rounded-xl border border-pennie-peach-dark bg-pennie-peach-light/30 p-3 text-xs text-pennie-graphite">{context.sourceReferenceKind === 'legacy_current_reference' ? 'Original rubric unknown; current reference only.' : 'Original rubric unavailable for this stamped hash; current field map only.'}</p>}
     {editable && context.review && <p className="text-xs text-pennie-graphite/70">Saved revision {context.review.feedbackRevision} · {formatDateTime(context.review.savedAt)} by {context.review.savedBy}</p>}
 
-    {editable ? scorecard : <details className="rounded-2xl border border-border px-4 py-3">
+    {editable ? scorecard : <details className="border-y border-border py-3">
       <summary className="pennie-focus-ring min-h-[36px] cursor-pointer text-sm font-semibold text-pennie-blue-deeper">Eavesly’s evidence and scores · {attentionKeys.size} {attentionKeys.size === 1 ? 'item' : 'items'}</summary>
       <div className="mt-3 space-y-5">{scorecard}</div>
     </details>}
 
 
-    {editable && <section aria-label="Coaching issues" className="rounded-2xl border border-border p-4 space-y-3">
+    {editable && <section aria-label="Coaching issues" className="space-y-4 border-t border-border pt-5">
       <div><h2 className="text-base font-semibold text-pennie-navy">Coaching issues</h2><p className="mt-1 text-sm text-pennie-graphite">Add each distinct issue you confirmed. Changing a score does not add one.</p></div>
       {findings.map((finding, index) => <fieldset key={finding.findingId} id={findingElementId(finding.findingId)} disabled={locked} className="rounded-xl bg-pennie-beige/60 p-3 space-y-2"><legend className="px-1 text-xs font-semibold">Issue {index + 1}</legend>
         <label className="block text-xs font-semibold">Category<select aria-label={`Finding ${index + 1} category`} value={finding.category} onChange={event => updateFinding(finding.findingId, { category: event.target.value as FullQaFindingCategory })} className="mt-1 min-h-[40px] w-full rounded-lg border bg-white px-2 font-normal">{Object.entries(CATEGORY_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
@@ -520,7 +504,7 @@ export function FullQaRubricReview({ alert, scope, editable, onDirtyChange, onBu
       </fieldset>}
     </section>}
 
-    {editable && <fieldset disabled={locked} className="rounded-2xl border border-border p-4 space-y-3"><legend className="px-1 text-base font-semibold text-pennie-navy">Was this alert warranted?</legend>
+    {editable && <fieldset disabled={locked} className="space-y-3 border-t border-border pt-5"><legend className="pr-2 text-base font-semibold text-pennie-navy">Was this alert warranted?</legend>
       <p className="text-sm text-pennie-graphite">Coaching issues above stay recorded either way.</p>
       <div role="radiogroup" aria-label="Alert verdict" className="flex flex-wrap gap-2">{([true, false] as const).map(value => <label key={String(value)} className={`flex min-h-[44px] cursor-pointer items-center gap-2 rounded-xl border px-3 py-2 text-sm ${escalationJustified === value ? 'border-pennie-blue-deeper bg-pennie-blue-light text-pennie-navy' : 'border-border text-pennie-graphite hover:bg-pennie-blue-light/50'}`}>
         <input type="radio" name={`${scorecardId}-escalation`} checked={escalationJustified === value} onChange={() => setEscalationJustified(value)} className="pennie-focus-ring h-4 w-4 accent-pennie-blue-deeper" />
@@ -530,15 +514,15 @@ export function FullQaRubricReview({ alert, scope, editable, onDirtyChange, onBu
       {escalationJustified === false && <label className="block text-xs font-semibold">Why was the alert unnecessary?<select aria-label="Why was the alert unnecessary?" value={inaccuracyReason ?? ''} onChange={event => setInaccuracyReason(event.target.value as AlertInaccuracyReason)} className="mt-1 min-h-[40px] w-full rounded-lg border bg-white px-2 font-normal"><option value="">Choose a reason</option>{REASONS.map(value => <option key={value} value={value}>{INACCURACY_REASON_LABELS[value]}</option>)}</select></label>}
     </fieldset>}
 
-    <details className="rounded-2xl border border-border px-4 py-3">
+    <details className="border-t border-border py-3">
       <summary className="pennie-focus-ring min-h-[36px] cursor-pointer text-sm font-semibold text-pennie-blue-deeper">Scoring policy &amp; source</summary>
       <p className="mt-1 break-all text-xs text-pennie-graphite">{sourceNotice(context)}</p>
       <p className="mt-1 text-xs text-pennie-graphite/70">The reviewed AI JSON is snapshotted per saved revision. No model or replay identity is claimed.</p>
       {context.sourceReferenceKind !== 'unknown_hash' && <div className="mt-3 rounded-xl bg-white/70 p-3 text-xs text-pennie-graphite"><p><strong>Escalation:</strong> two or more distinct confirmed compliance findings, or an explicit severe customer-mistreatment finding. Poor CX alone is not severe.</p><p className="mt-1"><strong>Program expectations:</strong> enrollment gating applies; only handling-agent delivery counts, and ACDR/GOTA-only delivery does not count for discussion points.</p></div>}
-      {context.rubricPromptText && <details className="mt-3"><summary className="cursor-pointer text-xs font-semibold text-pennie-blue-deeper">{context.sourceReferenceKind === 'known' ? 'Full exact scoring policy used' : 'Full current scoring policy — reference only'}</summary><pre className="mt-2 max-h-80 overflow-auto whitespace-pre-wrap break-words rounded-xl bg-white p-3 text-[11px] text-pennie-graphite">{context.rubricPromptText}</pre></details>}
+      {context.rubricPromptText && <details className="mt-3"><summary className="cursor-pointer text-xs font-semibold text-pennie-blue-deeper">{context.sourceReferenceKind === 'known' ? 'Full exact scoring policy used' : 'Full current scoring policy — reference only'}</summary><pre className="mt-2 whitespace-pre-wrap break-words bg-white py-3 text-[11px] text-pennie-graphite">{context.rubricPromptText}</pre></details>}
     </details>
 
-    {(context.proposals.length > 0 || (editable && context.review)) && <details className="group rounded-2xl border border-border px-4 py-3"><summary className="flex cursor-pointer list-none items-center justify-between text-sm font-semibold text-pennie-blue-deeper">{editable ? 'Suggest a rule change' : 'Rule change proposals'} <ChevronDown className="h-4 w-4 transition-transform group-open:rotate-180" /></summary><div className="mt-3 space-y-3">
+    {(context.proposals.length > 0 || (editable && context.review)) && <details className="group border-t border-border py-3"><summary className="flex cursor-pointer list-none items-center justify-between text-sm font-semibold text-pennie-blue-deeper">{editable ? 'Suggest a rule change' : 'Rule change proposals'} <ChevronDown className="h-4 w-4 transition-transform group-open:rotate-180" /></summary><div className="mt-3 space-y-3">
       <p className="text-xs text-pennie-graphite/70">Proposals are separate from per-call findings. Accepted means approved for evaluation, not published; the production rubric remains unchanged.</p>
       {context.proposals.map(proposal => <article key={proposal.id} className="rounded-xl bg-pennie-beige/60 p-3 text-sm"><p className="font-semibold">{context.criteria.find(item => item.key === proposal.criterionKey)?.label ?? proposal.criterionKey}</p><p className="mt-1">{proposal.proposedRule}</p><p className="mt-1 text-xs text-muted-foreground">Why: {proposal.why}</p><p className="mt-2 text-xs font-semibold">{proposal.decision === 'accepted_for_evaluation' ? 'Approved for evaluation — not published' : proposal.decision.replace('_', ' ')}</p>
         {scope.isGodMode && proposal.decision === 'pending' && <div className="mt-2"><textarea aria-label={`Proposal ${proposal.id} decision reason`} value={decisionReason[proposal.id] ?? ''} onChange={event => setDecisionReason(value => ({ ...value, [proposal.id]: event.target.value }))} className="min-h-16 w-full rounded-lg border bg-white p-2 text-xs" placeholder="Required decision reason" /><div className="mt-2 flex gap-2"><button type="button" disabled={proposalDecisionPending || (decisionReason[proposal.id]?.trim().length ?? 0) < 12} onClick={() => decideProposal(proposal.id, 'accepted_for_evaluation')} className="min-h-[36px] rounded-full bg-pennie-navy px-3 text-xs font-semibold text-white disabled:opacity-40">Approve for evaluation</button><button type="button" disabled={proposalDecisionPending || (decisionReason[proposal.id]?.trim().length ?? 0) < 12} onClick={() => decideProposal(proposal.id, 'rejected')} className="min-h-[36px] rounded-full border px-3 text-xs font-semibold disabled:opacity-40">Reject</button></div></div>}

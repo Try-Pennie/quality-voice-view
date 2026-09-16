@@ -65,8 +65,8 @@ export async function reviewFixture(page: Page, rows: AlertWithFeedback[], optio
   const fixtureEmail = options.email ?? EMAIL
   const state = {
     rows, writes: [] as unknown[], requests: [] as URL[], transcript: TRANSCRIPT as string | null,
-    failFeedback: false, failTranscript: false, failQueueOffset: -1, failBreakdown: false,
-    transcriptGate: Promise.resolve(), alertGate: Promise.resolve(), queueGate: Promise.resolve(), ackGate: Promise.resolve(), decisionGate: Promise.resolve(), fullQaSubmitGate: Promise.resolve(),
+    failFeedback: false, failTranscript: false, failFullQaContext: false, failQueueOffset: -1, failBreakdown: false,
+    transcriptGate: Promise.resolve(), alertGate: Promise.resolve(), queueGate: Promise.resolve(), ackGate: Promise.resolve(), decisionGate: Promise.resolve(), fullQaContextGate: Promise.resolve(), fullQaSubmitGate: Promise.resolve(),
     failedAckIds: new Set<string>(), failedDecisionIds: new Set<string>(),
     ackInFlight: 0, maxAckInFlight: 0, decisionInFlight: 0, maxDecisionInFlight: 0,
     nextDecisionId: 100, nextProposalId: 1,
@@ -149,6 +149,8 @@ export async function reviewFixture(page: Page, rows: AlertWithFeedback[], optio
       return respond(pageRows)
     }
     if (table === 'get_full_qa_review_context' && request.method() === 'POST') {
+      await state.fullQaContextGate
+      if (state.failFullQaContext) return respond({ message: 'Synthetic Full QA context failure' }, 500)
       const input: unknown = request.postDataJSON()
       const callId = input && typeof input === 'object' && 'p_call_id' in input && typeof input.p_call_id === 'string' ? input.p_call_id : ''
       const row = state.rows.find(candidate => candidate.call_id === callId)
