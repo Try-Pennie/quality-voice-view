@@ -265,9 +265,13 @@ export function FullQaRubricReview({ alert, scope, editable, onDirtyChange, onBu
   const busy = saving || proposalPending || proposalDecisionPending
   const latestContextToken = context ? `${context.sourceFingerprint}:${context.review?.feedbackRevision ?? 0}` : ''
   const contextChanged = !!context && !!contextToken.current && latestContextToken !== contextToken.current
+  // Historical unresolved responses stay intact; a missing AI score needs an explicit result, never an invented pass.
+  const unanswered = context?.criteria.find(criterion => corrections.some(item => item.criterionKey === criterion.key && item.disposition === 'needs_context')
+    && !context.review?.corrections.some(item => item.criterionKey === criterion.key && item.disposition === 'needs_context'))
   const parsed: ParsedDraft = !context ? { ok: false, message: 'Loading the Full QA rubric.' }
     : draft.escalationJustified === null ? { ok: false, message: 'Choose whether this alert was warranted.' }
-      : parseFullQaReviewDraft(context, { ...draft, escalationJustified: draft.escalationJustified })
+      : unanswered ? { ok: false, message: `Choose a result for ${unanswered.label} before saving.` }
+        : parseFullQaReviewDraft(context, { ...draft, escalationJustified: draft.escalationJustified })
   const saveDisabled = !editable || busy || parsed.ok === false || !reviewDirty || contextChanged
   const saveLabel = saving ? 'Saving…' : context?.review ? 'Update review' : 'Save review'
   const saveMessage = parsed.ok === false ? parsed.message : null
@@ -429,19 +433,19 @@ export function FullQaRubricReview({ alert, scope, editable, onDirtyChange, onBu
             {editable && <div className="space-y-3">
               <fieldset disabled={locked} role="radiogroup" aria-label={`${criterion.label} disposition`}>
                 <legend className="mb-2 text-sm font-semibold text-pennie-navy">Is Eavesly’s assessment correct?</legend>
-                <div className="flex flex-wrap gap-2">{(['confirmed', 'corrected', 'needs_context'] as const).map(disposition => <label key={disposition} className={`flex min-h-[44px] cursor-pointer items-center gap-2 rounded-xl border px-3 py-2 text-sm has-[:disabled]:cursor-not-allowed has-[:disabled]:opacity-50 ${correction.disposition === disposition ? 'border-pennie-blue-deeper bg-pennie-blue-light text-pennie-navy' : 'border-border text-pennie-graphite hover:bg-pennie-blue-light/50'}`}>
+                <div className="flex flex-wrap gap-2">{(['confirmed', 'corrected'] as const).map(disposition => <label key={disposition} className={`flex min-h-[44px] cursor-pointer items-center gap-2 rounded-xl border px-3 py-2 text-sm has-[:disabled]:cursor-not-allowed has-[:disabled]:opacity-50 ${correction.disposition === disposition ? 'border-pennie-blue-deeper bg-pennie-blue-light text-pennie-navy' : 'border-border text-pennie-graphite hover:bg-pennie-blue-light/50'}`}>
                   <input type="radio" name={`${scorecardId}-${criterion.key}`} checked={correction.disposition === disposition} disabled={disposition === 'confirmed' && originalValue === undefined} className="pennie-focus-ring h-4 w-4 accent-pennie-blue-deeper" onChange={() => {
                     if (correction.disposition === disposition) return
                     if (disposition === 'confirmed') {
                       if (originalValue !== undefined) updateCorrection(criterion.key, { disposition, correctedValue: originalValue, reason: null })
-                    } else updateCorrection(criterion.key, disposition === 'needs_context' ? { disposition, correctedValue: null, reason: '' }
-                      : { disposition, correctedValue: criterion.domain.find(value => value !== original) ?? null, reason: '' })
+                    } else updateCorrection(criterion.key, { disposition, correctedValue: originalValue === undefined ? null : criterion.domain.find(value => value !== original) ?? null, reason: '' })
                   }} />
-                  <span className="whitespace-nowrap">{disposition === 'confirmed' ? 'Correct' : disposition === 'corrected' ? 'Incorrect' : 'Need more context'}</span>
+                  <span className="whitespace-nowrap">{disposition === 'confirmed' ? 'Correct' : 'Incorrect'}</span>
                 </label>)}</div>
               </fieldset>
-              {correction.disposition === 'corrected' && <label className="block text-sm font-semibold">What should the result be?<select aria-label={`${criterion.label} corrected value`} disabled={locked} value={String(correction.correctedValue)} onChange={event => updateCorrection(criterion.key, { correctedValue: criterion.domain.find(value => String(value) === event.target.value) ?? null })} className="mt-1 min-h-[44px] w-full rounded-lg border border-border bg-white px-2 font-normal">{criterion.domain.map(value => <option key={String(value)} value={String(value)}>{scoreLabel(value)}</option>)}</select></label>}
-              {correction.disposition !== 'confirmed' && <label className="block text-sm font-semibold">{correction.disposition === 'corrected' ? 'Why is the assessment incorrect?' : 'What context is missing?'}<textarea aria-label={`${criterion.label} correction reason`} disabled={locked} value={correction.reason ?? ''} onChange={event => updateCorrection(criterion.key, { reason: event.target.value })} className="mt-1 min-h-20 w-full rounded-lg border border-border bg-white p-2 font-normal" /></label>}
+              {correction.disposition === 'corrected' && <label className="block text-sm font-semibold">What should the result be?<select aria-label={`${criterion.label} corrected value`} disabled={locked} value={correction.correctedValue === null ? '' : String(correction.correctedValue)} onChange={event => updateCorrection(criterion.key, { correctedValue: criterion.domain.find(value => String(value) === event.target.value) ?? null })} className="mt-1 min-h-[44px] w-full rounded-lg border border-border bg-white px-2 font-normal">{originalValue === undefined && <option value="" disabled>Choose a result</option>}{criterion.domain.map(value => <option key={String(value)} value={String(value)}>{scoreLabel(value)}</option>)}</select></label>}
+              {correction.disposition === 'needs_context' && !saved && <p className="text-sm text-pennie-graphite">No score was saved. Check the transcript, then select Incorrect to enter the result.</p>}
+              {correction.disposition === 'corrected' && <label className="block text-sm font-semibold">Why is the assessment incorrect?<textarea aria-label={`${criterion.label} correction reason`} disabled={locked} value={correction.reason ?? ''} onChange={event => updateCorrection(criterion.key, { reason: event.target.value })} className="mt-1 min-h-20 w-full rounded-lg border border-border bg-white p-2 font-normal" /></label>}
             </div>}
             {!editable && !saved && <p className="text-sm text-pennie-graphite/70">No structured response was recorded for this criterion.</p>}
             {editable && (linkedIndex >= 0

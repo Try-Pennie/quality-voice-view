@@ -31,7 +31,7 @@ const findingEvidence = 'The manager heard the guarantee repeated at 14:20 after
 const escalationReason = 'The alert escalation is unnecessary because only one distinct compliance issue is confirmed.'
 const actionDetails = 'The manager retained the finding and scheduled specific coaching despite dismissing escalation.'
 
-test('Full QA saves string-scale corrections, uncertainty, and a retained finding independently from dismissed escalation', async ({ page }, testInfo) => {
+test('Full QA saves string-scale corrections and a retained finding independently from dismissed escalation', async ({ page }, testInfo) => {
   const state = await reviewFixture(page, [alertRow('rubric-flow')])
   await page.goto('/dashboard/alerts?status=awaiting_manager')
   await openAlert(page, 'rubric-flow')
@@ -72,8 +72,9 @@ test('Full QA saves string-scale corrections, uncertainty, and a retained findin
   await page.getByRole('button', { name: 'View full scorecard · 23 criteria' }).click()
   await expect(dispositions(page)).toHaveCount(23)
 
-  await response(page, 'Call recording disclosure').getByRole('radio', { name: 'Need more context', exact: true }).check()
-  await page.getByRole('textbox', { name: 'Call recording disclosure correction reason' }).fill(contextReason)
+  await expect(page.getByRole('radio', { name: 'Need more context', exact: true, includeHidden: true })).toHaveCount(0)
+  await response(page, 'Call recording disclosure').getByRole('radio', { name: 'Incorrect', exact: true }).check()
+  await page.getByRole('textbox', { name: 'Call recording disclosure correction reason' }).fill(correctionReason)
   await response(page, 'Credit pull consent').getByRole('radio', { name: 'Incorrect', exact: true }).check()
   await expect(page.getByRole('combobox', { name: 'Credit pull consent corrected value' })).toHaveValue('pass')
   await page.getByRole('textbox', { name: 'Credit pull consent correction reason' }).fill(correctionReason)
@@ -81,7 +82,7 @@ test('Full QA saves string-scale corrections, uncertainty, and a retained findin
   await page.getByRole('combobox', { name: 'professional tone corrected value' }).selectOption('poor')
   await page.getByRole('textbox', { name: 'professional tone correction reason' }).fill('The manager identified a tone concern the AI initially missed.')
   await page.getByRole('button', { name: 'Show only items to check' }).click()
-  await expect(response(page, 'Call recording disclosure').getByRole('radio', { name: 'Need more context', exact: true })).toBeChecked()
+  await expect(response(page, 'Call recording disclosure').getByRole('radio', { name: 'Incorrect', exact: true })).toBeChecked()
   await expect(page.getByRole('combobox', { name: 'professional tone corrected value' })).toHaveValue('poor')
   await expect(response(page, 'Social security verification')).toBeHidden()
   await page.setViewportSize({ width: 390, height: 844 })
@@ -138,7 +139,7 @@ test('Full QA saves string-scale corrections, uncertainty, and a retained findin
   await expect(page.getByRole('button', { name: /Review .* Example rubric-flow/ })).toBeVisible()
   await openAlert(page, 'rubric-flow')
   await expect(page.getByText('Coaching follow-up is still open.')).toBeVisible()
-  await expect(page.getByText('Needs more context', { exact: true })).toBeVisible()
+  await expect(page.getByText('Changed to: Does not meet the rule', { exact: true })).toBeVisible()
   await expect(page.getByText('Changed to: Meets the rule', { exact: true })).toBeVisible()
   await page.getByText('Suggest a rule change', { exact: true }).click()
   await page.getByRole('combobox', { name: 'Current criterion for proposal' }).selectOption('credit_pull_consent')
@@ -175,7 +176,7 @@ test('Full QA saves string-scale corrections, uncertainty, and a retained findin
   await expect(outcome).not.toContainText('Synthetic inaccurate statement')
   await expect(outcome).toContainText('Changed or unresolved scores (3)')
   await expect(outcome).toContainText('Credit pull consent: Eavesly said Does not meet the rule → manager changed to Meets the rule — ' + correctionReason)
-  await expect(outcome).toContainText('Call recording disclosure: Eavesly said Meets the rule → manager needs more context — ' + contextReason)
+  await expect(outcome).toContainText('Call recording disclosure: Eavesly said Meets the rule → manager changed to Does not meet the rule — ' + correctionReason)
   await expect(outcome).toContainText('professional tone: Eavesly said Good → manager changed to Poor')
   await expect(adminPage.getByRole('radiogroup')).toHaveCount(0)
   const form = adminPage.getByRole('form', { name: 'Full QA rubric review' })
@@ -183,7 +184,7 @@ test('Full QA saves string-scale corrections, uncertainty, and a retained findin
   await expect(adminPage.getByRole('textbox', { name: /Request changes with instructions/ })).toHaveCount(0)
   await expect(adminPage.getByText('Changed to: Poor', { exact: true })).toBeHidden()
   await adminPage.getByText(/Eavesly’s evidence and scores · \d+ items/).click()
-  await expect(adminPage.getByText('Needs more context', { exact: true })).toBeVisible()
+  await expect(adminPage.getByText('Changed to: Does not meet the rule', { exact: true })).toBeVisible()
   await expect(adminPage.getByText('Changed to: Poor', { exact: true })).toBeVisible()
   const humanOnly = adminPage.getByRole('article', { name: 'professional tone', exact: true })
   await expect(humanOnly.getByText('Manager review item', { exact: true })).toBeVisible()
@@ -217,6 +218,41 @@ test('Full QA saves string-scale corrections, uncertainty, and a retained findin
   await adminPage.getByRole('button', { name: 'Approve review' }).click()
   await expect(adminPage.getByText('Review approved')).toBeVisible()
   await adminPage.close()
+})
+
+test('saved needs-context responses remain visible without offering new ones', async ({ browser }) => {
+  const scores: Readonly<Record<string, unknown>> = { ...FULL_QA_RESULT.compliance_scorecard, ...FULL_QA_RESULT.customer_experience_scorecard,
+    ...FULL_QA_RESULT.sales_process_scorecard, ...FULL_QA_RESULT.program_expectations_scorecard }
+  const corrections = FULL_QA_CRITERIA.map(criterion => criterion.key === 'credit_pull_consent'
+    ? { criterion_key: criterion.key, disposition: 'needs_context', corrected_value: null, reason: contextReason }
+    : { criterion_key: criterion.key, disposition: 'confirmed', corrected_value: scores[criterion.key], reason: null })
+  const row = alertRow('saved-context', { is_reviewed: true, feedback_id: 42, feedback_by: EMAIL, accurate: false, reviewed_at: '2026-09-05T14:00:00Z' })
+  const fullQaReviews = new Map([['saved-context', { feedback_revision: 1, corrections, findings: [],
+    escalation_justified: false, escalation_reason: escalationReason, escalation_inaccuracy_reason: 'wrong_context',
+    action_taken: null, action_details: null, saved_by: EMAIL, saved_at: '2026-09-05T14:00:00Z' }]])
+  const manager = await browser.newPage()
+  const state = await reviewFixture(manager, [structuredClone(row)], { fullQaReviews })
+  await manager.goto('/dashboard/alerts/saved-context/full_qa')
+  const consent = manager.getByRole('article', { name: 'Credit pull consent', exact: true })
+  await expect(consent.getByText('Needs more context', { exact: true })).toBeVisible()
+  await expect(consent.getByText(contextReason, { exact: true })).toBeVisible()
+  await expect(consent.getByRole('radio')).toHaveCount(2)
+  await expect(consent.getByRole('radio', { checked: true })).toHaveCount(0)
+  await expect(consent.getByRole('textbox')).toHaveCount(0)
+  await manager.getByRole('textbox', { name: 'Explain your decision' }).fill('Updated alert judgment without altering the historical unresolved response.')
+  await saveButton(manager).click()
+  await expect(manager.getByText('Full QA review saved')).toBeVisible()
+  expect(state.writes).toEqual(expect.arrayContaining([expect.objectContaining({ p_corrections: corrections })]))
+  await manager.close()
+
+  const kris = await browser.newPage()
+  await reviewFixture(kris, [structuredClone(row)], { fullQaReviews, god: true, email: 'director@example.test' })
+  await kris.goto('/dashboard/alerts/saved-context/full_qa')
+  await expect(kris.getByRole('region', { name: 'Manager’s review', exact: true })).toContainText('manager needs more context — ' + contextReason)
+  await kris.getByText(/Eavesly’s evidence and scores · \d+ items/).click()
+  await expect(kris.getByText('Needs more context', { exact: true })).toBeVisible()
+  await expect(kris.getByRole('radio')).toHaveCount(0)
+  await kris.close()
 })
 
 test('legacy Full QA feedback stays visible without inventing structured rubric responses', async ({ browser }) => {
@@ -441,11 +477,11 @@ test('focused scorecard respects categorical concerns and enrollment gating, whi
   await expand.focus()
   await page.keyboard.press('Enter')
   await expect(dispositions(page)).toHaveCount(23)
-  await response(page, 'phase recovery covered').getByRole('radio', { name: 'Need more context', exact: true }).check()
-  await page.getByRole('textbox', { name: 'phase recovery covered correction reason' }).fill(contextReason)
+  await response(page, 'phase recovery covered').getByRole('radio', { name: 'Incorrect', exact: true }).check()
+  await page.getByRole('textbox', { name: 'phase recovery covered correction reason' }).fill(correctionReason)
   await page.getByRole('button', { name: 'Show only items to check' }).click()
   await expect(dispositions(page)).toHaveCount(7)
-  await expect(page.getByRole('textbox', { name: 'phase recovery covered correction reason' })).toHaveValue(contextReason)
+  await expect(page.getByRole('textbox', { name: 'phase recovery covered correction reason' })).toHaveValue(correctionReason)
   for (const width of [320, 375, 414, 768]) {
     await page.setViewportSize({ width, height: 844 })
     await expand.scrollIntoViewIfNeeded()
@@ -508,7 +544,7 @@ test('valid unfamiliar rubric values stay readable rather than appearing unavail
   await expect(consent.getByText('Unavailable', { exact: true })).toHaveCount(0)
 })
 
-test('empty focus is not a cleared alert and an unavailable score stays visible for context', async ({ page }) => {
+test('empty focus is not a cleared alert and an unavailable score requires an explicit result', async ({ page }) => {
   const scorecards: Record<string, Record<string, unknown>> = {}
   for (const criterion of FULL_QA_CRITERIA) {
     const [section, field] = criterion.score_path.split('.')
@@ -528,9 +564,26 @@ test('empty focus is not a cleared alert and an unavailable score stays visible 
   await page.getByRole('button', { name: 'Close (Esc)' }).click()
   await openAlert(page, 'missing-score')
   await expect(dispositions(page)).toHaveCount(1)
-  await expect(response(page, 'Social security verification').getByRole('radio', { name: 'Need more context', exact: true })).toBeChecked()
-  await expect(response(page, 'Social security verification').getByRole('radio', { name: 'Correct', exact: true })).toBeDisabled()
-  await expect(page.getByRole('textbox', { name: 'Social security verification correction reason' })).toBeVisible()
+  const assessment = response(page, 'Social security verification')
+  await expect(assessment.getByRole('radio')).toHaveCount(2)
+  await expect(assessment.getByRole('radio', { checked: true })).toHaveCount(0)
+  await expect(assessment.getByRole('radio', { name: 'Correct', exact: true })).toBeDisabled()
+  await expect(page.getByText('No score was saved. Check the transcript, then select Incorrect to enter the result.')).toBeVisible()
+  await expect(page.getByRole('textbox', { name: 'Social security verification correction reason' })).toHaveCount(0)
+  await page.getByRole('radio', { name: 'No, the alert was unnecessary', exact: true }).check()
+  await page.getByRole('textbox', { name: 'Explain your decision' }).fill(escalationReason)
+  await page.getByRole('combobox', { name: 'Why was the alert unnecessary?' }).selectOption('other')
+  await expect(saveButton(page)).toBeDisabled()
+  await expect(page.getByRole('status')).toContainText('Choose a result for Social security verification before saving.')
+  await assessment.getByRole('radio', { name: 'Incorrect', exact: true }).check()
+  const result = page.getByRole('combobox', { name: 'Social security verification corrected value' })
+  await expect(result).toHaveValue('')
+  await page.getByRole('textbox', { name: 'Social security verification correction reason' }).fill(correctionReason)
+  await expect(saveButton(page)).toBeDisabled()
+  await result.selectOption('not_applicable')
+  await expect(saveButton(page)).toBeEnabled()
+  await saveButton(page).click()
+  await expect(page.getByText('Full QA review saved')).toBeVisible()
 })
 
 test('a stale Full QA source keeps the draft but cannot silently pair it with a refreshed token', async ({ page }) => {
@@ -641,7 +694,7 @@ test('saved alert reasons and criterion context explain concerns without turning
   await expect(consent.locator('blockquote')).toHaveText(['No, do not pull my credit.', 'I have pulled it anyway.'])
   await expect(consent.locator('figcaption')).toHaveText(['Customer · Step 2 Credit Review', 'Agent · Step 2 Credit Review'])
   await expect(consent.getByText('Is Eavesly’s assessment correct?', { exact: true })).toBeVisible()
-  await expect(response(page, 'Credit pull consent').getByRole('radio')).toHaveCount(3)
+  await expect(response(page, 'Credit pull consent').getByRole('radio')).toHaveCount(2)
   const coaching = page.getByRole('article', { name: 'patience empathy', exact: true })
   await expect(coaching.getByText('Eavesly score concern', { exact: true })).toBeVisible()
   await expect(coaching.getByText('Eavesly flagged this', { exact: true })).toHaveCount(0)
