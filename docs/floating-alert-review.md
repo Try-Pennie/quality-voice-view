@@ -1,6 +1,29 @@
 # Floating Full QA review
 
-## Latest follow-up: clearer next steps and quieter motion
+## Latest follow-up: recording at the top
+
+Application **`f7a7eaa`**, isolated staging runtime **`e8aec6c`**.
+
+- Call detail shows its recording before metadata and alerts. Alert windows keep one player below the header, visible while the review body scrolls; this covers both manager and Kris views and generic alerts.
+- Existing play/pause, seek, 10-second skips and persisted playback speed remain. No autoplay. Moving to a different call stops/resets the old player. Transcript/summary details no longer duplicate or hide the recording.
+- Unloaded list details show **Loading recording…**, not a false unavailable message. Null recordings use a compact **Recording not available** state. The external recording link has a 44px mobile target.
+- Two playback issues caught by real-browser testing were fixed at the shared player: rapid keyboard seeks update the controlled slider immediately, and Space on a native disclosure no longer also starts playback.
+
+Final-source full regression: `npm test -- --workers=1` → **125 passed (9.0m), exit 0**. Five focused recording tests also passed, including desktop, 320/375×667 mobile, both roles, delayed details, actual playback and navigation reset. TypeScript, normal/staging builds and bundle isolation passed. Changed-file ESLint passes except the **pre-existing, unchanged** `CallDetailPage.tsx:114` `any`; the same error was reproduced on base `5474210`. Independent Claude Code Fable 5.1 review approved the final changes. No SQL, API, scoring, permission or production changes.
+
+Native staging: **219 staging-only requests, zero errors**, both alert roles plus call detail; eight calls and three feedback records unchanged, no review/approval/proposal writes. Hosted synthetic calls have **no recordings** and staging's media block stays intact. Actual transport was verified locally using a 30-second silent WAV served over HTTP with byte-range support—not customer audio or a mocked player. No production recordings were fetched or uploaded.
+
+### Local browser screenshots with synthetic test audio
+
+| Alert player stays visible while scrolling | Call recording before details |
+| --- | --- |
+| ![Manager recording while reviewing](qa-evidence/top-recording-f7a7eaa/manager-recording-scrolled-1440.png) | ![Call recording at top](qa-evidence/top-recording-f7a7eaa/call-recording-desktop.png) |
+
+[Manager mobile](qa-evidence/top-recording-f7a7eaa/manager-recording-scrolled-375.png) · [Kris mobile](qa-evidence/top-recording-f7a7eaa/kris-recording-scrolled-375.png) · [Call mobile](qa-evidence/top-recording-f7a7eaa/call-recording-mobile.png)
+
+Native staging, with honest missing-recording states: [manager](qa-evidence/top-recording-f7a7eaa/manager-first-1440.png), [Kris](qa-evidence/top-recording-f7a7eaa/kris-first-1440.png), [call mobile](qa-evidence/top-recording-f7a7eaa/call-first-375.png), [verification](qa-evidence/top-recording-f7a7eaa/verification.json).
+
+## Previous follow-up: clearer next steps and quieter motion
 
 Application source **`f62e74a`**, isolated staging runtime **`c83ca1b`**. The final pass applies the `emil-design-eng` and `better-ui` guidance without adding another panel, stepper or response choice.
 
@@ -78,10 +101,10 @@ During implementation, assertions that expected an expansion button or a gap bet
 
 ## Isolated staging
 
-Latest application source **`f62e74ae20655e13c4870d46d1dba68105b23815`**; deployed runtime **`c83ca1bf872e16d98b7c579c422d950a94b3c45c`** with staging-only configuration. Subsequent documentation-only commits do not alter runtime.
+Latest application source **`f7a7eaaa5b86d6005dd66ee77d176c742f429426`**; deployed runtime **`e8aec6cca4d81e04eb4771e0abe00e7058cbe602`** with staging-only configuration. Subsequent documentation-only commits do not alter runtime.
 
 - Manager: https://rubric-staging.eavesly.pages.dev — start with `DEMO-SUPPORTED-001`.
-- Kris: https://8b44c524.eavesly.pages.dev — start with `DEMO-APPROVAL-001`.
+- Kris: https://f8041f96.eavesly.pages.dev — start with `DEMO-APPROVAL-001`.
 
 Private one-use native-auth links are delivered separately. These two origins isolate browser storage for the two test accounts. **Automatic PR previews are not this sandbox; do not use them for test saves.** Hosted examples remain synthetic.
 
