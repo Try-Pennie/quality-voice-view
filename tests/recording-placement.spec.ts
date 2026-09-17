@@ -1,5 +1,8 @@
 import { test, expect, type Page } from '@playwright/test'
+import { createServer } from 'node:http'
 import { alertRow, genericAlertRow, reviewFixture, EMAIL, FULL_QA_CRITERIA, FULL_QA_RESULT } from './review-fixture'
+
+test.use({ video: 'on' })
 
 // Real, silent PCM audio served through HTTP: browser transport is not mocked.
 const wav = Buffer.alloc(44 + 30 * 8000 * 2)
@@ -12,11 +15,121 @@ async function recordingRoute(page: Page, audio = wav) {
   await page.route('**/synthetic-recording-*.wav', route => {
     const range = route.request().headers().range?.match(/^bytes=(\d+)-(\d*)$/)
     const start = range ? Number(range[1]) : 0
-    const end = range?.[2] ? Number(range[2]) : audio.length - 1
+    // Bound each real range response; metadata shouldn't serialize a 64MB long-call fixture over CDP.
+    const end = range ? Math.min(audio.length - 1, range[2] ? Number(range[2]) : start + 262143) : audio.length - 1
     return route.fulfill({ status: range ? 206 : 200, contentType: 'audio/wav', body: audio.subarray(start, end + 1),
       headers: range ? { 'Accept-Ranges': 'bytes', 'Content-Range': `bytes ${start}-${end}/${audio.length}` } : { 'Accept-Ranges': 'bytes' } })
   })
 }
+
+// Speech-like tones followed by genuine silence, for native analyser checks.
+const audibleWav = Buffer.from(wav)
+for (let sample = 0; sample < 15 * 8000; sample++) {
+  const time = sample / 8000
+  const envelope = 0.35 + 0.3 * Math.sin(time * Math.PI * 4)
+  audibleWav.writeInt16LE(Math.round(20000 * envelope * (Math.sin(time * Math.PI * 400) + 0.35 * Math.sin(time * Math.PI * 1600))), 44 + sample * 2)
+}
+const spectrumInk = (page: Page) => page.getByRole('img', { name: 'Live audio frequencies, not a recording timeline' }).evaluate((canvas: HTMLCanvasElement) => {
+  const data = canvas.getContext('2d')!.getImageData(0, 0, canvas.width, canvas.height).data
+  let ink = 0
+  for (let i = 3; i < data.length; i += 4) if (data[i] > 0) ink++
+  return ink
+})
+
+test('real streaming sound drives the spectrum, silence stays low, and contexts close with the call', async ({ page, context }, testInfo) => {
+  const state = await reviewFixture(page, [alertRow('visual-a', { recording_link: '/synthetic-recording-visual-a.wav' }), alertRow('visual-b', { recording_link: '/synthetic-recording-visual-b.wav' })])
+  await recordingRoute(page, audibleWav)
+  const cdp = await context.newCDPSession(page)
+  const contexts = new Set<string>()
+  cdp.on('WebAudio.contextCreated', event => contexts.add(event.context.contextId))
+  cdp.on('WebAudio.contextWillBeDestroyed', event => contexts.delete(event.contextId))
+  cdp.on('WebAudio.contextChanged', event => { if (event.context.contextState === 'closed') contexts.delete(event.context.contextId) })
+  await cdp.send('WebAudio.enable')
+  const requests: string[] = [], errors: string[] = []
+  page.on('request', request => { if (request.url().includes('synthetic-recording-visual')) requests.push(request.resourceType()) })
+  page.on('pageerror', error => errors.push(error.name))
+  await page.goto('/dashboard/alerts/visual-a/full_qa')
+  const recording = page.getByRole('region', { name: 'Call recording', exact: true })
+  await expect(recording.getByText('Ready to play', { exact: true })).toBeVisible()
+  expect(contexts.size).toBe(0)
+  const baseline = await spectrumInk(page)
+  await recording.getByRole('button', { name: 'Play', exact: true }).click()
+  await expect(recording.getByText('Live audio', { exact: true })).toBeVisible()
+  await expect.poll(() => spectrumInk(page)).toBeGreaterThan(baseline * 2)
+  await expect.poll(() => contexts.size).toBe(1)
+  await page.screenshot({ path: testInfo.outputPath('live-audio-desktop.png') })
+  await page.setViewportSize({ width: 375, height: 812 })
+  await expect(recording.getByRole('button', { name: 'Pause', exact: true })).toBeInViewport()
+  await page.screenshot({ path: testInfo.outputPath('live-audio-mobile.png') })
+  await page.setViewportSize({ width: 1280, height: 720 })
+  await recording.getByRole('button', { name: 'Pause', exact: true }).click()
+  await expect.poll(() => spectrumInk(page)).toBe(baseline)
+  await recording.getByRole('slider', { name: 'Seek' }).fill('20')
+  await recording.getByRole('button', { name: 'Play', exact: true }).click()
+  await expect.poll(() => spectrumInk(page)).toBeLessThanOrEqual(baseline + 4)
+  await page.getByRole('button', { name: 'Next alert (j)', exact: true }).click()
+  await expect.poll(() => contexts.size).toBe(0)
+  await expect(page.locator('audio')).toHaveAttribute('src', '/synthetic-recording-visual-b.wav')
+  await recording.getByRole('button', { name: 'Play', exact: true }).click()
+  await expect.poll(() => contexts.size).toBe(1)
+  await page.emulateMedia({ reducedMotion: 'reduce' })
+  await expect.poll(() => spectrumInk(page)).toBe(baseline)
+  await expect.poll(() => page.locator('audio').evaluate(audio => audio.currentTime)).toBeGreaterThan(0.1)
+  await page.getByRole('button', { name: 'Close (Esc)', exact: true }).click()
+  await expect.poll(() => contexts.size).toBe(0)
+  expect(requests.every(type => type === 'media')).toBe(true)
+  expect(errors).toEqual([])
+  expect(state.writes).toEqual([])
+})
+
+for (const cors of [false, true]) test(`cross-origin recording ${cors ? 'with CORS has a real spectrum' : 'without CORS falls back to ordinary playback'}`, async ({ page }) => {
+  // route.fulfill adds CORS headers automatically. Use real HTTP to exercise browser enforcement.
+  const server = createServer((_request, response) => {
+    response.writeHead(200, { 'Content-Type': 'audio/wav', 'Content-Length': audibleWav.length, ...(cors ? { 'Access-Control-Allow-Origin': '*' } : {}) })
+    response.end(audibleWav)
+  })
+  await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve))
+  try {
+    const address = server.address()
+    if (!address || typeof address === 'string') throw new Error('Expected local TCP fixture')
+    const state = await reviewFixture(page, [alertRow('cross-origin', { recording_link: `http://127.0.0.1:${address.port}/audio.wav` })])
+    await page.goto('/dashboard/alerts/cross-origin/full_qa')
+    await expect.poll(() => page.locator('audio').evaluate(audio => audio.duration)).toBe(30)
+    const recording = page.getByRole('region', { name: 'Call recording', exact: true })
+    if (!cors) {
+      await expect(recording.getByText('Audio only', { exact: true })).toBeVisible()
+      await expect(recording.getByRole('img')).toHaveCount(0)
+    }
+    await recording.getByRole('button', { name: 'Play', exact: true }).click()
+    await expect.poll(() => page.locator('audio').evaluate(audio => audio.currentTime)).toBeGreaterThan(0.1)
+    await expect(recording.getByRole('button', { name: 'Retry recording', exact: true })).toHaveCount(0)
+    if (cors) await expect.poll(() => spectrumInk(page)).toBeGreaterThan(2000)
+    else {
+      await recording.getByRole('button', { name: 'Pause', exact: true }).click()
+      await page.getByRole('dialog').focus()
+      await page.keyboard.press('Space')
+      await expect.poll(() => page.locator('audio').evaluate(audio => audio.paused)).toBe(false)
+      await expect(recording.getByRole('img')).toHaveCount(0)
+    }
+    expect(state.writes).toEqual([])
+  } finally {
+    server.closeAllConnections()
+    await new Promise<void>((resolve, reject) => server.close(error => error ? reject(error) : resolve()))
+  }
+})
+
+test('a browser without Web Audio keeps native playback instead of failing or pretending to visualize', async ({ page }) => {
+  // Missing platform capability, not a mocked media/AudioContext method.
+  await page.addInitScript(() => { Reflect.deleteProperty(window, 'AudioContext') })
+  const state = await reviewFixture(page, [alertRow('native-only', { recording_link: '/synthetic-recording-native.wav' })])
+  await recordingRoute(page, audibleWav)
+  await page.goto('/dashboard/alerts/native-only/full_qa')
+  const recording = page.getByRole('region', { name: 'Call recording', exact: true })
+  await recording.getByRole('button', { name: 'Play', exact: true }).click()
+  await expect(recording.getByText('Audio only', { exact: true })).toBeVisible()
+  await expect.poll(() => page.locator('audio').evaluate(audio => audio.currentTime)).toBeGreaterThan(0.1)
+  expect(state.writes).toEqual([])
+})
 
 for (const god of [false, true]) test(`${god ? 'Kris' : 'manager'} can listen at the top of alerts without opening details, including while scrolling`, async ({ page }, testInfo) => {
   const priorReview = god ? { is_reviewed: true, feedback_id: 1, feedback_by: 'another.manager@example.test', review_revision: 1, accurate: true } : {}
@@ -145,14 +258,17 @@ test('an alert list row shows loading until recording details arrive, not a fals
   await recordingRoute(page)
   let release = () => {}
   state.alertGate = new Promise<void>(resolve => { release = resolve })
+  await page.setViewportSize({ width: 375, height: 812 })
   await page.goto('/dashboard/alerts?status=awaiting_manager')
   await page.getByRole('button', { name: 'Review Manager escalation alert for Example loading-recording', exact: true }).click()
   const recording = page.getByRole('region', { name: 'Call recording', exact: true })
   await expect(recording.getByText('Loading recording…', { exact: true })).toBeVisible()
   await expect(recording.getByRole('button', { name: 'View transcript', exact: true })).toBeVisible()
   await expect(recording.getByText('Recording not available')).toHaveCount(0)
+  const loadingHeight = (await recording.boundingBox())!.height
   release()
   await expect(recording.getByRole('button', { name: 'Play', exact: true })).toBeInViewport()
+  expect((await recording.boundingBox())!.height).toBe(loadingHeight)
 })
 
 test('failed alert details can be retried without discarding the review draft', async ({ page }, testInfo) => {

@@ -193,6 +193,37 @@
   }
 }
 
+/* Native range semantics/keyboard support, with a consistent recording transport thumb. */
+.recording-seek {
+  appearance: none;
+  background: transparent;
+}
+.recording-seek::-webkit-slider-runnable-track {
+  height: 6px;
+  background: transparent;
+}
+.recording-seek::-webkit-slider-thumb {
+  appearance: none;
+  width: 12px;
+  height: 12px;
+  margin-top: -3px;
+  border: 0;
+  border-radius: 50%;
+  background: var(--pennie-blue-deeper);
+}
+.recording-seek::-moz-range-track {
+  height: 6px;
+  background: transparent;
+}
+.recording-seek::-moz-range-thumb {
+  width: 12px;
+  height: 12px;
+  border: 0;
+  border-radius: 50%;
+  background: var(--pennie-blue-deeper);
+}
+.recording-seek:disabled { opacity: 0.4; }
+
 /* Honor reduced-motion preferences. The chevron-slide hover adds needless
    movement for motion-sensitive users. Drawer/dialog open transitions are
    short enough to keep — Radix primitives already gate them appropriately. */

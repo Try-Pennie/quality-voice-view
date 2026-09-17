@@ -35,7 +35,7 @@ test('neutral guidance links to the incomplete decision, score or coaching secti
   const state = await reviewFixture(page, [alertRow('guided-review')])
   await page.goto('/dashboard/alerts/guided-review/full_qa')
   const next = page.getByRole('button', { name: 'Continue review', exact: true })
-  const status = page.getByRole('status')
+  const status = page.getByRole('contentinfo').getByRole('status')
   await expect(status).toHaveText('Check the scores and add any coaching issues, then finish your decision.')
   await expect(saveButton(page)).toBeDisabled()
   await next.click()

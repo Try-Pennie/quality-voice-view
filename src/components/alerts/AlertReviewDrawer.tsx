@@ -746,7 +746,7 @@ export function AlertReviewDrawer({
             <p role="alert">Couldn't load the recording and call details. Your review stays here.</p>
             <button type="button" onClick={onRetryDetails} className="pennie-focus-ring min-h-[44px] rounded-full border border-border px-3 font-semibold text-pennie-blue-deeper">Retry recording</button>
           </div> : detailsLoading || alert.recording_link === undefined
-            ? <p role="status" aria-busy="true" className="min-h-[88px] sm:min-h-[68px] text-xs text-pennie-graphite/70">Loading recording…</p>
+            ? <p role="status" aria-busy="true" className="min-h-[112px] sm:min-h-[68px] text-xs text-pennie-graphite/70">Loading recording…</p>
             : alert.recording_link && <AudioPlayer key={alert.call_id} recordingUrl={alert.recording_link} onRetry={onRetryDetails} />}
         </section>
 
