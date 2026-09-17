@@ -1,5 +1,19 @@
 # Premium recording player — restricted staging
 
+## Current: compact live visualizer
+
+Source **`a9f68ddbb57d999afdbec23e19e53431f95ac12c`**, staging runtime **`17367081d4a9a02236a7b36db9d238c2da91db49`**. Live at https://rubric-staging.eavesly.pages.dev/login (same password); immutable https://ce387e5e.eavesly.pages.dev. PR120 contains the audio feature; unrelated open PRs119/38 are unchanged. No merge or production deploy.
+
+The live spectrum and audio-only fallback line now cap at **320px** and shrink on narrow screens. The seek rail retains its full available width. Only two CSS classes changed; frequency bands, playback, resource ownership, accessibility, motion and retry logic are untouched. Quiet frequency bands remain truthful rather than being filled with fake activity.
+
+Fresh checks: width regression failed before the cap; all16 recording checks passed (1.2m), then full **153 passed (8.5m)**. Real geometry asserts320px on desktop, ≤320px across mobile/call detail and desktop seek>500px; existing full-width44px mobile seek assertions remain. CORS analyser assertion now compares against a positive idle baseline rather than an absolute full-width pixel count. AppES2021 TypeScript, changed-file ESLint, diffcheck, build17.31s and actual staging isolation/password-exclusion builds passed. Independent read-only Pi Anthropic Claude Opus review approved this bounded diff; no blockers.
+
+Fresh hosted Chromium check passed: actual recorded sound drives the320px canvas, seek stays wide, four native logins/role switching/wrong-password denial, existing draft/transcript/motion/guidance checks, zero unexpected errors or saved review writes. Fresh before/after user/call/feedback counts and feedback hash unchanged; stable/immutable HTTP200 and privacy headers verified. Parent inspected local and private hosted images; physical Safari remains unverified. Customer screenshots remain private.
+
+Synthetic source-pinned evidence: [desktop](qa-evidence/compact-spectrum-a9f68dd/live-audio-desktop.png), [mobile](qa-evidence/compact-spectrum-a9f68dd/live-audio-mobile.png), [320px long call](qa-evidence/compact-spectrum-a9f68dd/manager-recording-320.png).
+
+## Original premium-player release — historical evidence
+
 Source: **`27cb979f704967e4192a0d92eeadfd9d152e5858`**, based on `19a89dd`, in `nmogil/review-ux-followup`. Release target: existing [PR120](https://github.com/Try-Pennie/quality-voice-view/pull/120), `nmogil/full-qa-rubric-feedback`.
 
 **Live preview:** https://rubric-staging.eavesly.pages.dev/login — same private password and Manager/Kris selector. Preserve any unsaved work before refreshing an existing tab. Open a recorded call and press Play. The synthetic Kris approval example intentionally has no recording; choose a real recorded sample to try the player.
