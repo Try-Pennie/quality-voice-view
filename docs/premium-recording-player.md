@@ -1,6 +1,16 @@
 # Premium recording player — restricted staging
 
-## Current: compact live visualizer
+## Current: full-width visualizer restored
+
+Noah preferred the original appearance and requested reverting the compact experiment. Source **`7231e7bc8283955c51392e9c30262ae24b3dcd6f`** explicitly reverts `a9f68dd`; application and test trees match pre-cap `e69cf16` exactly. Only the width experiment is undone; premium audio, seek, opening motion and previous UX improvements remain.
+
+Live: https://rubric-staging.eavesly.pages.dev/login (same password). Runtime **`41690cfcc1aa6691fac04e579cf2769feb102b6d`**, immutable https://730a743c.eavesly.pages.dev. Stage application/tests match pre-cap `e7f3cf4`. No production deployment or merge.
+
+Fresh verification: **16 recording tests passed (1.2m)**, app/staging TypeScript, changed-file lint, production/staging build isolation, actual staging bundle and password-exclusion checks passed. Hosted fresh browser verified full available spectrum width at desktop/mobile, real audio reaction/seek, four native logins, both roles and existing draft/transcript/motion/guidance checks; zero final errors or saved review writes. Counts/feedback hash and privacy headers unchanged. An immediate post-deploy width check initially still saw narrow geometry; served asset identity was subsequently confirmed and the unchanged check passed in a fresh browser. Full153 regression belongs to earlier releases, not rerun for this exact rollback; physical Safari unverified.
+
+Fresh synthetic [desktop](qa-evidence/restored-spectrum-7231e7b/live-audio-desktop.png) / [mobile](qa-evidence/restored-spectrum-7231e7b/live-audio-mobile.png) evidence is pinned to the revert source. Customer-backed hosted evidence stays private.
+
+## Compact live visualizer — reverted experiment
 
 Source **`a9f68ddbb57d999afdbec23e19e53431f95ac12c`**, staging runtime **`17367081d4a9a02236a7b36db9d238c2da91db49`**. Live at https://rubric-staging.eavesly.pages.dev/login (same password); immutable https://ce387e5e.eavesly.pages.dev. PR120 contains the audio feature; unrelated open PRs119/38 are unchanged. No merge or production deploy.
 
