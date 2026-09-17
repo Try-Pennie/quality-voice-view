@@ -82,6 +82,7 @@ export default function AlertsPage() {
 
   const { data: scope, isError: scopeError, refetch: refetchScope } = useUserScope(user?.email)
   const [drawerAlert, setDrawerAlert] = useState<AlertWithFeedback | null>(null)
+  const [animateDrawerOpen, setAnimateDrawerOpen] = useState(false)
   const [detailLoad, setDetailLoad] = useState<{ key: string; status: 'loading' | 'error' | 'ready' } | null>(null)
   const [detailRetry, setDetailRetry] = useState(0)
   const detailKey = routeCallId && routeModuleName ? alertKey({ call_id: routeCallId, module_name: routeModuleName }) : null
@@ -293,6 +294,7 @@ export default function AlertsPage() {
   // Route owns the drawer. Ignore stale fetches after J/K, Back, or closing.
   useEffect(() => {
     if (!routeCallId || !routeModuleName || !scope) {
+      setAnimateDrawerOpen(false)
       setDrawerAlert(null)
       return
     }
@@ -324,8 +326,10 @@ export default function AlertsPage() {
   }, [routeCallId, routeModuleName, allAlerts, navigate, scope, workload, queueParams, detailRetry])
 
   const openDrawer = useCallback(
-    (alert: AlertWithFeedback) => {
-      // Instant: render with the slim list row…
+    (alert: AlertWithFeedback, animateOpen = false) => {
+      // Only explicit pointer entry gets motion; keyboard and auto-advance stay instant.
+      setAnimateDrawerOpen(animateOpen)
+      // Render immediately with the slim list row; never wait for enrichment.
       setDrawerAlert(alert)
       // Preserve any returnTo so j/k navigation between alerts doesn't strip
       // the originating-page context.
@@ -340,6 +344,7 @@ export default function AlertsPage() {
   )
 
   const closeDrawer = useCallback(() => {
+    setAnimateDrawerOpen(false)
     setDrawerAlert(null)
     if (!routeCallId) return
     // If we got here from a deep-link with a returnTo (e.g. an agent profile
@@ -775,7 +780,7 @@ export default function AlertsPage() {
           </div>
           <button
             type="button"
-            onClick={() => queuePage.items[0] && openDrawer(queuePage.items[0])}
+            onClick={event => queuePage.items[0] && openDrawer(queuePage.items[0], event.detail > 0)}
             disabled={loading || alertsError || queuePage.items.length === 0}
             className="pennie-focus-ring min-h-[44px] px-5 rounded-full bg-pennie-navy text-pennie-white text-sm font-semibold hover:bg-pennie-navy/90 disabled:opacity-40 disabled:cursor-not-allowed"
           >
@@ -1172,7 +1177,7 @@ export default function AlertsPage() {
                     className={`pennie-focus-ring-inset group cursor-pointer transition-colors duration-150 hover:bg-pennie-blue-light/40 ${
                       i !== 0 ? 'border-t border-border/60' : ''
                     } ${queuePage.start - 1 + i === focusIndex ? 'bg-pennie-blue-light/40' : ''}`}
-                    onClick={() => openDrawer(a)}
+                    onClick={event => openDrawer(a, event.detail > 0)}
                     onKeyDown={e => onRowKeyDown(e, a)}
                   >
                     {showBulkColumn && (
@@ -1306,6 +1311,7 @@ export default function AlertsPage() {
       />}
       <AlertReviewDrawer
         alert={drawerAlert}
+        animateOpen={animateDrawerOpen}
         detailsLoading={detailLoad?.key === detailKey && detailLoad.status === 'loading'}
         detailsError={detailLoad?.key === detailKey && detailLoad.status === 'error'}
         onRetryDetails={retryDetails}

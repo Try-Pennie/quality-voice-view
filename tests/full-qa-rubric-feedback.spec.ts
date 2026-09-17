@@ -70,12 +70,13 @@ test('neutral guidance links to the incomplete decision, score or coaching secti
   expect(state.writes).toEqual([])
 })
 
-test('Full QA panel and overlay open instantly for pointer and keyboard while generic drawers retain motion', async ({ page }) => {
+test('Full QA keyboard entry stays instant while generic drawers retain motion', async ({ page }) => {
   await reviewFixture(page, [alertRow('instant-review'), genericAlertRow('generic-motion')])
   await page.goto('/dashboard/alerts?status=awaiting_manager')
   const opener = page.getByRole('button', { name: 'Review Manager escalation alert for Example instant-review', exact: true })
-  for (const keyboard of [false, true]) {
-    if (keyboard) { await opener.focus(); await page.keyboard.press('Enter') } else await opener.click()
+  for (const key of ['Enter', 'Space']) {
+    await opener.focus()
+    await page.keyboard.press(key)
     const dialog = page.getByRole('dialog')
     await expect(dialog).toBeVisible()
     expect(await dialog.evaluate(element => getComputedStyle(element).animationName)).toBe('none')

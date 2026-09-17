@@ -123,6 +123,7 @@ const QUICK_PHRASES: { label: string; text: string }[] = [
 
 interface Props {
   alert: AlertWithFeedback | null
+  animateOpen: boolean
   detailsLoading: boolean
   detailsError: boolean
   onRetryDetails: () => void
@@ -140,6 +141,7 @@ interface Props {
 
 export function AlertReviewDrawer({
   alert,
+  animateOpen,
   detailsLoading,
   detailsError,
   onRetryDetails,
@@ -613,6 +615,7 @@ export function AlertReviewDrawer({
     <Sheet open={!!alert} onOpenChange={open => !open && requestClose()}>
       <SheetContent
         side={isFullQa ? 'center' : 'right'}
+        animateOpen={animateOpen}
         hideClose
         onOpenAutoFocus={isFullQa ? () => {
           const active = document.activeElement
