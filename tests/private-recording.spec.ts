@@ -35,7 +35,8 @@ test('private recording authorization failures never fall back to public media o
     status: 403, json: { message: 'PRIVATE_TOKEN_SENTINEL', error: 'Access denied' },
   }))
   await page.goto('/dashboard/alerts/private-denied/full_qa')
-  await expect(page.getByText('Could not load alert details. Close and reopen to retry.').first()).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Retry recording', exact: true })).toBeVisible()
+  await expect(page.getByText("Couldn't load the recording and call details. Your review stays here.", { exact: true })).toBeVisible()
   await expect(page.locator('audio')).toHaveCount(0)
   expect(messages.join('\n')).not.toContain('PRIVATE_TOKEN_SENTINEL')
 })

@@ -123,6 +123,9 @@ const QUICK_PHRASES: { label: string; text: string }[] = [
 
 interface Props {
   alert: AlertWithFeedback | null
+  detailsLoading: boolean
+  detailsError: boolean
+  onRetryDetails: () => void
   currentUserEmail: string | null | undefined
   scope: UserScope
   workload: AlertWorkload
@@ -137,6 +140,9 @@ interface Props {
 
 export function AlertReviewDrawer({
   alert,
+  detailsLoading,
+  detailsError,
+  onRetryDetails,
   currentUserEmail,
   scope,
   workload,
@@ -159,6 +165,13 @@ export function AlertReviewDrawer({
   const [changeInstructions, setChangeInstructions] = useState('')
   const [showRaw, setShowRaw] = useState(false)
   const [showTranscript, setShowTranscript] = useState(false)
+  const transcriptDetails = useRef<HTMLDetailsElement>(null)
+  const [transcriptFocusRequest, setTranscriptFocusRequest] = useState(0)
+  const openTranscript = () => {
+    if (transcriptDetails.current) transcriptDetails.current.open = true
+    setShowTranscript(true)
+    setTranscriptFocusRequest(request => request + 1)
+  }
   const submissionPending = useRef(false)
   const returnFocusTarget = useRef<HTMLElement | null>(null)
   const [overrideMode, setOverrideMode] = useState(false)
@@ -207,6 +220,8 @@ export function AlertReviewDrawer({
     setChangeInstructions('')
     setShowRaw(false)
     setShowTranscript(false)
+    setTranscriptFocusRequest(0)
+    if (transcriptDetails.current) transcriptDetails.current.open = false
     setOverrideMode(false)
     setDraftBody('')
     setReplyTo(null)
@@ -614,7 +629,7 @@ export function AlertReviewDrawer({
           : 'w-full sm:max-w-2xl flex flex-col gap-0 p-0 overflow-hidden bg-pennie-white'}
       >
         {/* Header */}
-        <SheetHeader className={`shrink-0 px-4 sm:px-8 pt-4 sm:py-5 border-b border-border space-y-3 text-left ${isFullQa ? 'pb-3' : 'pb-5'}`}>
+        <SheetHeader className={`shrink-0 px-4 sm:px-8 sm:py-5 border-b border-border text-left ${isFullQa ? 'pt-2 pb-2 space-y-1 sm:space-y-3' : 'pt-4 pb-5 space-y-3'}`}>
           <div className="flex items-center gap-2 sm:gap-3">
             <button
               type="button"
@@ -686,7 +701,7 @@ export function AlertReviewDrawer({
             )}
           </SheetTitle>
           {isFullQa && (
-            <p className="sm:hidden text-sm text-pennie-graphite break-words">
+            <p className="sm:hidden text-xs leading-relaxed text-pennie-graphite break-words">
               <span className="font-medium">{alert.agent_email || 'Unknown agent'}</span>
               <span className="text-pennie-graphite/60"> · </span>
               {alert.contact_name || 'Unknown'}
@@ -714,20 +729,22 @@ export function AlertReviewDrawer({
           </dl>
         </SheetHeader>
 
-        <section aria-label="Call recording" className="shrink-0 border-b border-border px-4 sm:px-8 py-3">
-          {alert.recording_link ? <>
-            <div className="mb-2 flex items-center justify-between gap-3">
-              <h2 className="pennie-label inline-flex items-center gap-1.5">
-                <Headphones className="w-3.5 h-3.5" aria-hidden="true" />Recording
-              </h2>
-              <a href={alert.recording_link} target="_blank" rel="noopener noreferrer" className="pennie-focus-ring inline-flex min-h-[44px] sm:min-h-0 items-center gap-1 text-xs font-semibold text-pennie-blue-deeper hover:underline">
-                Open recording <ExternalLink className="w-3 h-3" aria-hidden="true" />
-              </a>
-            </div>
-            <AudioPlayer key={alert.call_id} recordingUrl={alert.recording_link} />
-          </> : alert.recording_link === undefined
-            ? <p aria-busy="true" className="min-h-[160px] sm:min-h-[68px] text-xs text-pennie-graphite/70">Loading recording…</p>
-            : <p className="text-xs text-pennie-graphite/70">Recording not available</p>}
+        <section aria-label="Call recording" className="shrink-0 border-b border-border px-4 sm:px-8 py-2 sm:py-3">
+          <div className="flex flex-wrap items-center justify-between gap-x-3">
+            {alert.recording_link ? <h2 className="pennie-label hidden sm:inline-flex items-center gap-1.5">
+              <Headphones className="w-3.5 h-3.5" aria-hidden="true" />Recording
+            </h2> : !detailsLoading && !detailsError && alert.recording_link === null && <p className="text-xs text-pennie-graphite/70">Recording not available</p>}
+            {isFullQa && <button type="button" onClick={openTranscript} className="pennie-focus-ring min-h-[44px] text-xs font-semibold text-pennie-blue-deeper hover:underline sm:ml-auto sm:mr-4">View transcript</button>}
+            {alert.recording_link && <a href={alert.recording_link} target="_blank" rel="noopener noreferrer" className="pennie-focus-ring inline-flex min-h-[44px] items-center gap-1 text-xs font-semibold text-pennie-blue-deeper hover:underline">
+              Open recording <ExternalLink className="w-3 h-3" aria-hidden="true" />
+            </a>}
+          </div>
+          {detailsError ? <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
+            <p role="alert">Couldn't load the recording and call details. Your review stays here.</p>
+            <button type="button" onClick={onRetryDetails} className="pennie-focus-ring min-h-[44px] rounded-full border border-border px-3 font-semibold text-pennie-blue-deeper">Retry recording</button>
+          </div> : detailsLoading || alert.recording_link === undefined
+            ? <p role="status" aria-busy="true" className="min-h-[88px] sm:min-h-[68px] text-xs text-pennie-graphite/70">Loading recording…</p>
+            : alert.recording_link && <AudioPlayer key={alert.call_id} recordingUrl={alert.recording_link} onRetry={onRetryDetails} />}
         </section>
 
         {showLegacyAckBar && (
@@ -888,6 +905,8 @@ export function AlertReviewDrawer({
               alert={alert}
               scope={scope}
               editable={showStructuredForm}
+              canReloadReview={!detailsLoading && !detailsError}
+              onStaleReview={onRetryDetails}
               onDirtyChange={setFullQaDraftDirty}
               onBusyChange={setFullQaBusy}
               onSaveStateChange={setFullQaSave}
@@ -896,7 +915,7 @@ export function AlertReviewDrawer({
           )}
 
           {isFullQa && (
-            <details className="group rounded-2xl border border-border px-4 py-3">
+            <details ref={transcriptDetails} className="group rounded-2xl border border-border px-4 py-3">
               <summary className="pennie-focus-ring cursor-pointer list-none flex items-center justify-between gap-2 rounded-full text-sm font-semibold text-pennie-blue-deeper">
                 Transcript and call summary
                 <ChevronDown className="w-4 h-4 transition-transform group-open:rotate-180" aria-hidden="true" />
@@ -926,6 +945,7 @@ export function AlertReviewDrawer({
                   </button>
                   {showTranscript && <div className="mt-4"><AlertTranscript
                     key={alert.call_id}
+                    focusRequest={transcriptFocusRequest}
                     callId={alert.call_id}
                     evidence={extractEvidenceQuotes(alert.violation_type, reviewSource)}
                   /></div>}
@@ -1196,6 +1216,9 @@ export function AlertReviewDrawer({
             )}
             {isFullQa && scope.isGodMode && alert.current_decision === null && changeInstructions.trim() && (
               <p className="mb-2 text-xs text-pennie-graphite/70">Send or clear the change instructions before approving.</p>
+            )}
+            {isFullQa && requestingChanges && changeInstructions.trim().length < INTERNAL_REVIEW_TEXT_LIMITS.min && (
+              <p className="mb-2 text-xs text-pennie-graphite">Add at least {INTERNAL_REVIEW_TEXT_LIMITS.min} characters of instructions to request changes.</p>
             )}
             {showStructuredForm && isFullQa && fullQaSave.message && (
               <p className="mb-1 text-xs text-pennie-graphite" role="status">{fullQaSave.message}</p>
@@ -1480,6 +1503,7 @@ function InternalDecisionSection({
   /** When provided, the instructions box stays behind an explicit button until requested. */
   requesting?: boolean
 }) {
+  const instructionsHintId = useId()
   if (alert.current_decision === 'approved') {
     return <section className="flex items-center justify-between gap-3 px-4 py-4 rounded-2xl bg-pennie-green-light/40 border border-pennie-green-light">
       <p className="text-sm font-semibold text-pennie-navy">Approved by {alert.current_decision_by ? emailLabel(alert.current_decision_by) : 'a super-admin'}</p>
@@ -1504,6 +1528,7 @@ function InternalDecisionSection({
       Request changes with instructions
       <textarea
         autoFocus={requesting === true}
+        aria-describedby={instructionsHintId}
         value={instructions}
         disabled={pending}
         onChange={event => onInstructionsChange(event.target.value)}
@@ -1513,6 +1538,7 @@ function InternalDecisionSection({
         className="mt-1 w-full px-3 py-2 rounded-2xl border border-border bg-pennie-white text-base sm:text-sm font-medium resize-none focus:outline-none focus:ring-2 focus:ring-pennie-blue-deeper/40"
       />
     </label>
+    <p id={instructionsHintId} className="text-xs text-pennie-graphite/70">{INTERNAL_REVIEW_TEXT_LIMITS.min}–{INTERNAL_REVIEW_TEXT_LIMITS.max.toLocaleString('en-US')} characters · {instructions.trim().length.toLocaleString('en-US')} entered</p>
   </section>
 }
 

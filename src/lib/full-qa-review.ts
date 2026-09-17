@@ -1,12 +1,12 @@
 import type { AlertActionTaken, AlertInaccuracyReason } from '../types/database'
-import { classifyInternalReviewMutationError, type InternalReviewMutationResult } from './internal-alert-review'
+import { classifyInternalReviewMutationError, INTERNAL_REVIEW_TEXT_LIMITS, type InternalReviewMutationResult } from './internal-alert-review'
 import { supabase } from '../integrations/supabase/client'
 
 type Rpc = (name: string, input: Readonly<Record<string, unknown>>) => PromiseLike<{ readonly data: unknown; readonly error: unknown }>
 // SAFETY: Supabase's generated Database type does not contain this proposed migration yet; every returned value is parsed below.
 const rpc = supabase.rpc.bind(supabase) as unknown as Rpc
-const TEXT_MIN = 12
-const TEXT_MAX = 4000
+const { min: TEXT_MIN, max: TEXT_MAX } = INTERNAL_REVIEW_TEXT_LIMITS
+const TEXT_GUIDANCE = `${TEXT_MIN}–${TEXT_MAX.toLocaleString('en-US')} characters`
 
 /** A score persisted by the Full QA contract. Scores are strings or booleans, never numeric. */
 export type FullQaScore = string | boolean
@@ -285,23 +285,27 @@ export function parseFullQaReviewDraft(context: FullQaReviewContext, input: Omit
     const original = criterion ? valueAtPath(context.sourceResult, criterion.scorePath) : undefined
     if (!criterion) return { ok: false, message: 'A criterion is not part of this rubric.', section: 'scores' }
     if (correction.disposition === 'confirmed' && (correction.correctedValue !== original || correction.reason !== null)) return { ok: false, message: `${criterion.label} must retain the original AI value when confirmed.`, section: 'scores' }
-    if (correction.disposition === 'corrected' && (!criterion.domain.some(value => value === correction.correctedValue) || correction.correctedValue === original || !bounded(correction.reason))) return { ok: false, message: `${criterion.label} needs a different value and a reason.`, section: 'scores' }
+    if (correction.disposition === 'corrected' && (!criterion.domain.some(value => value === correction.correctedValue) || correction.correctedValue === original)) return { ok: false, message: `${criterion.label} needs a different value and a reason.`, section: 'scores' }
+    if (correction.disposition === 'corrected' && !bounded(correction.reason)) return { ok: false, message: `${criterion.label}: explain the correction using ${TEXT_GUIDANCE}.`, section: 'scores' }
     if (correction.disposition === 'needs_context' && (correction.correctedValue !== null || !bounded(correction.reason))) return { ok: false, message: `${criterion.label} needs a context explanation.`, section: 'scores' }
   }
-  for (const finding of input.findings) {
+  for (const [index, finding] of input.findings.entries()) {
     if (!category(finding.category) || new Set(finding.relatedCriteria).size !== finding.relatedCriteria.length || finding.relatedCriteria.length < 1
-      || finding.relatedCriteria.some(key => !context.criteria.some(item => item.key === key)) || !bounded(finding.summary) || !bounded(finding.evidence)) {
-      return { ok: false, message: 'Each distinct finding needs a category, related criteria, summary, and evidence.', section: 'coaching' }
+      || finding.relatedCriteria.some(key => !context.criteria.some(item => item.key === key))) {
+      return { ok: false, message: `Issue ${index + 1}: choose a category and at least one related criterion.`, section: 'coaching' }
     }
+    if (!bounded(finding.summary)) return { ok: false, message: `Issue ${index + 1}: add a summary using ${TEXT_GUIDANCE}.`, section: 'coaching' }
+    if (!bounded(finding.evidence)) return { ok: false, message: `Issue ${index + 1}: add evidence using ${TEXT_GUIDANCE}.`, section: 'coaching' }
   }
   if (input.escalationJustified === null) return { ok: false, message: 'Choose whether this alert was warranted.', section: 'decision' }
   const complianceCount = input.findings.filter(finding => finding.category === 'compliance').length
   const severe = input.findings.some(finding => finding.category === 'severe_customer_mistreatment')
-  if (input.escalationJustified && complianceCount < 2 && !severe) return { ok: false, message: 'Escalation requires two distinct compliance findings or an explicit severe-customer-mistreatment finding.', section: 'coaching' }
-  if (!bounded(input.escalationReason)) return { ok: false, message: 'Explain the escalation judgment.', section: 'decision' }
-  if (input.escalationJustified ? input.inaccuracyReason !== null : !input.inaccuracyReason || !reason(input.inaccuracyReason)) return { ok: false, message: 'Choose why escalation was not justified.', section: 'decision' }
+  if (input.escalationJustified && complianceCount < 2 && !severe) return { ok: false, message: 'A warranted alert requires two distinct compliance issues or an explicit severe-customer-mistreatment issue.', section: 'coaching' }
+  if (!bounded(input.escalationReason)) return { ok: false, message: `Explain your decision using ${TEXT_GUIDANCE}.`, section: 'decision' }
+  if (input.escalationJustified ? input.inaccuracyReason !== null : !input.inaccuracyReason || !reason(input.inaccuracyReason)) return { ok: false, message: 'Choose why the alert was unnecessary.', section: 'decision' }
   if (input.findings.length === 0 && (input.actionTaken !== null || input.actionDetails?.trim())) return { ok: false, message: 'Actions apply only to retained findings.', section: 'coaching' }
-  if (input.findings.length > 0 && (!input.actionTaken || !action(input.actionTaken) || !bounded(input.actionDetails))) return { ok: false, message: 'Record the coaching or follow-up for retained findings.', section: 'coaching' }
+  if (input.findings.length > 0 && (!input.actionTaken || !action(input.actionTaken))) return { ok: false, message: 'Record the coaching or follow-up for retained findings.', section: 'coaching' }
+  if (input.findings.length > 0 && !bounded(input.actionDetails)) return { ok: false, message: `Describe the coaching or next steps using ${TEXT_GUIDANCE}.`, section: 'coaching' }
   return { ok: true, value: { ...input, escalationJustified: input.escalationJustified, escalationReason: input.escalationReason.trim(), actionDetails: input.actionDetails?.trim() ?? null,
     corrections: input.corrections.map(item => ({ ...item, reason: item.reason?.trim() ?? null })),
     findings: input.findings.map(item => ({ ...item, summary: item.summary.trim(), evidence: item.evidence.trim() })) } }

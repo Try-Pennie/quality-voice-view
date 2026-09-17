@@ -50,7 +50,7 @@ test('neutral guidance links to the incomplete decision, score or coaching secti
 
   const consent = page.getByRole('article', { name: 'Credit pull consent', exact: true })
   await consent.getByRole('radio', { name: 'Incorrect', exact: true }).check()
-  await expect(status).toContainText('Credit pull consent needs a different value and a reason.')
+  await expect(status).toContainText('Credit pull consent: explain the correction using 12–4,000 characters.')
   await next.click()
   await expect(page.getByRole('heading', { name: 'Scores to review', exact: true })).toBeFocused()
   await expect(consent.getByRole('radio', { name: 'Incorrect', exact: true })).toBeChecked()
@@ -108,7 +108,7 @@ test('Full QA saves string-scale corrections and a retained finding independentl
   expect(responseBox?.x).toBeGreaterThanOrEqual((evidenceBox?.x ?? 0) + (evidenceBox?.width ?? 0))
   await page.screenshot({ path: testInfo.outputPath('full-qa-floating-initial-desktop.png'), animations: 'disabled' })
   await expect(saveButton(page)).toBeInViewport()
-  await expect(page.getByRole('region', { name: 'Call recording', exact: true })).toHaveText('Recording not available')
+  await expect(page.getByRole('region', { name: 'Call recording', exact: true }).getByText('Recording not available', { exact: true })).toBeVisible()
   await expectFullscreenMobileDialog(page)
   await page.screenshot({ path: testInfo.outputPath('full-qa-floating-initial-mobile.png'), animations: 'disabled' })
   await expect(evidenceColumn).toBeVisible()
@@ -388,7 +388,7 @@ test('score answers and an explicit verdict save without manufacturing any coach
   await expect(saveButton(page)).toBeDisabled()
   await page.getByRole('radio', { name: 'No, the alert was unnecessary', exact: true }).check()
   await page.getByRole('textbox', { name: 'Explain your decision' }).fill(escalationReason)
-  await expect(page.getByRole('status')).toContainText('Choose why escalation was not justified.')
+  await expect(page.getByRole('status')).toContainText('Choose why the alert was unnecessary.')
   await page.getByRole('combobox', { name: 'Why was the alert unnecessary?' }).selectOption('evidence_misquoted')
   await expect(page.getByRole('status')).toHaveCount(0)
   // The footer button and the keyboard shortcut submit the same form once.

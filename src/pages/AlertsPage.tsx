@@ -82,6 +82,14 @@ export default function AlertsPage() {
 
   const { data: scope, isError: scopeError, refetch: refetchScope } = useUserScope(user?.email)
   const [drawerAlert, setDrawerAlert] = useState<AlertWithFeedback | null>(null)
+  const [detailLoad, setDetailLoad] = useState<{ key: string; status: 'loading' | 'error' | 'ready' } | null>(null)
+  const [detailRetry, setDetailRetry] = useState(0)
+  const detailKey = routeCallId && routeModuleName ? alertKey({ call_id: routeCallId, module_name: routeModuleName }) : null
+  const retryDetails = () => {
+    if (!detailKey) return
+    setDetailLoad({ key: detailKey, status: 'loading' })
+    setDetailRetry(attempt => attempt + 1)
+  }
 
   // Thirty Eastern calendar days, including today. URL is the source of truth
   // so reload, browser Back, and shared drawer links restore the exact queue.
@@ -294,6 +302,8 @@ export default function AlertsPage() {
       return
     }
     let cancelled = false
+    const key = alertKey({ call_id: routeCallId, module_name: routeModuleName })
+    setDetailLoad(current => current?.key === key ? current : { key, status: 'loading' })
     const inList = allAlerts.find(a => a.call_id === routeCallId && a.module_name === routeModuleName)
     setDrawerAlert(current => {
       if (current?.call_id === routeCallId && current.module_name === routeModuleName) return inList ? { ...current, ...inList } : current
@@ -302,15 +312,16 @@ export default function AlertsPage() {
     fetchAlertOne(routeCallId, routeModuleName, scope, workload)
       .then(full => {
         if (cancelled) return
+        setDetailLoad({ key, status: full ? 'ready' : 'error' })
         if (full) setDrawerAlert(current => {
           if (!current || current.call_id !== full.call_id || current.module_name !== full.module_name) return full
           return mergeAlertDetailsWithoutReviewRegression(current, full)
         })
         else toast.error('This alert is unavailable.')
       })
-      .catch(() => { if (!cancelled) toast.error('Could not load alert details. Close and reopen to retry.') })
+      .catch(() => { if (!cancelled) setDetailLoad({ key, status: 'error' }) })
     return () => { cancelled = true }
-  }, [routeCallId, routeModuleName, allAlerts, navigate, scope, workload, queueParams])
+  }, [routeCallId, routeModuleName, allAlerts, navigate, scope, workload, queueParams, detailRetry])
 
   const openDrawer = useCallback(
     (alert: AlertWithFeedback) => {
@@ -1288,8 +1299,16 @@ export default function AlertsPage() {
         sets the verdict, 1–9 picks a reason, ⌘/Ctrl+Enter saves.
       </p>
 
+      {detailLoad?.key === detailKey && detailLoad.status === 'error' && !drawerAlert && <ErrorState
+        title="Couldn't load this alert"
+        message="Try loading it again, or return to the queue."
+        onRetry={retryDetails}
+      />}
       <AlertReviewDrawer
         alert={drawerAlert}
+        detailsLoading={detailLoad?.key === detailKey && detailLoad.status === 'loading'}
+        detailsError={detailLoad?.key === detailKey && detailLoad.status === 'error'}
+        onRetryDetails={retryDetails}
         currentUserEmail={user?.email}
         scope={scope}
         workload={workload}

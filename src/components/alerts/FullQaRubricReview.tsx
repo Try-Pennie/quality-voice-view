@@ -22,6 +22,7 @@ import {
 import type { AlertActionTaken, AlertInaccuracyReason, AlertWithFeedback } from '../../types/database'
 import type { UserScope } from '../../lib/alert-queries'
 import { formatDateTime } from '../../lib/utils'
+import { INTERNAL_REVIEW_TEXT_LIMITS } from '../../lib/internal-alert-review'
 
 /** The review footer submits this form, so the primary action stays reachable while scrolling. */
 export const FULL_QA_FORM_ID = 'full-qa-review-form'
@@ -41,6 +42,8 @@ interface Props {
   readonly alert: AlertWithFeedback
   readonly scope: UserScope
   readonly editable: boolean
+  readonly canReloadReview: boolean
+  readonly onStaleReview: () => void
   readonly onDirtyChange: (dirty: boolean) => void
   readonly onBusyChange: (busy: boolean) => void
   readonly onSaveStateChange: (state: FullQaSaveState) => void
@@ -48,6 +51,24 @@ interface Props {
 }
 
 type LocalDraft = Omit<FullQaReviewDraft, 'escalationJustified'> & { readonly escalationJustified: boolean | null }
+
+function ReviewText({ label, value, onChange, disabled, placeholder }: {
+  readonly label: string
+  readonly value: string
+  readonly onChange: (value: string) => void
+  readonly disabled?: boolean
+  readonly placeholder?: string
+}) {
+  const hintId = useId()
+  const length = value.trim().length
+  const { min, max } = INTERNAL_REVIEW_TEXT_LIMITS
+  return <>
+    <textarea aria-label={label} aria-describedby={hintId} aria-invalid={length > 0 && (length < min || length > max)}
+      disabled={disabled} value={value} placeholder={placeholder} onChange={event => onChange(event.target.value)}
+      className="pennie-focus-ring mt-1 min-h-20 w-full rounded-lg border border-border bg-white p-2 text-base font-normal sm:text-sm" />
+    <span id={hintId} className="mt-1 block text-xs font-normal text-pennie-graphite/70">{min}–{max.toLocaleString('en-US')} characters · {length.toLocaleString('en-US')} entered</span>
+  </>
+}
 
 function serializeDraft(value: unknown): string {
   return JSON.stringify(value)
@@ -183,7 +204,7 @@ function ManagerReviewOutcome({ context }: { readonly context: FullQaReviewConte
       <h2 className="text-lg font-semibold text-pennie-navy">Manager’s review</h2>
       <p className="text-xs text-pennie-graphite/70">Saved {formatDateTime(review.savedAt)} by {review.savedBy} · revision {review.feedbackRevision}</p>
     </div>
-    <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-sm text-pennie-graphite">
+    <dl className="grid grid-cols-1 gap-x-3 gap-y-1 text-sm text-pennie-graphite [&>dd]:mb-2 sm:grid-cols-[auto_1fr] sm:[&>dd]:mb-0">
       <dt className="font-semibold text-pennie-navy">Alert warranted</dt>
       <dd className="font-semibold">{review.escalationJustified ? 'Yes' : 'No'}{review.inaccuracyReason ? ` · ${INACCURACY_REASON_LABELS[review.inaccuracyReason]}` : ''}</dd>
       <dt className="font-semibold text-pennie-navy">Manager’s reason</dt>
@@ -204,7 +225,7 @@ function ManagerReviewOutcome({ context }: { readonly context: FullQaReviewConte
 }
 
 /** Full QA-specific review: immutable AI judgments, 23 criterion treatments, distinct findings, and escalation. */
-export function FullQaRubricReview({ alert, scope, editable, onDirtyChange, onBusyChange, onSaveStateChange, onSubmitted }: Props) {
+export function FullQaRubricReview({ alert, scope, editable, canReloadReview, onStaleReview, onDirtyChange, onBusyChange, onSaveStateChange, onSubmitted }: Props) {
   const queryClient = useQueryClient()
   const scorecardId = useId()
   const [showFullScorecard, setShowFullScorecard] = useState(false)
@@ -212,6 +233,9 @@ export function FullQaRubricReview({ alert, scope, editable, onDirtyChange, onBu
   const context = query.data
   const initializedFor = useRef<string | null>(null)
   const contextToken = useRef('')
+  // Pin both optimistic locks to the draft, never to independently refreshed alert metadata.
+  const reviewIdentity = useRef<{ revision: number; decisionId: number | null }>({ revision: 0, decisionId: null })
+  const [staleReview, setStaleReview] = useState(false)
   const baseline = useRef('')
   const [corrections, setCorrections] = useState<readonly FullQaCriterionCorrection[]>([])
   const [findings, setFindings] = useState<readonly FullQaFinding[]>([])
@@ -249,8 +273,10 @@ export function FullQaRubricReview({ alert, scope, editable, onDirtyChange, onBu
       actionDetails: next.findings.length ? next.actionDetails : null,
     })
     contextToken.current = `${nextContext.sourceFingerprint}:${nextContext.review?.feedbackRevision ?? 0}`
+    reviewIdentity.current = { revision: nextContext.review?.feedbackRevision ?? alert.review_revision ?? 0, decisionId: alert.current_decision_id ?? null }
+    setStaleReview(false)
     initializedFor.current = alert.call_id
-  }, [alert.call_id])
+  }, [alert.call_id, alert.review_revision, alert.current_decision_id])
 
   useEffect(() => {
     if (!context || initializedFor.current === alert.call_id) return
@@ -264,7 +290,7 @@ export function FullQaRubricReview({ alert, scope, editable, onDirtyChange, onBu
   const dirty = reviewDirty || proposalDirty
   const busy = saving || proposalPending || proposalDecisionPending
   const latestContextToken = context ? `${context.sourceFingerprint}:${context.review?.feedbackRevision ?? 0}` : ''
-  const contextChanged = !!context && !!contextToken.current && latestContextToken !== contextToken.current
+  const contextChanged = staleReview || (!!context && !!contextToken.current && latestContextToken !== contextToken.current)
   // Historical unresolved responses stay intact; a missing AI score needs an explicit result, never an invented pass.
   const unanswered = context?.criteria.find(criterion => corrections.some(item => item.criterionKey === criterion.key && item.disposition === 'needs_context')
     && !context.review?.corrections.some(item => item.criterionKey === criterion.key && item.disposition === 'needs_context'))
@@ -340,12 +366,21 @@ export function FullQaRubricReview({ alert, scope, editable, onDirtyChange, onBu
     if (contextChanged) { toast.error('The saved source or revision changed. Reload it before saving.'); return }
     if (parsed.ok === false || busy || !reviewDirty || !editable) { if (parsed.ok === false) toast.error(parsed.message); return }
     setSaving(true)
-    const result = await submitFullQaReview({ callId: alert.call_id, expectedRevision: alert.review_revision ?? 0,
-      expectedDecisionId: alert.current_decision_id ?? null, expectedSourceFingerprint: context.sourceFingerprint, draft: parsed.value })
+    const result = await submitFullQaReview({ callId: alert.call_id, expectedRevision: reviewIdentity.current.revision,
+      expectedDecisionId: reviewIdentity.current.decisionId, expectedSourceFingerprint: context.sourceFingerprint, draft: parsed.value })
     setSaving(false)
-    if (result.ok === false) { toast.error(`Couldn't save Full QA review: ${result.error.message}`); if (result.error._tag === 'StaleReview') query.refetch(); return }
+    if (result.ok === false) {
+      toast.error(`Couldn't save Full QA review: ${result.error.message}`)
+      if (result.error._tag === 'StaleReview') {
+        setStaleReview(true)
+        onStaleReview()
+        await query.refetch()
+      }
+      return
+    }
     baseline.current = serializeDraft(parsed.value)
     contextToken.current = `${context.sourceFingerprint}:${result.value.reviewRevision}`
+    reviewIdentity.current = { revision: result.value.reviewRevision, decisionId: null }
     onDirtyChange(false)
     onSubmitted({ feedback_id: result.value.feedbackId, feedback_by: scope.email, is_reviewed: true,
       accurate: parsed.value.escalationJustified, inaccuracy_reason: parsed.value.inaccuracyReason,
@@ -451,7 +486,7 @@ export function FullQaRubricReview({ alert, scope, editable, onDirtyChange, onBu
               </fieldset>
               {correction.disposition === 'corrected' && <label className="block text-sm font-semibold">What should the result be?<select aria-label={`${criterion.label} corrected value`} disabled={locked} value={correction.correctedValue === null ? '' : String(correction.correctedValue)} onChange={event => updateCorrection(criterion.key, { correctedValue: criterion.domain.find(value => String(value) === event.target.value) ?? null })} className="mt-1 min-h-[44px] w-full rounded-lg border border-border bg-white px-2 font-normal">{originalValue === undefined && <option value="" disabled>Choose a result</option>}{criterion.domain.map(value => <option key={String(value)} value={String(value)}>{scoreLabel(value)}</option>)}</select></label>}
               {correction.disposition === 'needs_context' && !saved && <p className="text-sm text-pennie-graphite">No score was saved. Check the transcript, then select Incorrect to enter the result.</p>}
-              {correction.disposition === 'corrected' && <label className="block text-sm font-semibold">Why is the assessment incorrect?<textarea aria-label={`${criterion.label} correction reason`} disabled={locked} value={correction.reason ?? ''} onChange={event => updateCorrection(criterion.key, { reason: event.target.value })} className="mt-1 min-h-20 w-full rounded-lg border border-border bg-white p-2 font-normal" /></label>}
+              {correction.disposition === 'corrected' && <label className="block text-sm font-semibold">Why is the assessment incorrect?<ReviewText label={`${criterion.label} correction reason`} disabled={locked} value={correction.reason ?? ''} onChange={reason => updateCorrection(criterion.key, { reason })} /></label>}
             </div>}
             {!editable && !saved && <p className="text-sm text-pennie-graphite/70">No structured response was recorded for this criterion.</p>}
             {editable && (linkedIndex >= 0
@@ -476,7 +511,7 @@ export function FullQaRubricReview({ alert, scope, editable, onDirtyChange, onBu
       </details>
     </aside>}
 
-    {contextChanged && <div className="rounded-2xl border border-pennie-peach-dark bg-pennie-peach-light/40 p-4 text-sm"><p className="font-semibold text-pennie-navy">Saved source or revision changed</p><p className="mt-1 text-xs text-pennie-graphite">Your draft was not paired with the new token. Reload explicitly to discard it and review the authoritative source.</p><button type="button" onClick={() => loadContext(context)} className="mt-3 min-h-[40px] rounded-full border border-pennie-navy px-4 text-xs font-semibold">Reload review and discard draft</button></div>}
+    {contextChanged && <div className="rounded-2xl border border-pennie-peach-dark bg-pennie-peach-light/40 p-4 text-sm"><p className="font-semibold text-pennie-navy">Saved source or revision changed</p><p className="mt-1 text-xs text-pennie-graphite">Your draft was not paired with the new token. Reload explicitly to discard it and review the authoritative source.</p><button type="button" disabled={busy || query.isFetching || !canReloadReview} onClick={() => loadContext(context)} className="pennie-focus-ring mt-3 min-h-[44px] rounded-full border border-pennie-navy px-4 text-xs font-semibold disabled:opacity-40">Reload review and discard draft</button></div>}
 
     {!editable && <ManagerReviewOutcome context={context} />}
 
@@ -502,25 +537,26 @@ export function FullQaRubricReview({ alert, scope, editable, onDirtyChange, onBu
           <summary className="pennie-focus-ring min-h-[36px] cursor-pointer font-semibold">Related criteria ({finding.relatedCriteria.length} selected{finding.relatedCriteria.length ? `: ${finding.relatedCriteria.map(key => context.criteria.find(item => item.key === key)?.label ?? key).join(', ')}` : ''})</summary>
           <div role="group" aria-label={`Finding ${index + 1} related criteria`} className="mt-2 grid gap-1 sm:grid-cols-2">{context.criteria.map(item => <label key={item.key} className="flex min-h-[32px] items-center gap-2 font-normal"><input type="checkbox" checked={finding.relatedCriteria.includes(item.key)} onChange={event => updateFinding(finding.findingId, { relatedCriteria: event.target.checked ? [...finding.relatedCriteria, item.key] : finding.relatedCriteria.filter(key => key !== item.key) })} className="pennie-focus-ring h-4 w-4 accent-pennie-blue-deeper" />{item.label}</label>)}</div>
         </details>
-        <label className="block text-xs font-semibold">Summary<textarea aria-label={`Finding ${index + 1} summary`} value={finding.summary} placeholder="Describe the issue in your own words." onChange={event => updateFinding(finding.findingId, { summary: event.target.value })} className="mt-1 min-h-16 w-full rounded-lg border bg-white p-2 font-normal" /></label>
-        <label className="block text-xs font-semibold">Evidence<textarea aria-label={`Finding ${index + 1} evidence`} value={finding.evidence} onChange={event => updateFinding(finding.findingId, { evidence: event.target.value })} className="mt-1 min-h-16 w-full rounded-lg border bg-white p-2 font-normal" /></label>
+        <label className="block text-xs font-semibold">Summary<ReviewText label={`Finding ${index + 1} summary`} value={finding.summary} placeholder="Describe the issue in your own words." onChange={summary => updateFinding(finding.findingId, { summary })} /></label>
+        <label className="block text-xs font-semibold">Evidence<ReviewText label={`Finding ${index + 1} evidence`} value={finding.evidence} onChange={evidence => updateFinding(finding.findingId, { evidence })} /></label>
         <button type="button" onClick={() => setFindings(items => items.filter(item => item.findingId !== finding.findingId))} className="min-h-[36px] text-xs font-semibold text-pennie-peach-deeper"><Trash2 className="mr-1 inline h-3.5 w-3.5" aria-hidden="true" />Remove issue</button>
       </fieldset>)}
       {findings.length === 0 && <p className="text-sm text-pennie-graphite/70">No coaching issues added.</p>}
       <button type="button" disabled={locked} onClick={addBlankIssue} className="min-h-[40px] rounded-full border border-border px-3 text-xs font-semibold text-pennie-blue-deeper disabled:opacity-40"><Plus className="mr-1 inline h-4 w-4" aria-hidden="true" />Add another issue</button>
       {findings.length > 0 && <fieldset disabled={locked} className="space-y-2 border-t border-border pt-3"><legend className="text-sm font-semibold text-pennie-navy">What you did</legend>
         <label className="block text-xs font-semibold">What did you do about the issue?<select aria-label="What did you do about the issue?" value={actionTaken ?? ''} onChange={event => setActionTaken(event.target.value as AlertActionTaken)} className="mt-1 min-h-[40px] w-full rounded-lg border bg-white px-2 font-normal"><option value="">Choose an action</option>{ACTIONS.map(value => <option key={value} value={value}>{ACTION_TAKEN_LABELS[value]}</option>)}</select></label>
-        <label className="block text-xs font-semibold">What happened, or what will you do next?<textarea aria-label="Coaching or next steps" value={actionDetails} onChange={event => setActionDetails(event.target.value)} className="mt-1 min-h-20 w-full rounded-lg border p-2 font-normal" /></label>
+        <label className="block text-xs font-semibold">What happened, or what will you do next?<ReviewText label="Coaching or next steps" value={actionDetails} onChange={setActionDetails} /></label>
       </fieldset>}
     </section>}
 
     {editable && <fieldset disabled={locked} className="space-y-3 border-t border-border pt-5"><legend id={`${scorecardId}-decision`} tabIndex={-1} className="pennie-focus-ring pr-2 text-base font-semibold text-pennie-navy">Was this alert warranted?</legend>
       <p className="text-sm text-pennie-graphite">Coaching issues above stay recorded either way.</p>
+      <p className="text-xs text-pennie-graphite/70">A warranted alert needs at least two distinct confirmed compliance issues, or an explicit severe-customer-mistreatment issue. Correcting a score alone does not add a coaching issue.</p>
       <div role="radiogroup" aria-label="Alert verdict" className="flex flex-wrap gap-2">{([true, false] as const).map(value => <label key={String(value)} className={`flex min-h-[44px] cursor-pointer items-center gap-2 rounded-xl border px-3 py-2 text-sm ${escalationJustified === value ? 'border-pennie-blue-deeper bg-pennie-blue-light text-pennie-navy' : 'border-border text-pennie-graphite hover:bg-pennie-blue-light/50'}`}>
         <input type="radio" name={`${scorecardId}-escalation`} checked={escalationJustified === value} onChange={() => setEscalationJustified(value)} className="pennie-focus-ring h-4 w-4 accent-pennie-blue-deeper" />
         <span>{value ? 'Yes, the alert was warranted' : 'No, the alert was unnecessary'}</span>
       </label>)}</div>
-      <label className="block text-xs font-semibold">Explain your decision<textarea aria-label="Explain your decision" value={escalationReason} onChange={event => setEscalationReason(event.target.value)} className="mt-1 min-h-20 w-full rounded-lg border p-2 font-normal" /></label>
+      <label className="block text-xs font-semibold">Explain your decision<ReviewText label="Explain your decision" value={escalationReason} onChange={setEscalationReason} /></label>
       {escalationJustified === false && <label className="block text-xs font-semibold">Why was the alert unnecessary?<select aria-label="Why was the alert unnecessary?" value={inaccuracyReason ?? ''} onChange={event => setInaccuracyReason(event.target.value as AlertInaccuracyReason)} className="mt-1 min-h-[40px] w-full rounded-lg border bg-white px-2 font-normal"><option value="">Choose a reason</option>{REASONS.map(value => <option key={value} value={value}>{INACCURACY_REASON_LABELS[value]}</option>)}</select></label>}
     </fieldset>}
 

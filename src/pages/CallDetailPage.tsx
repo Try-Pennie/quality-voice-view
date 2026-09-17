@@ -40,6 +40,7 @@ export default function CallDetailPage() {
   const { data: scope } = useUserScope(user?.email)
   const {
     data: call,
+    dataUpdatedAt: callUpdatedAt,
     isPending: callPending,
     isError: callError,
     refetch: refetchCall,
@@ -180,7 +181,7 @@ export default function CallDetailPage() {
           <h2 className="pennie-label mb-3 inline-flex items-center gap-1.5">
             <Headphones className="w-3.5 h-3.5" aria-hidden="true" />Recording
           </h2>
-          <AudioPlayer key={call.call_id} recordingUrl={call.qa.recording_link} />
+          <AudioPlayer key={`${call.call_id}:${callUpdatedAt}`} recordingUrl={call.qa.recording_link} onRetry={() => refetchCall()} />
         </> : <p className="text-xs text-pennie-graphite/70">Recording not available</p>}
       </section>
 
