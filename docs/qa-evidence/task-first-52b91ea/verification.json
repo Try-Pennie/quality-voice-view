@@ -1,0 +1,310 @@
+{
+  "result": "passed",
+  "commit": "b7b8f3bc996c73fff6fa95303d28cc97dd21b928",
+  "requestCount": 199,
+  "origins": [
+    "https://xuvveqaizlletsqvwpgx.supabase.co",
+    "https://rubric-staging.eavesly.pages.dev",
+    "https://0776b3ee.eavesly.pages.dev"
+  ],
+  "problems": [],
+  "measures": [
+    {
+      "description": "manager 1440: saved reason",
+      "viewport": {
+        "width": 1440,
+        "height": 900
+      },
+      "box": {
+        "x": 801,
+        "y": 245,
+        "width": 607,
+        "height": 140
+      }
+    },
+    {
+      "description": "manager 1440: first quote",
+      "viewport": {
+        "width": 1440,
+        "height": 900
+      },
+      "box": {
+        "x": 821,
+        "y": 570,
+        "width": 570,
+        "height": 22.75
+      }
+    },
+    {
+      "description": "manager 1440: Correct",
+      "viewport": {
+        "width": 1440,
+        "height": 900
+      },
+      "box": {
+        "x": 834,
+        "y": 641.75,
+        "width": 99,
+        "height": 44
+      }
+    },
+    {
+      "description": "manager 1440: Incorrect",
+      "viewport": {
+        "width": 1440,
+        "height": 900
+      },
+      "box": {
+        "x": 941,
+        "y": 641.75,
+        "width": 109,
+        "height": 44
+      }
+    },
+    {
+      "description": "manager 1440: Need more context",
+      "viewport": {
+        "width": 1440,
+        "height": 900
+      },
+      "box": {
+        "x": 1058,
+        "y": 641.75,
+        "width": 177,
+        "height": 44
+      }
+    },
+    {
+      "description": "manager 1440: persistent save",
+      "viewport": {
+        "width": 1440,
+        "height": 900
+      },
+      "box": {
+        "x": 1293,
+        "y": 844,
+        "width": 115,
+        "height": 44
+      }
+    },
+    {
+      "description": "manager 375: saved reason",
+      "viewport": {
+        "width": 375,
+        "height": 812
+      },
+      "box": {
+        "x": 17,
+        "y": 209.5,
+        "width": 342,
+        "height": 154.75
+      }
+    },
+    {
+      "description": "manager 375: first quote",
+      "viewport": {
+        "width": 375,
+        "height": 812
+      },
+      "box": {
+        "x": 33,
+        "y": 545.25,
+        "width": 313,
+        "height": 45.5
+      }
+    },
+    {
+      "description": "manager 375: Correct",
+      "viewport": {
+        "width": 375,
+        "height": 812
+      },
+      "box": {
+        "x": 46,
+        "y": 639.75,
+        "width": 99,
+        "height": 44
+      }
+    },
+    {
+      "description": "manager 375: Incorrect",
+      "viewport": {
+        "width": 375,
+        "height": 812
+      },
+      "box": {
+        "x": 153,
+        "y": 639.75,
+        "width": 109,
+        "height": 44
+      }
+    },
+    {
+      "description": "manager 375: Need more context",
+      "viewport": {
+        "width": 375,
+        "height": 812
+      },
+      "box": {
+        "x": 46,
+        "y": 691.75,
+        "width": 177,
+        "height": 44
+      }
+    },
+    {
+      "description": "manager 375: persistent save",
+      "viewport": {
+        "width": 375,
+        "height": 812
+      },
+      "box": {
+        "x": 244,
+        "y": 756,
+        "width": 115,
+        "height": 44
+      }
+    },
+    {
+      "description": "manager 320: save during scroll",
+      "viewport": {
+        "width": 320,
+        "height": 950
+      },
+      "box": {
+        "x": 189,
+        "y": 894,
+        "width": 115,
+        "height": 44
+      }
+    },
+    {
+      "description": "manager 375: save during scroll",
+      "viewport": {
+        "width": 375,
+        "height": 950
+      },
+      "box": {
+        "x": 244,
+        "y": 894,
+        "width": 115,
+        "height": 44
+      }
+    },
+    {
+      "description": "manager 414: save during scroll",
+      "viewport": {
+        "width": 414,
+        "height": 950
+      },
+      "box": {
+        "x": 283,
+        "y": 894,
+        "width": 115,
+        "height": 44
+      }
+    },
+    {
+      "description": "manager 768: save during scroll",
+      "viewport": {
+        "width": 768,
+        "height": 950
+      },
+      "box": {
+        "x": 621,
+        "y": 894,
+        "width": 115,
+        "height": 44
+      }
+    },
+    {
+      "description": "Kris 1440: manager summary",
+      "viewport": {
+        "width": 1440,
+        "height": 900
+      },
+      "box": {
+        "x": 822,
+        "y": 266,
+        "width": 565,
+        "height": 28
+      }
+    },
+    {
+      "description": "Kris 1440: manager action",
+      "viewport": {
+        "width": 1440,
+        "height": 900
+      },
+      "box": {
+        "x": 822,
+        "y": 410,
+        "width": 124,
+        "height": 60
+      }
+    },
+    {
+      "description": "Kris 1440: approve",
+      "viewport": {
+        "width": 1440,
+        "height": 900
+      },
+      "box": {
+        "x": 1106,
+        "y": 844,
+        "width": 141,
+        "height": 44
+      }
+    },
+    {
+      "description": "Kris 375: manager summary",
+      "viewport": {
+        "width": 375,
+        "height": 812
+      },
+      "box": {
+        "x": 34,
+        "y": 226.5,
+        "width": 308,
+        "height": 28
+      }
+    },
+    {
+      "description": "Kris 375: manager action",
+      "viewport": {
+        "width": 375,
+        "height": 812
+      },
+      "box": {
+        "x": 34,
+        "y": 466.5,
+        "width": 124,
+        "height": 140
+      }
+    },
+    {
+      "description": "Kris 375: approve",
+      "viewport": {
+        "width": 375,
+        "height": 812
+      },
+      "box": {
+        "x": 94,
+        "y": 756,
+        "width": 123,
+        "height": 44
+      }
+    }
+  ],
+  "checks": [
+    "real native auth and distinct roles",
+    "first-open reason quote and response in viewport without scroll",
+    "manager persistent save and Kris persistent approve",
+    "all23 criteria and unsaved draft retention",
+    "explicit correction controls and unchanged categorical meanings",
+    "Kris summary no disabled editable fields",
+    "responsive 320/375/414/768",
+    "no saved review approval or proposal mutations",
+    "staging-only network and zero errors"
+  ]
+}

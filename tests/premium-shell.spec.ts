@@ -217,6 +217,7 @@ test('legacy call-detail score badges retain meaning with AA text contrast', asy
 test('review verdict badges use AA text contrast', async ({ page }) => {
   await reviewFixture(page, [
     alertRow('review-contrast', {
+      module_name: 'budget_inputs',
       is_reviewed: true,
       accurate: true,
       feedback_id: 1,

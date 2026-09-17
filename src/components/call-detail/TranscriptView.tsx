@@ -3,10 +3,12 @@ import { ChevronDown, ChevronLeft, ChevronRight } from 'lucide-react'
 import { findTranscriptRanges, parseTranscriptTurns } from '@/lib/transcript-evidence'
 
 /** Searchable speaker turns with literal evidence navigation; no inferred audio timestamps. */
-export function TranscriptView({ transcript, evidence = [], constrainHeight = true }: {
+export function TranscriptView({ transcript, evidence = [], constrainHeight = true, focusRequest = 0 }: {
   transcript: string
   evidence?: string[]
   constrainHeight?: boolean
+  /** Explicit navigation request, not focus on every data refresh. */
+  focusRequest?: number
 }) {
   const [expanded, setExpanded] = useState(false)
   const [search, setSearch] = useState('')
@@ -14,6 +16,13 @@ export function TranscriptView({ transcript, evidence = [], constrainHeight = tr
   const searchId = useId()
   const contentId = useId()
   const contentRef = useRef<HTMLDivElement>(null)
+  const searchRef = useRef<HTMLInputElement>(null)
+  useEffect(() => {
+    if (focusRequest > 0) {
+      searchRef.current?.focus({ preventScroll: true })
+      searchRef.current?.scrollIntoView({ block: 'center', behavior: 'instant' })
+    }
+  }, [focusRequest])
   const turns = useMemo(() => parseTranscriptTurns(transcript), [transcript])
   const searching = search.trim().length > 0
   const blocks = useMemo(() => {
@@ -52,6 +61,7 @@ export function TranscriptView({ transcript, evidence = [], constrainHeight = tr
           <label htmlFor={searchId} className="pennie-label block mb-1">Search transcript</label>
           <input
             id={searchId}
+            ref={searchRef}
             type="search"
             value={search}
             maxLength={256}

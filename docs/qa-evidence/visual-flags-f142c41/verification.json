@@ -1,0 +1,24 @@
+{
+  "result": "passed",
+  "commit": "124835f90516bac91d4cab19b9039eb2779710e3",
+  "initialManagerItems": 2,
+  "fullManagerItems": 23,
+  "krisEditableItems": 0,
+  "requestCount": 53,
+  "origins": [
+    "https://xuvveqaizlletsqvwpgx.supabase.co",
+    "https://rubric-staging.eavesly.pages.dev",
+    "https://2be7002a.eavesly.pages.dev"
+  ],
+  "problems": [],
+  "checks": [
+    "real native auth and distinct roles",
+    "amber named Eavesly flags and readable quotes",
+    "native radio disagreement and reason draft survives full scorecard toggle",
+    "23 criteria still available, neutral scores not labeled flagged",
+    "Kris immutable AI result vs blue saved correction, no editing",
+    "responsive 320/375/414/768",
+    "no saved review/approval/proposal changes",
+    "staging-only network and zero errors"
+  ]
+}

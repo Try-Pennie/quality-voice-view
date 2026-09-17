@@ -82,6 +82,15 @@ export default function AlertsPage() {
 
   const { data: scope, isError: scopeError, refetch: refetchScope } = useUserScope(user?.email)
   const [drawerAlert, setDrawerAlert] = useState<AlertWithFeedback | null>(null)
+  const [animateDrawerOpen, setAnimateDrawerOpen] = useState(false)
+  const [detailLoad, setDetailLoad] = useState<{ key: string; status: 'loading' | 'error' | 'ready' } | null>(null)
+  const [detailRetry, setDetailRetry] = useState(0)
+  const detailKey = routeCallId && routeModuleName ? alertKey({ call_id: routeCallId, module_name: routeModuleName }) : null
+  const retryDetails = () => {
+    if (!detailKey) return
+    setDetailLoad({ key: detailKey, status: 'loading' })
+    setDetailRetry(attempt => attempt + 1)
+  }
 
   // Thirty Eastern calendar days, including today. URL is the source of truth
   // so reload, browser Back, and shared drawer links restore the exact queue.
@@ -285,6 +294,7 @@ export default function AlertsPage() {
   // Route owns the drawer. Ignore stale fetches after J/K, Back, or closing.
   useEffect(() => {
     if (!routeCallId || !routeModuleName || !scope) {
+      setAnimateDrawerOpen(false)
       setDrawerAlert(null)
       return
     }
@@ -294,6 +304,8 @@ export default function AlertsPage() {
       return
     }
     let cancelled = false
+    const key = alertKey({ call_id: routeCallId, module_name: routeModuleName })
+    setDetailLoad(current => current?.key === key ? current : { key, status: 'loading' })
     const inList = allAlerts.find(a => a.call_id === routeCallId && a.module_name === routeModuleName)
     setDrawerAlert(current => {
       if (current?.call_id === routeCallId && current.module_name === routeModuleName) return inList ? { ...current, ...inList } : current
@@ -302,19 +314,22 @@ export default function AlertsPage() {
     fetchAlertOne(routeCallId, routeModuleName, scope, workload)
       .then(full => {
         if (cancelled) return
+        setDetailLoad({ key, status: full ? 'ready' : 'error' })
         if (full) setDrawerAlert(current => {
           if (!current || current.call_id !== full.call_id || current.module_name !== full.module_name) return full
           return mergeAlertDetailsWithoutReviewRegression(current, full)
         })
         else toast.error('This alert is unavailable.')
       })
-      .catch(() => { if (!cancelled) toast.error('Could not load alert details. Close and reopen to retry.') })
+      .catch(() => { if (!cancelled) setDetailLoad({ key, status: 'error' }) })
     return () => { cancelled = true }
-  }, [routeCallId, routeModuleName, allAlerts, navigate, scope, workload, queueParams])
+  }, [routeCallId, routeModuleName, allAlerts, navigate, scope, workload, queueParams, detailRetry])
 
   const openDrawer = useCallback(
-    (alert: AlertWithFeedback) => {
-      // Instant: render with the slim list row…
+    (alert: AlertWithFeedback, animateOpen = false) => {
+      // Only explicit pointer entry gets motion; keyboard and auto-advance stay instant.
+      setAnimateDrawerOpen(animateOpen)
+      // Render immediately with the slim list row; never wait for enrichment.
       setDrawerAlert(alert)
       // Preserve any returnTo so j/k navigation between alerts doesn't strip
       // the originating-page context.
@@ -329,6 +344,7 @@ export default function AlertsPage() {
   )
 
   const closeDrawer = useCallback(() => {
+    setAnimateDrawerOpen(false)
     setDrawerAlert(null)
     if (!routeCallId) return
     // If we got here from a deep-link with a returnTo (e.g. an agent profile
@@ -764,7 +780,7 @@ export default function AlertsPage() {
           </div>
           <button
             type="button"
-            onClick={() => queuePage.items[0] && openDrawer(queuePage.items[0])}
+            onClick={event => queuePage.items[0] && openDrawer(queuePage.items[0], event.detail > 0)}
             disabled={loading || alertsError || queuePage.items.length === 0}
             className="pennie-focus-ring min-h-[44px] px-5 rounded-full bg-pennie-navy text-pennie-white text-sm font-semibold hover:bg-pennie-navy/90 disabled:opacity-40 disabled:cursor-not-allowed"
           >
@@ -1161,7 +1177,7 @@ export default function AlertsPage() {
                     className={`pennie-focus-ring-inset group cursor-pointer transition-colors duration-150 hover:bg-pennie-blue-light/40 ${
                       i !== 0 ? 'border-t border-border/60' : ''
                     } ${queuePage.start - 1 + i === focusIndex ? 'bg-pennie-blue-light/40' : ''}`}
-                    onClick={() => openDrawer(a)}
+                    onClick={event => openDrawer(a, event.detail > 0)}
                     onKeyDown={e => onRowKeyDown(e, a)}
                   >
                     {showBulkColumn && (
@@ -1288,8 +1304,17 @@ export default function AlertsPage() {
         sets the verdict, 1–9 picks a reason, ⌘/Ctrl+Enter saves.
       </p>
 
+      {detailLoad?.key === detailKey && detailLoad.status === 'error' && !drawerAlert && <ErrorState
+        title="Couldn't load this alert"
+        message="Try loading it again, or return to the queue."
+        onRetry={retryDetails}
+      />}
       <AlertReviewDrawer
         alert={drawerAlert}
+        animateOpen={animateDrawerOpen}
+        detailsLoading={detailLoad?.key === detailKey && detailLoad.status === 'loading'}
+        detailsError={detailLoad?.key === detailKey && detailLoad.status === 'error'}
+        onRetryDetails={retryDetails}
         currentUserEmail={user?.email}
         scope={scope}
         workload={workload}

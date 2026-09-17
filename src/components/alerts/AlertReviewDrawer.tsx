@@ -1,6 +1,6 @@
 import { useEffect, useId, useMemo, useRef, useState } from 'react'
 import { toast } from 'sonner'
-import { useQueryClient } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   Sheet,
   SheetContent,
@@ -41,6 +41,8 @@ import {
 import { useAgentFeedbackForCall, useAlertThread } from '@/hooks/use-queries'
 import { registerHistoryNavigationGuard } from '@/lib/history-navigation-guard'
 import { PennieAgentFeedbackSection } from '@/components/PennieAgentFeedbackSection'
+import { FULL_QA_FORM_ID, FullQaRubricReview, type FullQaSaveState } from './FullQaRubricReview'
+import { fetchFullQaReviewContext } from '@/lib/full-qa-review'
 import { VIOLATION_HELP_IDS } from '@/lib/help-content'
 import {
   INTERNAL_REVIEW_TEXT_LIMITS,
@@ -121,6 +123,10 @@ const QUICK_PHRASES: { label: string; text: string }[] = [
 
 interface Props {
   alert: AlertWithFeedback | null
+  animateOpen: boolean
+  detailsLoading: boolean
+  detailsError: boolean
+  onRetryDetails: () => void
   currentUserEmail: string | null | undefined
   scope: UserScope
   workload: AlertWorkload
@@ -135,6 +141,10 @@ interface Props {
 
 export function AlertReviewDrawer({
   alert,
+  animateOpen,
+  detailsLoading,
+  detailsError,
+  onRetryDetails,
   currentUserEmail,
   scope,
   workload,
@@ -145,6 +155,7 @@ export function AlertReviewDrawer({
   hasPrev,
   queuePosition,
 }: Props) {
+  const isFullQa = workload === 'internal' && alert?.module_name === 'full_qa'
   const [accurate, setAccurate] = useState<boolean | null>(null)
   const [action, setAction] = useState<AlertActionTaken | null>(null)
   const [reason, setReason] = useState<AlertInaccuracyReason | null>(null)
@@ -156,7 +167,15 @@ export function AlertReviewDrawer({
   const [changeInstructions, setChangeInstructions] = useState('')
   const [showRaw, setShowRaw] = useState(false)
   const [showTranscript, setShowTranscript] = useState(false)
+  const transcriptDetails = useRef<HTMLDetailsElement>(null)
+  const [transcriptFocusRequest, setTranscriptFocusRequest] = useState(0)
+  const openTranscript = () => {
+    if (transcriptDetails.current) transcriptDetails.current.open = true
+    setShowTranscript(true)
+    setTranscriptFocusRequest(request => request + 1)
+  }
   const submissionPending = useRef(false)
+  const returnFocusTarget = useRef<HTMLElement | null>(null)
   const [overrideMode, setOverrideMode] = useState(false)
   const [draftBody, setDraftBody] = useState('')
   const [replyTo, setReplyTo] = useState<AlertMessage | null>(null)
@@ -164,11 +183,18 @@ export function AlertReviewDrawer({
   const [posting, setPosting] = useState(false)
   const [editingId, setEditingId] = useState<number | null>(null)
   const [ackPending, setAckPending] = useState(false)
+  const [fullQaDraftDirty, setFullQaDraftDirty] = useState(false)
+  const [fullQaBusy, setFullQaBusy] = useState(false)
+  const [fullQaSave, setFullQaSave] = useState<FullQaSaveState>({ disabled: true, label: 'Save review', message: null, nextSectionId: null })
+  const [requestingChanges, setRequestingChanges] = useState(false)
   const commentId = useId()
   const violationDetailsId = useId()
   const actionDetailsId = useId()
   const rawJsonId = useId()
   const queryClient = useQueryClient()
+  // Share the rubric's cached, revision-pinned source for every Full QA evidence surface.
+  const fullQaContext = useQuery({ queryKey: ['fullQaReviewContext', alert?.call_id],
+    queryFn: () => fetchFullQaReviewContext(alert?.call_id ?? ''), enabled: isFullQa })
 
   const { data: thread, refetch: refetchThread } = useAlertThread(
     alert?.call_id,
@@ -196,11 +222,17 @@ export function AlertReviewDrawer({
     setChangeInstructions('')
     setShowRaw(false)
     setShowTranscript(false)
+    setTranscriptFocusRequest(0)
+    if (transcriptDetails.current) transcriptDetails.current.open = false
     setOverrideMode(false)
     setDraftBody('')
     setReplyTo(null)
     setRequireAck(false)
     setEditingId(null)
+    setFullQaDraftDirty(false)
+    setFullQaBusy(false)
+    setFullQaSave({ disabled: true, label: 'Save review', message: null, nextSectionId: null })
+    setRequestingChanges(false)
     // Identity changes initialize a fresh form; list enrichment must not erase a draft.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [alert?.call_id, alert?.module_name])
@@ -217,6 +249,12 @@ export function AlertReviewDrawer({
           target.isContentEditable)
       if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
         e.preventDefault()
+        if (isFullQa) {
+          // The Full QA form owns its own guards (dirty, valid, stale, busy); submit through it.
+          const form = document.getElementById(FULL_QA_FORM_ID)
+          if (form instanceof HTMLFormElement && showStructuredForm) form.requestSubmit()
+          return
+        }
         handleSubmit()
         return
       }
@@ -342,7 +380,7 @@ export function AlertReviewDrawer({
   }
 
   const handleSubmit = async () => {
-    if (!alert || !currentUserEmail || submissionPending.current || !showStructuredForm) return
+    if (!alert || !currentUserEmail || submissionPending.current || !showStructuredForm || isFullQa) return
     submissionPending.current = true
     setSubmitting(true)
 
@@ -479,18 +517,18 @@ export function AlertReviewDrawer({
   const showStructuredForm = !!alert && (workload === 'internal'
     ? (!alert.is_reviewed || reviewedByMe || returnedToCurrentManager)
     : (!alert.is_reviewed || reviewedByMe || overrideMode))
-  const reviewDraftDirty = !!alert && showStructuredForm && (accurate !== alert.accurate ||
+  const reviewDraftDirty = !!alert && !isFullQa && showStructuredForm && (accurate !== alert.accurate ||
     action !== alert.action_taken || reason !== alert.inaccuracy_reason || comment !== (alert.feedback_comment ?? '') ||
     violationDetails !== (alert.violation_details ?? '') || actionDetails !== (alert.action_details ?? ''))
-  const dirty = reviewDraftDirty || !!changeInstructions.trim() || !!draftBody.trim() || editingId !== null
+  const dirty = reviewDraftDirty || fullQaDraftDirty || !!changeInstructions.trim() || !!draftBody.trim() || editingId !== null
   useEffect(() => {
-    if (!dirty && !submitting && !posting && !decisionPending) return
+    if (!dirty && !submitting && !posting && !decisionPending && !fullQaBusy) return
     const handler = (event: BeforeUnloadEvent) => { event.preventDefault(); event.returnValue = '' }
     window.addEventListener('beforeunload', handler)
     return () => window.removeEventListener('beforeunload', handler)
-  }, [dirty, submitting, posting, decisionPending])
+  }, [dirty, submitting, posting, decisionPending, fullQaBusy])
   const canLeave = () => {
-    if (submitting || posting || ackPending || decisionPending) {
+    if (submitting || posting || ackPending || decisionPending || fullQaBusy) {
       toast.info('Wait for the current save to finish.')
       return false
     }
@@ -500,7 +538,7 @@ export function AlertReviewDrawer({
   const requestAdvance = (delta: 1 | -1) => { if (canLeave()) onAdvance(delta) }
 
   useEffect(() => {
-    if (!dirty && !submitting && !posting && !ackPending && !decisionPending) return
+    if (!dirty && !submitting && !posting && !ackPending && !decisionPending && !fullQaBusy) return
     const indexOf = (state: unknown): number | null =>
       state && typeof state === 'object' && 'idx' in state && typeof state.idx === 'number' && Number.isInteger(state.idx)
         ? state.idx : null
@@ -514,7 +552,7 @@ export function AlertReviewDrawer({
         event.stopImmediatePropagation()
         return
       }
-      const pending = submitting || posting || ackPending || decisionPending
+      const pending = submitting || posting || ackPending || decisionPending || fullQaBusy
       if (!pending && window.confirm('Discard your unsaved review or message?')) return
       if (pending) toast.info('Wait for the current save to finish.')
       // BrowserRouter stores entry indices. Capture before its listener, then
@@ -525,12 +563,13 @@ export function AlertReviewDrawer({
       window.history.go(currentIndex - nextIndex)
     }
     return registerHistoryNavigationGuard(handler)
-  }, [dirty, submitting, posting, ackPending, decisionPending])
+  }, [dirty, submitting, posting, ackPending, decisionPending, fullQaBusy])
 
   if (!alert) return null
 
-  const evidence = extractEvidence(alert.violation_type, alert.result_json)
-  const reasonText = extractReason(alert.violation_type, alert.result_json)
+  const reviewSource = isFullQa ? fullQaContext.isError ? undefined : fullQaContext.data?.sourceResult : alert.result_json
+  const evidence = extractEvidence(alert.violation_type, reviewSource)
+  const reasonText = extractReason(alert.violation_type, reviewSource)
   const violationLabel =
     VIOLATION_TYPE_LABELS[alert.violation_type] || alert.violation_type
 
@@ -538,7 +577,8 @@ export function AlertReviewDrawer({
   const showLegacyAckBar = workload === 'partner_qa' && reviewedByOther
   const showInternalDecisionBar = workload === 'internal' && isHumanReviewed(alert) &&
     (scope.isGodMode || alert.current_decision !== null)
-  const showManagerReviewSummary = reviewedByOther
+  const showManagerReviewSummary = reviewedByOther && !isFullQa
+  const showLegacyFullQaReviewSummary = isFullQa && fullQaContext.isSuccess && fullQaContext.data.review === null && isHumanReviewed(alert)
   const parsedInitial = alert.review_revision && alert.review_revision > 1
     ? parseInitialManagerReview(alert.initial_manager_review)
     : null
@@ -569,17 +609,30 @@ export function AlertReviewDrawer({
     : accurate === null || (accurate && !action) || (!accurate && !reason) || legacyNotesInvalid)
   // Approval targets the persisted review; unchanged legacy reviews remain eligible.
   const approvalBlockedByDraft = workload === 'internal' && showStructuredForm &&
-    (reviewDraftDirty || submitting)
+    (reviewDraftDirty || fullQaDraftDirty || fullQaBusy || submitting)
 
   return (
     <Sheet open={!!alert} onOpenChange={open => !open && requestClose()}>
       <SheetContent
-        side="right"
+        side={isFullQa ? 'center' : 'right'}
+        animateOpen={animateOpen}
         hideClose
-        className="w-full sm:max-w-2xl flex flex-col gap-0 p-0 overflow-hidden bg-pennie-white"
+        onOpenAutoFocus={isFullQa ? () => {
+          const active = document.activeElement
+          returnFocusTarget.current = active instanceof HTMLElement && active !== document.body ? active : null
+        } : undefined}
+        onCloseAutoFocus={isFullQa ? event => {
+          const target = returnFocusTarget.current
+          if (!target?.isConnected) return
+          event.preventDefault()
+          target.focus()
+        } : undefined}
+        className={isFullQa
+          ? 'flex flex-col gap-0 overflow-hidden bg-pennie-white p-0 shadow-xl'
+          : 'w-full sm:max-w-2xl flex flex-col gap-0 p-0 overflow-hidden bg-pennie-white'}
       >
         {/* Header */}
-        <SheetHeader className="shrink-0 px-4 sm:px-8 pt-4 pb-5 sm:py-5 border-b border-border space-y-3 text-left">
+        <SheetHeader className={`shrink-0 px-4 sm:px-8 sm:py-5 border-b border-border text-left ${isFullQa ? 'pt-2 pb-2 space-y-1 sm:space-y-3' : 'pt-4 pb-5 space-y-3'}`}>
           <div className="flex items-center gap-2 sm:gap-3">
             <button
               type="button"
@@ -644,13 +697,21 @@ export function AlertReviewDrawer({
               {formatDateTime(alert.alert_created_at)}
             </span>
           </div>
-          <SheetTitle className="text-xl font-semibold text-pennie-navy text-left inline-flex items-center gap-1.5">
+          <SheetTitle className={`text-xl font-semibold text-pennie-navy text-left inline-flex items-center gap-1.5 ${isFullQa ? 'sr-only sm:not-sr-only' : ''}`}>
             {violationLabel}
             {VIOLATION_HELP_IDS[alert.violation_type] && (
               <HelpHint id={VIOLATION_HELP_IDS[alert.violation_type]} size={4} />
             )}
           </SheetTitle>
-          <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-sm">
+          {isFullQa && (
+            <p className="sm:hidden text-xs leading-relaxed text-pennie-graphite break-words">
+              <span className="font-medium">{alert.agent_email || 'Unknown agent'}</span>
+              <span className="text-pennie-graphite/60"> · </span>
+              {alert.contact_name || 'Unknown'}
+              {alert.contact_phone && <span className="text-pennie-graphite/70 ml-2 tabular-nums">{formatPhoneNumber(alert.contact_phone)}</span>}
+            </p>
+          )}
+          <dl className={`grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-sm ${isFullQa ? 'hidden sm:grid' : 'grid'}`}>
             <dt className="text-[11px] font-semibold uppercase tracking-wider text-pennie-graphite/60 pt-0.5">
               Agent
             </dt>
@@ -671,6 +732,24 @@ export function AlertReviewDrawer({
           </dl>
         </SheetHeader>
 
+        <section aria-label="Call recording" className="shrink-0 border-b border-border px-4 sm:px-8 py-2 sm:py-3">
+          <div className="flex flex-wrap items-center justify-between gap-x-3">
+            {alert.recording_link ? <h2 className="pennie-label hidden sm:inline-flex items-center gap-1.5">
+              <Headphones className="w-3.5 h-3.5" aria-hidden="true" />Recording
+            </h2> : !detailsLoading && !detailsError && alert.recording_link === null && <p className="text-xs text-pennie-graphite/70">Recording not available</p>}
+            {isFullQa && <button type="button" onClick={openTranscript} className="pennie-focus-ring min-h-[44px] text-xs font-semibold text-pennie-blue-deeper hover:underline sm:ml-auto sm:mr-4">View transcript</button>}
+            {alert.recording_link && <a href={alert.recording_link} target="_blank" rel="noopener noreferrer" className="pennie-focus-ring inline-flex min-h-[44px] items-center gap-1 text-xs font-semibold text-pennie-blue-deeper hover:underline">
+              Open recording <ExternalLink className="w-3 h-3" aria-hidden="true" />
+            </a>}
+          </div>
+          {detailsError ? <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
+            <p role="alert">Couldn't load the recording and call details. Your review stays here.</p>
+            <button type="button" onClick={onRetryDetails} className="pennie-focus-ring min-h-[44px] rounded-full border border-border px-3 font-semibold text-pennie-blue-deeper">Retry recording</button>
+          </div> : detailsLoading || alert.recording_link === undefined
+            ? <p role="status" aria-busy="true" className="min-h-[112px] sm:min-h-[68px] text-xs text-pennie-graphite/70">Loading recording…</p>
+            : alert.recording_link && <AudioPlayer key={alert.call_id} recordingUrl={alert.recording_link} onRetry={onRetryDetails} />}
+        </section>
+
         {showLegacyAckBar && (
           <AckSection
             ackers={alert.acker_emails ?? []}
@@ -682,7 +761,7 @@ export function AlertReviewDrawer({
           />
         )}
         {/* One scrolling review flow: evidence, required inputs, and secondary details. */}
-        <div className="flex-1 min-h-0 overflow-y-auto px-4 sm:px-8 py-5 sm:py-6 space-y-6 sm:space-y-7">
+        <div className={`flex-1 min-h-0 overflow-y-auto px-4 sm:px-8 sm:py-6 space-y-6 sm:space-y-7 ${isFullQa ? 'py-4 lg:px-10' : 'py-5'}`}>
           {returnedToCurrentManager && alert.current_decision_instructions && (
             <div className="rounded-2xl bg-pennie-peach-light/60 px-4 py-3">
               <p className="pennie-label mb-1">Requested correction</p>
@@ -725,13 +804,18 @@ export function AlertReviewDrawer({
             </details>
           )}
 
-          <section>
-            <h2 className="pennie-label mb-2 inline-flex items-center gap-1.5">
-              <Headphones className="w-3.5 h-3.5" aria-hidden="true" />
-              Recording
-            </h2>
-            <AudioPlayer recordingUrl={alert.recording_link} />
-            <div className="mt-3 flex flex-wrap gap-4 text-sm">
+          {isFullQa && showInternalDecisionBar && (
+            <InternalDecisionSection
+              alert={alert}
+              instructions={changeInstructions}
+              onInstructionsChange={setChangeInstructions}
+              pending={decisionPending}
+              requesting={requestingChanges}
+            />
+          )}
+
+          {!isFullQa && <section>
+            <div className="flex flex-wrap gap-4 text-sm">
               {alert.transcript_url && (
                 <a
                   href={alert.transcript_url}
@@ -740,16 +824,6 @@ export function AlertReviewDrawer({
                   className="inline-flex items-center gap-1 text-pennie-blue-deeper font-semibold hover:underline underline-offset-4"
                 >
                   Transcript <ExternalLink className="w-3 h-3" aria-hidden="true" />
-                </a>
-              )}
-              {alert.recording_link && (
-                <a
-                  href={alert.recording_link}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="inline-flex items-center gap-1 text-pennie-blue-deeper font-semibold hover:underline underline-offset-4"
-                >
-                  Open recording <ExternalLink className="w-3 h-3" aria-hidden="true" />
                 </a>
               )}
               {alert.sfdc_lead_id && (
@@ -763,9 +837,9 @@ export function AlertReviewDrawer({
                 </a>
               )}
             </div>
-          </section>
+          </section>}
 
-          <section>
+          {!isFullQa && <section>
             <h2 className="pennie-label mb-3 inline-flex items-center gap-1.5">
               <Info className="w-3.5 h-3.5" aria-hidden="true" />
               Why it fired
@@ -793,9 +867,8 @@ export function AlertReviewDrawer({
                 <CallSummary summary={alert.call_summary} />
               )}
             </div>
-          </section>
-
-          <section>
+          </section>}
+          {!isFullQa && <section>
             <button
               type="button"
               onClick={() => setShowTranscript(value => !value)}
@@ -807,15 +880,84 @@ export function AlertReviewDrawer({
             {showTranscript && <div className="mt-4"><AlertTranscript
               key={alert.call_id}
               callId={alert.call_id}
-              evidence={extractEvidenceQuotes(alert.violation_type, alert.result_json)}
+              evidence={extractEvidenceQuotes(alert.violation_type, reviewSource)}
             /></div>}
-          </section>
+          </section>}
 
           {/* What the Pennie agent said about the Achieve welcome-call rep
               (achieve_welcome_call_qa alerts only; hidden when no submission). */}
           <PennieAgentFeedbackSection feedback={agentFeedback} compact />
 
-          {showInternalDecisionBar && (
+          {showLegacyFullQaReviewSummary && (
+            <ManagerReviewSummary
+              title="Earlier manager review"
+              description="This review was saved before individual scores could be reviewed. Original feedback is shown below."
+              authorEmail={alert.feedback_by}
+              reviewedAt={alert.reviewed_at}
+              accurate={alert.accurate}
+              actionTaken={alert.action_taken}
+              inaccuracyReason={alert.inaccuracy_reason}
+              comment={alert.feedback_comment}
+              violationDetails={alert.violation_details}
+              actionDetails={alert.action_details}
+            />
+          )}
+
+          {isFullQa && (
+            <FullQaRubricReview
+              alert={alert}
+              scope={scope}
+              editable={showStructuredForm}
+              canReloadReview={!detailsLoading && !detailsError}
+              onStaleReview={onRetryDetails}
+              onDirtyChange={setFullQaDraftDirty}
+              onBusyChange={setFullQaBusy}
+              onSaveStateChange={setFullQaSave}
+              onSubmitted={onSubmitted}
+            />
+          )}
+
+          {isFullQa && (
+            <details ref={transcriptDetails} className="group rounded-2xl border border-border px-4 py-3">
+              <summary className="pennie-focus-ring cursor-pointer list-none flex items-center justify-between gap-2 rounded-full text-sm font-semibold text-pennie-blue-deeper">
+                Transcript and call summary
+                <ChevronDown className="w-4 h-4 transition-transform group-open:rotate-180" aria-hidden="true" />
+              </summary>
+              <div className="mt-4 space-y-4">
+                <div className="flex flex-wrap gap-4 text-sm">
+                  {alert.transcript_url && (
+                    <a href={alert.transcript_url} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-pennie-blue-deeper font-semibold hover:underline underline-offset-4">
+                      Transcript <ExternalLink className="w-3 h-3" aria-hidden="true" />
+                    </a>
+                  )}
+                  {alert.sfdc_lead_id && (
+                    <a href={`https://trypennie.lightning.force.com/lightning/r/Lead/${alert.sfdc_lead_id}/view`} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-pennie-blue-deeper font-semibold hover:underline underline-offset-4">
+                      SFDC: {alert.sfdc_lead_id} <ExternalLink className="w-3 h-3" aria-hidden="true" />
+                    </a>
+                  )}
+                </div>
+                {alert.call_summary && <CallSummary summary={alert.call_summary} />}
+                <div>
+                  <button
+                    type="button"
+                    onClick={() => setShowTranscript(value => !value)}
+                    aria-expanded={showTranscript}
+                    className="pennie-focus-ring min-h-[44px] px-4 py-2 rounded-full border border-border text-sm font-semibold text-pennie-blue-deeper"
+                  >
+                    {showTranscript ? 'Hide transcript context' : 'Inspect transcript context'}
+                  </button>
+                  {showTranscript && <div className="mt-4"><AlertTranscript
+                    key={alert.call_id}
+                    focusRequest={transcriptFocusRequest}
+                    callId={alert.call_id}
+                    evidence={extractEvidenceQuotes(alert.violation_type, reviewSource)}
+                  /></div>}
+                </div>
+              </div>
+            </details>
+          )}
+
+          {!isFullQa && showInternalDecisionBar && (
             <InternalDecisionSection
               alert={alert}
               instructions={changeInstructions}
@@ -825,7 +967,7 @@ export function AlertReviewDrawer({
           )}
 
           {/* Review form stays in the same scrolling flow. */}
-          <div className="-mx-4 sm:-mx-8 border-t border-border bg-pennie-beige/40 px-4 sm:px-8 py-5 space-y-4">
+          {(!isFullQa || needsCoachingFollowUp(alert)) && <div className="-mx-4 sm:-mx-8 border-t border-border bg-pennie-beige/40 px-4 sm:px-8 py-5 space-y-4">
             {/* In State B (reviewing a teammate's review), the structured form is
                 gated behind an explicit Override affordance. Approve via the bar
                 at the top; comment via Discussion. */}
@@ -849,7 +991,7 @@ export function AlertReviewDrawer({
               Coaching follow-up is still open. Update the action after follow-up through the review form when available. Approval or discussion does not complete it.
             </p>}
 
-            {showStructuredForm && (
+            {showStructuredForm && !isFullQa && (
               <>
                 <fieldset disabled={submitting}>
                   <legend className="flex items-center justify-between w-full mb-3 gap-3">
@@ -1013,7 +1155,7 @@ export function AlertReviewDrawer({
                 </div>
               </>
             )}
-          </div>
+          </div>}
 
           <details className="group rounded-2xl border border-border px-4 py-3">
             <summary className="pennie-focus-ring cursor-pointer list-none flex items-center justify-between gap-2 rounded-full text-sm font-semibold text-pennie-blue-deeper">
@@ -1035,7 +1177,7 @@ export function AlertReviewDrawer({
             </button>
             {showRaw && (
               <pre id={rawJsonId} className="mt-3 bg-pennie-beige p-4 rounded-2xl text-xs overflow-x-auto text-pennie-graphite">
-                {JSON.stringify(alert.result_json, null, 2)}
+                {reviewSource === undefined ? 'Original assessment unavailable. Reload the rubric before inspecting its evidence.' : JSON.stringify(reviewSource, null, 2)}
               </pre>
             )}
           </details>
@@ -1071,12 +1213,40 @@ export function AlertReviewDrawer({
         </div>
 
         {(showStructuredForm || (showInternalDecisionBar && scope.isGodMode && alert.current_decision === null)) && (
-          <footer className="shrink-0 border-t border-border bg-pennie-white px-4 sm:px-8 py-3">
+          <footer className={`shrink-0 border-t border-border bg-pennie-white px-4 sm:px-8 py-3 ${isFullQa ? 'lg:px-10' : ''}`}>
             {approvalBlockedByDraft && scope.isGodMode && alert.current_decision === null && (
               <p className="mb-2 text-xs text-pennie-graphite/70">Complete and save review changes before approval.</p>
             )}
+            {isFullQa && scope.isGodMode && alert.current_decision === null && changeInstructions.trim() && (
+              <p className="mb-2 text-xs text-pennie-graphite/70">Send or clear the change instructions before approving.</p>
+            )}
+            {isFullQa && requestingChanges && changeInstructions.trim().length < INTERNAL_REVIEW_TEXT_LIMITS.min && (
+              <p className="mb-2 text-xs text-pennie-graphite">Add at least {INTERNAL_REVIEW_TEXT_LIMITS.min} characters of instructions to request changes.</p>
+            )}
+            {showStructuredForm && isFullQa && fullQaSave.message && (
+              <p className="mb-1 text-xs text-pennie-graphite" role="status">{fullQaSave.message}</p>
+            )}
             <div className="flex flex-wrap items-center justify-end gap-2">
-              {showStructuredForm && (
+              {showStructuredForm && isFullQa && fullQaSave.nextSectionId && (
+                <button type="button" aria-controls={fullQaSave.nextSectionId} disabled={decisionPending} onClick={() => {
+                  const section = document.getElementById(fullQaSave.nextSectionId ?? '')
+                  section?.focus({ preventScroll: true })
+                  section?.scrollIntoView({ block: 'start', behavior: 'instant' })
+                }} className="pennie-focus-ring mr-auto min-h-[44px] text-sm font-semibold text-pennie-blue-deeper underline-offset-4 hover:underline disabled:opacity-40">
+                  Continue review
+                </button>
+              )}
+              {showStructuredForm && isFullQa && (
+                <button
+                  type="submit"
+                  form={FULL_QA_FORM_ID}
+                  disabled={fullQaSave.disabled || decisionPending}
+                  className="min-h-[44px] whitespace-nowrap px-4 rounded-full bg-pennie-navy text-pennie-white text-sm font-semibold hover:bg-pennie-navy/90 disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  {fullQaSave.label}
+                </button>
+              )}
+              {showStructuredForm && !isFullQa && (
                 <button
                   type="button"
                   onClick={handleSubmit}
@@ -1099,15 +1269,18 @@ export function AlertReviewDrawer({
                   <button
                     type="button"
                     onClick={() => handleDecision('approved')}
-                    disabled={decisionPending || approvalBlockedByDraft}
+                    disabled={decisionPending || approvalBlockedByDraft || (isFullQa && !!changeInstructions.trim())}
                     className="min-h-[44px] whitespace-nowrap px-4 rounded-full bg-pennie-navy text-pennie-white text-xs sm:text-sm font-semibold disabled:opacity-40"
                   >
                     Approve review
                   </button>
                   <button
                     type="button"
-                    onClick={() => handleDecision('changes_requested')}
-                    disabled={decisionPending || approvalBlockedByDraft || changeInstructions.trim().length < INTERNAL_REVIEW_TEXT_LIMITS.min}
+                    onClick={() => {
+                      if (isFullQa && !requestingChanges) { setRequestingChanges(true); return }
+                      void handleDecision('changes_requested')
+                    }}
+                    disabled={decisionPending || approvalBlockedByDraft || ((!isFullQa || requestingChanges) && changeInstructions.trim().length < INTERNAL_REVIEW_TEXT_LIMITS.min)}
                     className="min-h-[44px] whitespace-nowrap px-4 rounded-full border border-pennie-peach-dark text-pennie-peach-deeper text-xs sm:text-sm font-semibold disabled:opacity-40"
                   >
                     Request changes
@@ -1245,6 +1418,7 @@ export function Chip({
 
 function ManagerReviewSummary({
   title = 'Manager review',
+  description,
   authorEmail,
   reviewedAt,
   accurate,
@@ -1255,6 +1429,7 @@ function ManagerReviewSummary({
   actionDetails,
 }: {
   title?: string
+  description?: string
   authorEmail: string | null | undefined
   reviewedAt: string | null | undefined
   accurate: boolean | null | undefined
@@ -1284,6 +1459,7 @@ function ManagerReviewSummary({
           {reviewedAt && ` · ${formatDateTime(reviewedAt)}`}
         </span>
       </header>
+      {description && <p className="text-xs leading-relaxed text-pennie-graphite/70">{description}</p>}
       <div className="flex flex-wrap items-center gap-2">
         <span
           className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-bold uppercase tracking-wider ${verdictTone}`}
@@ -1321,12 +1497,16 @@ function InternalDecisionSection({
   instructions,
   onInstructionsChange,
   pending,
+  requesting,
 }: {
   alert: AlertWithFeedback
   instructions: string
   onInstructionsChange: (value: string) => void
   pending: boolean
+  /** When provided, the instructions box stays behind an explicit button until requested. */
+  requesting?: boolean
 }) {
+  const instructionsHintId = useId()
   if (alert.current_decision === 'approved') {
     return <section className="flex items-center justify-between gap-3 px-4 py-4 rounded-2xl bg-pennie-green-light/40 border border-pennie-green-light">
       <p className="text-sm font-semibold text-pennie-navy">Approved by {alert.current_decision_by ? emailLabel(alert.current_decision_by) : 'a super-admin'}</p>
@@ -1343,11 +1523,15 @@ function InternalDecisionSection({
     </section>
   }
 
+  // Full QA starts with the manager's outcome; its persistent footer opens this editor.
+  if (requesting === false) return null
   return <section className="px-4 py-4 rounded-2xl bg-pennie-blue-light/30 border border-pennie-blue-light space-y-3">
     <p className="text-sm font-semibold text-pennie-navy">This manager review is awaiting Kris’s approval.</p>
     <label className="block text-xs font-semibold text-pennie-graphite">
       Request changes with instructions
       <textarea
+        autoFocus={requesting === true}
+        aria-describedby={instructionsHintId}
         value={instructions}
         disabled={pending}
         onChange={event => onInstructionsChange(event.target.value)}
@@ -1357,6 +1541,7 @@ function InternalDecisionSection({
         className="mt-1 w-full px-3 py-2 rounded-2xl border border-border bg-pennie-white text-base sm:text-sm font-medium resize-none focus:outline-none focus:ring-2 focus:ring-pennie-blue-deeper/40"
       />
     </label>
+    <p id={instructionsHintId} className="text-xs text-pennie-graphite/70">{INTERNAL_REVIEW_TEXT_LIMITS.min}–{INTERNAL_REVIEW_TEXT_LIMITS.max.toLocaleString('en-US')} characters · {instructions.trim().length.toLocaleString('en-US')} entered</p>
   </section>
 }
 

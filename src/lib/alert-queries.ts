@@ -1,4 +1,5 @@
 import { supabase } from '@/integrations/supabase/client'
+import { resolveRecordingUrl } from './recording-url'
 import type {
   AlertAck,
   AlertMessage,
@@ -225,7 +226,11 @@ export async function fetchAlertOne(
     console.error('Error fetching alert:', error)
     throw error
   }
-  return (data as AlertWithFeedback) ?? null
+  if (!data) return null
+  const recording = await resolveRecordingUrl(data.recording_link)
+  // Translate the typed adapter failure at this existing promise/query boundary.
+  if (!recording.ok) throw new Error('Recording could not be loaded. Please reopen this alert.')
+  return { ...data, recording_link: recording.url } as AlertWithFeedback
 }
 
 /** Preserve the legacy direct-write path for restricted partner feedback only. */

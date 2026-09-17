@@ -38,7 +38,9 @@ const sheetVariants = cva(
           "inset-x-0 bottom-0 border-t data-[state=closed]:slide-out-to-bottom data-[state=open]:slide-in-from-bottom",
         left: "inset-y-0 left-0 h-full w-3/4 border-r data-[state=closed]:slide-out-to-left data-[state=open]:slide-in-from-left sm:max-w-sm",
         right:
-          "inset-y-0 right-0 h-full w-3/4  border-l data-[state=closed]:slide-out-to-right data-[state=open]:slide-in-from-right sm:max-w-sm",
+          "inset-y-0 right-0 h-full w-3/4 border-l data-[state=closed]:slide-out-to-right data-[state=open]:slide-in-from-right sm:max-w-sm",
+        center:
+          "inset-0 h-dvh w-full border-0 transition-none data-[state=open]:[animation-duration:220ms] data-[state=open]:[animation-timing-function:cubic-bezier(0.16,1,0.3,1)] data-[state=open]:fade-in-0 data-[state=open]:slide-in-from-bottom-2 sm:data-[state=open]:zoom-in-[0.985] data-[state=closed]:!animate-none motion-reduce:!animate-none sm:inset-x-4 sm:inset-y-[5dvh] sm:mx-auto sm:h-[90dvh] sm:w-[calc(100%-2rem)] sm:max-w-[1080px] sm:rounded-3xl sm:border",
       },
     },
     defaultVariants: {
@@ -51,13 +53,18 @@ interface SheetContentProps
   extends React.ComponentPropsWithoutRef<typeof SheetPrimitive.Content>,
     VariantProps<typeof sheetVariants> {
   hideClose?: boolean
+  /** Opt in only for pointer-opened centered reviews; keyboard/deep links stay instant. */
+  animateOpen?: boolean
 }
 
 const SheetContent = React.forwardRef<React.ElementRef<typeof SheetPrimitive.Content>, SheetContentProps>(
-  ({ side = "right", className, children, hideClose, ...props }, ref) => (
+  ({ side = "right", className, children, hideClose, animateOpen = false, ...props }, ref) => (
     <SheetPortal>
-      <SheetOverlay />
-      <SheetPrimitive.Content ref={ref} className={cn(sheetVariants({ side }), className)} {...props}>
+      <SheetOverlay className={side === 'center' ? cn(
+        'bg-pennie-navy/40 data-[state=open]:[animation-duration:220ms] data-[state=open]:[animation-timing-function:cubic-bezier(0.16,1,0.3,1)] data-[state=closed]:!animate-none motion-reduce:!animate-none',
+        !animateOpen && 'data-[state=open]:!animate-none',
+      ) : undefined} />
+      <SheetPrimitive.Content ref={ref} className={cn(sheetVariants({ side }), side === 'center' && !animateOpen && 'data-[state=open]:!animate-none', className)} {...props}>
         {children}
         {!hideClose && (
           <SheetPrimitive.Close className="absolute right-4 top-4 rounded-sm opacity-70 ring-offset-background transition-opacity data-[state=open]:bg-secondary hover:opacity-100 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:pointer-events-none">

@@ -1,0 +1,14 @@
+{
+  "applicationSource": "f62e74ae20655e13c4870d46d1dba68105b23815",
+  "result": "passed",
+  "genuineAlerts": 24,
+  "managerScenarios": 24,
+  "krisScenarios": 16,
+  "passed": 40,
+  "failed": 0,
+  "durationMs": 178046.931,
+  "externalBrowserRequests": 0,
+  "reviewMutations": 0,
+  "method": "Private local HTTP replay of previously exported read-only production sample; desktop and mobile layout/behavior checks, not a model accuracy evaluation or native production Auth/RPC test.",
+  "privacy": "Customer source text, identifiers, screenshots and raw diagnostics remain private. Hosted staging and committed screenshots use synthetic records only."
+}

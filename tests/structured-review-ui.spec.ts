@@ -1,12 +1,12 @@
 import { test, expect } from '@playwright/test'
-import { alertRow, EMAIL, openAlert, reviewFixture } from './review-fixture'
+import { genericAlertRow, EMAIL, openAlert, reviewFixture } from './review-fixture'
 
 const violation = 'The required disclosure was omitted from the call.'
 const action = 'The manager coached the complete disclosure with the representative.'
 const falseExplanation = 'The cited statement came from a different call context.'
 
 function reviewedFalse(id: string) {
-  return alertRow(id, {
+  return genericAlertRow(id, {
     is_reviewed: true,
     accurate: false,
     inaccuracy_reason: 'wrong_context',
@@ -18,7 +18,7 @@ function reviewedFalse(id: string) {
 }
 
 test('internal form requires distinct bounded real details and an explanation for every false alarm', async ({ page }, testInfo) => {
-  const state = await reviewFixture(page, [alertRow('real'), alertRow('false')])
+  const state = await reviewFixture(page, [genericAlertRow('real'), genericAlertRow('false')])
   await page.goto('/dashboard/alerts?status=awaiting_manager')
   await openAlert(page, 'real')
   await page.getByRole('button', { name: 'Real issue (Y)' }).click()
@@ -67,7 +67,7 @@ test('internal form requires distinct bounded real details and an explanation fo
 })
 
 test('click and keyboard verdict toggles preserve drafts but submit only active fields', async ({ page }) => {
-  const state = await reviewFixture(page, [alertRow('toggle-real'), alertRow('toggle-false')])
+  const state = await reviewFixture(page, [genericAlertRow('toggle-real'), genericAlertRow('toggle-false')])
   await page.goto('/dashboard/alerts?status=awaiting_manager')
   await openAlert(page, 'toggle-real')
 
@@ -113,7 +113,7 @@ test('click and keyboard verdict toggles preserve drafts but submit only active 
 })
 
 test('legacy combined notes do not block an approved real-review update', async ({ page }) => {
-  const row = alertRow('legacy-note', {
+  const row = genericAlertRow('legacy-note', {
     is_reviewed: true,
     accurate: true,
     action_taken: 'coached',
@@ -205,7 +205,7 @@ test('request goes to the current manager, preserves the original, then another 
 })
 
 test('stale review failure keeps the draft and refreshes authoritative approval state', async ({ page }) => {
-  const row = alertRow('stale', {
+  const row = genericAlertRow('stale', {
     is_reviewed: true,
     accurate: true,
     action_taken: 'coached',
@@ -249,11 +249,17 @@ test('stale request-changes keeps instructions and refreshes the current revisio
 })
 
 test('a late pre-submit detail response cannot overwrite the saved revision', async ({ page }) => {
-  const state = await reviewFixture(page, [alertRow('late-detail')])
+  const state = await reviewFixture(page, [genericAlertRow('late-detail')])
   let release = () => {}
   state.alertGate = new Promise<void>(resolve => { release = resolve })
   await page.goto('/dashboard/alerts?status=all')
-  await openAlert(page, 'late-detail')
+  const requested = page.waitForRequest(request => {
+    const url = new URL(request.url())
+    return url.pathname.endsWith('/eavesly_alerts_with_feedback') && url.searchParams.get('select') === '*' && url.searchParams.get('call_id') === 'eq.late-detail'
+  })
+  await page.getByRole('button', { name: 'Review Manager escalation alert for Example late-detail', exact: true }).click()
+  await requested
+  await expect(page.getByRole('region', { name: 'Call recording', exact: true })).toHaveText('Loading recording…')
   await page.getByRole('button', { name: 'Real issue (Y)' }).click()
   await page.getByRole('button', { name: '1. Coached the agent' }).click()
   await page.getByRole('textbox', { name: /What happened/ }).fill(violation)
@@ -261,6 +267,7 @@ test('a late pre-submit detail response cannot overwrite the saved revision', as
   await page.getByRole('button', { name: 'Save review' }).click()
   await expect(page.getByText('Review saved')).toBeVisible()
   release()
+  await expect(page.getByText('Review both quoted passages in context.')).toBeVisible()
   await expect(page.getByRole('button', { name: 'Update review' })).toBeVisible()
   await expect(page.getByRole('textbox', { name: /What happened/ })).toHaveValue(violation)
   expect(state.rows[0].review_revision).toBe(1)

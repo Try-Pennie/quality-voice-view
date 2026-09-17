@@ -186,6 +186,8 @@ test('manager opening an admin approval link lands on their pending review queue
 })
 
 test('login, logo, primary navigation, drawer, and history retain explicit ET dates', async ({ page }) => {
+  const unexpectedDialogs: string[] = []
+  page.on('dialog', dialog => { unexpectedDialogs.push(dialog.message()); return dialog.dismiss() })
   await reviewFixture(page, [alertRow('dated')])
   await page.goto('/login')
   await expect(page).toHaveURL(/\/dashboard\/alerts\?start=2026-08-09&end=2026-09-07/)
@@ -193,6 +195,8 @@ test('login, logo, primary navigation, drawer, and history retain explicit ET da
   expect(new URL(page.url()).searchParams.get('start')).toBe('2026-08-09')
   expect(new URL(page.url()).searchParams.get('end')).toBe('2026-09-07')
   await page.goBack()
+  await expect(page.getByRole('dialog')).toHaveCount(0)
+  expect(unexpectedDialogs).toEqual([])
   await page.getByRole('link', { name: 'Calls', exact: true }).click()
   await expect(page).toHaveURL(/\/dashboard\?start=2026-08-09&end=2026-09-07/)
   await page.getByRole('link', { name: 'Eavesly', exact: true }).click()

@@ -1,8 +1,8 @@
 import { test, expect } from '@playwright/test'
-import { alertRow, EMAIL, openAlert, reviewFixture } from './review-fixture'
+import { genericAlertRow, EMAIL, openAlert, reviewFixture } from './review-fixture'
 
 test('table paging and J/K share the full ordered queue', async ({ page }) => {
-  await reviewFixture(page, Array.from({ length: 52 }, (_, i) => alertRow(`page-${String(i).padStart(2, '0')}`)))
+  await reviewFixture(page, Array.from({ length: 52 }, (_, i) => genericAlertRow(`page-${String(i).padStart(2, '0')}`)))
   await page.goto('/dashboard/alerts?status=awaiting_manager')
   await expect(page.getByText('Showing 1–50 of 52 alerts')).toBeVisible()
   await expect(page.getByRole('button', { name: /^Review .* alert for Example/ })).toHaveCount(50)
@@ -26,7 +26,7 @@ test('table paging and J/K share the full ordered queue', async ({ page }) => {
 })
 
 test('saving a still-deferred review does not advance or clear follow-up', async ({ page }) => {
-  const state = await reviewFixture(page, ['first', 'second'].map(id => alertRow(id, {
+  const state = await reviewFixture(page, ['first', 'second'].map(id => genericAlertRow(id, {
     is_reviewed: true, accurate: true, action_taken: 'follow_up_later', feedback_by: EMAIL,
     violation_details: 'The required disclosure was omitted from the call.',
     action_details: 'Waiting until the next coaching session to discuss this.',
@@ -41,7 +41,7 @@ test('saving a still-deferred review does not advance or clear follow-up', async
 })
 
 test('transcript loading is visible and a call switch cannot show the prior transcript', async ({ page }) => {
-  const state = await reviewFixture(page, [alertRow('first'), alertRow('second')])
+  const state = await reviewFixture(page, [genericAlertRow('first'), genericAlertRow('second')])
   let release = () => {}
   state.transcriptGate = new Promise<void>(resolve => { release = resolve })
   await page.goto('/dashboard/alerts?status=awaiting_manager')
@@ -58,7 +58,7 @@ test('transcript loading is visible and a call switch cannot show the prior tran
 })
 
 test('desktop feature screenshots with synthetic review data', async ({ page }, testInfo) => {
-  await reviewFixture(page, [alertRow('older'), alertRow('recent', { alert_created_at: '2026-09-06T14:00:00Z' }), alertRow('follow-up', {
+  await reviewFixture(page, [genericAlertRow('older'), genericAlertRow('recent', { alert_created_at: '2026-09-06T14:00:00Z' }), genericAlertRow('follow-up', {
     is_reviewed: true, accurate: true, action_taken: 'follow_up_later', feedback_by: EMAIL,
     violation_details: 'The required disclosure was omitted from the call.',
     action_details: 'Scheduled coaching to review the disclosure and call evidence.',

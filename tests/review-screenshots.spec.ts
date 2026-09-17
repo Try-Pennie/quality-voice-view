@@ -1,5 +1,5 @@
 import { test, expect, type Page } from '@playwright/test'
-import { alertRow, reviewFixture, EMAIL } from './review-fixture'
+import { genericAlertRow, reviewFixture, EMAIL } from './review-fixture'
 
 // Synthetic before/after comparison scenario. Never uses a live session or customer data.
 
@@ -13,14 +13,14 @@ const managerNames = {
 
 function rows() {
   const managers = Object.keys(managerNames)
-  const pending = managers.flatMap((manager, index) => Array.from({ length: index + 2 }, (_, i) => alertRow(`pending-${index}-${i}`, {
+  const pending = managers.flatMap((manager, index) => Array.from({ length: index + 2 }, (_, i) => genericAlertRow(`pending-${index}-${i}`, {
     agent_email: index === 0 ? 'agent@example.test' : `agent-${index}@example.test`,
     assigned_manager_email: manager,
     call_summary: 'The required disclosure may be incomplete. Review the quoted passage before deciding.',
   })))
   return [
     ...pending,
-    ...managers.map((manager, index) => alertRow(`real-${index}`, {
+    ...managers.map((manager, index) => genericAlertRow(`real-${index}`, {
       assigned_manager_email: manager,
       agent_email: index === 0 ? 'agent@example.test' : `agent-${index}@example.test`,
       is_reviewed: true, accurate: true, feedback_by: manager,
@@ -30,7 +30,7 @@ function rows() {
       action_details: 'We practiced the disclosure together and scheduled a follow-up call review.',
       call_summary: 'Manager reviewed the missing disclosure and recorded a coaching action.',
     })),
-    ...managers.map((manager, index) => alertRow(`false-${index}`, {
+    ...managers.map((manager, index) => genericAlertRow(`false-${index}`, {
       assigned_manager_email: manager,
       agent_email: index === 0 ? 'agent@example.test' : `agent-${index}@example.test`,
       is_reviewed: true, accurate: false, feedback_by: manager,
@@ -39,7 +39,7 @@ function rows() {
       feedback_comment: 'The disclosure was already covered in the preceding call, which I listened to.',
       call_summary: 'Manager marked this flag as incorrect after checking the prior call.',
     })),
-    alertRow('correction', {
+    genericAlertRow('correction', {
       is_reviewed: true, accurate: false, feedback_by: EMAIL,
       inaccuracy_reason: 'wrong_context', review_revision: 1, feedback_id: 300,
       feedback_comment: 'The prior call appears to contain the requested disclosure.',
@@ -47,8 +47,8 @@ function rows() {
       current_decision_by: 'director@example.test', current_decision_source: 'typed',
       current_decision_instructions: 'Please identify the prior call and the exact statement that covers this disclosure.',
     }),
-    alertRow('missing-owner', { agent_email: 'agent-unassigned@example.test', assigned_manager_email: null }),
-    alertRow('placeholder-owner', { agent_email: 'agent-placeholder@example.test', assigned_manager_email: 'Unassigned' }),
+    genericAlertRow('missing-owner', { agent_email: 'agent-unassigned@example.test', assigned_manager_email: null }),
+    genericAlertRow('placeholder-owner', { agent_email: 'agent-placeholder@example.test', assigned_manager_email: 'Unassigned' }),
   ]
 }
 
