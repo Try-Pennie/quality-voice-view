@@ -1,7 +1,7 @@
 # Review UX follow-up
 
-Local follow-up to rubric-feedback source `e716aa4`, on `nmogil/review-ux-followup`.
-Source commit: **`45f169c85ca77560650194134b8d924f0a50229d`**. No push, merge, staging update, or production deployment.
+Follow-up to rubric-feedback source `e716aa4`, on `nmogil/review-ux-followup`.
+Source commit: **`45f169c85ca77560650194134b8d924f0a50229d`**. Now included in the [premium-player staging release](premium-recording-player.md) and PR120 update. The original verification below is historical; production remains unchanged.
 
 ## Changes
 
@@ -45,4 +45,4 @@ Existing customer-backed staging screenshots remain private and are not part of 
 
 No auth, SQL, scoring, eligibility, approval policy, source-provenance, dependency, or backend changes. Correct/Incorrect-only responses, explicit coaching issues, all 23 criteria, saved evidence, top recording, and persistent actions remain.
 
-Kris's active restricted preview is unchanged. Next step is a coordinated staging update and native check after the current review, not a production rollout. Production merge/deploy still requires Noah's approval.
+The restricted preview now includes this follow-up, opening motion and the premium player; see the linked current release for native checks and deployment identity. Production merge/deploy still requires Noah's approval.

@@ -1,6 +1,6 @@
 # Review opening motion
 
-Local follow-up on `nmogil/review-ux-followup`, based on `f3784a6`. Not deployed or pushed. Source commit: `1fd67213b08b0e43ec0399b1d17dfe809cfe8549`.
+Source commit: `1fd67213b08b0e43ec0399b1d17dfe809cfe8549`, based on `f3784a6`. Now included in the [premium-player staging release](premium-recording-player.md) and PR120 update; the historical local verification below retains its source pin. Production unchanged.
 
 The Full QA window previously disabled panel and overlay animations explicitly. Pointer entry now uses the existing Radix/Tailwind CSS animation: **220ms**, `cubic-bezier(0.16, 1, 0.3, 1)`, opacity0→1 and an8px lift. Desktop adds a restrained0.985→1 scale around the center; mobile remains full-size. The overlay fades over the same duration using the Pennie navy at40%, rather than a near-black abrupt dim.
 
@@ -24,7 +24,7 @@ No new animation library, per-frame JavaScript, timers, blur, staggered fields, 
 
 Motion tests use native Chromium CSS animations with synthetic Supabase HTTP fixtures. They sample the real animation timeline at0/22/110/219ms, verify opacity/position/scale/timing, then finish it and assert geometry. A separate unpaused video covers desktop pointer and touch-emulated mobile opening. Covered: reduced motion, keyboard Enter/Space, Review next, deep links, Back/Forward, slow details, rapid close/reopen, dirty cancel and J/K. No module or animation-method mocks.
 
-Not verified: physical iPhone/macOS Safari or a fresh hosted deployment. Video evidence demonstrates local behavior, not a promise of a particular frame rate on every device.
+Not verified: physical iPhone/macOS Safari. Video evidence demonstrates local behavior, not a promise of a particular frame rate on every device. Hosted pointer opening was subsequently verified in the linked staging release.
 
 ## Evidence
 
