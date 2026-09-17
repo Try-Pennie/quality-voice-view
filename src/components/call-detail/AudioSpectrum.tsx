@@ -60,5 +60,5 @@ export function AudioSpectrum({ analyser, active }: { readonly analyser: Analyse
   }, [analyser, active])
 
   return <canvas ref={canvasRef} role="img" aria-label="Live audio frequencies, not a recording timeline"
-    className="h-6 min-w-0 flex-1 text-pennie-blue-deeper" />
+    className="h-6 min-w-0 max-w-[320px] flex-1 text-pennie-blue-deeper" />
 }

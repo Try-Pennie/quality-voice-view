@@ -186,7 +186,7 @@ function RecordingPlayer({ recordingUrl, enableKeyboard = true, onRetry }: Props
     </div>}
     <div className="flex h-6 items-center gap-3" title={audioOnly ? 'This recording plays without live visualization.' : 'Live frequency levels of the sound playing now, not a full-recording waveform.'}>
       <span className="w-[76px] shrink-0 text-[10px] font-semibold tracking-wide text-pennie-graphite/70">{failed ? 'Unavailable' : buffering ? 'Buffering…' : audioOnly ? 'Audio only' : isPlaying ? 'Live audio' : currentTime > 0 ? 'Paused' : 'Ready to play'}</span>
-      {audioOnly ? <span aria-hidden="true" className="h-px flex-1 bg-border" /> : <AudioSpectrum analyser={analyser} active={isPlaying && !buffering && !failed} />}
+      {audioOnly ? <span aria-hidden="true" className="h-px max-w-[320px] flex-1 bg-border" /> : <AudioSpectrum analyser={analyser} active={isPlaying && !buffering && !failed} />}
     </div>
     <div className="grid grid-cols-[44px_44px_44px_minmax(0,1fr)_64px] items-center gap-x-1 sm:flex sm:gap-3">
       <button type="button" onClick={() => skip(-SKIP_SECONDS)} aria-label={`Back ${SKIP_SECONDS} seconds`} title={`Back ${SKIP_SECONDS}s (←)`} className={skipClass}>

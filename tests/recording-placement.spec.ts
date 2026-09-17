@@ -52,6 +52,8 @@ test('real streaming sound drives the spectrum, silence stays low, and contexts 
   const recording = page.getByRole('region', { name: 'Call recording', exact: true })
   await expect(recording.getByText('Ready to play', { exact: true })).toBeVisible()
   expect(contexts.size).toBe(0)
+  expect((await recording.getByRole('img').boundingBox())!.width).toBe(320)
+  expect((await recording.getByRole('slider', { name: 'Seek' }).boundingBox())!.width).toBeGreaterThan(500)
   const baseline = await spectrumInk(page)
   await recording.getByRole('button', { name: 'Play', exact: true }).click()
   await expect(recording.getByText('Live audio', { exact: true })).toBeVisible()
@@ -100,10 +102,12 @@ for (const cors of [false, true]) test(`cross-origin recording ${cors ? 'with CO
       await expect(recording.getByText('Audio only', { exact: true })).toBeVisible()
       await expect(recording.getByRole('img')).toHaveCount(0)
     }
+    const baseline = cors ? await spectrumInk(page) : 0
+    if (cors) expect(baseline).toBeGreaterThan(0)
     await recording.getByRole('button', { name: 'Play', exact: true }).click()
     await expect.poll(() => page.locator('audio').evaluate(audio => audio.currentTime)).toBeGreaterThan(0.1)
     await expect(recording.getByRole('button', { name: 'Retry recording', exact: true })).toHaveCount(0)
-    if (cors) await expect.poll(() => spectrumInk(page)).toBeGreaterThan(2000)
+    if (cors) await expect.poll(() => spectrumInk(page)).toBeGreaterThan(baseline * 2)
     else {
       await recording.getByRole('button', { name: 'Pause', exact: true }).click()
       await page.getByRole('dialog').focus()
@@ -212,6 +216,13 @@ test('mobile recording keeps a full-width seek target and leaves room for the re
   for (const width of [320, 375, 414, 768, 1440]) {
     await page.setViewportSize({ width, height: width < 768 ? 667 : 900 })
     const slider = await recording.getByRole('slider').boundingBox()
+    const spectrum = await recording.getByRole('img').boundingBox()
+    expect(spectrum!.width).toBeGreaterThan(0)
+    expect(spectrum!.width).toBeLessThanOrEqual(320)
+    if (width === 1440) {
+      expect(spectrum!.width).toBe(320)
+      expect(slider!.width).toBeGreaterThan(500)
+    }
     for (const name of ['Back 10 seconds', 'Play', 'Forward 10 seconds']) {
       const control = recording.getByRole('button', { name, exact: true })
       await expect(control).toBeInViewport()
@@ -246,6 +257,7 @@ test('call detail puts its single recording above metadata and alerts on desktop
     const header = await page.getByRole('heading', { level: 1 }).boundingBox()
     expect(box && header && box.y + box.height <= header.y).toBe(true)
     if (width === 375) await page.screenshot({ path: testInfo.outputPath('call-recording-mobile.png') })
+    expect((await recording.getByRole('img').boundingBox())!.width).toBeLessThanOrEqual(320)
     expect(await recording.evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true)
     expect((await recording.getByRole('slider').boundingBox())?.width).toBeGreaterThan(20)
   }
