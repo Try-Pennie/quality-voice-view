@@ -11,9 +11,9 @@ export function CoachingThemesPanel({
     <section className="bg-pennie-white rounded-3xl shadow-resting p-6">
       <header className="mb-5 flex items-baseline justify-between">
         <div>
-          <p className="pennie-label">Coaching themes</p>
+          <p className="pennie-label">AI-suggested coaching</p>
           <p className="text-xs text-pennie-graphite/60 mt-1">
-            Frequency-ranked across this window's QA reviews
+            From up to 50 recent calls in this period. Not manager-verified findings.
           </p>
         </div>
       </header>

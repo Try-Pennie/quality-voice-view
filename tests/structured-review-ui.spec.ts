@@ -173,7 +173,7 @@ test('request goes to the current manager, preserves the original, then another 
   const managerPage = await browser.newPage()
   const managerState = await reviewFixture(managerPage, requestState.rows)
   await managerPage.goto('/dashboard/alerts?status=changes_requested')
-  await expect(managerPage.getByText('1 corrections requested', { exact: true })).toBeVisible()
+  await expect(managerPage.getByText('1 changes requested by Kris', { exact: true })).toBeVisible()
   await expect(managerPage.getByRole('button', { name: /Review .* Example returned/ })).toContainText('Changes requested')
   await openAlert(managerPage, 'returned')
   await managerPage.getByText('Original review history', { exact: true }).click()

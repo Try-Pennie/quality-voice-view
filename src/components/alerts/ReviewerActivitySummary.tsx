@@ -45,7 +45,7 @@ export function ReviewerActivitySummary({
         <p id="reviewer-activity-heading" className="pennie-label">By actual reviewer</p>
         <p className="mt-1 text-xs text-pennie-graphite/60">
           Latest recorded decisions for alerts received {formatDateParam(startDate)} – {formatDateParam(endDate)} (ET).
-          This is decision attribution, not current-team ownership or a historical edit log.
+          Manager verdicts, not Kris approvals.
         </p>
       </header>
       {rows.length === 0 ? (
@@ -57,9 +57,9 @@ export function ReviewerActivitySummary({
               <tr className="border-b border-pennie-beige text-left text-[11px] font-bold uppercase tracking-wider text-pennie-graphite/60">
                 <th className="py-2 pr-4">Reviewer</th>
                 <th className="py-2 px-2 text-right">Reviewed</th>
-                <th className="py-2 px-2 text-right">Real alerts</th>
-                <th className="py-2 px-2 text-right">False alarm</th>
-                <th className="py-2 pl-2 text-right">False / reviewed</th>
+                <th className="py-2 px-2 text-right">Warranted</th>
+                <th className="py-2 px-2 text-right">Unnecessary</th>
+                <th className="py-2 pl-2 text-right">Unnecessary / reviewed</th>
               </tr>
             </thead>
             <tbody>
@@ -70,9 +70,9 @@ export function ReviewerActivitySummary({
                   <tr key={row.reviewerEmail} className={`border-b border-pennie-beige/60 ${selectedReviewer === row.reviewerEmail ? 'bg-pennie-blue-light/40' : ''}`}>
                     <th scope="row" className="py-3 pr-4 text-left font-semibold text-pennie-navy">{name}</th>
                     <ReviewerCount reviewer={row} label="Reviewed" value={row.reviewed} outcome="all" onSelect={onSelect} />
-                    <ReviewerCount reviewer={row} label="Real alerts" value={row.real} outcome="real" onSelect={onSelect} />
-                    <ReviewerCount reviewer={row} label="False alarm" value={row.falseAlarm} outcome="false_alarm" onSelect={onSelect} />
-                    <ReviewerCount reviewer={row} label="False rate" value={`${rate}%`} outcome="false_alarm" onSelect={onSelect} last />
+                    <ReviewerCount reviewer={row} label="Warranted" value={row.real} outcome="real" onSelect={onSelect} />
+                    <ReviewerCount reviewer={row} label="Unnecessary" value={row.falseAlarm} outcome="false_alarm" onSelect={onSelect} />
+                    <ReviewerCount reviewer={row} label="Unnecessary share" value={`${rate}%`} outcome="false_alarm" onSelect={onSelect} last />
                   </tr>
                 )
               })}
@@ -106,7 +106,7 @@ function ReviewerCount({
         type="button"
         onClick={() => onSelect({ reviewerEmail: reviewer.reviewerEmail, outcome })}
         aria-label={`Filter ${name} ${label} ${value}`}
-        className="pennie-focus-ring min-w-[40px] min-h-[40px] rounded-full px-2 font-semibold tabular-nums text-pennie-blue-deeper hover:bg-pennie-blue-light"
+        className="pennie-focus-ring min-w-[44px] min-h-[44px] rounded-full px-2 font-semibold tabular-nums text-pennie-blue-deeper hover:bg-pennie-blue-light"
       >
         {value}
       </button>

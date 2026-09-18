@@ -1,29 +1,26 @@
 import { useMemo } from 'react'
-import { X } from 'lucide-react'
 import type { ManagerRollup } from '../../lib/team-queries'
-import { HelpHint } from '../ui/help-hint'
-import type { HelpId } from '../../lib/help-content'
 
 export type ManagerSortKey =
-  | 'call_count'
-  | 'qa_count'
-  | 'compliance_pass_rate'
-  | 'escalation_rate'
-  | 'csat_high_rate'
-  | 'unreviewed_alerts_count'
-  | 'total_alerts_count'
-  | 'confirmed_issue_count'
-  | 'agent_count'
+  | 'call_count' | 'qa_count' | 'compliance_pass_rate' | 'escalation_rate' | 'csat_high_rate'
+  | 'unreviewed_alerts_count' | 'total_alerts_count' | 'confirmed_issue_count' | 'agent_count'
+  | 'reviewed_alerts_count' | 'false_positive_count'
 
-export function TeamBreakdownByManager({
-  rows,
-  loading,
-  selectedManager,
-  onSelect,
-  sortKey,
-  sortDesc,
-  onSortChange,
-}: {
+const OUTCOMES: readonly { key: ManagerSortKey; label: string }[] = [
+  { key: 'total_alerts_count', label: 'Received' },
+  { key: 'confirmed_issue_count', label: 'Warranted' },
+  { key: 'false_positive_count', label: 'Unnecessary' },
+  { key: 'unreviewed_alerts_count', label: 'Awaiting manager' },
+  { key: 'reviewed_alerts_count', label: 'Reviewed' },
+]
+const METRICS: readonly { key: ManagerSortKey; label: string }[] = [
+  { key: 'agent_count', label: 'Agents' }, { key: 'call_count', label: 'Calls' },
+  { key: 'qa_count', label: 'AI-evaluated calls' }, { key: 'compliance_pass_rate', label: 'AI compliance' },
+  { key: 'csat_high_rate', label: 'AI CSAT high' }, { key: 'escalation_rate', label: 'AI escalation' },
+]
+
+/** Team ownership is resolved at the reporting window's end, not today's queue ownership. */
+export function TeamBreakdownByManager({ rows, loading, selectedManager, onSelect, sortKey, sortDesc, onSortChange }: {
   rows: ManagerRollup[]
   loading: boolean
   selectedManager: string | null
@@ -32,265 +29,25 @@ export function TeamBreakdownByManager({
   sortDesc: boolean
   onSortChange: (key: ManagerSortKey, desc: boolean) => void
 }) {
-  const sorted = useMemo(() => {
-    const copy = [...rows]
-    copy.sort((a, b) => {
-      const av = a[sortKey] as number
-      const bv = b[sortKey] as number
-      return sortDesc ? bv - av : av - bv
-    })
-    return copy
-  }, [rows, sortKey, sortDesc])
-
-  const toggleSort = (key: ManagerSortKey) => {
-    if (key === sortKey) onSortChange(key, !sortDesc)
-    else onSortChange(key, true)
-  }
-
-  return (
-    <section className="bg-pennie-white rounded-3xl shadow-resting p-6">
-      <header className="mb-5 flex flex-wrap items-baseline justify-between gap-4">
-        <div>
-          <p className="pennie-label">Breakout by team</p>
-          <p className="text-xs text-pennie-graphite/60 mt-1">
-            One row per manager. Click a row to filter the leaderboard below to
-            that team only.
-          </p>
-        </div>
-        {selectedManager && (
-          <button
-            type="button"
-            onClick={() => onSelect(null)}
-            className="inline-flex items-center gap-1 text-xs font-semibold text-pennie-blue-deeper hover:underline"
-          >
-            Clear team filter
-            <X className="w-3 h-3" />
-          </button>
-        )}
-      </header>
-
-      {loading ? (
-        <div className="space-y-2">
-          {[0, 1, 2].map(i => (
-            <div key={i} className="h-10 rounded-xl bg-pennie-beige/60 animate-pulse" />
-          ))}
-        </div>
-      ) : sorted.length === 0 ? (
-        <div className="py-8 text-center text-sm text-pennie-graphite/50">
-          No managers with calls in this window.
-        </div>
-      ) : (
-        <div className="overflow-x-auto -mx-2 px-2">
-          <table className="min-w-full text-sm">
-            <thead>
-              <tr className="text-left text-[11px] uppercase tracking-wider text-pennie-graphite/60 border-b border-pennie-beige">
-                <th className="py-2 pr-4 font-semibold">Manager</th>
-                <SortHeader
-                  label="Agents"
-                  active={sortKey === 'agent_count'}
-                  desc={sortDesc}
-                  onClick={() => toggleSort('agent_count')}
-                  helpId="metric.manager_agent_count"
-                />
-                <SortHeader
-                  label="Calls"
-                  active={sortKey === 'call_count'}
-                  desc={sortDesc}
-                  onClick={() => toggleSort('call_count')}
-                  helpId="metric.manager_call_count"
-                />
-                <SortHeader
-                  label="AI-evaluated calls"
-                  active={sortKey === 'qa_count'}
-                  desc={sortDesc}
-                  onClick={() => toggleSort('qa_count')}
-                  helpId="metric.manager_qa_count"
-                />
-                <SortHeader
-                  label="Compliance"
-                  active={sortKey === 'compliance_pass_rate'}
-                  desc={sortDesc}
-                  onClick={() => toggleSort('compliance_pass_rate')}
-                  helpId="metric.team_compliance"
-                />
-                <SortHeader
-                  label="CSAT high"
-                  active={sortKey === 'csat_high_rate'}
-                  desc={sortDesc}
-                  onClick={() => toggleSort('csat_high_rate')}
-                  helpId="metric.high_csat"
-                />
-                <SortHeader
-                  label="Escalation"
-                  active={sortKey === 'escalation_rate'}
-                  desc={sortDesc}
-                  onClick={() => toggleSort('escalation_rate')}
-                  helpId="metric.team_escalation"
-                />
-                <SortHeader
-                  label="Awaiting manager"
-                  active={sortKey === 'unreviewed_alerts_count'}
-                  desc={sortDesc}
-                  onClick={() => toggleSort('unreviewed_alerts_count')}
-                  helpId="metric.team_open_alerts"
-                />
-                <SortHeader
-                  label="Received alerts"
-                  active={sortKey === 'total_alerts_count'}
-                  desc={sortDesc}
-                  onClick={() => toggleSort('total_alerts_count')}
-                  helpId="metric.manager_total_alerts"
-                />
-                <SortHeader
-                  label="Manager-confirmed issues"
-                  active={sortKey === 'confirmed_issue_count'}
-                  desc={sortDesc}
-                  onClick={() => toggleSort('confirmed_issue_count')}
-                />
-              </tr>
-            </thead>
-            <tbody>
-              {sorted.map(r => {
-                const isSelected = selectedManager === r.manager_email
-                const isUnassigned = r.manager_email === '__unassigned__'
-                return (
-                  <tr
-                    key={r.manager_email}
-                    className={`border-b border-pennie-beige/60 cursor-pointer transition-colors ${
-                      isSelected
-                        ? 'bg-pennie-blue-dark/5'
-                        : 'hover:bg-pennie-beige/40'
-                    }`}
-                    onClick={() => onSelect(isSelected ? null : r)}
-                    aria-selected={isSelected}
-                  >
-                    <td className="py-3 pr-4">
-                      <div className="flex items-center gap-2">
-                        <span className="font-semibold text-pennie-navy">
-                          {isUnassigned
-                            ? 'Unassigned agents'
-                            : managerDisplayName(
-                                r.manager_full_name,
-                                r.manager_email,
-                              )}
-                        </span>
-                        {r.needs_attention && (
-                          <span
-                            className="text-[10px] uppercase tracking-wider px-1.5 py-0.5 rounded-full bg-pennie-peach-dark/15 text-pennie-peach-deeper font-semibold"
-                            title="At least one team metric is below target"
-                          >
-                            Attention
-                          </span>
-                        )}
-                      </div>
-                      {!isUnassigned && r.manager_full_name && (
-                        <div className="text-[11px] text-pennie-graphite/60 mt-0.5 tabular-nums">
-                          {r.manager_email}
-                        </div>
-                      )}
-                      {r.top_agent && (
-                        <div className="text-[11px] text-pennie-graphite/60 mt-0.5">
-                          Top:{' '}
-                          {r.top_agent.agent_full_name || r.top_agent.agent_email}
-                          {' · '}
-                          {r.top_agent.compliance_pass_rate}% compliance
-                        </div>
-                      )}
-                    </td>
-                    <td className="py-3 pr-4 tabular-nums text-pennie-navy">
-                      {r.agent_count}
-                    </td>
-                    <td className="py-3 pr-4 tabular-nums text-pennie-navy">
-                      {r.call_count.toLocaleString()}
-                    </td>
-                    <td className="py-3 pr-4 tabular-nums text-pennie-navy">
-                      {r.qa_count > 0 ? (
-                        r.qa_count.toLocaleString()
-                      ) : (
-                        <span className="text-pennie-graphite/40">—</span>
-                      )}
-                    </td>
-                    <td className="py-3 pr-4 tabular-nums">
-                      <Bar value={r.compliance_pass_rate} target={80} positiveAbove />
-                    </td>
-                    <td className="py-3 pr-4 tabular-nums">
-                      <Bar value={r.csat_high_rate} target={50} positiveAbove />
-                    </td>
-                    <td className="py-3 pr-4 tabular-nums">
-                      <Bar
-                        value={r.escalation_rate}
-                        target={10}
-                        positiveAbove={false}
-                      />
-                    </td>
-                    <td className="py-3 pr-4 tabular-nums text-pennie-navy">
-                      {r.unreviewed_alerts_count}
-                    </td>
-                    <td className="py-3 pr-4 tabular-nums text-pennie-navy">
-                      {r.total_alerts_count}
-                    </td>
-                    <td className="py-3 pr-4 tabular-nums text-pennie-navy">
-                      {r.confirmed_issue_count}
-                    </td>
-                  </tr>
-                )
-              })}
-            </tbody>
-          </table>
-        </div>
-      )}
-    </section>
-  )
-}
-
-function SortHeader({
-  label,
-  active,
-  desc,
-  onClick,
-  helpId,
-}: {
-  label: string
-  active: boolean
-  desc: boolean
-  onClick: () => void
-  helpId?: HelpId
-}) {
-  return (
-    <th className="py-2 pr-4 font-semibold">
-      <span className="inline-flex items-center gap-1">
-        <button
-          type="button"
-          onClick={onClick}
-          className={`inline-flex items-center gap-1 hover:text-pennie-navy ${
-            active ? 'text-pennie-navy' : ''
-          }`}
-        >
-          {label}
-          {active && <span aria-hidden>{desc ? '▾' : '▴'}</span>}
-        </button>
-        {helpId && <HelpHint id={helpId} size={3} />}
-      </span>
-    </th>
-  )
-}
-
-// Show a consistent full name, falling back to the email local-part only when
-// the directory has no entry. The email is rendered separately below it.
-function managerDisplayName(fullName: string | null, email: string): string {
-  return fullName?.trim() || email.split('@')[0]
-}
-
-function Bar({
-  value,
-  target,
-  positiveAbove,
-}: {
-  value: number
-  target: number
-  positiveAbove: boolean
-}) {
-  const isGood = positiveAbove ? value >= target : value < target
-  const tone = isGood ? 'text-pennie-green-deeper' : 'text-pennie-peach-deeper'
-  return <span className={`font-semibold ${tone}`}>{value}%</span>
+  const showMetrics = METRICS.some(field => field.key === sortKey)
+  const sorted = useMemo(() => [...rows].sort((a, b) => (sortDesc ? -1 : 1) * (a[sortKey] - b[sortKey]) || a.manager_email.localeCompare(b.manager_email)), [rows, sortKey, sortDesc])
+  const fields = showMetrics ? METRICS : OUTCOMES
+  return <section aria-label="Team outcomes by manager" className="rounded-3xl bg-pennie-white p-4 shadow-resting sm:p-6">
+    <header className="mb-3 flex flex-wrap items-center justify-between gap-3">
+      <div><h2 className="text-base font-semibold text-pennie-navy">By manager’s team</h2><p className="mt-1 text-xs text-pennie-graphite/70">Teams as of the period end. Select a manager to filter representatives below.</p></div>
+      <div className="flex flex-wrap gap-2">
+        {selectedManager && <button type="button" onClick={() => onSelect(null)} className="pennie-focus-ring min-h-[44px] rounded-full px-3 text-sm font-semibold text-pennie-blue-deeper">Clear team filter</button>}
+        <button type="button" aria-pressed={showMetrics} onClick={() => onSortChange(showMetrics ? 'confirmed_issue_count' : 'call_count', true)} className="pennie-focus-ring min-h-[44px] rounded-full border border-border px-3 text-sm font-semibold text-pennie-blue-deeper">{showMetrics ? 'Team alert outcomes' : 'Team AI metrics'}</button>
+      </div>
+    </header>
+    {loading ? <p className="py-6 text-sm">Loading teams…</p> : !rows.length ? <p className="py-6 text-sm">No managers with calls in this window.</p> : <div className="overflow-x-auto" role="group" tabIndex={0} aria-label="Team outcomes table">
+      <table className="min-w-full text-sm tabular-nums">
+        <thead><tr className="border-b border-border text-left text-xs text-pennie-graphite/70"><th scope="col" className="pr-4">Manager</th>{fields.map(field => <th key={field.key} scope="col" aria-sort={sortKey === field.key ? sortDesc ? 'descending' : 'ascending' : 'none'} className="px-2 text-right"><button type="button" onClick={() => onSortChange(field.key, sortKey === field.key ? !sortDesc : true)} className="pennie-focus-ring min-h-[44px] whitespace-nowrap font-semibold">{field.label}{sortKey === field.key && <span aria-hidden="true"> {sortDesc ? '↓' : '↑'}</span>}</button></th>)}</tr></thead>
+        <tbody>{sorted.map(row => <tr key={row.manager_email} className={`border-b border-border/60 ${selectedManager === row.manager_email ? 'bg-pennie-blue-light/50' : ''}`}>
+          <th scope="row" className="max-w-[220px] py-2 pr-4 text-left"><button type="button" aria-pressed={selectedManager === row.manager_email} onClick={() => onSelect(selectedManager === row.manager_email ? null : row)} className="pennie-focus-ring min-h-[44px] break-words text-left font-semibold text-pennie-blue-deeper hover:underline">{row.manager_email === '__unassigned__' ? 'Unassigned agents' : row.manager_full_name?.trim() || row.manager_email.split('@')[0]}</button>{row.manager_email !== '__unassigned__' && <p className="text-xs font-normal text-pennie-graphite/60">{row.manager_email}</p>}{row.system_closed_count > 0 && !showMetrics && <p className="text-xs font-normal text-pennie-graphite/70">{row.system_closed_count} system closed</p>}</th>
+          {fields.map(field => <td key={field.key} className="px-2 py-3 text-right text-pennie-navy">{field.key.endsWith('_rate') ? row.qa_count ? `${row[field.key]}%` : '—' : row[field.key].toLocaleString()}</td>)}
+        </tr>)}</tbody>
+      </table>
+    </div>}
+  </section>
 }
