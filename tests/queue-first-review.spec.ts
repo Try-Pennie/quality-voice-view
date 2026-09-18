@@ -202,12 +202,12 @@ test('director sees the manager explanation and evidence before approval actions
   await expect(dialog.getByText('The manager identified the exact missing disclosure.')).toBeVisible()
   await expect(dialog.getByText('Review both quoted passages in context.')).toBeVisible()
   await expect(dialog.getByRole('button', { name: 'Approve review' })).toBeInViewport()
-  const contentOrder = await dialog.locator('section').evaluateAll(sections => ({
-    review: sections.findIndex(section => section.getAttribute('aria-label') === 'Manager review'),
-    approval: sections.findIndex(section => section.textContent?.includes('awaiting Kris’s approval')),
-  }))
-  expect(contentOrder.review).toBeGreaterThanOrEqual(0)
-  expect(contentOrder.approval).toBeGreaterThan(contentOrder.review)
+  expect(await dialog.evaluate(element => {
+    const review = element.querySelector('section[aria-label="Manager review"]')
+    const approve = [...element.querySelectorAll('button')].find(button => button.textContent === 'Approve review')
+    return !!review && !!approve && !!(review.compareDocumentPosition(approve) & Node.DOCUMENT_POSITION_FOLLOWING)
+  })).toBe(true)
+  await expect(dialog.getByRole('textbox', { name: /Request changes with instructions/ })).toHaveCount(0)
   await expect(dialog.getByText('Discussion', { exact: true })).toBeVisible()
   await expect(dialog.getByRole('textbox', { name: 'Add a message' })).not.toBeVisible()
 })
