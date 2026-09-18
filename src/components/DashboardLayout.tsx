@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { NavLink, useNavigate, useLocation } from 'react-router-dom'
 import {
   BookOpen,
@@ -9,9 +9,9 @@ import {
   Menu,
 } from 'lucide-react'
 import { useAuth } from '../hooks/useAuth'
-import { useAlertBreakdown, useUserScope } from '../hooks/use-queries'
+import { useUserScope } from '../hooks/use-queries'
 import { defaultAlertWindow } from '../lib/alert-review-queue'
-import { formatDateParam, parseDateParam } from '../lib/url-filters'
+import { formatDateParam } from '../lib/url-filters'
 import { HintsProvider, useHints } from './ui/help-hint'
 import { NotificationBell } from './NotificationBell'
 import { Popover, PopoverContent, PopoverTrigger } from './ui/popover'
@@ -51,21 +51,6 @@ function DashboardChrome({ children }: { children: React.ReactNode }) {
   const [mobileNavOpen, setMobileNavOpen] = useState(false)
   const [reportsOpen, setReportsOpen] = useState(false)
 
-  // Awaiting-manager badge uses the same explicit ET range carried by nav.
-  const alertWindow = useMemo(() => {
-    const fallback = defaultAlertWindow(new Date())
-    const params = new URLSearchParams(location.search)
-    return {
-      start: parseDateParam(params.get('start'), fallback.start),
-      end: parseDateParam(params.get('end'), fallback.end, true),
-    }
-  }, [location.search])
-  const { data: breakdown } = useAlertBreakdown(scope, alertWindow.start, alertWindow.end)
-  const openAlertCount = useMemo(
-    () => (breakdown ?? []).reduce((sum, c) => sum + c.unreviewed, 0),
-    [breakdown],
-  )
-
   // Press "?" anywhere outside text inputs to jump to the glossary.
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
@@ -102,7 +87,7 @@ function DashboardChrome({ children }: { children: React.ReactNode }) {
           <div className="flex justify-between items-center gap-3 sm:gap-4 py-3 sm:py-4">
             <div className="flex items-center gap-4 sm:gap-8 min-w-0">
               <NavLink
-                to={withDateRange('/dashboard/alerts', location.search, alertWindow)}
+                to={withDateRange('/dashboard/alerts', location.search)}
                 className="font-display text-xl sm:text-2xl tracking-[-0.02em] text-pennie-navy font-bold hover:opacity-80 transition-opacity"
               >
                 Eavesly
@@ -111,7 +96,7 @@ function DashboardChrome({ children }: { children: React.ReactNode }) {
                 aria-label="Primary"
                 className="hidden sm:flex items-center gap-1"
               >
-                <DashNavLink to="/dashboard/alerts" badge={openAlertCount}>
+                <DashNavLink to="/dashboard/alerts">
                   Review
                 </DashNavLink>
                 <DashNavLink to="/dashboard" end>
@@ -197,10 +182,7 @@ function DashboardChrome({ children }: { children: React.ReactNode }) {
                     aria-label="Primary"
                     className="flex-1 overflow-y-auto px-3 py-4 space-y-1"
                   >
-                    <MobileNavLink
-                      to="/dashboard/alerts"
-                      badge={openAlertCount}
-                    >
+                    <MobileNavLink to="/dashboard/alerts">
                       Review
                     </MobileNavLink>
                     <MobileNavLink to="/dashboard" end>
@@ -287,18 +269,6 @@ function withDateRange(
   return `${to}?${dates.toString()}`
 }
 
-function NavBadge({ count }: { count: number }) {
-  if (count <= 0) return null
-  return (
-    <span
-      className="inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 rounded-full bg-pennie-blue-deeper text-pennie-white text-[10px] font-bold tabular-nums"
-      aria-label={`${count} alert${count === 1 ? '' : 's'} awaiting a manager in the selected window`}
-    >
-      {count > 99 ? '99+' : count}
-    </span>
-  )
-}
-
 function ReportsMenu({
   open,
   onOpenChange,
@@ -369,12 +339,10 @@ function DashNavLink({
   to,
   end,
   children,
-  badge,
 }: {
   to: string
   end?: boolean
   children: React.ReactNode
-  badge?: number
 }) {
   const location = useLocation()
   // Calls / Team / Alerts all use the same ?start=&end= contract, so carrying
@@ -402,7 +370,6 @@ function DashNavLink({
             />
           )}
           {children}
-          {badge != null && <NavBadge count={badge} />}
         </span>
       )}
     </NavLink>
@@ -414,13 +381,11 @@ function MobileNavLink({
   end,
   children,
   carryDates = true,
-  badge,
 }: {
   to: string
   end?: boolean
   children: React.ReactNode
   carryDates?: boolean
-  badge?: number
 }) {
   const location = useLocation()
   const target = carryDates ? withDateRange(to, location.search) : to
@@ -445,7 +410,6 @@ function MobileNavLink({
             aria-hidden="true"
           />
           {children}
-          {badge != null && <NavBadge count={badge} />}
         </span>
       )}
     </NavLink>
