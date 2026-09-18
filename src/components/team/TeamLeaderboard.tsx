@@ -21,12 +21,15 @@ export function TeamLeaderboard({
   rows,
   loading,
   onSelect,
+  onSelectAlerts,
 }: {
   rows: AgentRollup[]
   loading: boolean
   onSelect: (agent: AgentRollup) => void
+  onSelectAlerts: (agent: AgentRollup, view: 'all' | 'reviewed' | 'awaiting_manager', outcome?: 'real' | 'false_alarm') => void
 }) {
-  const [sortKey, setSortKey] = useState<SortKey>('attention')
+  const [showMetrics, setShowMetrics] = useState(false)
+  const [sortKey, setSortKey] = useState<SortKey>('confirmed_issues')
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc')
 
   const sorted = useMemo(() => {
@@ -92,7 +95,13 @@ export function TeamLeaderboard({
   }
 
   return (
-    <section className="bg-pennie-white rounded-3xl shadow-resting overflow-hidden">
+    <section aria-label="Alerts by representative" className="bg-pennie-white rounded-3xl shadow-resting overflow-hidden">
+      <header className="flex flex-wrap items-center justify-between gap-3 p-4 sm:p-6">
+        <div><h2 className="text-base font-semibold text-pennie-navy">Alerts by representative</h2><p className="mt-1 text-xs text-pennie-graphite/70">Manager verdicts · not Kris approvals. One alert per call and alert type.</p></div>
+        <button type="button" aria-pressed={showMetrics} onClick={() => { setShowMetrics(value => !value); if (showMetrics) { setSortKey('confirmed_issues'); setSortDir('desc') } }} className="pennie-focus-ring min-h-[44px] rounded-full border border-border px-4 text-sm font-semibold text-pennie-blue-deeper">{showMetrics ? 'Alert outcomes' : 'More metrics'}</button>
+      </header>
+      {!showMetrics && <div className="px-4 pb-3 sm:px-6"><label className="text-xs font-semibold text-pennie-graphite">Sort alerts <select value={sortKey === 'name' ? 'name' : sortKey === 'alerts' ? 'alerts' : sortKey === 'total_alerts' ? 'total_alerts' : 'confirmed_issues'} onChange={event => { const key = event.target.value; if (key === 'name' || key === 'alerts' || key === 'total_alerts' || key === 'confirmed_issues') { setSortKey(key); setSortDir(key === 'name' ? 'asc' : 'desc') } }} className="pennie-focus-ring ml-2 min-h-[44px] rounded-full border border-border bg-white px-3"><option value="confirmed_issues">Warranted alerts</option><option value="alerts">Awaiting manager</option><option value="total_alerts">Received alerts</option><option value="name">Representative name</option></select></label></div>}
+      {!showMetrics ? <AlertOutcomes rows={sorted} loading={loading} onSelect={onSelect} onSelectAlerts={onSelectAlerts} /> : <>
       {/* Mobile sort control — the desktop table sorts via column headers,
           which collapse on phone, so expose a single dropdown instead. */}
       <div className="md:hidden border-b border-border bg-pennie-beige/40 px-4 py-3 flex items-center justify-between gap-2">
@@ -261,21 +270,21 @@ export function TeamLeaderboard({
                 align="right"
               />
               <SortableTh
-                label="Compliance"
+                label="AI compliance"
                 active={sortKey === 'compliance'}
                 dir={sortDir}
                 onClick={() => handleSort('compliance')}
                 align="right"
               />
               <SortableTh
-                label="CSAT high"
+                label="AI CSAT high"
                 active={sortKey === 'csat'}
                 dir={sortDir}
                 onClick={() => handleSort('csat')}
                 align="right"
               />
               <SortableTh
-                label="Escalation"
+                label="AI escalation"
                 active={sortKey === 'escalation'}
                 dir={sortDir}
                 onClick={() => handleSort('escalation')}
@@ -296,7 +305,7 @@ export function TeamLeaderboard({
                 align="right"
               />
               <SortableTh
-                label="Manager-confirmed issues"
+                label="Warranted alerts"
                 active={sortKey === 'confirmed_issues'}
                 dir={sortDir}
                 onClick={() => handleSort('confirmed_issues')}
@@ -446,8 +455,34 @@ export function TeamLeaderboard({
           </tbody>
         </table>
       </div>
+      </>}
     </section>
   )
+}
+
+const OUTCOMES = [
+  { label: 'Received', key: 'total_alerts_count', view: 'all' },
+  { label: 'Warranted', key: 'confirmed_issue_count', view: 'reviewed', outcome: 'real' },
+  { label: 'Unnecessary', key: 'false_positive_count', view: 'reviewed', outcome: 'false_alarm' },
+  { label: 'Awaiting manager', key: 'unreviewed_alerts_count', view: 'awaiting_manager' },
+] as const
+
+function AlertOutcomes({ rows, loading, onSelect, onSelectAlerts }: {
+  rows: AgentRollup[]
+  loading: boolean
+  onSelect: (agent: AgentRollup) => void
+  onSelectAlerts: (agent: AgentRollup, view: 'all' | 'reviewed' | 'awaiting_manager', outcome?: 'real' | 'false_alarm') => void
+}) {
+  if (loading) return <p className="px-6 py-8 text-sm text-pennie-graphite">Loading alert outcomes…</p>
+  if (!rows.length) return <p className="px-6 py-8 text-sm text-pennie-graphite">No agents match your filters.</p>
+  const name = (agent: AgentRollup) => agentDisplayName(agent.agent_full_name, agent.agent_email)
+  const coverage = (agent: AgentRollup) => `${agent.reviewed_alerts_count} / ${agent.total_alerts_count - agent.system_closed_count} reviewed`
+  const profile = (agent: AgentRollup) => <button type="button" onClick={() => onSelect(agent)} className="pennie-focus-ring min-h-[44px] text-left font-semibold text-pennie-blue-deeper hover:underline">{name(agent)}<span className="sr-only"> · {agent.agent_email} · View profile</span></button>
+  const count = (agent: AgentRollup, field: typeof OUTCOMES[number]) => <button type="button" aria-label={`Filter ${name(agent)} ${field.label} ${agent[field.key]}`} onClick={() => onSelectAlerts(agent, field.view, 'outcome' in field ? field.outcome : undefined)} className="pennie-focus-ring min-h-[44px] min-w-[44px] rounded-full px-2 font-semibold tabular-nums text-pennie-blue-deeper hover:bg-pennie-blue-light">{agent[field.key]}</button>
+  return <>
+    <div className="hidden overflow-x-auto md:block"><table className="min-w-full text-sm"><thead className="bg-pennie-beige/60 text-left text-xs text-pennie-graphite/70"><tr><th scope="col" className="px-6 py-3">Representative</th>{OUTCOMES.map(field => <th scope="col" key={field.key} className="px-3 py-3 text-right">{field.label}</th>)}<th scope="col" className="px-6 py-3 text-right">Review coverage</th></tr></thead><tbody>{rows.map(agent => <tr key={agent.agent_email} className="border-t border-border/60"><th scope="row" className="px-6 py-2 text-left">{profile(agent)}</th>{OUTCOMES.map(field => <td key={field.key} className="px-3 py-2 text-right">{count(agent, field)}</td>)}<td className="px-6 py-2 text-right tabular-nums text-pennie-graphite"><button type="button" onClick={() => onSelectAlerts(agent, 'reviewed')} className="pennie-focus-ring min-h-[44px] text-pennie-blue-deeper hover:underline">{coverage(agent)}</button>{agent.system_closed_count > 0 && <p className="text-xs text-pennie-graphite/70">{agent.system_closed_count} system closed · excluded</p>}</td></tr>)}</tbody></table></div>
+    <ul className="divide-y divide-border md:hidden">{rows.map(agent => <li key={agent.agent_email} className="px-4 py-3">{profile(agent)}<p className="text-xs tabular-nums text-pennie-graphite/70">{coverage(agent)}{agent.system_closed_count > 0 ? ` · ${agent.system_closed_count} system closed (excluded)` : ''}</p><dl className="mt-2 grid grid-cols-2 gap-2">{OUTCOMES.map(field => <div key={field.key} className="flex items-center justify-between gap-1"><dt className="text-xs text-pennie-graphite">{field.label}</dt><dd>{count(agent, field)}</dd></div>)}</dl></li>)}</ul>
+  </>
 }
 
 function PercentCell({
@@ -525,7 +560,7 @@ function AlertCountPill({
       className={`pennie-pill ${tone} tabular-nums`}
       title={`${unreviewed} awaiting manager of ${total} received`}
     >
-      {unreviewed > 0 ? `${unreviewed} waiting` : `${total} received`}
+      {unreviewed > 0 ? `${unreviewed} waiting` : '0'}
     </span>
   )
 }

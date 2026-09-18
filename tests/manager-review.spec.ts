@@ -15,8 +15,7 @@ test('overdue queue retrieves beyond 1000, keeps scope and survives drawer/reloa
   const state = await reviewFixture(page, rows)
   await page.goto('/dashboard/alerts?status=awaiting_manager')
   await expect(page.getByText('1,002 ready for first review', { exact: true })).toBeVisible()
-  await expect(page.getByRole('status')).toContainText('2026-08-09 – 2026-09-07')
-  await expect(page.getByRole('status')).toContainText('Counts only cover this window.')
+  await expect(page.getByText('2026-08-09 – 2026-09-07 (ET) · Alerts received in this period', { exact: true })).toBeVisible()
   const requests = state.requests.filter(url => url.searchParams.get('select')?.includes('feedback_comment'))
   expect(requests.some(url => url.searchParams.get('offset') === '1000')).toBe(true)
   for (const url of requests) {

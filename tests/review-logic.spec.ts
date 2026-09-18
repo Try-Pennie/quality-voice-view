@@ -20,7 +20,8 @@ test('overdue uses elapsed 24h and only first-pass review, including DST', () =>
   expect(isReviewOverdue({ ...open, alert_created_at: '2026-09-06T16:00:00Z' }, now)).toBe(false)
   expect(isReviewOverdue({ ...open, alert_created_at: '2026-09-08T16:00:00Z' }, now)).toBe(false)
   expect(isReviewOverdue({ ...open, alert_created_at: 'invalid' }, now)).toBe(false)
-  expect(isReviewOverdue({ ...open, is_reviewed: true }, now)).toBe(false)
+  expect(isReviewOverdue({ ...open, is_reviewed: true, accurate: null }, now)).toBe(true)
+  expect(isReviewOverdue({ ...open, is_reviewed: true, accurate: true, feedback_by: 'manager@example.test' }, now)).toBe(false)
   expect(isReviewOverdue({ ...open, alert_created_at: '2026-03-07T17:00:00Z' }, Date.parse('2026-03-08T16:00:00Z'))).toBe(false)
   expect(isReviewOverdue({ ...open, alert_created_at: '2026-10-31T16:00:00Z' }, Date.parse('2026-11-01T17:00:00Z'))).toBe(true)
   expect(reviewAgeLabel('invalid', now)).toBe('Age unavailable')
@@ -34,7 +35,7 @@ test('manager review, director approval, coaching, and system closure stay disti
     outstanding: 'All outstanding',
     awaiting_manager: 'Awaiting manager',
     awaiting_approval: 'Awaiting Kris’s approval',
-    changes_requested: 'Changes requested',
+    changes_requested: 'Changes requested by Kris',
     coaching_due: 'Coaching due',
     reviewed: 'Reviewed',
     all: 'All',

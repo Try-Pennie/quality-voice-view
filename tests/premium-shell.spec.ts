@@ -79,7 +79,7 @@ test('a failed route chunk offers an explicit reload without hiding navigation',
   await page.getByRole('link', { name: 'Team', exact: true }).click()
   await expect(page.getByRole('heading', { name: "This page couldn't open" })).toBeVisible()
   await page.getByRole('button', { name: 'Reload page' }).click()
-  await expect(page.getByText('AI-evaluated calls', { exact: true })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Alerts by representative', exact: true })).toBeVisible()
 })
 
 test('public routes stay public and dashboard routes stay protected', async ({ page }) => {

@@ -45,6 +45,8 @@ const MANAGER_SORT_KEYS: readonly ManagerSortKey[] = [
   'unreviewed_alerts_count',
   'total_alerts_count',
   'confirmed_issue_count',
+  'reviewed_alerts_count',
+  'false_positive_count',
   'agent_count',
 ]
 import { AlertHeatmap } from '../components/alerts/AlertHeatmap'
@@ -128,7 +130,7 @@ export default function TeamPage() {
     const raw = searchParams.get('sort')
     return (MANAGER_SORT_KEYS as readonly string[]).includes(raw ?? '')
       ? (raw as ManagerSortKey)
-      : 'call_count'
+      : 'confirmed_issue_count'
   })
   const [breakdownSortDesc, setBreakdownSortDesc] = useState<boolean>(
     () => searchParams.get('dir') !== 'asc',
@@ -268,7 +270,7 @@ export default function TeamPage() {
     if (search.trim()) params.set('search', search.trim())
     if (quickFilter !== 'all') params.set('qf', quickFilter)
     if (selectedManager) params.set('mgr', selectedManager.manager_email)
-    if (breakdownSortKey !== 'call_count') params.set('sort', breakdownSortKey)
+    if (breakdownSortKey !== 'confirmed_issue_count') params.set('sort', breakdownSortKey)
     if (!breakdownSortDesc) params.set('dir', 'asc')
     setSearchParams(params, { replace: true })
   }, [
@@ -477,6 +479,7 @@ export default function TeamPage() {
         />
       ) : (
         <>
+          <details className="space-y-6"><summary className="pennie-focus-ring min-h-[44px] cursor-pointer text-sm font-semibold text-pennie-blue-deeper">AI trends and call metrics</summary>
           <TeamHeaderStats
             metrics={teamMetrics}
             loading={loading}
@@ -486,6 +489,7 @@ export default function TeamPage() {
           />
 
           <TeamTrendSection points={teamTrend} loading={loading} />
+          </details>
 
       {scope?.isGodMode && (
         <TeamBreakdownByManager
@@ -534,8 +538,8 @@ export default function TeamPage() {
         {(
           [
             { value: 'all', label: 'All agents' },
-            { value: 'attention', label: 'Needs attention' },
-            { value: 'top', label: 'Top performers' },
+            { value: 'attention', label: 'AI concerns or pending review' },
+            { value: 'top', label: 'Top AI scores' },
             { value: 'alerts', label: 'Has open alerts' },
           ] as { value: QuickFilter; label: string }[]
         ).map(f => (
@@ -570,12 +574,18 @@ export default function TeamPage() {
             rows={filtered}
             loading={loading}
             onSelect={goToAgent}
+            onSelectAlerts={(agent, view, outcome) => {
+              const params = new URLSearchParams({ start: formatDateParam(startDate), end: formatDateParam(endDate), agent: agent.agent_email, status: view })
+              if (outcome) params.set('outcome', outcome)
+              navigate(`/dashboard/alerts?${params}`)
+            }}
           />
         )}
       </div>
         </>
       )}
 
+      {!noAgents && <details open={themesError || breakdownError} className="space-y-6"><summary className="pennie-focus-ring min-h-[44px] cursor-pointer text-sm font-semibold text-pennie-blue-deeper">Alert types and AI coaching themes</summary>
       {!noAgents && breakdownError && !breakdownLoading ? (
         <ErrorState compact message="Couldn't load the alert heatmap." onRetry={() => refetchBreakdown()} />
       ) : !noAgents ? (
@@ -608,6 +618,7 @@ export default function TeamPage() {
           onSelectAgent={goToAgent}
         />
       ) : null}
+      </details>}
     </div>
   )
 }

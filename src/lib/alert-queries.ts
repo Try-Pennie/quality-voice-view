@@ -139,8 +139,8 @@ export async function fetchAlerts(
 
     if (filters.outstandingOnly) {
       const outstandingFilter = scope.isGodMode
-        ? 'is_reviewed.eq.false,current_decision.is.null,current_decision.eq.changes_requested,action_taken.eq.follow_up_later'
-        : 'is_reviewed.eq.false,current_decision.eq.changes_requested,action_taken.eq.follow_up_later'
+        ? 'is_reviewed.eq.false,accurate.is.null,current_decision.is.null,current_decision.eq.changes_requested,action_taken.eq.follow_up_later'
+        : 'is_reviewed.eq.false,accurate.is.null,current_decision.eq.changes_requested,action_taken.eq.follow_up_later'
       q = q.or(outstandingFilter)
     } else {
       q = q

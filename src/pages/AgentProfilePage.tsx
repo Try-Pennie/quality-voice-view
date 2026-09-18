@@ -128,6 +128,7 @@ export default function AgentProfilePage() {
             <RefreshingHint active={refreshing} />
           </div>
 
+          <details className="space-y-6"><summary className="pennie-focus-ring min-h-[44px] cursor-pointer text-sm font-semibold text-pennie-blue-deeper">AI trends and coaching suggestions</summary>
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
             <ScoreTrendChart points={profile?.trend ?? []} loading={loading} />
             <CSATDistributionChart points={profile?.trend ?? []} loading={loading} />
@@ -135,6 +136,7 @@ export default function AgentProfilePage() {
           </div>
 
           <CoachingThemesPanel themes={profile?.coaching_themes ?? null} loading={loading} />
+          </details>
 
           <AgentFullQaRecurrence agentEmail={agentEmail} startDate={startDate} endDate={endDate} enabled={!!scope && !!allowed} />
 

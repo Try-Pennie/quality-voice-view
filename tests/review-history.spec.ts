@@ -11,6 +11,7 @@ test('browser Back and Forward can be cancelled without losing notes or corrupti
   const secondUrl = page.url()
   await page.goBack()
   await expect(page).toHaveURL(firstUrl)
+  await expect(page.getByRole('dialog')).toContainText('Example history-a')
   await page.getByRole('button', { name: 'Real issue (Y)', exact: true }).click()
   const note = page.getByRole('textbox', { name: 'What happened?' })
   await note.fill('Unsaved coaching notes survive browser history gestures until explicitly discarded.')

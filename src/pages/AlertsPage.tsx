@@ -15,7 +15,8 @@ import {
 import type { AgentRollup } from '../lib/team-queries'
 import { paginate } from './disposition-audit-pagination'
 import {
-  ALERT_QUEUE_VIEWS, parseAlertQueueView, isClosedForReviewer, defaultAlertWindow,
+  ALERT_QUEUE_VIEWS, FIRST_REVIEW_AGES, firstReviewAgeBucket, parseFirstReviewAge, type FirstReviewAge,
+  parseAlertQueueView, isClosedForReviewer, defaultAlertWindow,
   isHumanReviewed, isOutstandingReviewWork, isReviewOverdue, isSystemClosed, needsCoachingFollowUp,
   matchesAlertQueueView, reviewAgeLabel, summarizeReviewWorkload, type AlertQueueView,
 } from '../lib/alert-review-queue'
@@ -53,7 +54,7 @@ import { SortableTh } from '@/components/ui/sortable-th'
 import { HelpHint } from '../components/ui/help-hint'
 import { ErrorState } from '@/components/states/ErrorState'
 import { EmptyState } from '@/components/states/EmptyState'
-import { ManagerWorkloadSummary } from '../components/alerts/ManagerWorkloadSummary'
+import { ManagerWorkloadSummary, ManagerReviewAging } from '../components/alerts/ManagerWorkloadSummary'
 import { ReviewerActivitySummary } from '../components/alerts/ReviewerActivitySummary'
 
 const MODULE_OPTIONS = [
@@ -112,6 +113,7 @@ export default function AlertsPage() {
     : allTimeOutstanding && (parsedStatusView === 'reviewed' || parsedStatusView === 'all')
       ? 'outstanding'
       : parsedStatusView
+  const ageFilter = allTimeOutstanding && statusView === 'awaiting_manager' ? parseFirstReviewAge(searchParams.get('age')) : null
   const moduleFilter = useMemo(() => searchParams.get('module')?.split(',').filter(Boolean) ?? [], [searchParams])
   const agentFilter = searchParams.get('agent')?.trim().toLowerCase() || null
   const search = searchParams.get('search') ?? ''
@@ -142,6 +144,7 @@ export default function AlertsPage() {
   }, [queueParams, scope, searchParams, setSearchParams, allTimeOutstanding, parsedStatusView, statusView])
   const changeFilters = useCallback((changes: Record<string, string | null>) => {
     const params = new URLSearchParams(queueParams)
+    if ('status' in changes || 'range' in changes) params.delete('age')
     for (const [key, value] of Object.entries(changes)) {
       if (value) params.set(key, value)
       else params.delete(key)
@@ -223,6 +226,7 @@ export default function AlertsPage() {
 
   const alerts = useMemo(() => {
     let rows = allAlerts.filter(a => matchesAlertQueueView(a, statusView, !!scope?.isGodMode, user?.email, now, workload))
+    if (ageFilter) rows = rows.filter(a => firstReviewAgeBucket(a, now) === ageFilter)
     if (managerFilter) {
       rows = rows.filter(a => managerOwnershipKey(a.assigned_manager_email) === managerFilter)
     }
@@ -278,7 +282,7 @@ export default function AlertsPage() {
       return sortDesc ? -cmp : cmp
     })
     return sorted
-  }, [allAlerts, statusView, managerFilter, reviewerFilter, outcomeFilter, search, scope?.isGodMode, closedForMe, sortKey, sortDesc, user?.email, now, workload])
+  }, [allAlerts, statusView, ageFilter, managerFilter, reviewerFilter, outcomeFilter, search, scope?.isGodMode, closedForMe, sortKey, sortDesc, user?.email, now, workload])
 
   const queuePage = paginate(alerts, requestedPage, QUEUE_PAGE_SIZE)
   const queueFilterKey = queueParams.toString()
@@ -459,7 +463,7 @@ export default function AlertsPage() {
   // Selection only makes sense within one filtered view — reset when it moves.
   useEffect(() => {
     setSelected(new Set())
-  }, [startDate, endDate, statusView, moduleFilter, agentFilter, search, managerFilter, reviewerFilter, outcomeFilter, workload, allTimeOutstanding])
+  }, [startDate, endDate, statusView, ageFilter, moduleFilter, agentFilter, search, managerFilter, reviewerFilter, outcomeFilter, workload, allTimeOutstanding])
 
   const toggleSelected = useCallback((a: AlertWithFeedback) => {
     setSelected(prev => {
@@ -599,12 +603,8 @@ export default function AlertsPage() {
     rowRefs.current.get(focusIndex)?.scrollIntoView({ block: 'nearest' })
   }, [focusIndex, queuePage.page])
 
-  const stats = useMemo(() => {
-    const counts = summarizeReviewWorkload(allAlerts)
-    const fpRate = counts.reviewed > 0 ? Math.round((counts.falseAlarm / counts.reviewed) * 100) : null
-    const flaggedAgents = new Set(allAlerts.map(a => a.agent_email)).size
-    return { ...counts, fpRate, flaggedAgents }
-  }, [allAlerts])
+  const stats = useMemo(() => summarizeReviewWorkload(allAlerts), [allAlerts])
+  const queueTotal = allAlerts.filter(a => matchesAlertQueueView(a, statusView, !!scope?.isGodMode, user?.email, now, workload)).length
   const outstandingStats = useMemo(() => ({
     firstReviews: allAlerts.filter(alert => matchesAlertQueueView(alert, 'awaiting_manager', !!scope?.isGodMode, user?.email, now, workload)).length,
     awaitingApproval: allAlerts.filter(alert => matchesAlertQueueView(alert, 'awaiting_approval', !!scope?.isGodMode, user?.email, now, workload)).length,
@@ -719,7 +719,7 @@ export default function AlertsPage() {
       : statusView === 'awaiting_approval'
         ? 'awaiting Kris’s approval'
         : statusView === 'changes_requested'
-          ? 'corrections requested'
+          ? 'changes requested by Kris'
           : statusView === 'coaching_due'
             ? 'coaching due'
             : statusView === 'reviewed'
@@ -737,7 +737,7 @@ export default function AlertsPage() {
         : view === 'awaiting_approval'
           ? 'Awaiting Kris’s approval'
           : view === 'changes_requested'
-            ? 'Corrections requested'
+            ? ALERT_QUEUE_VIEWS.changes_requested
             : view === 'reviewed'
               ? 'Manager reviewed'
               : view === 'all'
@@ -752,14 +752,14 @@ export default function AlertsPage() {
       changeFilters({ sort: key, direction })
     }
   }
-  const selectWorkloadCount = (status: AlertQueueView, outcome: 'real' | 'false_alarm' | null = null, manager: string | null = null) => {
+  const selectWorkloadCount = (status: AlertQueueView, outcome: 'real' | 'false_alarm' | null = null, manager: string | null = null, age: FirstReviewAge | null = null) => {
     setTeamWorkloadOpen(false)
     // Workload totals ignore these client-side queue filters; their drilldown must too.
-    changeFilters({ status, outcome, manager, reviewer: null, agent: null, search: null, sort: null, direction: null })
+    changeFilters({ status, outcome, manager, reviewer: null, age, search: null, sort: null, direction: null })
   }
   const selectReviewerCount = (reviewer: string, outcome: 'all' | 'real' | 'false_alarm') => {
     setTeamWorkloadOpen(false)
-    changeFilters({ status: 'reviewed', outcome: outcome === 'all' ? null : outcome, reviewer, manager: null, agent: null, search: null, sort: null, direction: null })
+    changeFilters({ status: 'reviewed', outcome: outcome === 'all' ? null : outcome, reviewer, manager: null, search: null, sort: null, direction: null })
   }
   const activeManagerLabel = managerFilter === NEEDS_MANAGER_ASSIGNMENT
     ? 'Needs manager assignment'
@@ -787,6 +787,11 @@ export default function AlertsPage() {
             Review next
           </button>
         </div>
+
+        {workload === 'internal' && <div className="grid grid-cols-2 gap-2 sm:flex" role="group" aria-label="Reporting period">
+          <button type="button" aria-pressed={allTimeOutstanding} onClick={() => changeFilters({ range: 'outstanding', status: 'outstanding', manager: null, reviewer: null, agent: null, outcome: null, search: null })} className={`pennie-focus-ring min-h-[44px] rounded-full border px-4 text-sm font-semibold ${allTimeOutstanding ? 'border-pennie-navy bg-pennie-navy text-white' : 'border-border text-pennie-graphite'}`}>All-time outstanding</button>
+          <button type="button" aria-pressed={!allTimeOutstanding} onClick={() => changeFilters({ range: null, status: scope.isGodMode ? 'awaiting_approval' : 'awaiting_manager' })} className={`pennie-focus-ring min-h-[44px] rounded-full border px-4 text-sm font-semibold ${!allTimeOutstanding ? 'border-pennie-navy bg-pennie-navy text-white' : 'border-border text-pennie-graphite'}`}>Selected ET period</button>
+        </div>}
 
         <div className="grid gap-3 lg:grid-cols-[auto_minmax(16rem,18rem)_minmax(14rem,1fr)] lg:items-end">
           {allTimeOutstanding ? (
@@ -832,9 +837,12 @@ export default function AlertsPage() {
           </div>
         </div>
 
-        {(activeManagerLabel || reviewerFilter || agentFilter || outcomeFilter !== 'all' || moduleFilter.length > 0) && (
+        {!loading && !alertsError && alerts.length !== queueTotal && <p className="text-xs text-pennie-graphite/70">Showing {alerts.length.toLocaleString()} of {queueTotal.toLocaleString()} in this queue.</p>}
+
+        {(activeManagerLabel || reviewerFilter || agentFilter || ageFilter || outcomeFilter !== 'all' || moduleFilter.length > 0) && (
           <div className="flex flex-wrap items-center gap-2" aria-label="Active filters">
             <span className="pennie-label">Active</span>
+            {ageFilter && <button type="button" onClick={() => changeFilters({ age: null })} className="pennie-focus-ring min-h-[44px] rounded-full bg-pennie-blue-light px-3 text-xs font-semibold text-pennie-blue-deeper">Age: {FIRST_REVIEW_AGES[ageFilter]} ×</button>}
             {activeManagerLabel && (
               <button type="button" onClick={() => changeFilters({ manager: null })} className="pennie-focus-ring min-h-[36px] px-3 rounded-full bg-pennie-blue-light text-xs font-semibold text-pennie-blue-deeper hover:underline">
                 Manager: {activeManagerLabel} ×
@@ -852,7 +860,7 @@ export default function AlertsPage() {
             )}
             {outcomeFilter !== 'all' && (
               <button type="button" onClick={() => changeFilters({ outcome: null })} className="pennie-focus-ring min-h-[36px] px-3 rounded-full bg-pennie-blue-light text-xs font-semibold text-pennie-blue-deeper hover:underline">
-                Outcome: {outcomeFilter === 'real' ? 'Real issue' : 'False alarm'} ×
+                Outcome: {outcomeFilter === 'real' ? 'Warranted' : 'Unnecessary'} ×
               </button>
             )}
             {moduleFilter.map(module => (
@@ -869,29 +877,6 @@ export default function AlertsPage() {
             More filters
           </summary>
           <div className="mt-3 space-y-4">
-            {workload === 'internal' && (
-              <fieldset>
-                <legend className="pennie-label mb-2">Reporting period</legend>
-                <div className="flex flex-wrap gap-2" role="group" aria-label="Reporting period">
-                  <button
-                    type="button"
-                    aria-pressed={!allTimeOutstanding}
-                    onClick={() => changeFilters({ range: null, status: scope.isGodMode ? 'awaiting_approval' : 'awaiting_manager' })}
-                    className={`pennie-focus-ring min-h-[40px] px-4 rounded-full text-sm font-semibold border ${!allTimeOutstanding ? 'bg-pennie-navy text-pennie-white border-pennie-navy' : 'bg-pennie-white border-border text-pennie-graphite'}`}
-                  >
-                    Selected ET period
-                  </button>
-                  <button
-                    type="button"
-                    aria-pressed={allTimeOutstanding}
-                    onClick={() => changeFilters({ range: 'outstanding', status: 'outstanding', manager: null, reviewer: null, agent: null, outcome: null, search: null })}
-                    className={`pennie-focus-ring min-h-[40px] px-4 rounded-full text-sm font-semibold border ${allTimeOutstanding ? 'bg-pennie-navy text-pennie-white border-pennie-navy' : 'bg-pennie-white border-border text-pennie-graphite'}`}
-                  >
-                    All-time outstanding
-                  </button>
-                </div>
-              </fieldset>
-            )}
             <label className="flex flex-col gap-1.5 lg:hidden">
               <span className="pennie-label">Sort</span>
               <select
@@ -956,15 +941,18 @@ export default function AlertsPage() {
       {allTimeOutstanding && !alertsError && (
         <section className="bg-pennie-white rounded-3xl shadow-resting p-4 sm:p-6" aria-labelledby="outstanding-summary-heading">
           <h2 id="outstanding-summary-heading" className="pennie-label">Outstanding by next action · all time</h2>
-          <p className="mt-1 text-xs text-pennie-graphite/60">Counts use every alert-received date. Coaching can overlap another review state and must not be added into a unique-alert total.</p>
+          <p className="mt-1 text-xs text-pennie-graphite/60">All next actions in this scope · coaching may overlap.</p>
           <div className={`mt-4 grid grid-cols-2 ${scope.isGodMode ? 'sm:grid-cols-4' : 'sm:grid-cols-3'} gap-2`}>
             <WorkloadCount scopeLabel="all-time" label="First reviews" value={outstandingStats.firstReviews} onClick={() => selectWorkloadCount('awaiting_manager')} />
             {scope.isGodMode && <WorkloadCount scopeLabel="all-time" label="Awaiting Kris’s approval" value={outstandingStats.awaitingApproval} onClick={() => selectWorkloadCount('awaiting_approval')} />}
-            <WorkloadCount scopeLabel="all-time" label="Corrections requested" value={outstandingStats.corrections} onClick={() => selectWorkloadCount('changes_requested')} />
+            <WorkloadCount scopeLabel="all-time" label="Changes requested by Kris" value={outstandingStats.corrections} onClick={() => selectWorkloadCount('changes_requested')} />
             <WorkloadCount scopeLabel="all-time" label="Coaching due" value={outstandingStats.coaching} onClick={() => selectWorkloadCount('coaching_due')} />
           </div>
         </section>
       )}
+
+      {allTimeOutstanding && scope.isGodMode && !alertsError && <ManagerReviewAging alerts={allAlerts} managerNames={managerNames} now={now} loading={loading}
+        onSelect={({ managerEmail, view, age }) => selectWorkloadCount(view, null, managerEmail, age ?? null)} />}
 
       {workload === 'internal' && !allTimeOutstanding && !alertsError && (
         <details
@@ -995,8 +983,8 @@ export default function AlertsPage() {
                   <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
                     <WorkloadCount label="Received" value={stats.received} onClick={() => selectWorkloadCount('all')} />
                     <WorkloadCount label="Manager reviewed" value={stats.reviewed} onClick={() => selectWorkloadCount('reviewed')} />
-                    <WorkloadCount label="Real alerts" value={stats.real} onClick={() => selectWorkloadCount('reviewed', 'real')} />
-                    <WorkloadCount label="False alarm" value={stats.falseAlarm} onClick={() => selectWorkloadCount('reviewed', 'false_alarm')} />
+                    <WorkloadCount label="Warranted" value={stats.real} onClick={() => selectWorkloadCount('reviewed', 'real')} />
+                    <WorkloadCount label="Unnecessary" value={stats.falseAlarm} onClick={() => selectWorkloadCount('reviewed', 'false_alarm')} />
                     <WorkloadCount label="Awaiting manager" value={stats.awaitingManager} onClick={() => selectWorkloadCount('awaiting_manager')} />
                   </div>
                   {stats.systemClosed > 0 && <p className="mt-3 text-xs text-pennie-graphite/70">{stats.systemClosed} system closed — administrative cleanup, not manager review.</p>}
@@ -1019,9 +1007,7 @@ export default function AlertsPage() {
         </details>
       )}
 
-      <p className="text-sm text-pennie-graphite/80 px-2" role="status">
-        {loading || alertsFetching ? 'Loading queue…' : alertsError ? 'Queue unavailable.' : `${alerts.length.toLocaleString()} alerts in this queue`} · {allTimeOutstanding ? 'All alert-received dates · outstanding work only' : `${formatDateParam(startDate)} – ${formatDateParam(endDate)} (ET) · Counts only cover this window.`}
-      </p>
+      <p className="px-2 text-xs text-pennie-graphite/70">{allTimeOutstanding ? 'All alert-received dates · outstanding work only' : `${formatDateParam(startDate)} – ${formatDateParam(endDate)} (ET) · Alerts received in this period`}</p>
 
       {/* Table */}
       <section className="bg-pennie-white rounded-3xl shadow-resting overflow-hidden">
@@ -1458,13 +1444,13 @@ function StatusPill({
   if (alert.accurate === true) {
     return (
       <span className={pillClasses(accentForReviewStatus('accurate'))}>
-        Real issue
+        Warranted
       </span>
     )
   }
   return (
     <span className={pillClasses(accentForReviewStatus('false_positive'))}>
-      False alarm
+      Unnecessary
     </span>
   )
 }
