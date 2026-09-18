@@ -62,7 +62,7 @@ test('neutral guidance links to the incomplete decision, score or coaching secti
   await page.getByRole('textbox', { name: 'Finding 1 summary' }).fill(findingSummary)
   await expect(status).toContainText('Record the coaching or follow-up for retained findings.')
   await next.click()
-  await expect(page.getByRole('heading', { name: 'Coaching issues', exact: true })).toBeInViewport()
+  await expect(page.getByRole('heading', { name: 'Follow-up with the rep', exact: true })).toBeFocused()
   await page.getByRole('combobox', { name: 'What did you do about the issue?' }).selectOption('coached')
   await page.getByRole('textbox', { name: 'Coaching or next steps' }).fill(actionDetails)
   await expect(saveButton(page)).toBeEnabled()
@@ -344,7 +344,7 @@ test('legacy Full QA feedback stays visible without inventing structured rubric 
   let releaseContext = () => {}
   managerState.fullQaContextGate = new Promise<void>(resolve => { releaseContext = resolve })
   await managerPage.goto('/dashboard/alerts/legacy-feedback/full_qa')
-  await expect(managerPage.getByText('Loading exact Full QA rubric…', { exact: true })).toBeVisible()
+  await expect(managerPage.getByRole('contentinfo').getByRole('status').filter({ hasText: 'Loading review…' })).toBeVisible()
   await expect(managerPage.getByRole('button', { name: 'Continue review', exact: true })).toHaveCount(0)
   await expect(managerPage.getByText('Earlier manager review', { exact: true })).toHaveCount(0)
   releaseContext()

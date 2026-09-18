@@ -209,13 +209,15 @@ function ManagerReviewOutcome({ context }: { readonly context: FullQaReviewConte
       <dd className="font-semibold">{review.escalationJustified ? 'Yes' : 'No'}{review.inaccuracyReason ? ` · ${INACCURACY_REASON_LABELS[review.inaccuracyReason]}` : ''}</dd>
       <dt className="font-semibold text-pennie-navy">Manager’s reason</dt>
       <dd className="whitespace-pre-wrap break-words">{review.escalationReason}</dd>
-      <dt className="font-semibold text-pennie-navy">Action</dt>
-      <dd className="whitespace-pre-wrap break-words">{review.actionTaken ? ACTION_TAKEN_LABELS[review.actionTaken] : 'No coaching action recorded'}{review.actionDetails ? ` · ${review.actionDetails}` : ''}</dd>
     </dl>
     <div className="text-sm text-pennie-graphite">
       <p className="font-semibold text-pennie-navy">Coaching issues ({review.findings.length})</p>
       {review.findings.length ? <ul className="mt-1 list-disc space-y-1 pl-5">{review.findings.map(finding => <li key={finding.findingId} className="break-words">{finding.summary} <span className="text-xs text-pennie-graphite/70">({CATEGORY_LABELS[finding.category]} · {finding.relatedCriteria.map(label).join(', ')})</span>
         <details className="mt-1"><summary className="pennie-focus-ring min-h-[44px] cursor-pointer py-3.5 text-xs font-semibold text-pennie-blue-deeper sm:min-h-0 sm:py-0">Manager’s evidence</summary><p className="mt-1 whitespace-pre-wrap break-words text-sm">{finding.evidence}</p></details></li>)}</ul> : <p className="mt-1">None recorded.</p>}
+    </div>
+    <div className="text-sm text-pennie-graphite">
+      <p className="font-semibold text-pennie-navy">Follow-up with the rep</p>
+      <p className="mt-1 whitespace-pre-wrap break-words">{review.actionTaken ? ACTION_TAKEN_LABELS[review.actionTaken] : 'No follow-up recorded'}{review.actionDetails ? ` · ${review.actionDetails}` : ''}</p>
     </div>
     <div className="text-sm text-pennie-graphite">
       <p className="font-semibold text-pennie-navy">Changed or unresolved scores ({changed.length})</p>
@@ -312,10 +314,10 @@ export function FullQaRubricReview({ alert, scope, editable, canReloadReview, on
   useEffect(() => { onSaveStateChange({ disabled: saveDisabled, label: saveLabel, message: saveMessage, nextSectionId }) }, [saveDisabled, saveLabel, saveMessage, nextSectionId, onSaveStateChange])
   useEffect(() => () => { onDirtyChange(false); onBusyChange(false); onSaveStateChange(IDLE_SAVE) }, [onDirtyChange, onBusyChange, onSaveStateChange])
 
-  if (query.isPending) return <section className="rounded-2xl border border-border p-4 text-sm text-muted-foreground">Loading exact Full QA rubric…</section>
+  if (query.isPending) return <section className="rounded-2xl border border-border p-4 text-sm text-muted-foreground">Loading review…</section>
   if (query.isError || !context) return <section className="rounded-2xl border border-pennie-peach-dark bg-pennie-peach-light/30 p-4 text-sm">
     <p className="font-semibold text-pennie-navy">Full QA rubric context unavailable</p>
-    <p className="mt-1 text-pennie-graphite">The generic review form is intentionally not used as a bypass.</p>
+    <p className="mt-1 text-pennie-graphite">We couldn’t load the information needed to review this call. Please retry.</p>
     <button type="button" onClick={() => query.refetch()} className="mt-3 min-h-[36px] rounded-full border border-border px-3 font-semibold">Retry</button>
   </section>
 
@@ -447,7 +449,6 @@ export function FullQaRubricReview({ alert, scope, editable, canReloadReview, on
       return <article key={criterion.key} aria-label={criterion.label} hidden={!showFullScorecard && !attentionKeys.has(criterion.key)} className={`border-b py-5 ${aiConcern ? 'border-pennie-yellow-main' : 'border-border'}`}>
         <div className="grid min-w-0 gap-5 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)] md:gap-0">
           <section aria-label={`${criterion.label}: ${sourceHeading}`} className="min-w-0 space-y-3 md:pr-6">
-            <p className="pennie-label text-pennie-graphite/70">{sourceHeading}</p>
             <div>
               <p className={`mb-0.5 inline-flex items-center gap-2 text-xs font-bold ${aiConcern ? 'text-pennie-yellow-deeper' : 'text-pennie-blue-deeper'}`}>{aiConcern ? <Flag className="h-4 w-4 shrink-0" aria-hidden="true" /> : <MessageSquare className="h-4 w-4 shrink-0" aria-hidden="true" />}{label}</p>
               <h3 className="min-w-0 break-words text-base font-semibold text-pennie-navy">{criterion.label}</h3>
@@ -465,7 +466,6 @@ export function FullQaRubricReview({ alert, scope, editable, canReloadReview, on
             </details>
           </section>
           <section aria-label={`${criterion.label}: ${responseHeading}`} className="min-w-0 space-y-3 border-t border-border pt-5 md:border-l md:border-t-0 md:pl-6 md:pt-0">
-            <p className="pennie-label text-pennie-graphite/70">{responseHeading}</p>
             {saved && <div className="border-b border-pennie-blue-main pb-3 text-sm">
               <p className="mb-1 text-xs font-bold text-pennie-blue-deeper">Manager’s saved response</p>
               <p className="font-semibold text-pennie-navy">{saved.disposition === 'confirmed' ? 'Kept Eavesly’s result' : saved.disposition === 'corrected' ? `Changed to: ${scoreLabel(saved.correctedValue)}` : 'Needs more context'}</p>
@@ -511,7 +511,7 @@ export function FullQaRubricReview({ alert, scope, editable, canReloadReview, on
       </details>
     </aside>}
 
-    {contextChanged && <div className="rounded-2xl border border-pennie-peach-dark bg-pennie-peach-light/40 p-4 text-sm"><p className="font-semibold text-pennie-navy">Saved source or revision changed</p><p className="mt-1 text-xs text-pennie-graphite">Your draft was not paired with the new token. Reload explicitly to discard it and review the authoritative source.</p><button type="button" disabled={busy || query.isFetching || !canReloadReview} onClick={() => loadContext(context)} className="pennie-focus-ring mt-3 min-h-[44px] rounded-full border border-pennie-navy px-4 text-xs font-semibold disabled:opacity-40">Reload review and discard draft</button></div>}
+    {contextChanged && <div className="rounded-2xl border border-pennie-peach-dark bg-pennie-peach-light/40 p-4 text-sm"><p className="font-semibold text-pennie-navy">Saved source or revision changed</p><p className="mt-1 text-xs text-pennie-graphite">This review changed since you opened it. Reload to see the latest version. Your unsaved draft will be discarded.</p><button type="button" disabled={busy || query.isFetching || !canReloadReview} onClick={() => loadContext(context)} className="pennie-focus-ring mt-3 min-h-[44px] rounded-full border border-pennie-navy px-4 text-xs font-semibold disabled:opacity-40">Reload review and discard draft</button></div>}
 
     {!editable && <ManagerReviewOutcome context={context} />}
 
@@ -537,21 +537,17 @@ export function FullQaRubricReview({ alert, scope, editable, canReloadReview, on
           <summary className="pennie-focus-ring min-h-[36px] cursor-pointer font-semibold">Related criteria ({finding.relatedCriteria.length} selected{finding.relatedCriteria.length ? `: ${finding.relatedCriteria.map(key => context.criteria.find(item => item.key === key)?.label ?? key).join(', ')}` : ''})</summary>
           <div role="group" aria-label={`Finding ${index + 1} related criteria`} className="mt-2 grid gap-1 sm:grid-cols-2">{context.criteria.map(item => <label key={item.key} className="flex min-h-[32px] items-center gap-2 font-normal"><input type="checkbox" checked={finding.relatedCriteria.includes(item.key)} onChange={event => updateFinding(finding.findingId, { relatedCriteria: event.target.checked ? [...finding.relatedCriteria, item.key] : finding.relatedCriteria.filter(key => key !== item.key) })} className="pennie-focus-ring h-4 w-4 accent-pennie-blue-deeper" />{item.label}</label>)}</div>
         </details>
-        <label className="block text-xs font-semibold">Summary<ReviewText label={`Finding ${index + 1} summary`} value={finding.summary} placeholder="Describe the issue in your own words." onChange={summary => updateFinding(finding.findingId, { summary })} /></label>
+        <label className="block text-xs font-semibold">What was the issue?<ReviewText label={`What was the issue? Finding ${index + 1} summary`} value={finding.summary} placeholder="Describe the issue in your own words." onChange={summary => updateFinding(finding.findingId, { summary })} /></label>
         <label className="block text-xs font-semibold">Evidence<ReviewText label={`Finding ${index + 1} evidence`} value={finding.evidence} onChange={evidence => updateFinding(finding.findingId, { evidence })} /></label>
         <button type="button" onClick={() => setFindings(items => items.filter(item => item.findingId !== finding.findingId))} className="min-h-[36px] text-xs font-semibold text-pennie-peach-deeper"><Trash2 className="mr-1 inline h-3.5 w-3.5" aria-hidden="true" />Remove issue</button>
       </fieldset>)}
       {findings.length === 0 && <p className="text-sm text-pennie-graphite/70">No coaching issues added.</p>}
       <button type="button" disabled={locked} onClick={addBlankIssue} className="min-h-[40px] rounded-full border border-border px-3 text-xs font-semibold text-pennie-blue-deeper disabled:opacity-40"><Plus className="mr-1 inline h-4 w-4" aria-hidden="true" />Add another issue</button>
-      {findings.length > 0 && <fieldset disabled={locked} className="space-y-2 border-t border-border pt-3"><legend className="text-sm font-semibold text-pennie-navy">What you did</legend>
-        <label className="block text-xs font-semibold">What did you do about the issue?<select aria-label="What did you do about the issue?" value={actionTaken ?? ''} onChange={event => setActionTaken(event.target.value as AlertActionTaken)} className="mt-1 min-h-[40px] w-full rounded-lg border bg-white px-2 font-normal"><option value="">Choose an action</option>{ACTIONS.map(value => <option key={value} value={value}>{ACTION_TAKEN_LABELS[value]}</option>)}</select></label>
-        <label className="block text-xs font-semibold">What happened, or what will you do next?<ReviewText label="Coaching or next steps" value={actionDetails} onChange={setActionDetails} /></label>
-      </fieldset>}
     </section>}
 
     {editable && <fieldset disabled={locked} className="space-y-3 border-t border-border pt-5"><legend id={`${scorecardId}-decision`} tabIndex={-1} className="pennie-focus-ring pr-2 text-base font-semibold text-pennie-navy">Was this alert warranted?</legend>
       <p className="text-sm text-pennie-graphite">Coaching issues above stay recorded either way.</p>
-      <p className="text-xs text-pennie-graphite/70">A warranted alert needs at least two distinct confirmed compliance issues, or an explicit severe-customer-mistreatment issue. Correcting a score alone does not add a coaching issue.</p>
+      <p className="text-xs text-pennie-graphite/70">A warranted alert needs two distinct confirmed compliance issues, or a severe-customer-mistreatment issue.</p>
       <div role="radiogroup" aria-label="Alert verdict" className="flex flex-wrap gap-2">{([true, false] as const).map(value => <label key={String(value)} className={`flex min-h-[44px] cursor-pointer items-center gap-2 rounded-xl border px-3 py-2 text-sm ${escalationJustified === value ? 'border-pennie-blue-deeper bg-pennie-blue-light text-pennie-navy' : 'border-border text-pennie-graphite hover:bg-pennie-blue-light/50'}`}>
         <input type="radio" name={`${scorecardId}-escalation`} checked={escalationJustified === value} onChange={() => setEscalationJustified(value)} className="pennie-focus-ring h-4 w-4 accent-pennie-blue-deeper" />
         <span>{value ? 'Yes, the alert was warranted' : 'No, the alert was unnecessary'}</span>
@@ -560,10 +556,18 @@ export function FullQaRubricReview({ alert, scope, editable, canReloadReview, on
       {escalationJustified === false && <label className="block text-xs font-semibold">Why was the alert unnecessary?<select aria-label="Why was the alert unnecessary?" value={inaccuracyReason ?? ''} onChange={event => setInaccuracyReason(event.target.value as AlertInaccuracyReason)} className="mt-1 min-h-[40px] w-full rounded-lg border bg-white px-2 font-normal"><option value="">Choose a reason</option>{REASONS.map(value => <option key={value} value={value}>{INACCURACY_REASON_LABELS[value]}</option>)}</select></label>}
     </fieldset>}
 
+    {editable && <section aria-label="Follow-up with the rep" className="space-y-3 border-t border-border pt-5">
+      <h2 id={`${scorecardId}-followup`} tabIndex={-1} className="pennie-focus-ring text-base font-semibold text-pennie-navy">Follow-up with the rep</h2>
+      {findings.length > 0 ? <fieldset disabled={locked} className="space-y-3">
+        <label className="block text-sm font-semibold">What did you do about the issue?<select aria-label="What did you do about the issue?" value={actionTaken ?? ''} onChange={event => setActionTaken(ACTIONS.find(action => action === event.target.value) ?? null)} className="pennie-focus-ring mt-1 min-h-[44px] w-full rounded-lg border border-border bg-white px-2 font-normal"><option value="">Choose an action</option>{ACTIONS.map(value => <option key={value} value={value}>{ACTION_TAKEN_LABELS[value]}</option>)}</select></label>
+        <label className="block text-sm font-semibold">Coaching or next steps<ReviewText label="Coaching or next steps" value={actionDetails} placeholder="Describe the coaching, escalation, or planned follow-up." onChange={setActionDetails} /></label>
+      </fieldset> : <p className="text-sm text-pennie-graphite">{escalationJustified === true ? 'Add the confirmed issues above, then record how you followed up.' : escalationJustified === false ? 'No confirmed coaching issues. No follow-up required.' : 'Confirm coaching issues above to record follow-up.'}</p>}
+    </section>}
+
     <details className="border-t border-border py-3">
       <summary className="pennie-focus-ring min-h-[36px] cursor-pointer text-sm font-semibold text-pennie-blue-deeper">Scoring policy &amp; source</summary>
       <p className="mt-1 break-all text-xs text-pennie-graphite">{sourceNotice(context)}</p>
-      <p className="mt-1 text-xs text-pennie-graphite/70">The reviewed AI JSON is snapshotted per saved revision. No model or replay identity is claimed.</p>
+      <p className="mt-1 text-xs text-pennie-graphite/70">Each saved review keeps the original AI assessment for reference.</p>
       {context.sourceReferenceKind !== 'unknown_hash' && <div className="mt-3 rounded-xl bg-white/70 p-3 text-xs text-pennie-graphite"><p><strong>Escalation:</strong> two or more distinct confirmed compliance findings, or an explicit severe customer-mistreatment finding. Poor CX alone is not severe.</p><p className="mt-1"><strong>Program expectations:</strong> enrollment gating applies; only handling-agent delivery counts, and ACDR/GOTA-only delivery does not count for discussion points.</p></div>}
       {context.rubricPromptText && <details className="mt-3"><summary className="cursor-pointer text-xs font-semibold text-pennie-blue-deeper">{context.sourceReferenceKind === 'known' ? 'Full exact scoring policy used' : 'Full current scoring policy — reference only'}</summary><pre className="mt-2 whitespace-pre-wrap break-words bg-white py-3 text-[11px] text-pennie-graphite">{context.rubricPromptText}</pre></details>}
     </details>

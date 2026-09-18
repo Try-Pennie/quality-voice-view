@@ -4,6 +4,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   Sheet,
   SheetContent,
+  SheetDescription,
   SheetHeader,
   SheetTitle,
 } from '@/components/ui/sheet'
@@ -575,7 +576,7 @@ export function AlertReviewDrawer({
 
   const reviewedByOther = isHumanReviewed(alert) && !reviewedByMe
   const showLegacyAckBar = workload === 'partner_qa' && reviewedByOther
-  const showInternalDecisionBar = workload === 'internal' && isHumanReviewed(alert) &&
+  const showInternalDecisionBar = workload === 'internal' && isHumanReviewed(alert) && !returnedToCurrentManager &&
     (scope.isGodMode || alert.current_decision !== null)
   const showManagerReviewSummary = reviewedByOther && !isFullQa
   const showLegacyFullQaReviewSummary = isFullQa && fullQaContext.isSuccess && fullQaContext.data.review === null && isHumanReviewed(alert)
@@ -631,6 +632,7 @@ export function AlertReviewDrawer({
           ? 'flex flex-col gap-0 overflow-hidden bg-pennie-white p-0 shadow-xl'
           : 'w-full sm:max-w-2xl flex flex-col gap-0 p-0 overflow-hidden bg-pennie-white'}
       >
+        <SheetDescription className="sr-only">Review the call evidence, record a decision and follow-up, or approve the manager’s saved review.</SheetDescription>
         {/* Header */}
         <SheetHeader className={`shrink-0 px-4 sm:px-8 sm:py-5 border-b border-border text-left ${isFullQa ? 'pt-2 pb-2 space-y-1 sm:space-y-3' : 'pt-4 pb-5 space-y-3'}`}>
           <div className="flex items-center gap-2 sm:gap-3">
@@ -764,7 +766,7 @@ export function AlertReviewDrawer({
         <div className={`flex-1 min-h-0 overflow-y-auto px-4 sm:px-8 sm:py-6 space-y-6 sm:space-y-7 ${isFullQa ? 'py-4 lg:px-10' : 'py-5'}`}>
           {returnedToCurrentManager && alert.current_decision_instructions && (
             <div className="rounded-2xl bg-pennie-peach-light/60 px-4 py-3">
-              <p className="pennie-label mb-1">Requested correction</p>
+              <p className="pennie-label mb-1">Changes requested by {alert.current_decision_by ? emailLabel(alert.current_decision_by) : 'Kris'}</p>
               <p className="text-sm text-pennie-graphite whitespace-pre-wrap">{alert.current_decision_instructions}</p>
             </div>
           )}
@@ -959,6 +961,7 @@ export function AlertReviewDrawer({
 
           {!isFullQa && showInternalDecisionBar && (
             <InternalDecisionSection
+              requesting={requestingChanges}
               alert={alert}
               instructions={changeInstructions}
               onInstructionsChange={setChangeInstructions}
@@ -1217,10 +1220,10 @@ export function AlertReviewDrawer({
             {approvalBlockedByDraft && scope.isGodMode && alert.current_decision === null && (
               <p className="mb-2 text-xs text-pennie-graphite/70">Complete and save review changes before approval.</p>
             )}
-            {isFullQa && scope.isGodMode && alert.current_decision === null && changeInstructions.trim() && (
+            {scope.isGodMode && alert.current_decision === null && changeInstructions.trim() && (
               <p className="mb-2 text-xs text-pennie-graphite/70">Send or clear the change instructions before approving.</p>
             )}
-            {isFullQa && requestingChanges && changeInstructions.trim().length < INTERNAL_REVIEW_TEXT_LIMITS.min && (
+            {requestingChanges && changeInstructions.trim().length < INTERNAL_REVIEW_TEXT_LIMITS.min && (
               <p className="mb-2 text-xs text-pennie-graphite">Add at least {INTERNAL_REVIEW_TEXT_LIMITS.min} characters of instructions to request changes.</p>
             )}
             {showStructuredForm && isFullQa && fullQaSave.message && (
@@ -1269,7 +1272,7 @@ export function AlertReviewDrawer({
                   <button
                     type="button"
                     onClick={() => handleDecision('approved')}
-                    disabled={decisionPending || approvalBlockedByDraft || (isFullQa && !!changeInstructions.trim())}
+                    disabled={decisionPending || approvalBlockedByDraft || !!changeInstructions.trim()}
                     className="min-h-[44px] whitespace-nowrap px-4 rounded-full bg-pennie-navy text-pennie-white text-xs sm:text-sm font-semibold disabled:opacity-40"
                   >
                     Approve review
@@ -1277,10 +1280,10 @@ export function AlertReviewDrawer({
                   <button
                     type="button"
                     onClick={() => {
-                      if (isFullQa && !requestingChanges) { setRequestingChanges(true); return }
+                      if (!requestingChanges) { setRequestingChanges(true); return }
                       void handleDecision('changes_requested')
                     }}
-                    disabled={decisionPending || approvalBlockedByDraft || ((!isFullQa || requestingChanges) && changeInstructions.trim().length < INTERNAL_REVIEW_TEXT_LIMITS.min)}
+                    disabled={decisionPending || approvalBlockedByDraft || (requestingChanges && changeInstructions.trim().length < INTERNAL_REVIEW_TEXT_LIMITS.min)}
                     className="min-h-[44px] whitespace-nowrap px-4 rounded-full border border-pennie-peach-dark text-pennie-peach-deeper text-xs sm:text-sm font-semibold disabled:opacity-40"
                   >
                     Request changes
@@ -1523,7 +1526,7 @@ function InternalDecisionSection({
     </section>
   }
 
-  // Full QA starts with the manager's outcome; its persistent footer opens this editor.
+  // Start with the manager's outcome; Request changes explicitly opens this editor.
   if (requesting === false) return null
   return <section className="px-4 py-4 rounded-2xl bg-pennie-blue-light/30 border border-pennie-blue-light space-y-3">
     <p className="text-sm font-semibold text-pennie-navy">This manager review is awaiting Kris’s approval.</p>

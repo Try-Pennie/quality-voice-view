@@ -145,7 +145,6 @@ export async function reviewFixture(page: Page, rows: AlertWithFeedback[], optio
           recording_link: _recording,
           transcript_url: _transcript,
           initial_manager_review: _initial,
-          current_decision_instructions: _instructions,
           ...row
         }) => row))
       }

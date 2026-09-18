@@ -110,6 +110,7 @@ const ALERT_LIST_COLUMNS = [
   'current_decision_id',
   'current_decision',
   'current_decision_by',
+  'current_decision_instructions',
   'current_decided_at',
   'current_decision_source',
   'message_count',
