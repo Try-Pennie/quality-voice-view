@@ -71,10 +71,12 @@ export type AlertFilters = {
   startDate: Date
   endDate: Date
   modules?: string[]
+  agentEmail?: string
   status?: 'all' | 'new' | 'reviewed'
   accuracy?: 'all' | 'accurate' | 'inaccurate'
   search?: string
   workload?: AlertWorkload
+  outstandingOnly?: boolean
 }
 
 // Columns rendered in the alerts table. Crucially excludes result_json,
@@ -127,13 +129,22 @@ export async function fetchAlerts(
     let q = sb
       .from('eavesly_alerts_with_feedback')
       .select(ALERT_LIST_COLUMNS)
-      .gte('alert_created_at', startOfBusinessDay(filters.startDate).toISOString())
-      .lte('alert_created_at', endOfBusinessDay(filters.endDate).toISOString())
       .eq('alert_sent', true)
       .order('alert_created_at', { ascending: false })
       .order('call_id', { ascending: true })
       .order('module_name', { ascending: true })
       .range(from, to)
+
+    if (filters.outstandingOnly) {
+      const outstandingFilter = scope.isGodMode
+        ? 'is_reviewed.eq.false,accurate.is.null,current_decision.is.null,current_decision.eq.changes_requested,action_taken.eq.follow_up_later'
+        : 'is_reviewed.eq.false,accurate.is.null,current_decision.eq.changes_requested,action_taken.eq.follow_up_later'
+      q = q.or(outstandingFilter)
+    } else {
+      q = q
+        .gte('alert_created_at', startOfBusinessDay(filters.startDate).toISOString())
+        .lte('alert_created_at', endOfBusinessDay(filters.endDate).toISOString())
+    }
 
     for (const moduleName of ALWAYS_SUPPRESSED_ALERT_MODULES) {
       q = q.neq('module_name', moduleName)
@@ -148,6 +159,7 @@ export async function fetchAlerts(
     if (!scope.isGodMode) q = q.in('agent_email', scope.managedAgents)
 
     if (filters.modules?.length) q = q.in('module_name', filters.modules)
+    if (filters.agentEmail) q = q.eq('agent_email', filters.agentEmail)
     if (filters.status === 'new') q = q.eq('is_reviewed', false)
     if (filters.status === 'reviewed') q = q.eq('is_reviewed', true)
     if (filters.accuracy === 'accurate') q = q.eq('accurate', true)
@@ -159,7 +171,9 @@ export async function fetchAlerts(
   })
   // The shared paginator has a safety cap. Never present a capped queue as complete.
   if (rows.length >= 100_000) {
-    throw new Error('This window contains too many alerts. Narrow the date range to review the complete queue.')
+    throw new Error(filters.outstandingOnly
+      ? 'The outstanding queue is too large to display completely.'
+      : 'This window contains too many alerts. Narrow the date range to review the complete queue.')
   }
   return filterAlertWorkloadRows(rows, scope, workload)
 }

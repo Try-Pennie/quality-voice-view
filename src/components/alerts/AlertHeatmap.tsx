@@ -112,8 +112,8 @@ export function AlertHeatmap({
     const params = new URLSearchParams({
       ...dateParams(),
       module,
-      search: agentEmail,
-      status: 'awaiting_manager',
+      agent: agentEmail,
+      status: 'all',
     })
     navigate(`/dashboard/alerts?${params.toString()}`)
   }
@@ -122,7 +122,7 @@ export function AlertHeatmap({
     const params = new URLSearchParams({
       ...dateParams(),
       module,
-      status: 'awaiting_manager',
+      status: 'all',
     })
     navigate(`/dashboard/alerts?${params.toString()}`)
   }
@@ -130,8 +130,8 @@ export function AlertHeatmap({
   const onAgentClick = (agentEmail: string) => {
     const params = new URLSearchParams({
       ...dateParams(),
-      search: agentEmail,
-      status: 'awaiting_manager',
+      agent: agentEmail,
+      status: 'all',
     })
     navigate(`/dashboard/alerts?${params.toString()}`)
   }

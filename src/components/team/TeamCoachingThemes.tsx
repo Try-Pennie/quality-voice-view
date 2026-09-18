@@ -16,10 +16,9 @@ export function TeamCoachingThemes({
     <section className="bg-pennie-white rounded-3xl shadow-resting p-6">
       <header className="mb-5 flex items-baseline justify-between gap-4 flex-wrap">
         <div>
-          <p className="pennie-label">Team coaching themes</p>
+          <p className="pennie-label">AI-suggested team coaching</p>
           <p className="text-xs text-pennie-graphite/60 mt-1">
-            Ranked by how many agents share each theme — broad themes signal
-            training or product investment, narrow themes signal 1:1 coaching
+            From up to 30 recent calls per agent in this period. Not manager-verified findings.
           </p>
         </div>
       </header>

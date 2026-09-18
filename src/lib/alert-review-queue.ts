@@ -7,11 +7,12 @@ export function defaultAlertWindow(now: Date): { start: Date; end: Date } {
   return { start: new Date(y, m - 1, d - 29), end: new Date(y, m - 1, d, 23, 59, 59, 999) }
 }
 
-/** Explicit views over the scoped alerts in the selected date window. */
+/** Explicit views over scoped alerts; outstanding can use the separate all-time lens. */
 export const ALERT_QUEUE_VIEWS = {
+  outstanding: 'All outstanding',
   awaiting_manager: 'Awaiting manager',
   awaiting_approval: 'Awaiting Kris’s approval',
-  changes_requested: 'Changes requested',
+  changes_requested: 'Changes requested by Kris',
   coaching_due: 'Coaching due',
   reviewed: 'Reviewed',
   all: 'All',
@@ -77,6 +78,7 @@ export function parseAlertQueueView(value: string | null, isGodMode = false): Al
   switch (value) {
     case 'awaiting_approval':
       return isGodMode ? 'awaiting_approval' : 'awaiting_manager'
+    case 'outstanding':
     case 'awaiting_manager':
     case 'changes_requested':
     case 'coaching_due':
@@ -113,10 +115,49 @@ export function needsCoachingFollowUp(alert: ReviewState): boolean {
   return isHumanReviewed(alert) && alert.accurate === true && alert.action_taken === 'follow_up_later'
 }
 
-/** The documented 24-hour target applies to the first structured manager review. */
+/** Actionable work across first review, approval, correction, and deferred coaching. */
+export function isOutstandingReviewWork(
+  alert: ReviewState,
+  isGodMode: boolean,
+  email: string | null | undefined,
+): boolean {
+  if (isSystemClosed(alert)) return false
+  if (!isHumanReviewed(alert)) return true
+  if (alert.current_decision === 'changes_requested' || needsCoachingFollowUp(alert)) return true
+  return isGodMode && !isClosedForReviewer(alert, email)
+}
+
+export const FIRST_REVIEW_AGES = {
+  within_24h: 'Within 24h',
+  hours_24_48: '24–48h',
+  hours_48_72: '48–72h',
+  over_72h: 'Over 72h',
+  unknown: 'Age unknown',
+} as const
+export type FirstReviewAge = keyof typeof FIRST_REVIEW_AGES
+
+export function parseFirstReviewAge(value: string | null): FirstReviewAge | null {
+  switch (value) {
+    case 'within_24h': case 'hours_24_48': case 'hours_48_72': case 'over_72h': case 'unknown': return value
+    default: return null
+  }
+}
+
+/** Non-overlapping elapsed-time buckets; exactly 24h still meets the existing target. */
+export function firstReviewAgeBucket(alert: ReviewState, now: number): FirstReviewAge | null {
+  if (isHumanReviewed(alert) || isSystemClosed(alert)) return null
+  const age = now - Date.parse(alert.alert_created_at)
+  if (!Number.isFinite(age) || age < 0) return 'unknown'
+  if (age <= 24 * 3_600_000) return 'within_24h'
+  if (age <= 48 * 3_600_000) return 'hours_24_48'
+  if (age <= 72 * 3_600_000) return 'hours_48_72'
+  return 'over_72h'
+}
+
+/** Only incomplete first reviews can miss the documented 24 elapsed-hour target. */
 export function isReviewOverdue(alert: ReviewState, now: number): boolean {
-  const created = Date.parse(alert.alert_created_at)
-  return !alert.is_reviewed && Number.isFinite(created) && now - created > 24 * 60 * 60 * 1000
+  const bucket = firstReviewAgeBucket(alert, now)
+  return bucket === 'hours_24_48' || bucket === 'hours_48_72' || bucket === 'over_72h'
 }
 
 /** Filter without changing input order; that same order drives navigation. */
@@ -129,6 +170,7 @@ export function matchesAlertQueueView(
   workload: 'internal' | 'partner_qa' = 'internal',
 ): boolean {
   switch (view) {
+    case 'outstanding': return isOutstandingReviewWork(alert, isGodMode, email)
     case 'awaiting_manager': return !isHumanReviewed(alert) && !isSystemClosed(alert)
     case 'awaiting_approval': return isGodMode && isHumanReviewed(alert) &&
       alert.current_decision !== 'changes_requested' && !isClosedForReviewer(alert, email, workload)
