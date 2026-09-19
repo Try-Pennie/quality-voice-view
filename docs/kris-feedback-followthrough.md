@@ -1,5 +1,7 @@
 # Kris feedback: clearer reviews and less dashboard clutter
 
+**September19 update:** [Paired manager inputs](manager-two-inputs.md) is the current staging handoff/runtime. The September18 release below is historical.
+
 Application source: `e4000dd` (reporting `162febc`, review form `cd3cc1e`), test follow-up `cd42206`, final navigation simplification `a5eb5b6` (reporting `181702b`). **Live restricted staging:** https://rubric-staging.eavesly.pages.dev/login — same password. Runtime `dace722006158245f696e3922008215e18420597`, immutable https://7f8c9126.eavesly.pages.dev. Production rollout still requires Noah's approval.
 
 ## Changes
