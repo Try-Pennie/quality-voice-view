@@ -17,10 +17,12 @@ export function AudioSpectrum({ analyser, active }: { readonly analyser: Analyse
       if (live && analyser) analyser.getByteFrequencyData(bins)
       const count = Math.max(1, Math.floor(width / 6))
       const nyquist = analyser ? analyser.context.sampleRate / 2 : 1
+      // Spread the telephone speech band across the full width, not the quiet 4–8kHz tail.
+      const upperFrequency = Math.min(4000, nyquist)
       for (let i = 0; i < count; i++) {
         // Log-spaced speech bands; every bar comes from the actual current audio.
-        const start = Math.floor(80 * (Math.min(8000, nyquist) / 80) ** (i / count) / nyquist * bins.length)
-        const end = Math.min(bins.length, Math.max(start + 1, Math.ceil(80 * (Math.min(8000, nyquist) / 80) ** ((i + 1) / count) / nyquist * bins.length)))
+        const start = Math.floor(80 * (upperFrequency / 80) ** (i / count) / nyquist * bins.length)
+        const end = Math.min(bins.length, Math.max(start + 1, Math.ceil(80 * (upperFrequency / 80) ** ((i + 1) / count) / nyquist * bins.length)))
         let level = 0
         if (live) for (let bin = start; bin < end; bin++) level = Math.max(level, bins[bin])
         const barHeight = Math.max(2, level / 255 * height)

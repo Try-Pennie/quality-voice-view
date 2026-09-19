@@ -82,6 +82,28 @@ test('real streaming sound drives the spectrum, silence stays low, and contexts 
   expect(state.writes).toEqual([])
 })
 
+test('speech frequencies use the full visualizer width instead of leaving a quiet upper-frequency tail', async ({ page }) => {
+  const tone = Buffer.from(wav)
+  for (let sample = 0; sample < 30 * 8000; sample++) {
+    tone.writeInt16LE(Math.round(16000 * Math.sin(2 * Math.PI * 3000 * sample / 8000)), 44 + sample * 2)
+  }
+  const state = await reviewFixture(page, [alertRow('speech-band', { recording_link: '/synthetic-recording-speech.wav' })])
+  await recordingRoute(page, tone)
+  await page.goto('/dashboard/alerts/speech-band/full_qa')
+  await page.getByRole('button', { name: 'Play', exact: true }).click()
+  // Real 3kHz audio should appear near the right edge of the speech band, not three-quarters across.
+  await expect.poll(() => page.getByRole('img', { name: 'Live audio frequencies, not a recording timeline' }).evaluate((canvas: HTMLCanvasElement) => {
+    const { width, height } = canvas
+    const pixels = canvas.getContext('2d')!.getImageData(0, 0, width, height).data
+    const columns: number[] = []
+    for (let x = 0; x < width; x++) {
+      if (pixels[(Math.floor(height / 4) * width + x) * 4 + 3] > 0) columns.push(x / width)
+    }
+    return columns.length ? columns.reduce((sum, x) => sum + x, 0) / columns.length : 0
+  })).toBeGreaterThan(0.88)
+  expect(state.writes).toEqual([])
+})
+
 for (const cors of [false, true]) test(`cross-origin recording ${cors ? 'with CORS has a real spectrum' : 'without CORS falls back to ordinary playback'}`, async ({ page }) => {
   // route.fulfill adds CORS headers automatically. Use real HTTP to exercise browser enforcement.
   const server = createServer((_request, response) => {

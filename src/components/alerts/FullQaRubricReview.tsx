@@ -199,7 +199,7 @@ function ManagerReviewOutcome({ context }: { readonly context: FullQaReviewConte
     return scoreLabel(criterion?.domain.find(value => value === original))
   }
   const changed = review.corrections.filter(item => item.disposition !== 'confirmed')
-  return <section aria-label="Manager’s review" className="space-y-3 rounded-2xl border border-pennie-blue-main bg-pennie-blue-light/30 p-4 sm:p-5">
+  return <section aria-label="Manager’s review" className="space-y-3 rounded-2xl border border-pennie-blue-deeper bg-pennie-blue-light p-4 sm:p-5">
     <div>
       <h2 className="text-lg font-semibold text-pennie-navy">Manager’s review</h2>
       <p className="text-xs text-pennie-graphite/70">Saved {formatDateTime(review.savedAt)} by {review.savedBy} · revision {review.feedbackRevision}</p>
@@ -445,9 +445,9 @@ export function FullQaRubricReview({ alert, scope, editable, canReloadReview, on
       const excerpts = excerptItems(evidence, aiConcern ? notes : [])
       const sourceHeading = aiConcern ? 'What Eavesly flagged' : 'Eavesly’s assessment'
       const responseHeading = editable ? 'Your review' : 'Manager’s response'
-      return <article key={criterion.key} aria-label={criterion.label} hidden={!showFullScorecard && !attentionKeys.has(criterion.key)} className={`border-b py-5 ${aiConcern ? 'border-pennie-yellow-main' : 'border-border'}`}>
-        <div className="grid min-w-0 gap-5 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)] md:gap-0">
-          <section aria-label={`${criterion.label}: ${sourceHeading}`} className="min-w-0 space-y-3 md:pr-6">
+      return <article key={criterion.key} aria-label={criterion.label} hidden={!showFullScorecard && !attentionKeys.has(criterion.key)} className="border-b border-border py-5">
+        <div className="grid min-w-0 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
+          <section aria-label={`${criterion.label}: ${sourceHeading}`} className="min-w-0 space-y-3 bg-pennie-beige p-4 sm:p-5">
             <div>
               <p className={`mb-0.5 inline-flex items-center gap-2 text-xs font-bold ${aiConcern ? 'text-pennie-yellow-deeper' : 'text-pennie-blue-deeper'}`}>{aiConcern ? <Flag className="h-4 w-4 shrink-0" aria-hidden="true" /> : <MessageSquare className="h-4 w-4 shrink-0" aria-hidden="true" />}{label}</p>
               <h3 className="min-w-0 break-words text-base font-semibold text-pennie-navy">{criterion.label}</h3>
@@ -464,7 +464,7 @@ export function FullQaRubricReview({ alert, scope, editable, canReloadReview, on
               {entries.length > 0 && <pre className="mt-2 whitespace-pre-wrap break-words text-xs">{JSON.stringify(evidence, null, 2)}</pre>}
             </details>
           </section>
-          <section aria-label={`${criterion.label}: ${responseHeading}`} className="min-w-0 space-y-3 border-t border-border pt-5 md:border-l md:border-t-0 md:pl-6 md:pt-0">
+          <section aria-label={`${criterion.label}: ${responseHeading}`} className="min-w-0 space-y-3 border-t border-border p-4 sm:p-5 md:border-l md:border-t-0">
             {saved && <div className="border-b border-pennie-blue-main pb-3 text-sm">
               <p className="mb-1 text-xs font-bold text-pennie-blue-deeper">Manager’s saved response</p>
               <p className="font-semibold text-pennie-navy">{saved.disposition === 'confirmed' ? 'Kept Eavesly’s result' : saved.disposition === 'corrected' ? `Changed to: ${scoreLabel(saved.correctedValue)}` : 'Needs more context'}</p>
@@ -502,7 +502,7 @@ export function FullQaRubricReview({ alert, scope, editable, canReloadReview, on
     </div>
   </>
 
-  return <form id={FULL_QA_FORM_ID} onSubmit={event => { event.preventDefault(); void save() }} className="space-y-6" aria-label="Full QA rubric review">
+  return <form id={FULL_QA_FORM_ID} onSubmit={event => { event.preventDefault(); void save() }} className="space-y-6 [&_textarea]:border-pennie-navy/50 [&_select]:border-pennie-navy/50" aria-label="Full QA rubric review">
     {(practiceFalsePositive || practiceSupported) && <aside aria-label="Staging practice guidance" className="text-xs text-pennie-graphite/70">
       <details>
         <summary className="pennie-focus-ring cursor-pointer font-semibold">Practice call (synthetic) · about this example</summary>
@@ -514,7 +514,7 @@ export function FullQaRubricReview({ alert, scope, editable, canReloadReview, on
 
     {!editable && <ManagerReviewOutcome context={context} />}
 
-    <section aria-label="Why Eavesly requested review" className="border-y border-pennie-yellow-main bg-pennie-yellow-light/40 px-1 py-4 sm:px-4">
+    <section aria-label="Why Eavesly requested review" className="border-y border-pennie-yellow-dark bg-pennie-yellow-light px-4 py-4">
       <h2 className="pennie-label text-pennie-navy">Why Eavesly requested review</h2>
       <ReasonText text={reviewReason} violations={recordedViolations} />
       {requestedReview === false && <p className="mt-2 text-xs font-semibold text-pennie-peach-deeper">Eavesly’s saved assessment says manager review was not required, but this alert was sent.</p>}

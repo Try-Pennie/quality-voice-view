@@ -630,8 +630,8 @@ export function AlertReviewDrawer({
           target.focus()
         } : undefined}
         className={isFullQa
-          ? 'flex flex-col gap-0 overflow-hidden bg-pennie-white p-0 shadow-xl'
-          : 'w-full sm:max-w-2xl flex flex-col gap-0 p-0 overflow-hidden bg-pennie-white'}
+          ? 'flex flex-col gap-0 overflow-hidden bg-pennie-white p-0 shadow-xl [--border:225_12%_72%]'
+          : 'w-full sm:max-w-2xl flex flex-col gap-0 p-0 overflow-hidden bg-pennie-white [--border:225_12%_72%]'}
       >
         <SheetDescription className="sr-only">Review the call evidence, record a decision and follow-up, or approve the manager’s saved review.</SheetDescription>
         {/* Header */}
@@ -736,7 +736,7 @@ export function AlertReviewDrawer({
           </dl>
         </SheetHeader>
 
-        <section aria-label="Call recording" className="shrink-0 border-b border-border px-4 sm:px-8 py-2 sm:py-3">
+        <section aria-label="Call recording" className="shrink-0 border-b border-border bg-pennie-blue-main/30 px-4 sm:px-8 py-2 sm:py-3">
           <div className="flex flex-wrap items-center justify-between gap-x-3">
             {alert.recording_link ? <h2 className="pennie-label hidden sm:inline-flex items-center gap-1.5">
               <Headphones className="w-3.5 h-3.5" aria-hidden="true" />Recording
