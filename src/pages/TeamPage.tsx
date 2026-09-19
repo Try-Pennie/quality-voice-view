@@ -533,6 +533,7 @@ export default function TeamPage() {
             type="button"
             aria-pressed={quickFilter === f.value}
             onClick={() => setQuickFilter(f.value)}
+            onFocus={event => event.currentTarget.scrollIntoView({ block: 'nearest', inline: 'nearest' })}
             className={`pennie-focus-ring-inset min-h-[44px] shrink-0 whitespace-nowrap px-4 py-2 rounded-full text-sm font-semibold border transition-colors duration-150 ${
               quickFilter === f.value
                 ? 'bg-pennie-navy text-pennie-white border-pennie-navy'

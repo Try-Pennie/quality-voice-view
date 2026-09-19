@@ -169,7 +169,7 @@ test('Team prioritizes representative outcomes, keeps mobile filters reachable, 
     await page.keyboard.press('Tab')
     await page.keyboard.press('Tab')
     await expect(filters.getByRole('button', { name: 'Has open alerts', exact: true })).toBeFocused()
-    await expect(filters.getByRole('button', { name: 'Has open alerts', exact: true })).toBeInViewport()
+    await expect(filters.getByRole('button', { name: 'Has open alerts', exact: true })).toBeInViewport({ ratio: 1 })
     await page.keyboard.press('Enter')
     await expect(outcomes.getByRole('button', { name: 'Filter Agent Alpha Awaiting manager 1', exact: true })).toBeVisible()
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)

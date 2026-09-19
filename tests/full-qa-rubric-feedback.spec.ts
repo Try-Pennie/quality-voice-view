@@ -430,6 +430,7 @@ test('a warranted alert with two distinct issues records shared and repeated cri
   await page.getByRole('textbox', { name: 'Finding 3 summary' }).fill('The agent also misstated the monthly payment amount.')
   await page.getByRole('textbox', { name: 'Finding 3 evidence' }).fill('The payment figure quoted on the call differs from the offer sheet.')
   await expect(representations.getByRole('button', { name: 'Edit coaching issue 2' })).toBeVisible()
+  await page.getByRole('radio', { name: 'No, the alert was unnecessary', exact: true }).check()
   await page.getByRole('combobox', { name: 'What did you do about the issue?' }).selectOption('coached')
   await page.getByRole('textbox', { name: 'Coaching or next steps' }).fill('Coached the agent on consent and on outcome language the same day.')
   await page.getByRole('radio', { name: 'Yes, the alert was warranted', exact: true }).check()
