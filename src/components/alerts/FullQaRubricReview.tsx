@@ -63,7 +63,7 @@ function ReviewText({ label, value, onChange, disabled, placeholder }: {
   const length = value.trim().length
   const { min, max } = INTERNAL_REVIEW_TEXT_LIMITS
   return <>
-    <textarea aria-label={label} aria-describedby={hintId} aria-invalid={length > 0 && (length < min || length > max)}
+    <textarea aria-label={label} aria-required="true" aria-describedby={hintId} aria-invalid={length > 0 && (length < min || length > max)}
       disabled={disabled} value={value} placeholder={placeholder} onChange={event => onChange(event.target.value)}
       className="pennie-focus-ring mt-1 min-h-20 w-full rounded-lg border border-border bg-white p-2 text-base font-normal sm:text-sm" />
     <span id={hintId} className="mt-1 block text-xs font-normal text-pennie-graphite/70">{min}–{max.toLocaleString('en-US')} characters · {length.toLocaleString('en-US')} entered</span>
@@ -207,7 +207,7 @@ function ManagerReviewOutcome({ context }: { readonly context: FullQaReviewConte
     <dl className="grid grid-cols-1 gap-x-3 gap-y-1 text-sm text-pennie-graphite [&>dd]:mb-2 sm:grid-cols-[auto_1fr] sm:[&>dd]:mb-0">
       <dt className="font-semibold text-pennie-navy">Alert warranted</dt>
       <dd className="font-semibold">{review.escalationJustified ? 'Yes' : 'No'}{review.inaccuracyReason ? ` · ${INACCURACY_REASON_LABELS[review.inaccuracyReason]}` : ''}</dd>
-      <dt className="font-semibold text-pennie-navy">Manager’s reason</dt>
+      <dt className="font-semibold text-pennie-navy">{review.escalationJustified ? 'What happened?' : 'Manager’s reason'}</dt>
       <dd className="whitespace-pre-wrap break-words">{review.escalationReason}</dd>
     </dl>
     <div className="text-sm text-pennie-graphite">
@@ -216,7 +216,7 @@ function ManagerReviewOutcome({ context }: { readonly context: FullQaReviewConte
         <details className="mt-1"><summary className="pennie-focus-ring min-h-[44px] cursor-pointer py-3.5 text-xs font-semibold text-pennie-blue-deeper sm:min-h-0 sm:py-0">Manager’s evidence</summary><p className="mt-1 whitespace-pre-wrap break-words text-sm">{finding.evidence}</p></details></li>)}</ul> : <p className="mt-1">None recorded.</p>}
     </div>
     <div className="text-sm text-pennie-graphite">
-      <p className="font-semibold text-pennie-navy">Follow-up with the rep</p>
+      <p className="font-semibold text-pennie-navy">{review.escalationJustified ? 'What action did you take?' : 'Follow-up with the rep'}</p>
       <p className="mt-1 whitespace-pre-wrap break-words">{review.actionTaken ? ACTION_TAKEN_LABELS[review.actionTaken] : 'No follow-up recorded'}{review.actionDetails ? ` · ${review.actionDetails}` : ''}</p>
     </div>
     <div className="text-sm text-pennie-graphite">
@@ -552,16 +552,28 @@ export function FullQaRubricReview({ alert, scope, editable, canReloadReview, on
         <input type="radio" name={`${scorecardId}-escalation`} checked={escalationJustified === value} onChange={() => setEscalationJustified(value)} className="pennie-focus-ring h-4 w-4 accent-pennie-blue-deeper" />
         <span>{value ? 'Yes, the alert was warranted' : 'No, the alert was unnecessary'}</span>
       </label>)}</div>
-      <label className="block text-xs font-semibold">Explain your decision<ReviewText label="Explain your decision" value={escalationReason} onChange={setEscalationReason} /></label>
+      {escalationJustified === true ? <section aria-label="Follow-up with the rep" className="space-y-4 pt-2 [&_textarea]:min-h-28 [&_textarea]:rounded-2xl [&_textarea]:px-3 [&_textarea]:py-2">
+        <div>
+          <h2 id={`${scorecardId}-followup`} tabIndex={-1} className="pennie-focus-ring pennie-label mb-2">How did you address it with the agent?<span className="ml-1 text-pennie-peach-deeper" aria-hidden="true">*</span></h2>
+          <div role="radiogroup" aria-label="Action taken" aria-required="true" className="flex flex-wrap gap-2">
+            {ACTIONS.map(value => <label key={value} className={`flex min-h-[44px] cursor-pointer items-center gap-2 rounded-full border px-3 py-2 text-sm font-semibold has-[:disabled]:cursor-not-allowed has-[:disabled]:opacity-50 ${actionTaken === value ? 'border-pennie-blue-deeper bg-pennie-blue-light text-pennie-navy' : 'border-border bg-white text-pennie-graphite hover:bg-pennie-blue-light/50'}`}>
+              <input type="radio" name={`${scorecardId}-action`} checked={actionTaken === value} onChange={() => setActionTaken(value)} className="pennie-focus-ring h-4 w-4 accent-pennie-blue-deeper" />
+              {ACTION_TAKEN_LABELS[value]}
+            </label>)}
+          </div>
+        </div>
+        <label className="block"><span className="pennie-label">What happened?<span className="ml-1 text-pennie-peach-deeper" aria-hidden="true">*</span></span><ReviewText label="What happened?" value={escalationReason} placeholder="Describe the specific behavior or missed requirement." onChange={setEscalationReason} /></label>
+        <label className="block"><span className="pennie-label">What action did you take?<span className="ml-1 text-pennie-peach-deeper" aria-hidden="true">*</span></span><ReviewText label="What action did you take?" value={actionDetails} placeholder="Describe the coaching, escalation, or planned follow-up." onChange={setActionDetails} /></label>
+      </section> : <label className="block text-xs font-semibold">Explain your decision<ReviewText label="Explain your decision" value={escalationReason} onChange={setEscalationReason} /></label>}
       {escalationJustified === false && <label className="block text-xs font-semibold">Why was the alert unnecessary?<select aria-label="Why was the alert unnecessary?" value={inaccuracyReason ?? ''} onChange={event => setInaccuracyReason(event.target.value as AlertInaccuracyReason)} className="mt-1 min-h-[40px] w-full rounded-lg border bg-white px-2 font-normal"><option value="">Choose a reason</option>{REASONS.map(value => <option key={value} value={value}>{INACCURACY_REASON_LABELS[value]}</option>)}</select></label>}
     </fieldset>}
 
-    {editable && <section aria-label="Follow-up with the rep" className="space-y-3 border-t border-border pt-5">
+    {editable && escalationJustified !== true && <section aria-label="Follow-up with the rep" className="space-y-3 border-t border-border pt-5">
       <h2 id={`${scorecardId}-followup`} tabIndex={-1} className="pennie-focus-ring text-base font-semibold text-pennie-navy">Follow-up with the rep</h2>
       {findings.length > 0 ? <fieldset disabled={locked} className="space-y-3">
         <label className="block text-sm font-semibold">What did you do about the issue?<select aria-label="What did you do about the issue?" value={actionTaken ?? ''} onChange={event => setActionTaken(ACTIONS.find(action => action === event.target.value) ?? null)} className="pennie-focus-ring mt-1 min-h-[44px] w-full rounded-lg border border-border bg-white px-2 font-normal"><option value="">Choose an action</option>{ACTIONS.map(value => <option key={value} value={value}>{ACTION_TAKEN_LABELS[value]}</option>)}</select></label>
         <label className="block text-sm font-semibold">Coaching or next steps<ReviewText label="Coaching or next steps" value={actionDetails} placeholder="Describe the coaching, escalation, or planned follow-up." onChange={setActionDetails} /></label>
-      </fieldset> : <p className="text-sm text-pennie-graphite">{escalationJustified === true ? 'Add the confirmed issues above, then record how you followed up.' : escalationJustified === false ? 'No confirmed coaching issues. No follow-up required.' : 'Confirm coaching issues above to record follow-up.'}</p>}
+      </fieldset> : <p className="text-sm text-pennie-graphite">{escalationJustified === false ? 'No confirmed coaching issues. No follow-up required.' : 'Confirm coaching issues above to record follow-up.'}</p>}
     </section>}
 
     <details className="border-t border-border py-3">

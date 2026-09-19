@@ -301,11 +301,11 @@ export function parseFullQaReviewDraft(context: FullQaReviewContext, input: Omit
   const complianceCount = input.findings.filter(finding => finding.category === 'compliance').length
   const severe = input.findings.some(finding => finding.category === 'severe_customer_mistreatment')
   if (input.escalationJustified && complianceCount < 2 && !severe) return { ok: false, message: 'A warranted alert requires two distinct compliance issues or an explicit severe-customer-mistreatment issue.', section: 'coaching' }
-  if (!bounded(input.escalationReason)) return { ok: false, message: `Explain your decision using ${TEXT_GUIDANCE}.`, section: 'decision' }
+  if (!bounded(input.escalationReason)) return { ok: false, message: `${input.escalationJustified ? 'Describe what happened' : 'Explain your decision'} using ${TEXT_GUIDANCE}.`, section: 'decision' }
   if (input.escalationJustified ? input.inaccuracyReason !== null : !input.inaccuracyReason || !reason(input.inaccuracyReason)) return { ok: false, message: 'Choose why the alert was unnecessary.', section: 'decision' }
   if (input.findings.length === 0 && (input.actionTaken !== null || input.actionDetails?.trim())) return { ok: false, message: 'Actions apply only to retained findings.', section: 'followup' }
   if (input.findings.length > 0 && (!input.actionTaken || !action(input.actionTaken))) return { ok: false, message: 'Record the coaching or follow-up for retained findings.', section: 'followup' }
-  if (input.findings.length > 0 && !bounded(input.actionDetails)) return { ok: false, message: `Describe the coaching or next steps using ${TEXT_GUIDANCE}.`, section: 'followup' }
+  if (input.findings.length > 0 && !bounded(input.actionDetails)) return { ok: false, message: `${input.escalationJustified ? 'Describe the action you took' : 'Describe the coaching or next steps'} using ${TEXT_GUIDANCE}.`, section: 'followup' }
   return { ok: true, value: { ...input, escalationJustified: input.escalationJustified, escalationReason: input.escalationReason.trim(), actionDetails: input.actionDetails?.trim() ?? null,
     corrections: input.corrections.map(item => ({ ...item, reason: item.reason?.trim() ?? null })),
     findings: input.findings.map(item => ({ ...item, summary: item.summary.trim(), evidence: item.evidence.trim() })) } }

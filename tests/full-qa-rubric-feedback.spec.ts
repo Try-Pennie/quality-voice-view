@@ -433,7 +433,7 @@ test('a warranted alert with two distinct issues records shared and repeated cri
   await page.getByRole('combobox', { name: 'What did you do about the issue?' }).selectOption('coached')
   await page.getByRole('textbox', { name: 'Coaching or next steps' }).fill('Coached the agent on consent and on outcome language the same day.')
   await page.getByRole('radio', { name: 'Yes, the alert was warranted', exact: true }).check()
-  await page.getByRole('textbox', { name: 'Explain your decision' }).fill('Two distinct compliance issues were confirmed on this call.')
+  await page.getByRole('textbox', { name: 'What happened?', exact: true }).fill('Two distinct compliance issues were confirmed on this call.')
   await expect(page.getByRole('status')).toHaveCount(0)
 
   let release = () => {}
