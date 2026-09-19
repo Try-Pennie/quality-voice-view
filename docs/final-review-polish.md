@@ -31,8 +31,16 @@ The hidden-label check was demonstrated sensitive: removing only the positioning
 - Fresh final-source `npm test -- --workers=1 --reporter=line`: **168 passed, 8.6m, exit 0**. Eight focused regressions also passed in 1.8m.
 - Production-mode build, ES2021 application TypeScript, staging TypeScript, `git diff --check`, staging build-seam checks and actual isolated staging build passed. Final staging runtime source: `212678fe537aeeed39c187971f3ab2909d4cc8ef`; its application/tests differ from `5ae8e91` only in the existing isolated login/client files.
 - Changed UI/test files lint clean. Full lint retains **45 errors / 6 warnings**. The seven pre-existing errors in the two touched legacy type/query files were compared against the old source and are identical; no lint rules were disabled.
-- Actual staging PostgREST accepted the three scalar aliases under native manager authentication, returning no full JSON/media fields. The deployment artifact excludes the password, synthetic build key and production project ref/key; stage-only CSP/privacy headers and a private SHA256 manifest are prepared.
+- Actual staging PostgREST accepted the three scalar aliases under native manager authentication, returning no full JSON/media fields. The deployment artifact excludes the password, synthetic build key and production project ref/key; stage-only CSP/privacy headers were verified on both hosted origins, with a private SHA256 artifact manifest.
 - Earlier runs exposed obsolete global text locators (reason text now also appears in the queue) and tests that filled fields before choosing a verdict. Those now follow the intended UI without relaxing validation or save assertions. One concurrent media timing failure preceded the clean final single-worker run; no media assertions/timeouts were weakened.
+
+### Hosted staging verification
+
+Live: **https://rubric-staging.eavesly.pages.dev/login**, same private password and Manager/Kris selector. Immutable deployment: **https://95f261e7.eavesly.pages.dev**. Runtime `212678fe537aeeed39c187971f3ab2909d4cc8ef`; save or discard existing drafts before refreshing.
+
+Native authenticated checks passed for both roles: real recording playback, original evidence/add/edit focus, select typing, paired-input retention, cancelled-close protection, approval/request-changes entry, scalar queue projection, Team filters and 320–1440px layouts. Pointer/keyboard/reduced-motion behavior passed. **202 staging-only requests, zero browser/HTTP errors, zero review writes.** On the recorded 1366×768 review, usable scrolling body height measured **370px**, versus **278px** in the initial sweep, without changing the full-width player.
+
+A separate password check passed four native logins, wrong-password rejection, role switching and playback with zero unexpected errors. Stable and immutable origins both returned HTTP200 with staging-only CSP, noindex, no-store and no-referrer. Protected application-content hashes and the user count are unchanged; no reseed or migration. The staging Git branch remains local/unpushed. No PR merge, production deploy, production write, auth-policy change or backend change.
 
 ### Commit-pinned synthetic screenshots
 

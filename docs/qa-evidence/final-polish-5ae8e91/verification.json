@@ -14,6 +14,18 @@
     "duration": "1.8m"
   },
   "browser": "Chromium",
+  "hosted_staging": {
+    "runtime": "212678fe537aeeed39c187971f3ab2909d4cc8ef",
+    "immutable_origin": "https://95f261e7.eavesly.pages.dev",
+    "both_roles": "passed",
+    "native_requests": 202,
+    "browser_and_http_errors": 0,
+    "review_writes": 0,
+    "protected_application_content_unchanged": true,
+    "password_flow_and_role_switching": "passed",
+    "stage_only_csp_and_privacy_headers": "passed",
+    "recorded_review_body_height_at_1366x768": 370.1875
+  },
   "screenshots": {
     "polished-review-entry.png": "069ee120304340e2fad1c5728af8650e3570ffe0381d76a192b867bacd3176c1",
     "polished-mobile-queue.png": "74b3d88679729dc65f02d19dc8532fd9a66f34763badb78a0667173de399fa5e",
