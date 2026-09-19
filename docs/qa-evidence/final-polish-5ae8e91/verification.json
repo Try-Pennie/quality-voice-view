@@ -1,0 +1,29 @@
+{
+  "source_commit": "5ae8e91fac1d67f0060138bfbf0a2819c7747f5a",
+  "data": "synthetic intercepted HTTP fixtures only",
+  "full_suite": {
+    "command": "npm test -- --workers=1 --reporter=line",
+    "passed": 168,
+    "failed": 0,
+    "exit": 0,
+    "duration": "8.6m"
+  },
+  "focused_regressions": {
+    "passed": 8,
+    "failed": 0,
+    "duration": "1.8m"
+  },
+  "browser": "Chromium",
+  "screenshots": {
+    "polished-review-entry.png": "069ee120304340e2fad1c5728af8650e3570ffe0381d76a192b867bacd3176c1",
+    "polished-mobile-queue.png": "74b3d88679729dc65f02d19dc8532fd9a66f34763badb78a0667173de399fa5e",
+    "polished-form-320.png": "68f16b69435bd0eb053512c7396bc7e7bc0f2b45f526cc2bff30573becd181c2",
+    "polished-team-375.png": "e3701715d5f610c91de08a5e58d1bec77dee07c87bafd41b5ba3d7da167104ec",
+    "polished-team-1440.png": "0b90dc485cd415bb3541e0db2ac97b54b20642153d82a195e30d10d1d7f53f6b",
+    "kris-summary-375.png": "b921113e9ea6e0b27c335750e1a5d930261649afb12fdeb3fcee485a503f912c"
+  },
+  "limitations": [
+    "Physical Safari/iPhone and assistive-technology speech not certified",
+    "Whole-repo lint retains baseline 45 errors / 6 warnings"
+  ]
+}
