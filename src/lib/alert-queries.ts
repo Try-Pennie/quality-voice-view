@@ -80,7 +80,7 @@ export type AlertFilters = {
   outstandingOnly?: boolean
 }
 
-// Columns rendered in the alerts table. Crucially excludes result_json,
+// Columns rendered in the alerts table. Only compact reason scalars, not result_json,
 // recording_link, transcript_url — those are only needed when the drawer
 // opens and are fetched on demand via fetchAlertOne.
 const ALERT_LIST_COLUMNS = [
@@ -95,6 +95,9 @@ const ALERT_LIST_COLUMNS = [
   'contact_name',
   'contact_phone',
   'call_summary',
+  'reason_escalation:result_json->call_overview->>manager_review_reason',
+  'reason_direct:result_json->>violation_reason',
+  'reason_warm_transfer:result_json->warm_transfer_compliance->>violation_reason',
   'sfdc_lead_id',
   'is_reviewed',
   'accurate',
@@ -127,7 +130,11 @@ export async function fetchAlerts(
   // is never exposed merely because a URL parameter was supplied.
   if ((!scope.isGodMode && scope.managedAgents.length === 0) || (workload === 'partner_qa' && !scope.isGodMode)) return []
 
-  const rows = await fetchAllPaginated<AlertWithFeedback>((from, to) => {
+  const rows = await fetchAllPaginated<AlertWithFeedback & {
+    reason_escalation?: unknown
+    reason_direct?: unknown
+    reason_warm_transfer?: unknown
+  }>((from, to) => {
     let q = sb
       .from('eavesly_alerts_with_feedback')
       .select(ALERT_LIST_COLUMNS)
@@ -177,7 +184,11 @@ export async function fetchAlerts(
       ? 'The outstanding queue is too large to display completely.'
       : 'This window contains too many alerts. Narrow the date range to review the complete queue.')
   }
-  return filterAlertWorkloadRows(rows, scope, workload)
+  return filterAlertWorkloadRows(rows.map(({ reason_escalation, reason_direct, reason_warm_transfer, ...row }) => {
+    const reason = row.violation_type === 'manager_escalation' ? reason_escalation
+      : row.violation_type === 'warm_transfer' ? reason_warm_transfer : reason_direct
+    return { ...row, queue_reason: typeof reason === 'string' ? reason.trim() : '' }
+  }), scope, workload)
 }
 
 // All alerts (any status, includes false-positives + non-violations) for a
@@ -663,6 +674,18 @@ export function extractEvidence(violationType: string, result: any): string {
     default:
       return ''
   }
+}
+
+export function alertQueuePreview(alert: AlertWithFeedback): { label: string; text: string } {
+  // A reviewed Full QA row must never describe a newer evaluation as the reviewed source.
+  if (alert.module_name === 'full_qa' && alert.is_reviewed) {
+    const decision = alert.violation_details?.trim() || alert.feedback_comment?.trim()
+    if (decision && !isSystemClosed(alert)) return { label: 'Manager review', text: decision }
+  } else {
+    const reason: unknown = alert.queue_reason || extractReason(alert.violation_type, alert.result_json)
+    if (typeof reason === 'string' && reason.trim()) return { label: 'Why flagged', text: reason.trim() }
+  }
+  return { label: 'Call summary', text: alert.call_summary?.trim() || 'No summary available.' }
 }
 
 export function extractReason(violationType: string, result: any): string {

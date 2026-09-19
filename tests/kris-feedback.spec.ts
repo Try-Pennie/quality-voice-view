@@ -20,9 +20,10 @@ test('first-review age uses elapsed boundaries, excludes human/system decisions,
 test('queue makes period and filtered versus broader counts explicit', async ({ page }) => {
   await reviewFixture(page, [alertRow('sample'), alertRow('another')])
   await page.goto('/dashboard/alerts?range=outstanding&status=awaiting_manager&search=sample')
-  await expect(page.getByRole('button', { name: 'Selected ET period', exact: true })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Date range', exact: true })).toBeVisible()
   await expect(page.getByRole('navigation', { name: 'Primary', exact: true }).getByRole('link', { name: 'Review', exact: true })).toBeVisible()
   await expect(page.getByText('Showing 1 of 2 in this queue.', { exact: true })).toBeVisible()
+  await page.getByText('Outstanding by next action', { exact: true }).click()
   await expect(page.getByRole('button', { name: 'Filter all-time First reviews 2' })).toBeVisible()
   await page.getByRole('button', { name: 'Filter all-time First reviews 2' }).click()
   await expect(page.getByRole('button', { name: /^Review .* alert for Example/ })).toHaveCount(2)

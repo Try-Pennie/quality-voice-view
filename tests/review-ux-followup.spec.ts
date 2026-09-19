@@ -7,6 +7,7 @@ for (const god of [false, true]) test(`Help shortcut preserves ${god ? 'Kris ins
   } : {})], { god })
   await page.goto('/dashboard/alerts/help-draft/full_qa')
   await page.getByRole('button', { name: god ? 'Request changes' : 'Continue review', exact: true }).click()
+  if (!god) await page.getByRole('radio', { name: 'No, the alert was unnecessary', exact: true }).check()
   const draft = page.getByRole('textbox', { name: god ? /Request changes with instructions/ : 'Explain your decision' })
   await draft.fill('Keep this unsaved draft intact.')
   await page.getByRole('button', { name: 'Close (Esc)', exact: true }).focus()
@@ -136,6 +137,7 @@ test('View transcript opens the existing search directly and keeps the draft on 
   const state = await reviewFixture(page, [alertRow('direct-transcript')])
   await page.goto('/dashboard/alerts/direct-transcript/full_qa')
   await page.getByRole('button', { name: 'Continue review', exact: true }).click()
+  await page.getByRole('radio', { name: 'No, the alert was unnecessary', exact: true }).check()
   const reason = page.getByRole('textbox', { name: 'Explain your decision', exact: true })
   await reason.fill('Keep my decision while checking the transcript.')
   for (const width of [320, 375, 414, 768, 1440]) {

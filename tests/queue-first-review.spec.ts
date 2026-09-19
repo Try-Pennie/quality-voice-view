@@ -277,7 +277,7 @@ test('drawer uses one scrolling review flow for evidence, required fields, and s
   const dialog = page.getByRole('dialog')
   await expect(dialog.getByText('Why it fired')).toBeVisible()
   await expect(dialog.getByRole('button', { name: 'Save review' })).toBeInViewport()
-  await dialog.getByRole('button', { name: 'Real issue (Y)' }).click()
+  await dialog.getByRole('button', { name: 'Warranted (Y)' }).click()
   await dialog.getByRole('button', { name: '1. Coached the agent' }).click()
   await dialog.getByRole('textbox', { name: /What happened/ }).fill('The required disclosure was omitted from this synthetic call.')
   await dialog.getByRole('textbox', { name: /What action did you take/ }).fill('The manager coached the complete disclosure with the representative.')

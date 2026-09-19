@@ -285,6 +285,7 @@ test('failed alert details can be retried without discarding the review draft', 
   await page.goto('/dashboard/alerts?status=awaiting_manager')
   await page.getByRole('button', { name: /Review .* Example retry-details/ }).click()
   await page.getByRole('button', { name: 'Continue review', exact: true }).click()
+  await page.getByRole('radio', { name: 'No, the alert was unnecessary', exact: true }).check()
   const draft = page.getByRole('textbox', { name: 'Explain your decision', exact: true })
   await draft.fill('Keep this draft while the recording recovers.')
   const recording = page.getByRole('region', { name: 'Call recording', exact: true })

@@ -70,7 +70,7 @@ test('neutral guidance links to the incomplete decision, score or coaching secti
   expect(state.writes).toEqual([])
 })
 
-test('Full QA keyboard entry stays instant while generic drawers retain motion', async ({ page }) => {
+test('keyboard and deep-link entry stay instant across review types', async ({ page }) => {
   await reviewFixture(page, [alertRow('instant-review'), genericAlertRow('generic-motion')])
   await page.goto('/dashboard/alerts?status=awaiting_manager')
   const opener = page.getByRole('button', { name: 'Review Manager escalation alert for Example instant-review', exact: true })
@@ -91,7 +91,7 @@ test('Full QA keyboard entry stays instant while generic drawers retain motion',
   }
   await page.goto('/dashboard/alerts/generic-motion/budget_inputs')
   await expect(page.getByRole('dialog')).toBeVisible()
-  expect(await page.getByRole('dialog').evaluate(element => getComputedStyle(element).animationName)).toBe('enter')
+  expect(await page.getByRole('dialog').evaluate(element => getComputedStyle(element).animationName)).toBe('none')
 })
 
 test('Full QA saves string-scale corrections and a retained finding independently from dismissed escalation', async ({ page }, testInfo) => {
@@ -124,7 +124,7 @@ test('Full QA saves string-scale corrections and a retained finding independentl
   await expect(page.locator('[role="radiogroup"][aria-label$=" disposition"]')).toHaveCount(23)
   const consent = page.getByRole('article', { name: 'Credit pull consent', exact: true })
   await expect(consent.getByText('Eavesly flagged this', { exact: true })).toBeVisible()
-  await expect(consent.getByText('Evidence Eavesly used', { exact: true })).toBeVisible()
+  await expect(consent.getByText('Evidence', { exact: true })).toBeVisible()
   await expect(consent.locator('blockquote')).toHaveText('Your credit may be affected.')
   await expect(consent.locator('pre')).toBeHidden()
   await expect(consent.getByText('Exact synthetic rule for Credit pull consent.')).toBeHidden()
@@ -425,7 +425,7 @@ test('a warranted alert with two distinct issues records shared and repeated cri
   // A second distinct issue under the same criterion is recorded through a manual add.
   await page.getByRole('button', { name: 'Add another issue' }).click()
   await expect(page.getByText('Related criteria (0 selected)', { exact: true })).toBeVisible()
-  await page.getByText('Related criteria (0 selected)', { exact: true }).click()
+  await expect(page.getByRole('group', { name: 'Finding 3 related criteria' })).toBeVisible()
   await page.getByRole('group', { name: 'Finding 3 related criteria' }).getByRole('checkbox', { name: 'Accurate representations' }).check()
   await page.getByRole('textbox', { name: 'Finding 3 summary' }).fill('The agent also misstated the monthly payment amount.')
   await page.getByRole('textbox', { name: 'Finding 3 evidence' }).fill('The payment figure quoted on the call differs from the offer sheet.')
@@ -584,7 +584,7 @@ test('evidence shows readable quotes with context, keeps notes distinct, and pre
   await consent.getByText('Rule and saved evidence', { exact: true }).click()
   await expect(consent.locator('pre')).toContainText('Unfamiliar evidence must remain available.')
   const note = page.getByRole('article', { name: 'Accurate representations', exact: true })
-  await expect(note.getByText('Why Eavesly flagged this', { exact: true })).toBeVisible()
+  await expect(note.getByText('Why this was flagged', { exact: true })).toBeVisible()
   await expect(note.getByText('The model describes an unqualified outcome promise.', { exact: true })).toBeVisible()
   await expect(note.locator('blockquote')).toHaveCount(0)
   // Seeding an issue from a criterion copies only saved, attributed evidence; the summary is the manager's.
@@ -673,7 +673,7 @@ test('a stale Full QA source keeps the draft but cannot silently pair it with a 
   await expect(page.getByRole('status')).toHaveText('This review changed. Reload it before continuing.')
   await expect(page.getByRole('button', { name: 'Save review', exact: true })).toBeDisabled()
   await page.getByRole('button', { name: 'Reload review and discard draft' }).click()
-  await expect(reason).toHaveValue('')
+  await expect(reason).toHaveCount(0)
   await expect(page.getByRole('radiogroup', { name: 'Alert verdict' }).getByRole('radio', { checked: true })).toHaveCount(0)
 })
 
@@ -761,7 +761,7 @@ test('saved alert reasons and criterion context explain concerns without turning
   const consent = page.getByRole('article', { name: 'Credit pull consent', exact: true })
   await expect(consent.getByText('Eavesly flagged this', { exact: true })).toBeVisible()
   await expect(consent.getByText(`Saved context (Customer · Step 2 Credit Review): ${note}`, { exact: true })).toHaveCount(1)
-  await expect(consent.getByText('Evidence Eavesly used', { exact: true })).toBeVisible()
+  await expect(consent.getByText('Evidence', { exact: true })).toBeVisible()
   await expect(consent).toContainText('No reason saved for this score.')
   await expect(consent.locator('blockquote')).toHaveText(['No, do not pull my credit.', 'I have pulled it anyway.'])
   await expect(consent.locator('figcaption')).toHaveText(['Customer · Step 2 Credit Review', 'Agent · Step 2 Credit Review'])

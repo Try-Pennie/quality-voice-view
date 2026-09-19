@@ -174,14 +174,14 @@ function CountCell({
 }) {
   return (
     <td className="py-2 px-1 text-right">
-      <button
+      {value === 0 ? <span className="inline-block min-w-[44px] px-2 text-center tabular-nums text-muted-foreground">0</span> : <button
         type="button"
         onClick={() => onSelect({ managerEmail: manager.managerEmail, view, outcome, age })}
         aria-label={`Filter ${manager.name} ${label} ${value}`}
         className="pennie-focus-ring min-w-[44px] min-h-[44px] rounded-full px-2 font-semibold tabular-nums text-pennie-blue-deeper hover:bg-pennie-blue-light"
       >
         {value}
-      </button>
+      </button>}
     </td>
   )
 }

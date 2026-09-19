@@ -147,7 +147,11 @@ export async function reviewFixture(page: Page, rows: AlertWithFeedback[], optio
           transcript_url: _transcript,
           initial_manager_review: _initial,
           ...row
-        }) => row))
+        }) => ({ ...row,
+          reason_escalation: _result?.call_overview?.manager_review_reason ?? null,
+          reason_direct: _result?.violation_reason ?? null,
+          reason_warm_transfer: _result?.warm_transfer_compliance?.violation_reason ?? null,
+        })))
       }
       return respond(pageRows)
     }
@@ -345,5 +349,5 @@ export async function reviewFixture(page: Page, rows: AlertWithFeedback[], optio
 export async function openAlert(page: Page, id: string) {
   await page.getByRole('button', { name: `Review Manager escalation alert for Example ${id}`, exact: true }).click()
   await expect(page.getByRole('dialog')).toBeVisible()
-  await expect(page.getByText('Review both quoted passages in context.')).toBeVisible()
+  await expect(page.getByRole('dialog').getByText('Review both quoted passages in context.')).toBeVisible()
 }

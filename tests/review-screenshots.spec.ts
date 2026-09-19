@@ -78,7 +78,7 @@ test('manager mobile queue and real-issue form', async ({ page }, testInfo) => {
   await page.screenshot({ path: testInfo.outputPath('manager-queue-mobile.png'), animations: 'disabled' })
   await page.getByRole('button', { name: 'Review Manager escalation alert for Example pending-0-0', exact: true }).click()
   await expect(page.getByRole('dialog')).toBeVisible()
-  await page.getByRole('button', { name: 'Real issue (Y)' }).click()
+  await page.getByRole('button', { name: 'Warranted (Y)' }).click()
   await page.getByRole('button', { name: '1. Coached the agent' }).click()
   const what = page.getByRole('textbox', { name: /What happened/ })
   const action = page.getByRole('textbox', { name: /What action did you take/ })

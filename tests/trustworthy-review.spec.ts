@@ -88,7 +88,7 @@ test('partner QA is a separate god-mode destination and never appears for a mana
   await partnerRow.click()
   await expect(page.getByRole('dialog')).toBeVisible()
   await expect.poll(() => state.requests.some(url => url.pathname.endsWith('/eavesly_alert_messages'))).toBe(true)
-  await page.getByRole('button', { name: 'False alarm (N)' }).click()
+  await page.getByRole('button', { name: 'Unnecessary (N)' }).click()
   await page.getByRole('button', { name: '3. Wrong context' }).click()
   await page.getByRole('button', { name: 'Save review' }).click()
   await expect(page.getByText('Review saved')).toBeVisible()
@@ -353,9 +353,10 @@ test('all-time outstanding loads every actionable state without date clipping or
   state.requests.length = 0
 
   await page.getByText('More filters', { exact: true }).click()
-  await page.getByRole('button', { name: 'All-time outstanding' }).click()
+  await page.getByRole('button', { name: 'Outstanding' }).click()
 
   await expect(page.locator('[aria-live="polite"]', { hasText: '4 outstanding across all time' })).toBeVisible()
+  await page.getByText('Outstanding by next action', { exact: true }).click()
   await expect(page.getByRole('button', { name: 'Filter all-time First reviews 1' })).toBeVisible()
   await expect(page.getByRole('button', { name: 'Filter all-time Awaiting Kris’s approval 1' })).toBeVisible()
   await expect(page.getByRole('button', { name: 'Filter all-time Changes requested by Kris 1' })).toBeVisible()
@@ -418,5 +419,5 @@ test('system closures are separate from human review and false-alarm arithmetic'
   await expect(systemRow).toContainText('System closed')
   await systemRow.click()
   await expect(page.getByRole('button', { name: /Approve .* review/ })).toHaveCount(0)
-  await expect(page.getByRole('button', { name: 'Real issue (Y)' })).toHaveCount(0)
+  await expect(page.getByRole('button', { name: 'Warranted (Y)' })).toHaveCount(0)
 })

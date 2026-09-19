@@ -23,7 +23,7 @@ test('browser Back and Forward can be cancelled without losing notes or corrupti
   await expect(page).toHaveURL(firstUrl)
   await expect(page.getByRole('dialog')).toContainText('Example history-a')
   await expect(page.locator('html')).toHaveAttribute('data-test-observed-pop', new URL(firstUrl).pathname)
-  await page.getByRole('button', { name: 'Real issue (Y)', exact: true }).click()
+  await page.getByRole('button', { name: 'Warranted (Y)', exact: true }).click()
   const note = page.getByRole('textbox', { name: 'What happened?' })
   await note.fill('Unsaved coaching notes survive browser history gestures until explicitly discarded.')
   await page.evaluate(() => { delete document.documentElement.dataset.testObservedPop })

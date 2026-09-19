@@ -247,6 +247,7 @@ export function AlertReviewDrawer({
         target &&
         (target.tagName === 'INPUT' ||
           target.tagName === 'TEXTAREA' ||
+          target.tagName === 'SELECT' ||
           target.isContentEditable)
       if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
         e.preventDefault()
@@ -268,7 +269,7 @@ export function AlertReviewDrawer({
         if (hasPrev) requestAdvance(-1)
         return
       }
-      if (!showStructuredForm) return
+      if (!showStructuredForm || isFullQa) return
 
       if (e.key === 'y' || e.key === 'Y') {
         setAccurate(true)
@@ -591,7 +592,7 @@ export function AlertReviewDrawer({
       ? `Override ${alert.feedback_by ? emailLabel(alert.feedback_by) : 'manager'}'s review`
       : reviewedByMe
         ? 'Your review'
-        : 'Was this a real issue?'
+        : 'Was this alert warranted?'
 
   const parsedDraft = workload === 'internal' ? parseInternalReviewDraft({
     verdict: accurate,
@@ -634,7 +635,7 @@ export function AlertReviewDrawer({
       >
         <SheetDescription className="sr-only">Review the call evidence, record a decision and follow-up, or approve the manager’s saved review.</SheetDescription>
         {/* Header */}
-        <SheetHeader className={`shrink-0 px-4 sm:px-8 sm:py-5 border-b border-border text-left ${isFullQa ? 'pt-2 pb-2 space-y-1 sm:space-y-3' : 'pt-4 pb-5 space-y-3'}`}>
+        <SheetHeader className={`shrink-0 px-4 sm:px-8 border-b border-border text-left ${isFullQa ? 'py-2 sm:py-3 space-y-1' : 'pt-4 pb-5 sm:py-5 space-y-3'}`}>
           <div className="flex items-center gap-2 sm:gap-3">
             <button
               type="button"
@@ -648,6 +649,7 @@ export function AlertReviewDrawer({
             <span className={`${pillClasses(accentForViolation(alert.violation_type))} hidden sm:inline-flex`}>
               {violationLabel}
             </span>
+            {isFullQa && VIOLATION_HELP_IDS[alert.violation_type] && <span className="hidden sm:inline-flex"><HelpHint id={VIOLATION_HELP_IDS[alert.violation_type]} size={4} /></span>}
             <span className="text-xs text-muted-foreground tabular-nums hidden sm:inline">
               {formatDateTime(alert.alert_created_at)}
             </span>
@@ -699,21 +701,21 @@ export function AlertReviewDrawer({
               {formatDateTime(alert.alert_created_at)}
             </span>
           </div>
-          <SheetTitle className={`text-xl font-semibold text-pennie-navy text-left inline-flex items-center gap-1.5 ${isFullQa ? 'sr-only sm:not-sr-only' : ''}`}>
+          <SheetTitle className={`text-xl font-semibold text-pennie-navy text-left inline-flex items-center gap-1.5 ${isFullQa ? 'sr-only' : ''}`}>
             {violationLabel}
-            {VIOLATION_HELP_IDS[alert.violation_type] && (
+            {!isFullQa && VIOLATION_HELP_IDS[alert.violation_type] && (
               <HelpHint id={VIOLATION_HELP_IDS[alert.violation_type]} size={4} />
             )}
           </SheetTitle>
           {isFullQa && (
-            <p className="sm:hidden text-xs leading-relaxed text-pennie-graphite break-words">
+            <p className="text-xs sm:text-sm leading-relaxed text-pennie-graphite break-words">
               <span className="font-medium">{alert.agent_email || 'Unknown agent'}</span>
               <span className="text-pennie-graphite/60"> · </span>
               {alert.contact_name || 'Unknown'}
               {alert.contact_phone && <span className="text-pennie-graphite/70 ml-2 tabular-nums">{formatPhoneNumber(alert.contact_phone)}</span>}
             </p>
           )}
-          <dl className={`grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-sm ${isFullQa ? 'hidden sm:grid' : 'grid'}`}>
+          <dl className={`grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-sm ${isFullQa ? 'hidden' : 'grid'}`}>
             <dt className="text-[11px] font-semibold uppercase tracking-wider text-pennie-graphite/60 pt-0.5">
               Agent
             </dt>
@@ -763,7 +765,7 @@ export function AlertReviewDrawer({
           />
         )}
         {/* One scrolling review flow: evidence, required inputs, and secondary details. */}
-        <div className={`flex-1 min-h-0 overflow-y-auto px-4 sm:px-8 sm:py-6 space-y-6 sm:space-y-7 ${isFullQa ? 'py-4 lg:px-10' : 'py-5'}`}>
+        <div className={`relative flex-1 min-h-0 overflow-y-auto px-4 sm:px-8 sm:py-6 space-y-6 sm:space-y-7 ${isFullQa ? 'py-4 lg:px-10' : 'py-5'}`}>
           {returnedToCurrentManager && alert.current_decision_instructions && (
             <div className="rounded-2xl bg-pennie-peach-light/60 px-4 py-3">
               <p className="pennie-label mb-1">Changes requested by {alert.current_decision_by ? emailLabel(alert.current_decision_by) : 'Kris'}</p>
@@ -1028,15 +1030,15 @@ export function AlertReviewDrawer({
                   </legend>
                   <div className="flex gap-2" role="group" aria-label={promptCopy}>
                     <Toggle
-                      label="Real issue"
-                      ariaLabel="Real issue (Y)"
+                      label="Warranted"
+                      ariaLabel="Warranted (Y)"
                       active={accurate === true}
                       tone="success"
                       onClick={() => setAccurate(true)}
                     />
                     <Toggle
-                      label="False alarm"
-                      ariaLabel="False alarm (N)"
+                      label="Unnecessary"
+                      ariaLabel="Unnecessary (N)"
                       active={accurate === false}
                       tone="danger"
                       onClick={() => setAccurate(false)}
@@ -1070,13 +1072,13 @@ export function AlertReviewDrawer({
                 {accurate === false && (
                   <fieldset disabled={submitting}>
                     <legend className="pennie-label mb-2">
-                      Why was it a false alarm?
+                      Reason
                       <span className="text-pennie-peach-deeper ml-1" aria-hidden="true">*</span>
                     </legend>
                     <div
                       className="flex flex-wrap gap-1.5"
                       role="group"
-                      aria-label="Why was it a false alarm?"
+                      aria-label="Reason the alert was unnecessary"
                     >
                       {INACCURACY_OPTIONS.map((opt, i) => (
                         <Chip
@@ -1129,7 +1131,7 @@ export function AlertReviewDrawer({
                 {workload === 'internal' && accurate === false && (
                   <ReviewTextarea
                     id={commentId}
-                    label="Why is this a false alarm?"
+                    label="Why was the alert unnecessary?"
                     value={comment}
                     onChange={setComment}
                     placeholder="Explain why the alert does not apply to this call."
@@ -1443,7 +1445,7 @@ function ManagerReviewSummary({
   actionDetails: string | null | undefined
 }) {
   const verdictLabel =
-    accurate === true ? 'Real issue' : accurate === false ? 'False alarm' : 'Reviewed'
+    accurate === true ? 'Warranted' : accurate === false ? 'Unnecessary' : 'Reviewed'
   const verdictTone =
     accurate === true
       ? 'bg-pennie-green-light text-pennie-green-deeper'

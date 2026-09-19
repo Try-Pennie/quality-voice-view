@@ -206,8 +206,8 @@ const SHORTCUT_GROUPS: { title: string; rows: [string, string][] }[] = [
   {
     title: 'Review drawer',
     rows: [
-      ['Y / N', 'Real issue / false alarm'],
-      ['1–9', 'Pick an action or reason'],
+      ['Y / N', 'Warranted / unnecessary (except Full QA)'],
+      ['1–9', 'Pick an action or reason (except Full QA)'],
       ['J / K', 'Next / previous alert'],
       ['⌘/Ctrl + Enter', 'Save the review'],
     ],

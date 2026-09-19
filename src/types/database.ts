@@ -201,6 +201,7 @@ export type AlertWithFeedback = {
   feedback_comment: string | null
   reviewed_at: string | null
   is_reviewed: boolean
+  queue_reason?: string
   violation_details?: string | null
   action_details?: string | null
   review_revision?: number | null
