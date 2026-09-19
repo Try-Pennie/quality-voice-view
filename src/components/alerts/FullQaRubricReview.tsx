@@ -502,7 +502,7 @@ export function FullQaRubricReview({ alert, scope, editable, canReloadReview, on
     </div>
   </>
 
-  return <form id={FULL_QA_FORM_ID} onSubmit={event => { event.preventDefault(); void save() }} className="space-y-6 [&_textarea]:border-pennie-navy/50 [&_select]:border-pennie-navy/50" aria-label="Full QA rubric review">
+  return <form id={FULL_QA_FORM_ID} onSubmit={event => { event.preventDefault(); void save() }} className="space-y-6" aria-label="Full QA rubric review">
     {(practiceFalsePositive || practiceSupported) && <aside aria-label="Staging practice guidance" className="text-xs text-pennie-graphite/70">
       <details>
         <summary className="pennie-focus-ring cursor-pointer font-semibold">Practice call (synthetic) · about this example</summary>

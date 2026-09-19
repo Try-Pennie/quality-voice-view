@@ -630,8 +630,8 @@ export function AlertReviewDrawer({
           target.focus()
         } : undefined}
         className={isFullQa
-          ? 'flex flex-col gap-0 overflow-hidden bg-pennie-white p-0 shadow-xl [--border:225_12%_72%]'
-          : 'w-full sm:max-w-2xl flex flex-col gap-0 p-0 overflow-hidden bg-pennie-white [--border:225_12%_72%]'}
+          ? 'flex flex-col gap-0 overflow-hidden bg-pennie-white p-0 shadow-xl [--border:225_12%_72%] [&_textarea]:border-pennie-navy/60 [&_select]:border-pennie-navy/60'
+          : 'w-full sm:max-w-2xl flex flex-col gap-0 p-0 overflow-hidden bg-pennie-white [--border:225_12%_72%] [&_textarea]:border-pennie-navy/60 [&_select]:border-pennie-navy/60'}
       >
         <SheetDescription className="sr-only">Review the call evidence, record a decision and follow-up, or approve the manager’s saved review.</SheetDescription>
         {/* Header */}
