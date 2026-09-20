@@ -176,6 +176,8 @@ export type AlertInaccuracyReason =
 
 export type AlertWithFeedback = {
   module_result_id: number
+  /** Stable stored reference, before a private Storage URL is signed for playback. */
+  recording_reference?: string | null
   alert_created_at: string
   alert_sent_at: string | null
   call_id: string
@@ -201,6 +203,7 @@ export type AlertWithFeedback = {
   feedback_comment: string | null
   reviewed_at: string | null
   is_reviewed: boolean
+  queue_reason?: string
   violation_details?: string | null
   action_details?: string | null
   review_revision?: number | null

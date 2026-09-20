@@ -1,0 +1,32 @@
+{
+  "native_polish": "passed",
+  "both_roles": "passed",
+  "scalar_projection": "passed",
+  "recording_playback": "passed",
+  "speech_visualizer_and_contrast": "passed",
+  "draft_guard": "passed",
+  "review_and_team_widths": [
+    320,
+    375,
+    414,
+    768,
+    1024,
+    1280,
+    1440
+  ],
+  "pointer_keyboard_reduced_motion": "passed",
+  "requests": 203,
+  "review_writes": 0,
+  "browser_errors": 0,
+  "measurements": [
+    {
+      "spectrumWidth": 926,
+      "recordingWidth": 1078,
+      "recordingBackground": "rgba(130, 208, 255, 0.3)",
+      "realSpeechInk": 8893
+    },
+    {
+      "recordedReviewBodyHeight": 370.1875
+    }
+  ]
+}

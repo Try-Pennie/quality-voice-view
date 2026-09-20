@@ -72,7 +72,7 @@ export function ReviewerActivitySummary({
                     <ReviewerCount reviewer={row} label="Reviewed" value={row.reviewed} outcome="all" onSelect={onSelect} />
                     <ReviewerCount reviewer={row} label="Warranted" value={row.real} outcome="real" onSelect={onSelect} />
                     <ReviewerCount reviewer={row} label="Unnecessary" value={row.falseAlarm} outcome="false_alarm" onSelect={onSelect} />
-                    <ReviewerCount reviewer={row} label="Unnecessary share" value={`${rate}%`} outcome="false_alarm" onSelect={onSelect} last />
+                    <ReviewerCount reviewer={row} label="Unnecessary share" value={`${rate}%`} empty={row.falseAlarm === 0} outcome="false_alarm" onSelect={onSelect} last />
                   </tr>
                 )
               })}
@@ -88,6 +88,7 @@ function ReviewerCount({
   reviewer,
   label,
   value,
+  empty = value === 0,
   outcome,
   onSelect,
   last = false,
@@ -95,6 +96,7 @@ function ReviewerCount({
   reviewer: { readonly reviewerEmail: string }
   label: string
   value: number | string
+  empty?: boolean
   outcome: ReviewerActivitySelection['outcome']
   onSelect: (selection: ReviewerActivitySelection) => void
   last?: boolean
@@ -102,14 +104,14 @@ function ReviewerCount({
   const name = reviewer.reviewerEmail.split('@')[0]
   return (
     <td className={`py-2 ${last ? 'pl-1' : 'px-1'} text-right`}>
-      <button
+      {empty ? <span className="inline-block min-w-[44px] px-2 text-center tabular-nums text-muted-foreground">{value}</span> : <button
         type="button"
         onClick={() => onSelect({ reviewerEmail: reviewer.reviewerEmail, outcome })}
         aria-label={`Filter ${name} ${label} ${value}`}
         className="pennie-focus-ring min-w-[44px] min-h-[44px] rounded-full px-2 font-semibold tabular-nums text-pennie-blue-deeper hover:bg-pennie-blue-light"
       >
         {value}
-      </button>
+      </button>}
     </td>
   )
 }

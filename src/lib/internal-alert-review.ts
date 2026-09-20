@@ -107,11 +107,11 @@ function parseRequiredText(value: string | null, label: string): InternalReviewP
 
 /** Parse a form draft and clear fields that are inapplicable to its verdict. */
 export function parseInternalReviewDraft(input: InternalReviewDraftInput): InternalReviewParseResult<InternalReviewDraft> {
-  if (input.verdict === null) return failure('Choose real issue or false alarm.')
+  if (input.verdict === null) return failure('Choose warranted or unnecessary.')
 
   if (input.verdict) {
     if (!input.action || !ACTIONS.includes(input.action)) return failure('Choose how the issue was addressed.')
-    if (input.reason !== null || input.falseAlarmDetails?.trim()) return failure('False-alarm fields do not apply to a real issue.')
+    if (input.reason !== null || input.falseAlarmDetails?.trim()) return failure('Unnecessary-alert fields do not apply to a warranted alert.')
     const violation = parseRequiredText(input.violationDetails, 'What happened')
     if (violation.ok === false) return { ok: false, error: violation.error }
     const action = parseRequiredText(input.actionDetails, 'Action details')
@@ -132,9 +132,9 @@ export function parseInternalReviewDraft(input: InternalReviewDraftInput): Inter
     }
   }
 
-  if (!input.reason || !REASONS.includes(input.reason)) return failure('Choose why this was a false alarm.')
+  if (!input.reason || !REASONS.includes(input.reason)) return failure('Choose why the alert was unnecessary.')
   if (input.action !== null || input.violationDetails?.trim() || input.actionDetails?.trim()) {
-    return failure('Real-issue fields do not apply to a false alarm.')
+    return failure('Warranted-alert fields do not apply to an unnecessary alert.')
   }
   const explanation = parseRequiredText(input.falseAlarmDetails, 'False-alarm explanation')
   if (explanation.ok === false) return { ok: false, error: explanation.error }
@@ -160,10 +160,12 @@ export function classifyInternalReviewMutationError(input: unknown): InternalRev
   const rawMessage = isRecord(input) && 'message' in input && typeof input.message === 'string'
     ? input.message
     : ''
-  if (rawMessage.includes('EAVESLY_STALE_REVIEW') || rawMessage.includes('EAVESLY_DECISION_CONFLICT')) {
+  if (rawMessage.includes('EAVESLY_STALE_REVIEW') || rawMessage.includes('EAVESLY_DECISION_CONFLICT')
+    || rawMessage.includes('EAVESLY_STALE_FULL_QA_SOURCE') || rawMessage.includes('EAVESLY_RULE_PROPOSAL_DECISION_CONFLICT')) {
     return { _tag: 'StaleReview', message: 'This review changed while you were working. Your draft is still here.' }
   }
-  if (rawMessage.includes('EAVESLY_INVALID_FEEDBACK') || rawMessage.includes('EAVESLY_INVALID_DECISION')) {
+  if (rawMessage.includes('EAVESLY_INVALID_FEEDBACK') || rawMessage.includes('EAVESLY_INVALID_DECISION')
+    || rawMessage.includes('EAVESLY_INVALID_FULL_QA_REVIEW') || rawMessage.includes('EAVESLY_INVALID_RULE_PROPOSAL')) {
     return { _tag: 'InvalidReview', message: 'Review details did not meet the required format.' }
   }
   if (rawMessage.includes('EAVESLY_FORBIDDEN') || rawMessage.includes('EAVESLY_UNAUTHENTICATED')) {

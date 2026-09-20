@@ -217,6 +217,7 @@ test('legacy call-detail score badges retain meaning with AA text contrast', asy
 test('review verdict badges use AA text contrast', async ({ page }) => {
   await reviewFixture(page, [
     alertRow('review-contrast', {
+      module_name: 'budget_inputs',
       is_reviewed: true,
       accurate: true,
       feedback_id: 1,
@@ -229,7 +230,7 @@ test('review verdict badges use AA text contrast', async ({ page }) => {
 
   const badge = page.getByRole('region', { name: 'Manager review' }).locator(
     '.rounded-full',
-    { hasText: 'Real issue' },
+    { hasText: 'Warranted' },
   )
   await expect(badge).toBeVisible()
   expect(await contrastRatio(badge)).toBeGreaterThanOrEqual(4.5)

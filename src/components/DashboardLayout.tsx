@@ -54,12 +54,15 @@ function DashboardChrome({ children }: { children: React.ReactNode }) {
   // Press "?" anywhere outside text inputs to jump to the glossary.
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
-      if (e.key !== '?') return
+      if (e.key !== '?' || e.defaultPrevented || e.metaKey || e.ctrlKey || e.altKey) return
+      // A global route shortcut must never unmount an open editor or bypass its leave guard.
+      if (document.querySelector('[role="dialog"], [role="alertdialog"]')) return
       const t = e.target as HTMLElement | null
       if (
         t &&
         (t.tagName === 'INPUT' ||
           t.tagName === 'TEXTAREA' ||
+          t.tagName === 'SELECT' ||
           t.isContentEditable)
       ) {
         return

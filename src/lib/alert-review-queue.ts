@@ -23,7 +23,7 @@ export type AlertQueueView = keyof typeof ALERT_QUEUE_VIEWS
 
 type ReviewState = Pick<AlertWithFeedback,
   'is_reviewed' | 'feedback_by' | 'acker_emails' | 'accurate' | 'action_taken' |
-  'alert_created_at' | 'current_decision'>
+  'alert_created_at' | 'current_decision'> & { readonly module_name?: string }
 
 /** Review-work accounting at one sent `(call, module)` row per received alert. */
 export type ReviewWorkloadCounts = {
@@ -112,7 +112,8 @@ export function isClosedForReviewer(
 
 /** Deferred coaching remains outstanding even after a director approves the verdict. */
 export function needsCoachingFollowUp(alert: ReviewState): boolean {
-  return isHumanReviewed(alert) && alert.accurate === true && alert.action_taken === 'follow_up_later'
+  return isHumanReviewed(alert) && alert.action_taken === 'follow_up_later' &&
+    (alert.accurate === true || alert.module_name === 'full_qa')
 }
 
 /** Actionable work across first review, approval, correction, and deferred coaching. */

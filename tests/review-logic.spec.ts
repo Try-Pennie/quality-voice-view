@@ -59,6 +59,7 @@ test('manager review, director approval, coaching, and system closure stay disti
   expect(isOutstandingReviewWork(approved, true, 'director@example.test')).toBe(true)
   expect(isOutstandingReviewWork({ ...approved, action_taken: 'coached' }, true, 'director@example.test')).toBe(false)
   expect(needsCoachingFollowUp({ ...deferred, accurate: false })).toBe(false)
+  expect(needsCoachingFollowUp({ ...deferred, accurate: false, module_name: 'full_qa' })).toBe(true)
   expect(needsCoachingFollowUp({ ...deferred, action_taken: 'coached' })).toBe(false)
   expect(needsCoachingFollowUp({ ...deferred, is_reviewed: false })).toBe(false)
   expect(matchesAlertQueueView(deferred, 'awaiting_approval', false, 'someone@example.test', now)).toBe(false)

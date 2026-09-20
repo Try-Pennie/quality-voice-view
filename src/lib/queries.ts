@@ -1,4 +1,5 @@
 import { supabase } from '@/integrations/supabase/client'
+import { resolveRecordingUrl } from './recording-url'
 import type { CallListRow } from './calls-queries'
 
 /** KPIs for explicitly exported rows; SQL uses the same denominators for on-screen summaries. */
@@ -46,8 +47,11 @@ export async function fetchCallDetail(callId: string) {
     throw qaError
   }
 
+  const recording = await resolveRecordingUrl(qa?.recording_link)
+  // Translate the typed adapter failure at React Query's promise boundary.
+  if (!recording.ok) throw new Error('Recording could not be loaded. Please reload this call.')
   return {
     ...call,
-    qa: qa || null,
+    qa: qa ? { ...qa, recording_link: recording.url } : null,
   }
 }

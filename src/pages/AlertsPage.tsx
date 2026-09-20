@@ -5,6 +5,7 @@ import { useQueryClient } from '@tanstack/react-query'
 import { useAuth } from '../hooks/useAuth'
 import {
   decideInternalAlertFeedback,
+  alertQueuePreview,
   fetchAlertOne,
   setAlertAck,
   VIOLATION_TYPE_LABELS,
@@ -83,6 +84,15 @@ export default function AlertsPage() {
 
   const { data: scope, isError: scopeError, refetch: refetchScope } = useUserScope(user?.email)
   const [drawerAlert, setDrawerAlert] = useState<AlertWithFeedback | null>(null)
+  const [animateDrawerOpen, setAnimateDrawerOpen] = useState(false)
+  const [detailLoad, setDetailLoad] = useState<{ key: string; status: 'loading' | 'error' | 'ready' } | null>(null)
+  const [detailRetry, setDetailRetry] = useState(0)
+  const detailKey = routeCallId && routeModuleName ? alertKey({ call_id: routeCallId, module_name: routeModuleName }) : null
+  const retryDetails = () => {
+    if (!detailKey) return
+    setDetailLoad({ key: detailKey, status: 'loading' })
+    setDetailRetry(attempt => attempt + 1)
+  }
 
   // Thirty Eastern calendar days, including today. URL is the source of truth
   // so reload, browser Back, and shared drawer links restore the exact queue.
@@ -289,6 +299,7 @@ export default function AlertsPage() {
   // Route owns the drawer. Ignore stale fetches after J/K, Back, or closing.
   useEffect(() => {
     if (!routeCallId || !routeModuleName || !scope) {
+      setAnimateDrawerOpen(false)
       setDrawerAlert(null)
       return
     }
@@ -298,6 +309,8 @@ export default function AlertsPage() {
       return
     }
     let cancelled = false
+    const key = alertKey({ call_id: routeCallId, module_name: routeModuleName })
+    setDetailLoad(current => current?.key === key ? current : { key, status: 'loading' })
     const inList = allAlerts.find(a => a.call_id === routeCallId && a.module_name === routeModuleName)
     setDrawerAlert(current => {
       if (current?.call_id === routeCallId && current.module_name === routeModuleName) return inList ? { ...current, ...inList } : current
@@ -306,19 +319,22 @@ export default function AlertsPage() {
     fetchAlertOne(routeCallId, routeModuleName, scope, workload)
       .then(full => {
         if (cancelled) return
+        setDetailLoad({ key, status: full ? 'ready' : 'error' })
         if (full) setDrawerAlert(current => {
           if (!current || current.call_id !== full.call_id || current.module_name !== full.module_name) return full
           return mergeAlertDetailsWithoutReviewRegression(current, full)
         })
         else toast.error('This alert is unavailable.')
       })
-      .catch(() => { if (!cancelled) toast.error('Could not load alert details. Close and reopen to retry.') })
+      .catch(() => { if (!cancelled) setDetailLoad({ key, status: 'error' }) })
     return () => { cancelled = true }
-  }, [routeCallId, routeModuleName, allAlerts, navigate, scope, workload, queueParams])
+  }, [routeCallId, routeModuleName, allAlerts, navigate, scope, workload, queueParams, detailRetry])
 
   const openDrawer = useCallback(
-    (alert: AlertWithFeedback) => {
-      // Instant: render with the slim list row…
+    (alert: AlertWithFeedback, animateOpen = false) => {
+      // Only explicit pointer entry gets motion; keyboard and auto-advance stay instant.
+      setAnimateDrawerOpen(animateOpen)
+      // Render immediately with the slim list row; never wait for enrichment.
       setDrawerAlert(alert)
       // Preserve any returnTo so j/k navigation between alerts doesn't strip
       // the originating-page context.
@@ -333,6 +349,7 @@ export default function AlertsPage() {
   )
 
   const closeDrawer = useCallback(() => {
+    setAnimateDrawerOpen(false)
     setDrawerAlert(null)
     if (!routeCallId) return
     // If we got here from a deep-link with a returnTo (e.g. an agent profile
@@ -753,7 +770,7 @@ export default function AlertsPage() {
 
   return (
     <div className="space-y-4 sm:space-y-5 animate-pennie-rise">
-      <section className="bg-pennie-white rounded-3xl shadow-resting p-4 sm:p-6 space-y-4" aria-labelledby="review-heading">
+      <section className="bg-pennie-white rounded-3xl shadow-resting p-4 sm:p-6 space-y-3 sm:space-y-4" aria-labelledby="review-heading">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
             {workload === 'partner_qa' && <p className="pennie-label">Partner QA · Admin only</p>}
@@ -764,7 +781,7 @@ export default function AlertsPage() {
           </div>
           <button
             type="button"
-            onClick={() => queuePage.items[0] && openDrawer(queuePage.items[0])}
+            onClick={event => queuePage.items[0] && openDrawer(queuePage.items[0], event.detail > 0)}
             disabled={loading || alertsError || queuePage.items.length === 0}
             className="pennie-focus-ring min-h-[44px] px-5 rounded-full bg-pennie-navy text-pennie-white text-sm font-semibold hover:bg-pennie-navy/90 disabled:opacity-40 disabled:cursor-not-allowed"
           >
@@ -773,16 +790,12 @@ export default function AlertsPage() {
         </div>
 
         {workload === 'internal' && <div className="grid grid-cols-2 gap-2 sm:flex" role="group" aria-label="Reporting period">
-          <button type="button" aria-pressed={allTimeOutstanding} onClick={() => changeFilters({ range: 'outstanding', status: 'outstanding', manager: null, reviewer: null, agent: null, outcome: null, search: null })} className={`pennie-focus-ring min-h-[44px] rounded-full border px-4 text-sm font-semibold ${allTimeOutstanding ? 'border-pennie-navy bg-pennie-navy text-white' : 'border-border text-pennie-graphite'}`}>All-time outstanding</button>
-          <button type="button" aria-pressed={!allTimeOutstanding} onClick={() => changeFilters({ range: null, status: scope.isGodMode ? 'awaiting_approval' : 'awaiting_manager' })} className={`pennie-focus-ring min-h-[44px] rounded-full border px-4 text-sm font-semibold ${!allTimeOutstanding ? 'border-pennie-navy bg-pennie-navy text-white' : 'border-border text-pennie-graphite'}`}>Selected ET period</button>
+          <button type="button" aria-pressed={allTimeOutstanding} onClick={() => changeFilters({ range: 'outstanding', status: 'outstanding', manager: null, reviewer: null, agent: null, outcome: null, search: null })} className={`pennie-focus-ring min-h-[44px] rounded-full border px-4 text-sm font-semibold ${allTimeOutstanding ? 'border-pennie-navy bg-pennie-navy text-white' : 'border-border text-pennie-graphite'}`}>Outstanding</button>
+          <button type="button" aria-pressed={!allTimeOutstanding} onClick={() => changeFilters({ range: null, status: scope.isGodMode ? 'awaiting_approval' : 'awaiting_manager' })} className={`pennie-focus-ring min-h-[44px] rounded-full border px-4 text-sm font-semibold ${!allTimeOutstanding ? 'border-pennie-navy bg-pennie-navy text-white' : 'border-border text-pennie-graphite'}`}>Date range</button>
         </div>}
 
-        <div className="grid gap-3 lg:grid-cols-[auto_minmax(16rem,18rem)_minmax(14rem,1fr)] lg:items-end">
-          {allTimeOutstanding ? (
-            <div className="rounded-2xl bg-pennie-beige/60 px-4 py-2 text-sm text-pennie-graphite">
-              All alert-received dates · ET date filters are not applied
-            </div>
-          ) : (
+        <div className={`grid gap-3 lg:items-end ${allTimeOutstanding ? 'lg:grid-cols-[minmax(16rem,18rem)_1fr]' : 'lg:grid-cols-[auto_minmax(16rem,18rem)_minmax(14rem,1fr)]'}`}>
+          {!allTimeOutstanding && (
             <DateRangePicker
               startDate={startDate}
               endDate={endDate}
@@ -793,14 +806,14 @@ export default function AlertsPage() {
           )}
           <label className="flex flex-col gap-1.5">
             <span className="pennie-label inline-flex items-center gap-1">
-              Queue
+              {allTimeOutstanding ? 'Queue · all dates' : 'Queue'}
               <HelpHint id="filter.alerts.status" />
             </span>
             <select
               aria-label="Queue"
               value={statusView}
               onChange={event => changeFilters({ status: event.target.value, sort: null, direction: null })}
-              className="pennie-focus-ring h-10 w-full rounded-full border border-border bg-pennie-white px-4 text-sm font-semibold text-pennie-navy"
+              className="pennie-focus-ring min-h-[44px] w-full rounded-full border border-border bg-pennie-white px-4 text-base sm:text-sm font-semibold text-pennie-navy"
             >
               {queueOptions.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}
             </select>
@@ -856,7 +869,7 @@ export default function AlertsPage() {
         )}
 
         <details className="group border-t border-border pt-3">
-          <summary className="pennie-focus-ring min-h-[40px] cursor-pointer list-none inline-flex items-center gap-2 rounded-full px-3 -ml-3 text-sm font-semibold text-pennie-blue-deeper">
+          <summary className="pennie-focus-ring min-h-[44px] cursor-pointer list-none inline-flex items-center gap-2 rounded-full px-3 -ml-3 text-sm font-semibold text-pennie-blue-deeper">
             <ChevronDown className="w-4 h-4 transition-transform group-open:rotate-180" aria-hidden="true" />
             More filters
           </summary>
@@ -873,8 +886,8 @@ export default function AlertsPage() {
                 <option value="time:desc">Newest first</option>
                 <option value="agent:asc">Agent A–Z</option>
                 <option value="agent:desc">Agent Z–A</option>
-                <option value="violation:asc">Issue A–Z</option>
-                <option value="violation:desc">Issue Z–A</option>
+                <option value="violation:asc">Alert type A–Z</option>
+                <option value="violation:desc">Alert type Z–A</option>
                 <option value="status:asc">Status</option>
                 <option value="status:desc">Status reverse</option>
               </select>
@@ -923,16 +936,19 @@ export default function AlertsPage() {
       </section>
 
       {allTimeOutstanding && !alertsError && (
-        <section className="bg-pennie-white rounded-3xl shadow-resting p-4 sm:p-6" aria-labelledby="outstanding-summary-heading">
-          <h2 id="outstanding-summary-heading" className="pennie-label">Outstanding by next action · all time</h2>
-          <p className="mt-1 text-xs text-pennie-graphite/60">All next actions in this scope · coaching may overlap.</p>
-          <div className={`mt-4 grid grid-cols-2 ${scope.isGodMode ? 'sm:grid-cols-4' : 'sm:grid-cols-3'} gap-2`}>
+        <details className="group bg-pennie-white rounded-3xl shadow-resting" open={teamWorkloadOpen} onToggle={event => setTeamWorkloadOpen(event.currentTarget.open)}>
+          <summary className="pennie-focus-ring-inset min-h-[52px] cursor-pointer list-none flex items-center justify-between gap-3 px-4 sm:px-6 rounded-3xl text-sm font-semibold text-pennie-navy">
+            Outstanding by next action
+            <ChevronDown className="w-4 h-4 shrink-0 transition-transform group-open:rotate-180" aria-hidden="true" />
+          </summary>
+          <p className="px-4 sm:px-6 text-xs text-pennie-graphite/60">All dates; coaching may overlap an approved review.</p>
+          <div className={`p-4 sm:px-6 grid grid-cols-2 ${scope.isGodMode ? 'sm:grid-cols-4' : 'sm:grid-cols-3'} gap-2`}>
             <WorkloadCount scopeLabel="all-time" label="First reviews" value={outstandingStats.firstReviews} onClick={() => selectWorkloadCount('awaiting_manager')} />
             {scope.isGodMode && <WorkloadCount scopeLabel="all-time" label="Awaiting Kris’s approval" value={outstandingStats.awaitingApproval} onClick={() => selectWorkloadCount('awaiting_approval')} />}
             <WorkloadCount scopeLabel="all-time" label="Changes requested by Kris" value={outstandingStats.corrections} onClick={() => selectWorkloadCount('changes_requested')} />
             <WorkloadCount scopeLabel="all-time" label="Coaching due" value={outstandingStats.coaching} onClick={() => selectWorkloadCount('coaching_due')} />
           </div>
-        </section>
+        </details>
       )}
 
       {allTimeOutstanding && scope.isGodMode && !alertsError && <ManagerReviewAging alerts={allAlerts} managerNames={managerNames} now={now} loading={loading}
@@ -990,8 +1006,6 @@ export default function AlertsPage() {
           </div>
         </details>
       )}
-
-      <p className="px-2 text-xs text-pennie-graphite/70">{allTimeOutstanding ? 'All alert-received dates · outstanding work only' : `${formatDateParam(startDate)} – ${formatDateParam(endDate)} (ET) · Alerts received in this period`}</p>
 
       {/* Table */}
       <section className="bg-pennie-white rounded-3xl shadow-resting overflow-hidden">
@@ -1117,7 +1131,7 @@ export default function AlertsPage() {
                   />
                   <Th>Contact</Th>
                   <SortableTh
-                    label="Violation"
+                    label="Alert type"
                     active={sortKey === 'violation'}
                     desc={sortDesc}
                     onClick={() => toggleSort('violation')}
@@ -1147,7 +1161,7 @@ export default function AlertsPage() {
                     className={`pennie-focus-ring-inset group cursor-pointer transition-colors duration-150 hover:bg-pennie-blue-light/40 ${
                       i !== 0 ? 'border-t border-border/60' : ''
                     } ${queuePage.start - 1 + i === focusIndex ? 'bg-pennie-blue-light/40' : ''}`}
-                    onClick={() => openDrawer(a)}
+                    onClick={event => openDrawer(a, event.detail > 0)}
                     onKeyDown={e => onRowKeyDown(e, a)}
                   >
                     {showBulkColumn && (
@@ -1197,7 +1211,7 @@ export default function AlertsPage() {
                               {a.contact_phone && <span className="ml-2 text-xs text-pennie-graphite/70 tabular-nums">{formatPhoneNumber(a.contact_phone)}</span>}
                             </p>
                           </div>
-                          <p className="text-sm text-pennie-graphite/80 line-clamp-2">{a.call_summary || 'No summary available.'}</p>
+                          <QueuePreview alert={a} />
                           <div className="flex flex-wrap items-center justify-between gap-2">
                             <span className="text-xs text-muted-foreground tabular-nums">{formatDateTime(a.alert_created_at)}</span>
                             <span className="inline-flex items-center gap-2">
@@ -1237,9 +1251,7 @@ export default function AlertsPage() {
                       <ViolationPill type={a.violation_type} />
                     </Td>
                     <Td className="hidden lg:table-cell">
-                      <p className="text-sm text-pennie-graphite/80 line-clamp-2 max-w-md">
-                        {a.call_summary || '—'}
-                      </p>
+                      <QueuePreview alert={a} />
                     </Td>
                     <Td className="hidden lg:table-cell">
                       <div className="flex flex-col gap-1.5">
@@ -1270,12 +1282,20 @@ export default function AlertsPage() {
       </section>
 
       <p className="hidden sm:block text-[11px] text-muted-foreground px-2">
-        Keyboard: J/K move through the list · Enter opens · in the drawer Y/N
-        sets the verdict, 1–9 picks a reason, ⌘/Ctrl+Enter saves.
+        Keyboard: J/K navigate · Enter opens · ⌘/Ctrl+Enter saves a completed review.
       </p>
 
+      {detailLoad?.key === detailKey && detailLoad.status === 'error' && !drawerAlert && <ErrorState
+        title="Couldn't load this alert"
+        message="Try loading it again, or return to the queue."
+        onRetry={retryDetails}
+      />}
       <AlertReviewDrawer
         alert={drawerAlert}
+        animateOpen={animateDrawerOpen}
+        detailsLoading={detailLoad?.key === detailKey && detailLoad.status === 'loading'}
+        detailsError={detailLoad?.key === detailKey && detailLoad.status === 'error'}
+        onRetryDetails={retryDetails}
         currentUserEmail={user?.email}
         scope={scope}
         workload={workload}
@@ -1294,11 +1314,21 @@ export default function AlertsPage() {
   )
 }
 
+function QueuePreview({ alert }: { alert: AlertWithFeedback }) {
+  const preview = alertQueuePreview(alert)
+  return <p className="text-sm text-pennie-graphite/80 line-clamp-2 max-w-md">
+    <span className="font-semibold">{preview.label}: </span>{preview.text}
+  </p>
+}
+
 function WorkloadCount({ label, value, onClick, scopeLabel = 'my team' }: { label: string; value: number; onClick: () => void; scopeLabel?: string }) {
-  return <button type="button" onClick={onClick} aria-label={`Filter ${scopeLabel} ${label} ${value}`} className="pennie-focus-ring min-h-[64px] rounded-2xl bg-pennie-beige/60 px-3 py-2 text-left hover:bg-pennie-blue-light/60">
-    <span className="block text-lg font-semibold tabular-nums text-pennie-navy">{value}</span>
+  const content = <>
+    <span className={`block text-lg font-semibold tabular-nums ${value ? 'text-pennie-navy' : 'text-muted-foreground'}`}>{value}</span>
     <span className="block text-[11px] font-bold uppercase tracking-wider text-pennie-graphite/70">{label}</span>
-  </button>
+  </>
+  return value === 0
+    ? <div className="min-h-[64px] rounded-2xl bg-pennie-beige/60 px-3 py-2">{content}</div>
+    : <button type="button" onClick={onClick} aria-label={`Filter ${scopeLabel} ${label} ${value}`} className="pennie-focus-ring min-h-[64px] rounded-2xl bg-pennie-beige/60 px-3 py-2 text-left hover:bg-pennie-blue-light/60">{content}</button>
 }
 
 function SkeletonAlertsTable() {
@@ -1319,7 +1349,7 @@ function SkeletonAlertsTable() {
             <Th>Time (ET)</Th>
             <Th>Agent</Th>
             <Th>Contact</Th>
-            <Th>Violation</Th>
+            <Th>Alert type</Th>
             <Th>Summary</Th>
             <Th>Status</Th>
             <th aria-hidden="true" className="w-10" />

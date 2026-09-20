@@ -479,18 +479,6 @@ export default function TeamPage() {
         />
       ) : (
         <>
-          <details className="space-y-6"><summary className="pennie-focus-ring min-h-[44px] cursor-pointer text-sm font-semibold text-pennie-blue-deeper">AI trends and call metrics</summary>
-          <TeamHeaderStats
-            metrics={teamMetrics}
-            loading={loading}
-            onComplianceClick={focusAttentionList}
-            onEscalationClick={focusAttentionList}
-            onAlertsClick={goToAlerts}
-          />
-
-          <TeamTrendSection points={teamTrend} loading={loading} />
-          </details>
-
       {scope?.isGodMode && (
         <TeamBreakdownByManager
           rows={managerRollups}
@@ -516,10 +504,9 @@ export default function TeamPage() {
         />
       )}
 
-      <div className="flex flex-wrap items-center justify-between gap-4">
-        <div className="flex flex-wrap gap-3 sm:gap-5 items-end">
+      <div className="space-y-3">
           <div className="flex flex-col">
-            <label htmlFor="agent-search" className="pennie-label mb-2">
+            <label htmlFor="agent-search" className="pennie-label mb-2 sr-only sm:not-sr-only">
               Search
             </label>
             <input
@@ -528,13 +515,11 @@ export default function TeamPage() {
               value={search}
               onChange={e => setSearch(e.target.value)}
               placeholder="Filter by name or email"
-              className="min-h-[40px] px-4 py-2 rounded-full bg-pennie-white border border-border text-sm text-pennie-graphite placeholder:text-pennie-graphite/40 focus:outline-none focus:ring-2 focus:ring-pennie-blue-deeper/40 focus:border-pennie-blue-deeper transition-colors w-64"
+              className="min-h-[44px] px-4 py-2 rounded-full bg-pennie-white border border-border text-base sm:text-sm text-pennie-graphite placeholder:text-pennie-graphite/40 focus:outline-none focus:ring-2 focus:ring-pennie-blue-deeper/40 focus:border-pennie-blue-deeper transition-colors w-full sm:w-64"
             />
           </div>
-        </div>
-      </div>
 
-      <div className="flex flex-wrap gap-2" role="group" aria-label="Quick filters">
+      <div className="flex gap-2 overflow-x-auto py-1 sm:flex-wrap" role="group" aria-label="Quick filters">
         {(
           [
             { value: 'all', label: 'All agents' },
@@ -548,7 +533,8 @@ export default function TeamPage() {
             type="button"
             aria-pressed={quickFilter === f.value}
             onClick={() => setQuickFilter(f.value)}
-            className={`min-h-[40px] px-4 py-2 rounded-full text-sm font-semibold border transition-all duration-200 ${
+            onFocus={event => event.currentTarget.scrollIntoView({ block: 'nearest', inline: 'nearest' })}
+            className={`pennie-focus-ring-inset min-h-[44px] shrink-0 whitespace-nowrap px-4 py-2 rounded-full text-sm font-semibold border transition-colors duration-150 ${
               quickFilter === f.value
                 ? 'bg-pennie-navy text-pennie-white border-pennie-navy'
                 : 'bg-pennie-white border-border text-pennie-graphite hover:bg-pennie-beige'
@@ -557,6 +543,7 @@ export default function TeamPage() {
             {f.label}
           </button>
         ))}
+      </div>
       </div>
 
       <div ref={leaderboardRef} className="scroll-mt-8">
@@ -582,6 +569,16 @@ export default function TeamPage() {
           />
         )}
       </div>
+          <details className="space-y-6"><summary className="pennie-focus-ring min-h-[44px] cursor-pointer text-sm font-semibold text-pennie-blue-deeper">AI trends and call metrics</summary>
+          <TeamHeaderStats
+            metrics={teamMetrics}
+            loading={loading}
+            onComplianceClick={focusAttentionList}
+            onEscalationClick={focusAttentionList}
+            onAlertsClick={goToAlerts}
+          />
+          <TeamTrendSection points={teamTrend} loading={loading} />
+          </details>
         </>
       )}
 

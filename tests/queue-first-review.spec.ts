@@ -88,7 +88,7 @@ test('my-team counts clear unrelated queue filters and account for system closur
 
 test('an unchanged legacy self-review can be approved without inventing new review details', async ({ page }) => {
   const email = 'director@example.test'
-  const state = await reviewFixture(page, [alertRow('legacy-own', {
+  const state = await reviewFixture(page, [alertRow('legacy-own', { module_name: 'budget_inputs',
     is_reviewed: true, accurate: true, action_taken: 'coached', feedback_by: email,
     feedback_comment: 'Legacy combined note describing the finding and coaching action.',
   })], { god: true, email })
@@ -187,6 +187,7 @@ test('compact queue fits the first row and keyboard path at supported narrow wid
 test('director sees the manager explanation and evidence before approval actions', async ({ page }) => {
   await page.setViewportSize({ width: 320, height: 700 })
   await reviewFixture(page, [alertRow('approval', {
+    module_name: 'budget_inputs',
     is_reviewed: true,
     accurate: true,
     action_taken: 'coached',
@@ -201,12 +202,12 @@ test('director sees the manager explanation and evidence before approval actions
   await expect(dialog.getByText('The manager identified the exact missing disclosure.')).toBeVisible()
   await expect(dialog.getByText('Review both quoted passages in context.')).toBeVisible()
   await expect(dialog.getByRole('button', { name: 'Approve review' })).toBeInViewport()
-  const contentOrder = await dialog.locator('section').evaluateAll(sections => ({
-    review: sections.findIndex(section => section.getAttribute('aria-label') === 'Manager review'),
-    approval: sections.findIndex(section => section.textContent?.includes('awaiting Kris’s approval')),
-  }))
-  expect(contentOrder.review).toBeGreaterThanOrEqual(0)
-  expect(contentOrder.approval).toBeGreaterThan(contentOrder.review)
+  expect(await dialog.evaluate(element => {
+    const review = element.querySelector('section[aria-label="Manager review"]')
+    const approve = [...element.querySelectorAll('button')].find(button => button.textContent === 'Approve review')
+    return !!review && !!approve && !!(review.compareDocumentPosition(approve) & Node.DOCUMENT_POSITION_FOLLOWING)
+  })).toBe(true)
+  await expect(dialog.getByRole('textbox', { name: /Request changes with instructions/ })).toHaveCount(0)
   await expect(dialog.getByText('Discussion', { exact: true })).toBeVisible()
   await expect(dialog.getByRole('textbox', { name: 'Add a message' })).not.toBeVisible()
 })
@@ -238,7 +239,7 @@ test('discussion count excludes deleted messages while keeping the thread on dem
 
 test('a director editing their own manager review must save before approving it', async ({ page }) => {
   const email = 'director@example.test'
-  const state = await reviewFixture(page, [alertRow('own-review', {
+  const state = await reviewFixture(page, [alertRow('own-review', { module_name: 'budget_inputs',
     is_reviewed: true,
     accurate: true,
     action_taken: 'coached',
@@ -268,7 +269,7 @@ test('a director editing their own manager review must save before approving it'
 })
 
 test('drawer uses one scrolling review flow for evidence, required fields, and save', async ({ page }, testInfo) => {
-  const state = await reviewFixture(page, [alertRow('single-flow')])
+  const state = await reviewFixture(page, [alertRow('single-flow', { module_name: 'budget_inputs' })])
   await page.setViewportSize({ width: 320, height: 700 })
   await page.goto('/dashboard/alerts')
   await openAlert(page, 'single-flow')
@@ -276,7 +277,7 @@ test('drawer uses one scrolling review flow for evidence, required fields, and s
   const dialog = page.getByRole('dialog')
   await expect(dialog.getByText('Why it fired')).toBeVisible()
   await expect(dialog.getByRole('button', { name: 'Save review' })).toBeInViewport()
-  await dialog.getByRole('button', { name: 'Real issue (Y)' }).click()
+  await dialog.getByRole('button', { name: 'Warranted (Y)' }).click()
   await dialog.getByRole('button', { name: '1. Coached the agent' }).click()
   await dialog.getByRole('textbox', { name: /What happened/ }).fill('The required disclosure was omitted from this synthetic call.')
   await dialog.getByRole('textbox', { name: /What action did you take/ }).fill('The manager coached the complete disclosure with the representative.')
