@@ -132,7 +132,7 @@ function bucketKey(date: Date, size: 'day' | 'week'): string {
     const diff = (day + 6) % 7
     d.setDate(d.getDate() - diff)
   }
-  return d.toISOString().slice(0, 10)
+  return toDateParam(d)
 }
 
 function bucketLabel(iso: string, size: 'day' | 'week'): string {
@@ -149,8 +149,7 @@ function buildEmptyBuckets(
   size: 'day' | 'week',
 ): Map<string, TrendPoint> {
   const map = new Map<string, TrendPoint>()
-  const cursor = new Date(startDate)
-  cursor.setHours(0, 0, 0, 0)
+  const cursor = new Date(`${bucketKey(startDate, size)}T00:00:00`)
   while (cursor <= endDate) {
     const key = bucketKey(cursor, size)
     if (!map.has(key)) {
@@ -347,6 +346,8 @@ export async function fetchTeamRollup(
         p_start: toDateParam(startDate),
         p_end: toDateParam(endDate),
       })
+      .order('bucket_day', { ascending: true })
+      .order('agent_email', { ascending: true })
       .range(from, from + PAGE_SIZE - 1)
     if (error) {
       console.error('Error calling team_daily_metrics:', error)
@@ -728,7 +729,11 @@ export function aggregateManagerRollups(
   const results: ManagerRollup[] = []
   for (const [manager_email, agents] of buckets) {
     const callCount = agents.reduce((s, a) => s + a.call_count, 0)
-    if (callCount === 0 && manager_email === '__unassigned__') continue
+    if (
+      callCount === 0 &&
+      manager_email === '__unassigned__' &&
+      agents.every(agent => agent.total_alerts_count === 0)
+    ) continue
     // Re-derive compliance from underlying counts via trend_points
     let compPass = 0
     let compTotal = 0
@@ -748,9 +753,9 @@ export function aggregateManagerRollups(
       compTotal > 0 ? Math.round((compPass / compTotal) * 100) : 0
     const csat_high_rate =
       csatTotal > 0 ? Math.round((csatHigh / csatTotal) * 100) : 0
-    const escalation_rate =
-      callCount > 0 ? Math.round((escalations / callCount) * 100) : 0
     const qa_count = agents.reduce((s, a) => s + a.qa_count, 0)
+    const escalation_rate =
+      qa_count > 0 ? Math.round((escalations / qa_count) * 100) : 0
     const total_alerts_count = agents.reduce(
       (s, a) => s + a.total_alerts_count,
       0,

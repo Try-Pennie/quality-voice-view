@@ -55,6 +55,33 @@ type QuickFilter = 'all' | 'attention' | 'top' | 'alerts'
 
 const WIDE_RANGE_DAYS = 60
 
+function emptyAlertOnlyRollup(
+  agentEmail: string,
+  agentFullName: string,
+): AgentRollup {
+  return {
+    agent_email: agentEmail,
+    agent_full_name: agentFullName,
+    call_count: 0,
+    qa_count: 0,
+    avg_talk_time: 0,
+    compliance_pass_rate: 0,
+    csat_high_rate: 0,
+    escalation_rate: 0,
+    total_alerts_count: 0,
+    open_alerts_count: 0,
+    unreviewed_alerts_count: 0,
+    reviewed_alerts_count: 0,
+    confirmed_issue_count: 0,
+    false_positive_count: 0,
+    system_closed_count: 0,
+    pitch_call_count: 0,
+    rushed_pitch_count: 0,
+    trend_points: [],
+    needs_attention: false,
+  }
+}
+
 function WideRangeLoadingHint({
   loading,
   startDate,
@@ -191,10 +218,11 @@ export default function TeamPage() {
   const rollupWithVisibleAlertCounts = useMemo(() => {
     const countsByAgent = new Map<
       string,
-      { total: number; unreviewed: number; reviewed: number; real: number; falsePositive: number; systemClosed: number }
+      { name: string; total: number; unreviewed: number; reviewed: number; real: number; falsePositive: number; systemClosed: number }
     >()
     for (const cell of breakdown) {
       const current = countsByAgent.get(cell.agent_email) ?? {
+        name: cell.agent_full_name?.trim() || cell.agent_email,
         total: 0,
         unreviewed: 0,
         reviewed: 0,
@@ -211,15 +239,19 @@ export default function TeamPage() {
       countsByAgent.set(cell.agent_email, current)
     }
 
-    return rollup.map(agent => {
-      const counts = countsByAgent.get(agent.agent_email)
+    const rollupByAgent = new Map(rollup.map(agent => [agent.agent_email, agent]))
+    const visibleAgentEmails = new Set([...rollupByAgent.keys(), ...countsByAgent.keys()])
+    return Array.from(visibleAgentEmails).map(agentEmail => {
+      const counts = countsByAgent.get(agentEmail)
+      const agent = rollupByAgent.get(agentEmail) ??
+        emptyAlertOnlyRollup(agentEmail, counts?.name ?? agentEmail)
       const total = counts?.total ?? 0
       const unreviewed = counts?.unreviewed ?? 0
       const reviewed = counts?.reviewed ?? 0
       const real = counts?.real ?? 0
       const falsePositive = counts?.falsePositive ?? 0
       const systemClosed = counts?.systemClosed ?? 0
-      const pitch = pitchRisk.get(agent.agent_email)
+      const pitch = pitchRisk.get(agentEmail)
       return {
         ...agent,
         total_alerts_count: total,
