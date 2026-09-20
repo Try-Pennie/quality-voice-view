@@ -70,9 +70,11 @@ const alertFiltersKey = (f: AlertFilters) => ({
   start: dateKey(f.startDate),
   end: dateKey(f.endDate),
   modules: f.modules ? [...f.modules].sort() : null,
+  agentEmail: f.agentEmail ?? null,
   status: f.status ?? 'all',
   accuracy: f.accuracy ?? 'all',
   workload: f.workload ?? 'internal',
+  outstandingOnly: f.outstandingOnly ?? false,
 })
 
 export function useUserScope(email: string | null | undefined) {

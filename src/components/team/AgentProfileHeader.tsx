@@ -69,7 +69,7 @@ export function AgentProfileHeader({
           helpId="metric.manager_total_alerts"
         />
         <SupportingStat
-          label="Manager-confirmed issues"
+          label="Warranted alerts"
           value={loading || !r ? '—' : r.confirmed_issue_count.toString()}
         />
         <SupportingStat

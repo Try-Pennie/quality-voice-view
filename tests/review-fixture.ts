@@ -32,7 +32,7 @@ export function alertRow(id: string, overrides: Partial<AlertWithFeedback> = {})
  * It exercises real hooks, queries, pagination requests and mutations, not patched modules.
  * This proves client behavior, not production RLS/SQL execution.
  */
-export async function reviewFixture(page: Page, rows: AlertWithFeedback[], options: { god?: boolean; noAgents?: boolean; managedAgents?: string[]; managerNames?: Record<string, string>; dailyMetrics?: unknown[]; email?: string; messages?: AlertMessage[] } = {}) {
+export async function reviewFixture(page: Page, rows: AlertWithFeedback[], options: { god?: boolean; noAgents?: boolean; managedAgents?: string[]; managerNames?: Record<string, string>; managerMapping?: { agent_email: string; manager_email: string }[]; dailyMetrics?: unknown[]; email?: string; messages?: AlertMessage[] } = {}) {
   const fixtureEmail = options.email ?? EMAIL
   const state = {
     rows, writes: [] as unknown[], requests: [] as URL[], transcript: TRANSCRIPT as string | null,
@@ -69,6 +69,7 @@ export async function reviewFixture(page: Page, rows: AlertWithFeedback[], optio
     if (table === 'eavesly_calls_page') return respond({ rows: [], has_more: false })
     if (table === 'eavesly_calls_summary') return respond({ total_calls: 0, window_calls: 0, calls_requiring_attention: 0, avg_talk_time: 0, avg_handle_time: 0, compliance_pass_rate: 0, high_sat_rate: 0, dispositions: [] })
     if (table === 'eavesly_active_call_agents' || table === 'eavesly_team_pitch_risk') return respond([])
+    if (table === 'agent_manager_mapping_at') return respond(options.managerMapping ?? [])
     if (table === 'team_daily_metrics') return respond(options.dailyMetrics ?? [])
     if (table === 'agent_daily_metrics') {
       const email = url.searchParams.get('p_agent_email')?.replace(/^eq\./, '')
@@ -84,6 +85,7 @@ export async function reviewFixture(page: Page, rows: AlertWithFeedback[], optio
         if (key === 'module_name' && value.startsWith('in.')) selected = selected.filter(row => value.includes(row.module_name))
         if (key === 'alert_sent' && value === 'eq.true') selected = selected.filter(row => row.alert_sent === true)
         if (key === 'agent_email' && value.startsWith('in.')) selected = selected.filter(row => value.includes(row.agent_email ?? 'no-agent'))
+        if (key === 'agent_email' && value.startsWith('eq.')) selected = selected.filter(row => row.agent_email === value.slice(3))
         if (key === 'alert_created_at' && value.startsWith('gte.')) selected = selected.filter(row => row.alert_created_at >= value.slice(4))
         if (key === 'alert_created_at' && value.startsWith('lte.')) selected = selected.filter(row => row.alert_created_at <= value.slice(4))
       }
