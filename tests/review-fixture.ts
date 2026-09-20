@@ -66,7 +66,7 @@ export async function reviewFixture(page: Page, rows: AlertWithFeedback[], optio
   const state = {
     rows, writes: [] as unknown[], requests: [] as URL[], transcript: TRANSCRIPT as string | null,
     failFeedback: false, failTranscript: false, failFullQaContext: false, failQueueOffset: -1, failBreakdown: false,
-    transcriptGate: Promise.resolve(), alertGate: Promise.resolve(), queueGate: Promise.resolve(), ackGate: Promise.resolve(), decisionGate: Promise.resolve(), fullQaContextGate: Promise.resolve(), fullQaSubmitGate: Promise.resolve(),
+    transcriptGate: Promise.resolve(), alertGate: Promise.resolve(), queueGate: Promise.resolve(), ackGate: Promise.resolve(), decisionGate: Promise.resolve(), feedbackGate: Promise.resolve(), fullQaContextGate: Promise.resolve(), fullQaSubmitGate: Promise.resolve(),
     failedAckIds: new Set<string>(), failedDecisionIds: new Set<string>(),
     ackInFlight: 0, maxAckInFlight: 0, decisionInFlight: 0, maxDecisionInFlight: 0,
     nextDecisionId: 100, nextProposalId: 1,
@@ -107,6 +107,23 @@ export async function reviewFixture(page: Page, rows: AlertWithFeedback[], optio
     if (table === 'agent_daily_metrics') {
       const email = url.searchParams.get('p_agent_email')?.replace(/^eq\./, '')
       return respond((options.dailyMetrics ?? []).filter(row => !email || (row && typeof row === 'object' && 'agent_email' in row && row.agent_email === email)))
+    }
+    if (table === 'eavesly_disposition_audit') {
+      const params = url.searchParams
+      let selected = state.rows.filter(row => row.module_name === 'disposition_review')
+      for (const [key, value] of params) {
+        if (key === 'call_id' && value.startsWith('eq.')) selected = selected.filter(row => row.call_id === value.slice(3))
+        if (key === 'module_name' && value.startsWith('eq.')) selected = selected.filter(row => row.module_name === value.slice(3))
+        if (key === 'agent_email' && value.startsWith('in.')) selected = selected.filter(row => value.includes(row.agent_email ?? 'no-agent'))
+        if (key === 'alert_created_at' && value.startsWith('gte.')) selected = selected.filter(row => row.alert_created_at >= value.slice(4))
+        if (key === 'alert_created_at' && value.startsWith('lte.')) selected = selected.filter(row => row.alert_created_at <= value.slice(4))
+      }
+      selected.sort((a, b) => b.alert_created_at.localeCompare(a.alert_created_at))
+      const objectResponse = request.headers().accept?.includes('vnd.pgrst.object')
+      const offset = Number(params.get('offset') ?? 0)
+      const pageRows = selected.slice(offset, offset + Math.min(Number(params.get('limit') ?? 1000), 1000))
+      if (objectResponse) return respond(selected[0] ?? null)
+      return respond(pageRows)
     }
     if (table === 'eavesly_alerts_with_feedback') {
       const params = url.searchParams
@@ -292,6 +309,7 @@ export async function reviewFixture(page: Page, rows: AlertWithFeedback[], optio
     if (table === 'eavesly_alert_feedback' && request.method() === 'POST') {
       const input: unknown = request.postDataJSON()
       state.writes.push(input)
+      await state.feedbackGate
       if (state.failFeedback) return respond({ message: 'Synthetic save failure' }, 500)
       if (!input || typeof input !== 'object' || !('call_id' in input)) return respond({}, 400)
       const row = state.rows.find(row => row.call_id === input.call_id)

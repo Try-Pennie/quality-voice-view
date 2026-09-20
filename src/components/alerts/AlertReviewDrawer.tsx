@@ -44,6 +44,7 @@ import { useAgentFeedbackForCall, useAlertThread, useRecordingTiming } from '@/h
 import { registerHistoryNavigationGuard } from '@/lib/history-navigation-guard'
 import { PennieAgentFeedbackSection } from '@/components/PennieAgentFeedbackSection'
 import { FULL_QA_FORM_ID, FullQaRubricReview, type FullQaSaveState } from './FullQaRubricReview'
+import { ReviewChoice } from './ReviewChoice'
 import { fetchFullQaReviewContext } from '@/lib/full-qa-review'
 import { VIOLATION_HELP_IDS } from '@/lib/help-content'
 import {
@@ -67,7 +68,6 @@ import type {
 import type { AlertWorkload } from '@/lib/suppressed-alerts'
 import {
   ArrowLeft,
-  Check,
   CheckCheck,
   ChevronDown,
   ChevronLeft,
@@ -276,7 +276,7 @@ export function AlertReviewDrawer({
       const target = e.target instanceof HTMLElement ? e.target : null
       const isText =
         target &&
-        (target.tagName === 'INPUT' ||
+        ((target instanceof HTMLInputElement && target.type !== 'radio') ||
           target.tagName === 'TEXTAREA' ||
           target.tagName === 'SELECT' ||
           target.isContentEditable)
@@ -414,6 +414,10 @@ export function AlertReviewDrawer({
 
   const handleSubmit = async () => {
     if (!alert || !currentUserEmail || submissionPending.current || !showStructuredForm || isFullQa) return
+    if (saveDisabled) {
+      toast.error('Complete the review before saving.')
+      return
+    }
     submissionPending.current = true
     setSubmitting(true)
 
@@ -495,6 +499,8 @@ export function AlertReviewDrawer({
     }
     toast.success('Review saved')
     setOverrideMode(false)
+    setAction(accurate ? action : null)
+    setReason(!accurate ? reason : null)
     onSubmitted({
       feedback_id: alert.feedback_id ?? -1,
       feedback_by: currentUserEmail,
@@ -643,30 +649,76 @@ export function AlertReviewDrawer({
   // Approval targets the persisted review; unchanged legacy reviews remain eligible.
   const approvalBlockedByDraft = workload === 'internal' && showStructuredForm &&
     (reviewDraftDirty || fullQaDraftDirty || fullQaBusy || submitting)
+  const standaloneResponseId = `${commentId}-response`
+  const standaloneSaveMessage = accurate === null
+    ? 'Choose whether this alert was warranted.'
+    : accurate === true && !action
+      ? 'Choose how you addressed it with the agent.'
+      : accurate === false && !reason
+        ? 'Choose why the alert was unnecessary.'
+        : saveDisabled
+          ? 'Complete the required details before saving.'
+          : null
+  const standaloneReviewForm = !isFullQa && <div className="space-y-4">
+    {needsCoachingFollowUp(alert) && <p className="text-sm text-pennie-blue-deeper">Coaching follow-up is still open. Update the action after follow-up through the review form when available. Approval or discussion does not complete it.</p>}
+    {showStructuredForm && <>
+      <fieldset disabled={submitting}>
+        <legend className="mb-3 flex w-full items-center justify-between gap-3">
+          <span className="text-sm font-semibold text-pennie-navy">{promptCopy}<span className="ml-1 text-pennie-peach-deeper" aria-hidden="true">*</span></span>
+          {overrideMode ? <button type="button" onClick={() => {
+            setOverrideMode(false); setAccurate(alert.accurate); setAction(alert.action_taken); setReason(alert.inaccuracy_reason); setComment(alert.feedback_comment ?? '')
+          }} className="text-xs font-semibold text-pennie-graphite/70 hover:text-pennie-navy">Cancel override</button>
+            : alert.is_reviewed && <span className="text-xs text-muted-foreground">Last edited {alert.reviewed_at ? formatDateTime(alert.reviewed_at) : ''} by {alert.feedback_by || '—'}</span>}
+        </legend>
+        <div className="flex flex-wrap gap-2" role="radiogroup" aria-label={promptCopy}>
+          <ReviewChoice name={`${commentId}-verdict`} label="Warranted" ariaLabel="Warranted (Y)" checked={accurate === true} onChange={() => setAccurate(true)} pill={false} />
+          <ReviewChoice name={`${commentId}-verdict`} label="Unnecessary" ariaLabel="Unnecessary (N)" checked={accurate === false} onChange={() => setAccurate(false)} pill={false} />
+        </div>
+      </fieldset>
+      {accurate === true && <fieldset disabled={submitting}>
+        <legend className="pennie-label mb-2">How did you address it with the agent?<span className="ml-1 text-pennie-peach-deeper" aria-hidden="true">*</span></legend>
+        <div className="flex flex-wrap gap-2" role="radiogroup" aria-label="Action taken">
+          {ACTION_OPTIONS.map((opt, index) => <ReviewChoice key={opt} name={`${commentId}-action`} label={`${index + 1}. ${ACTION_TAKEN_LABELS[opt]}`} ariaLabel={`${index + 1}. ${ACTION_TAKEN_LABELS[opt]}`} checked={action === opt} onChange={() => setAction(opt)} />)}
+        </div>
+      </fieldset>}
+      {accurate === false && <fieldset disabled={submitting}>
+        <legend className="pennie-label mb-2">Reason<span className="ml-1 text-pennie-peach-deeper" aria-hidden="true">*</span></legend>
+        <div className="flex flex-wrap gap-2" role="radiogroup" aria-label="Reason the alert was unnecessary">
+          {INACCURACY_OPTIONS.map((opt, index) => <ReviewChoice key={opt} name={`${commentId}-reason`} label={`${index + 1}. ${INACCURACY_REASON_LABELS[opt]}`} ariaLabel={`${index + 1}. ${INACCURACY_REASON_LABELS[opt]}`} checked={reason === opt} onChange={() => setReason(opt)} />)}
+        </div>
+      </fieldset>}
+      {workload === 'internal' && accurate === true && <div className="space-y-3">
+        <ReviewTextarea id={violationDetailsId} label="What happened?" value={violationDetails} onChange={setViolationDetails} placeholder="Describe the specific behavior or missed requirement." disabled={submitting} />
+        <ReviewTextarea id={actionDetailsId} label="What action did you take?" value={actionDetails} onChange={setActionDetails} placeholder="Describe the coaching, escalation, or planned follow-up." disabled={submitting} />
+        <div className="flex flex-wrap items-center gap-1.5"><span className="text-[11px] font-medium text-pennie-graphite/60">Quick start:</span>{QUICK_PHRASES.map(phrase => <button key={phrase.label} type="button" disabled={submitting} title={phrase.text} onClick={() => setActionDetails(previous => previous.trim() ? `${previous.trimEnd()} ${phrase.text}` : phrase.text)} className="pennie-focus-ring min-h-[32px] rounded-full border border-border bg-white px-3 py-1 text-[11px] font-semibold text-pennie-graphite hover:bg-pennie-blue-light">{phrase.label}…</button>)}</div>
+      </div>}
+      {workload === 'internal' && accurate === false && <ReviewTextarea id={commentId} label="Why was the alert unnecessary?" value={comment} onChange={setComment} placeholder="Explain why the alert does not apply to this call." disabled={submitting} />}
+      {workload === 'partner_qa' && accurate !== null && <ReviewTextarea id={commentId} label={accurate ? 'What happened and how you addressed it' : 'Notes'} value={comment} onChange={setComment} placeholder={accurate ? 'Describe what happened and the follow-up.' : 'Anything you want to flag…'} disabled={submitting} required={accurate || reason === 'other'} minimum={accurate ? LEGACY_REAL_NOTES_MIN : LEGACY_OTHER_NOTES_MIN} />}
+      <div className="text-[11px] text-muted-foreground"><p className="hidden sm:block">⌘/Ctrl+Enter to save · J/K to navigate</p>{workload === 'internal' && alert.current_decision === 'approved' && <p>Updating creates a new revision that requires approval.</p>}</div>
+    </>}
+  </div>
 
   return (
     <Sheet open={!!alert} onOpenChange={open => !open && requestClose()}>
       <SheetContent
-        side={isFullQa ? 'center' : 'right'}
+        side="center"
         animateOpen={animateOpen}
         hideClose
-        onOpenAutoFocus={isFullQa ? () => {
+        onOpenAutoFocus={() => {
           const active = document.activeElement
           returnFocusTarget.current = active instanceof HTMLElement && active !== document.body ? active : null
-        } : undefined}
-        onCloseAutoFocus={isFullQa ? event => {
+        }}
+        onCloseAutoFocus={event => {
           const target = returnFocusTarget.current
           if (!target?.isConnected) return
           event.preventDefault()
           target.focus()
-        } : undefined}
-        className={isFullQa
-          ? 'flex flex-col gap-0 overflow-hidden bg-pennie-white p-0 shadow-xl [--border:225_12%_72%] [&_textarea]:border-pennie-navy/60 [&_select]:border-pennie-navy/60'
-          : 'w-full sm:max-w-2xl flex flex-col gap-0 p-0 overflow-hidden bg-pennie-white [--border:225_12%_72%] [&_textarea]:border-pennie-navy/60 [&_select]:border-pennie-navy/60'}
+        }}
+        className="flex flex-col gap-0 overflow-hidden bg-pennie-white p-0 shadow-xl [--border:225_12%_72%] [&_textarea]:border-pennie-navy/60 [&_select]:border-pennie-navy/60"
       >
         <SheetDescription className="sr-only">Review the call evidence, record a decision and follow-up, or approve the manager’s saved review.</SheetDescription>
         {/* Header */}
-        <SheetHeader className={`shrink-0 px-4 sm:px-8 border-b border-border text-left ${isFullQa ? 'py-2 sm:py-3 space-y-1' : 'pt-4 pb-5 sm:py-5 space-y-3'}`}>
+        <SheetHeader className="shrink-0 space-y-1 border-b border-border px-4 py-2 text-left sm:px-8 sm:py-3 lg:px-10">
           <div className="flex items-center gap-2 sm:gap-3">
             <button
               type="button"
@@ -680,7 +732,7 @@ export function AlertReviewDrawer({
             <span className={`${pillClasses(accentForViolation(alert.violation_type))} hidden sm:inline-flex`}>
               {violationLabel}
             </span>
-            {isFullQa && VIOLATION_HELP_IDS[alert.violation_type] && <span className="hidden sm:inline-flex"><HelpHint id={VIOLATION_HELP_IDS[alert.violation_type]} size={4} /></span>}
+            {VIOLATION_HELP_IDS[alert.violation_type] && <span className="hidden sm:inline-flex"><HelpHint id={VIOLATION_HELP_IDS[alert.violation_type]} size={4} /></span>}
             <span className="text-xs text-muted-foreground tabular-nums hidden sm:inline">
               {formatDateTime(alert.alert_created_at)}
             </span>
@@ -732,47 +784,21 @@ export function AlertReviewDrawer({
               {formatDateTime(alert.alert_created_at)}
             </span>
           </div>
-          <SheetTitle className={`text-xl font-semibold text-pennie-navy text-left inline-flex items-center gap-1.5 ${isFullQa ? 'sr-only' : ''}`}>
-            {violationLabel}
-            {!isFullQa && VIOLATION_HELP_IDS[alert.violation_type] && (
-              <HelpHint id={VIOLATION_HELP_IDS[alert.violation_type]} size={4} />
-            )}
-          </SheetTitle>
-          {isFullQa && (
-            <p className="text-xs sm:text-sm leading-relaxed text-pennie-graphite break-words">
-              <span className="font-medium">{alert.agent_email || 'Unknown agent'}</span>
-              <span className="text-pennie-graphite/60"> · </span>
-              {alert.contact_name || 'Unknown'}
-              {alert.contact_phone && <span className="text-pennie-graphite/70 ml-2 tabular-nums">{formatPhoneNumber(alert.contact_phone)}</span>}
-            </p>
-          )}
-          <dl className={`grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-sm ${isFullQa ? 'hidden' : 'grid'}`}>
-            <dt className="text-[11px] font-semibold uppercase tracking-wider text-pennie-graphite/60 pt-0.5">
-              Agent
-            </dt>
-            <dd className="text-pennie-graphite font-medium break-all">
-              {alert.agent_email || 'Unknown agent'}
-            </dd>
-            <dt className="text-[11px] font-semibold uppercase tracking-wider text-pennie-graphite/60 pt-0.5">
-              Customer
-            </dt>
-            <dd className="text-pennie-graphite">
-              {alert.contact_name || 'Unknown'}
-              {alert.contact_phone && (
-                <span className="text-pennie-graphite/70 ml-2 tabular-nums">
-                  {formatPhoneNumber(alert.contact_phone)}
-                </span>
-              )}
-            </dd>
-          </dl>
+          <SheetTitle className="sr-only">{violationLabel} review</SheetTitle>
+          <p className="break-words text-xs leading-relaxed text-pennie-graphite sm:text-sm">
+            <span className="font-medium">{alert.agent_email || 'Unknown agent'}</span>
+            <span className="text-pennie-graphite/60"> · </span>
+            {alert.contact_name || 'Unknown'}
+            {alert.contact_phone && <span className="ml-2 tabular-nums text-pennie-graphite/70">{formatPhoneNumber(alert.contact_phone)}</span>}
+          </p>
         </SheetHeader>
 
-        <section aria-label="Call recording" className="shrink-0 border-b border-border bg-pennie-blue-main/30 px-4 sm:px-8 py-2 sm:py-3">
+        <section aria-label="Call recording" className="shrink-0 border-b border-border bg-pennie-blue-main/30 px-4 py-2 sm:px-8 sm:py-3 lg:px-10">
           <div className="flex flex-wrap items-center justify-between gap-x-3">
             {alert.recording_link ? <h2 className="pennie-label hidden sm:inline-flex items-center gap-1.5">
               <Headphones className="w-3.5 h-3.5" aria-hidden="true" />Recording
             </h2> : !detailsLoading && !detailsError && alert.recording_link === null && <p className="text-xs text-pennie-graphite/70">Recording not available</p>}
-            {isFullQa && <button type="button" onClick={openTranscript} className="pennie-focus-ring min-h-[44px] text-xs font-semibold text-pennie-blue-deeper hover:underline sm:ml-auto sm:mr-4">View transcript</button>}
+            <button type="button" onClick={openTranscript} className="pennie-focus-ring min-h-[44px] text-xs font-semibold text-pennie-blue-deeper hover:underline sm:ml-auto sm:mr-4">View transcript</button>
             {alert.recording_link && <a href={alert.recording_link} target="_blank" rel="noopener noreferrer" className="pennie-focus-ring inline-flex min-h-[44px] items-center gap-1 text-xs font-semibold text-pennie-blue-deeper hover:underline">
               Open recording <ExternalLink className="w-3 h-3" aria-hidden="true" />
             </a>}
@@ -797,25 +823,12 @@ export function AlertReviewDrawer({
           />
         )}
         {/* One scrolling review flow: evidence, required inputs, and secondary details. */}
-        <div className={`relative flex-1 min-h-0 overflow-y-auto px-4 sm:px-8 sm:py-6 space-y-6 sm:space-y-7 ${isFullQa ? 'py-4 lg:px-10' : 'py-5'}`}>
+        <div className="relative min-h-0 flex-1 space-y-6 overflow-y-auto px-4 py-4 sm:space-y-7 sm:px-8 sm:py-6 lg:px-10">
           {returnedToCurrentManager && alert.current_decision_instructions && (
             <div className="rounded-2xl bg-pennie-peach-light/60 px-4 py-3">
               <p className="pennie-label mb-1">Changes requested by {alert.current_decision_by ? emailLabel(alert.current_decision_by) : 'Kris'}</p>
               <p className="text-sm text-pennie-graphite whitespace-pre-wrap">{alert.current_decision_instructions}</p>
             </div>
-          )}
-
-          {showManagerReviewSummary && (
-            <ManagerReviewSummary
-              authorEmail={alert.feedback_by}
-              reviewedAt={alert.reviewed_at}
-              accurate={alert.accurate}
-              actionTaken={alert.action_taken}
-              inaccuracyReason={alert.inaccuracy_reason}
-              comment={alert.feedback_comment}
-              violationDetails={alert.violation_details}
-              actionDetails={alert.action_details}
-            />
           )}
 
           {initialReview && (
@@ -850,79 +863,29 @@ export function AlertReviewDrawer({
             />
           )}
 
-          {!isFullQa && <section>
-            <div className="flex flex-wrap gap-4 text-sm">
-              {alert.transcript_url && (
-                <a
-                  href={alert.transcript_url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="inline-flex items-center gap-1 text-pennie-blue-deeper font-semibold hover:underline underline-offset-4"
-                >
-                  Transcript <ExternalLink className="w-3 h-3" aria-hidden="true" />
-                </a>
-              )}
-              {alert.sfdc_lead_id && (
-                <a
-                  href={`https://trypennie.lightning.force.com/lightning/r/Lead/${alert.sfdc_lead_id}/view`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="inline-flex items-center gap-1 text-pennie-blue-deeper font-semibold hover:underline underline-offset-4"
-                >
-                  SFDC: {alert.sfdc_lead_id} <ExternalLink className="w-3 h-3" aria-hidden="true" />
-                </a>
-              )}
-            </div>
-          </section>}
-
-          {!isFullQa && <section>
-            <h2 className="pennie-label mb-3 inline-flex items-center gap-1.5">
-              <Info className="w-3.5 h-3.5" aria-hidden="true" />
-              Why it fired
-            </h2>
-            <div className="space-y-4 text-sm">
-              {reasonText && (
-                <div>
-                  <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider mb-1">
-                    Reason
-                  </p>
-                  <p className="text-pennie-graphite leading-relaxed">{reasonText}</p>
-                </div>
-              )}
-              {evidence && (
-                <div>
-                  <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider mb-1">
-                    Evidence (from transcript)
-                  </p>
-                  <blockquote className="border-l-2 border-pennie-blue-main pl-4 italic text-pennie-graphite leading-relaxed">
-                    {evidence}
-                  </blockquote>
-                  {renderAudioLink(evidence, undefined, true)}
-                </div>
-              )}
-              {alert.call_summary && (
-                <CallSummary summary={alert.call_summary} />
-              )}
-            </div>
-          </section>}
-          {!isFullQa && <section>
-            <button
-              type="button"
-              onClick={() => setShowTranscript(value => !value)}
-              aria-expanded={showTranscript}
-              className="pennie-focus-ring min-h-[44px] px-4 py-2 rounded-full border border-border text-sm font-semibold text-pennie-blue-deeper"
-            >
-              {showTranscript ? 'Hide transcript context' : 'Inspect transcript context'}
-            </button>
-            {showTranscript && <div className="mt-4"><AlertTranscript
-              key={alert.call_id}
-              callId={alert.call_id}
-              focusRequest={transcriptFocusRequest} searchQuote={transcriptQuote}
-              audioElement={audioElement} recordingTiming={verifiedTiming}
-              renderAudioLink={renderAudioLink}
-              evidence={extractEvidenceQuotes(alert.violation_type, reviewSource)}
-            /></div>}
-          </section>}
+          {!isFullQa && <article aria-label={`${violationLabel} review`} className="overflow-hidden rounded-2xl border border-border md:grid md:grid-cols-2">
+            <section aria-label={`${violationLabel}: Eavesly evidence`} className="min-w-0 space-y-5 bg-pennie-beige p-4 sm:p-5">
+              <div>
+                <p className="mb-1 inline-flex items-center gap-1.5 text-xs font-bold text-pennie-blue-deeper"><Info className="h-3.5 w-3.5" aria-hidden="true" />Eavesly’s assessment</p>
+                <h2 className="text-base font-semibold text-pennie-navy">Why this alert needs review</h2>
+              </div>
+              {reasonText && <div><p className="pennie-label mb-1">Reason</p><p className="text-sm leading-relaxed text-pennie-graphite">{reasonText}</p></div>}
+              {evidence && <div><p className="pennie-label mb-1">Evidence</p><blockquote className="border-l-2 border-pennie-yellow-dark pl-3 text-sm leading-relaxed text-pennie-graphite">{evidence}</blockquote>{renderAudioLink(evidence, undefined, true)}</div>}
+              {alert.call_summary && <CallSummary summary={alert.call_summary} />}
+              <div className="flex flex-wrap gap-4 text-sm">
+                {alert.transcript_url && <a href={alert.transcript_url} target="_blank" rel="noopener noreferrer" className="inline-flex min-h-[44px] items-center gap-1 font-semibold text-pennie-blue-deeper hover:underline">Transcript <ExternalLink className="h-3 w-3" aria-hidden="true" /></a>}
+                {alert.sfdc_lead_id && <a href={`https://trypennie.lightning.force.com/lightning/r/Lead/${alert.sfdc_lead_id}/view`} target="_blank" rel="noopener noreferrer" className="inline-flex min-h-[44px] items-center gap-1 font-semibold text-pennie-blue-deeper hover:underline">SFDC: {alert.sfdc_lead_id} <ExternalLink className="h-3 w-3" aria-hidden="true" /></a>}
+              </div>
+              <button type="button" onClick={() => setShowTranscript(value => !value)} aria-expanded={showTranscript} className="pennie-focus-ring min-h-[44px] rounded-full border border-border bg-white px-4 py-2 text-sm font-semibold text-pennie-blue-deeper">{showTranscript ? 'Hide transcript context' : 'Inspect transcript context'}</button>
+              {showTranscript && <AlertTranscript key={alert.call_id} callId={alert.call_id} focusRequest={transcriptFocusRequest} searchQuote={transcriptQuote} audioElement={audioElement} recordingTiming={verifiedTiming} renderAudioLink={renderAudioLink} evidence={extractEvidenceQuotes(alert.violation_type, reviewSource)} />}
+            </section>
+            <section id={standaloneResponseId} tabIndex={-1} aria-label={`${violationLabel}: ${showStructuredForm ? 'Your response' : 'Manager’s response'}`} className="pennie-focus-ring min-w-0 space-y-4 border-t border-border p-4 sm:p-5 md:border-l md:border-t-0">
+              <div><p className="mb-1 text-xs font-bold text-pennie-blue-deeper">{showStructuredForm ? 'Your response' : 'Manager’s response'}</p><h2 className="text-base font-semibold text-pennie-navy">{showStructuredForm ? 'Review and follow up' : 'Saved review'}</h2></div>
+              {showStructuredForm ? standaloneReviewForm : showManagerReviewSummary ? <ManagerReviewSummary authorEmail={alert.feedback_by} reviewedAt={alert.reviewed_at} accurate={alert.accurate} actionTaken={alert.action_taken} inaccuracyReason={alert.inaccuracy_reason} comment={alert.feedback_comment} violationDetails={alert.violation_details} actionDetails={alert.action_details} /> : <p className="text-sm text-pennie-graphite/70">No editable response is available.</p>}
+              {!showStructuredForm && workload === 'partner_qa' && reviewedByOther && !overrideMode && <button type="button" onClick={() => setOverrideMode(true)} className="min-h-[44px] rounded-full border border-border px-4 text-sm font-semibold text-pennie-graphite hover:bg-pennie-peach-light">Override review</button>}
+              {!showStructuredForm && needsCoachingFollowUp(alert) && <p className="text-sm text-pennie-blue-deeper">Coaching follow-up is still open. Approval or discussion does not complete it.</p>}
+            </section>
+          </article>}
 
           {/* What the Pennie agent said about the Achieve welcome-call rep
               (achieve_welcome_call_qa alerts only; hidden when no submission). */}
@@ -1010,196 +973,9 @@ export function AlertReviewDrawer({
             />
           )}
 
-          {/* Review form stays in the same scrolling flow. */}
-          {(!isFullQa || needsCoachingFollowUp(alert)) && <div className="-mx-4 sm:-mx-8 border-t border-border bg-pennie-beige/40 px-4 sm:px-8 py-5 space-y-4">
-            {/* In State B (reviewing a teammate's review), the structured form is
-                gated behind an explicit Override affordance. Approve via the bar
-                at the top; comment via Discussion. */}
-            {workload === 'partner_qa' && reviewedByOther && !overrideMode && (
-              <div className="flex flex-wrap items-center justify-between gap-3">
-                <p className="text-xs text-pennie-graphite/70 leading-relaxed">
-                  Approve at the top, or comment in Discussion above. Only override if you
-                  disagree with the verdict.
-                </p>
-                <button
-                  type="button"
-                  onClick={() => setOverrideMode(true)}
-                  className="min-h-[36px] inline-flex items-center px-3.5 py-1.5 rounded-full text-xs font-semibold border border-border text-pennie-graphite hover:bg-pennie-peach-light hover:border-pennie-peach-light transition-colors"
-                >
-                  Override review
-                </button>
-              </div>
-            )}
-
-            {needsCoachingFollowUp(alert) && <p className="text-sm text-pennie-blue-deeper">
-              Coaching follow-up is still open. Update the action after follow-up through the review form when available. Approval or discussion does not complete it.
-            </p>}
-
-            {showStructuredForm && !isFullQa && (
-              <>
-                <fieldset disabled={submitting}>
-                  <legend className="flex items-center justify-between w-full mb-3 gap-3">
-                    <span className="text-sm font-semibold text-pennie-navy">
-                      {promptCopy}
-                      <span className="text-pennie-peach-deeper ml-1" aria-hidden="true">*</span>
-                    </span>
-                    {overrideMode ? (
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setOverrideMode(false)
-                          setAccurate(alert.accurate)
-                          setAction(alert.action_taken)
-                          setReason(alert.inaccuracy_reason)
-                          setComment(alert.feedback_comment ?? '')
-                        }}
-                        className="text-xs font-semibold text-pennie-graphite/70 hover:text-pennie-navy"
-                      >
-                        Cancel override
-                      </button>
-                    ) : (
-                      alert.is_reviewed && (
-                        <span className="text-xs text-muted-foreground">
-                          Last edited{' '}
-                          {alert.reviewed_at ? formatDateTime(alert.reviewed_at) : ''} by{' '}
-                          {alert.feedback_by || '—'}
-                        </span>
-                      )
-                    )}
-                  </legend>
-                  <div className="flex gap-2" role="group" aria-label={promptCopy}>
-                    <Toggle
-                      label="Warranted"
-                      ariaLabel="Warranted (Y)"
-                      active={accurate === true}
-                      tone="success"
-                      onClick={() => setAccurate(true)}
-                    />
-                    <Toggle
-                      label="Unnecessary"
-                      ariaLabel="Unnecessary (N)"
-                      active={accurate === false}
-                      tone="danger"
-                      onClick={() => setAccurate(false)}
-                    />
-                  </div>
-                </fieldset>
-
-                {accurate === true && (
-                  <fieldset disabled={submitting}>
-                    <legend className="pennie-label mb-2">
-                      How did you address it with the agent?
-                      <span className="text-pennie-peach-deeper ml-1" aria-hidden="true">*</span>
-                    </legend>
-                    <div
-                      className="flex flex-wrap gap-1.5"
-                      role="group"
-                      aria-label="Action taken"
-                    >
-                      {ACTION_OPTIONS.map((opt, i) => (
-                        <Chip
-                          key={opt}
-                          label={`${i + 1}. ${ACTION_TAKEN_LABELS[opt]}`}
-                          active={action === opt}
-                          onClick={() => setAction(action === opt ? null : opt)}
-                        />
-                      ))}
-                    </div>
-                  </fieldset>
-                )}
-
-                {accurate === false && (
-                  <fieldset disabled={submitting}>
-                    <legend className="pennie-label mb-2">
-                      Reason
-                      <span className="text-pennie-peach-deeper ml-1" aria-hidden="true">*</span>
-                    </legend>
-                    <div
-                      className="flex flex-wrap gap-1.5"
-                      role="group"
-                      aria-label="Reason the alert was unnecessary"
-                    >
-                      {INACCURACY_OPTIONS.map((opt, i) => (
-                        <Chip
-                          key={opt}
-                          label={`${i + 1}. ${INACCURACY_REASON_LABELS[opt]}`}
-                          active={reason === opt}
-                          onClick={() => setReason(reason === opt ? null : opt)}
-                        />
-                      ))}
-                    </div>
-                  </fieldset>
-                )}
-
-                {workload === 'internal' && accurate === true && (
-                  <div className="space-y-3">
-                    <ReviewTextarea
-                      id={violationDetailsId}
-                      label="What happened?"
-                      value={violationDetails}
-                      onChange={setViolationDetails}
-                      placeholder="Describe the specific behavior or missed requirement."
-                      disabled={submitting}
-                    />
-                    <ReviewTextarea
-                      id={actionDetailsId}
-                      label="What action did you take?"
-                      value={actionDetails}
-                      onChange={setActionDetails}
-                      placeholder="Describe the coaching, escalation, or planned follow-up."
-                      disabled={submitting}
-                    />
-                    <div className="flex flex-wrap items-center gap-1.5">
-                      <span className="text-[11px] text-pennie-graphite/60 font-medium">Quick start:</span>
-                      {QUICK_PHRASES.map(phrase => (
-                        <button
-                          key={phrase.label}
-                          type="button"
-                          disabled={submitting}
-                          title={phrase.text}
-                          onClick={() => setActionDetails(previous => previous.trim() ? `${previous.trimEnd()} ${phrase.text}` : phrase.text)}
-                          className="pennie-focus-ring min-h-[32px] px-3 py-1 rounded-full border border-border bg-pennie-white text-[11px] font-semibold text-pennie-graphite hover:bg-pennie-blue-light hover:border-pennie-blue-light transition-colors"
-                        >
-                          {phrase.label}…
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                )}
-
-                {workload === 'internal' && accurate === false && (
-                  <ReviewTextarea
-                    id={commentId}
-                    label="Why was the alert unnecessary?"
-                    value={comment}
-                    onChange={setComment}
-                    placeholder="Explain why the alert does not apply to this call."
-                    disabled={submitting}
-                  />
-                )}
-
-                {workload === 'partner_qa' && accurate !== null && (
-                  <ReviewTextarea
-                    id={commentId}
-                    label={accurate ? 'What happened and how you addressed it' : 'Notes'}
-                    value={comment}
-                    onChange={setComment}
-                    placeholder={accurate ? 'Describe what happened and the follow-up.' : 'Anything you want to flag…'}
-                    disabled={submitting}
-                    required={accurate || reason === 'other'}
-                    minimum={accurate ? LEGACY_REAL_NOTES_MIN : LEGACY_OTHER_NOTES_MIN}
-                  />
-                )}
-
-                <div className="text-[11px] text-muted-foreground">
-                  <p className="hidden sm:block">⌘/Ctrl+Enter to save · J/K to navigate</p>
-                  {workload === 'internal' && alert.current_decision === 'approved' && (
-                    <p>Updating creates a new revision that requires approval.</p>
-                  )}
-                </div>
-              </>
-            )}
-          </div>}
+          {isFullQa && needsCoachingFollowUp(alert) && <p className="text-sm text-pennie-blue-deeper">
+            Coaching follow-up is still open. Update the action after follow-up through the review form when available. Approval or discussion does not complete it.
+          </p>}
 
           <details className="group rounded-2xl border border-border px-4 py-3">
             <summary className="pennie-focus-ring cursor-pointer list-none flex items-center justify-between gap-2 rounded-full text-sm font-semibold text-pennie-blue-deeper">
@@ -1257,7 +1033,7 @@ export function AlertReviewDrawer({
         </div>
 
         {(showStructuredForm || (showInternalDecisionBar && scope.isGodMode && alert.current_decision === null)) && (
-          <footer className={`shrink-0 border-t border-border bg-pennie-white px-4 sm:px-8 py-3 ${isFullQa ? 'lg:px-10' : ''}`}>
+          <footer className="shrink-0 border-t border-border bg-pennie-white px-4 py-3 sm:px-8 lg:px-10">
             {approvalBlockedByDraft && scope.isGodMode && alert.current_decision === null && (
               <p className="mb-2 text-xs text-pennie-graphite/70">Complete and save review changes before approval.</p>
             )}
@@ -1270,7 +1046,19 @@ export function AlertReviewDrawer({
             {showStructuredForm && isFullQa && fullQaSave.message && (
               <p className="mb-1 text-xs text-pennie-graphite" role="status">{fullQaSave.message}</p>
             )}
+            {showStructuredForm && !isFullQa && standaloneSaveMessage && (
+              <p className="mb-1 text-xs text-pennie-graphite" role="status">{standaloneSaveMessage}</p>
+            )}
             <div className="flex flex-wrap items-center justify-end gap-2">
+              {showStructuredForm && !isFullQa && saveDisabled && !submitting && (
+                <button type="button" aria-controls={standaloneResponseId} onClick={() => {
+                  const section = document.getElementById(standaloneResponseId)
+                  section?.focus({ preventScroll: true })
+                  section?.scrollIntoView({ block: 'start', behavior: 'instant' })
+                }} className="pennie-focus-ring mr-auto min-h-[44px] text-sm font-semibold text-pennie-blue-deeper underline-offset-4 hover:underline">
+                  Continue review
+                </button>
+              )}
               {showStructuredForm && isFullQa && fullQaSave.nextSectionId && (
                 <button type="button" aria-controls={fullQaSave.nextSectionId} disabled={decisionPending} onClick={() => {
                   const section = document.getElementById(fullQaSave.nextSectionId ?? '')
@@ -1383,80 +1171,6 @@ function ReviewTextarea({
         className="w-full px-3 py-2 rounded-2xl border border-border bg-pennie-white text-base sm:text-sm font-medium resize-none focus:outline-none focus:ring-2 focus:ring-pennie-blue-deeper/40 focus:border-pennie-blue-deeper"
       />
     </div>
-  )
-}
-
-export function Toggle({
-  label,
-  ariaLabel,
-  active,
-  tone,
-  onClick,
-}: {
-  label: string
-  ariaLabel?: string
-  active: boolean
-  tone: 'success' | 'danger'
-  onClick: () => void
-}) {
-  // Verdict semantics live in the border + icon; text stays dark navy so the
-  // label is legible at rest. (pennie-green-dark is a mint, not a dark green.)
-  const baseColors =
-    tone === 'success'
-      ? active
-        ? 'bg-pennie-green-dark border-pennie-green-dark text-pennie-white shadow-sm'
-        : 'bg-pennie-green-light border-2 border-pennie-green-dark text-pennie-navy hover:bg-pennie-green-main/40 hover:border-pennie-green-dark'
-      : active
-        ? 'bg-pennie-peach-dark border-pennie-peach-dark text-pennie-white shadow-sm'
-        : 'bg-pennie-peach-light border-2 border-pennie-peach-dark text-pennie-navy hover:bg-pennie-peach-main/30 hover:border-pennie-peach-deeper'
-  const iconColor = active
-    ? 'text-pennie-white'
-    : tone === 'success'
-      ? 'text-pennie-green-dark'
-      : 'text-pennie-peach-deeper'
-  const Icon = tone === 'success' ? Check : X
-  return (
-    <button
-      type="button"
-      aria-label={ariaLabel}
-      aria-pressed={active}
-      onClick={onClick}
-      className={`flex-1 min-h-[48px] whitespace-nowrap px-2 sm:px-4 py-3 rounded-full text-xs sm:text-sm font-semibold inline-flex items-center justify-center gap-1.5 transition-all duration-200 ${baseColors}`}
-    >
-      <span
-        className={`inline-flex items-center justify-center w-5 h-5 rounded-full ${
-          active ? 'bg-pennie-white/20' : 'bg-pennie-white'
-        } ${iconColor}`}
-      >
-        <Icon className="w-3.5 h-3.5" strokeWidth={3} aria-hidden="true" />
-      </span>
-      {label}
-    </button>
-  )
-}
-
-export function Chip({
-  label,
-  active,
-  onClick,
-}: {
-  label: string
-  active: boolean
-  onClick: () => void
-}) {
-  return (
-    <button
-      type="button"
-      aria-pressed={active}
-      onClick={onClick}
-      className={`min-h-[44px] sm:min-h-[36px] px-4 sm:px-3.5 py-2 sm:py-1.5 rounded-full text-sm sm:text-xs font-semibold border transition-all duration-200 ${
-        active
-          ? 'bg-pennie-blue-dark text-pennie-white border-pennie-blue-dark'
-          : 'bg-pennie-white border-border text-pennie-graphite hover:bg-pennie-blue-light hover:border-pennie-blue-light'
-      }`}
-    >
-      {label}
-    </button>
   )
 }
 

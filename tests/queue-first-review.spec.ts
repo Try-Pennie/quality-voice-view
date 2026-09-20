@@ -275,10 +275,10 @@ test('drawer uses one scrolling review flow for evidence, required fields, and s
   await openAlert(page, 'single-flow')
 
   const dialog = page.getByRole('dialog')
-  await expect(dialog.getByText('Why it fired')).toBeVisible()
+  await expect(dialog.getByRole('region', { name: 'Manager escalation: Eavesly evidence' })).toBeVisible()
   await expect(dialog.getByRole('button', { name: 'Save review' })).toBeInViewport()
-  await dialog.getByRole('button', { name: 'Warranted (Y)' }).click()
-  await dialog.getByRole('button', { name: '1. Coached the agent' }).click()
+  await dialog.getByRole('radio', { name: 'Warranted (Y)' }).click()
+  await dialog.getByRole('radio', { name: '1. Coached the agent' }).click()
   await dialog.getByRole('textbox', { name: /What happened/ }).fill('The required disclosure was omitted from this synthetic call.')
   await dialog.getByRole('textbox', { name: /What action did you take/ }).fill('The manager coached the complete disclosure with the representative.')
   await expect(dialog.getByRole('button', { name: 'Save review' })).toBeInViewport()

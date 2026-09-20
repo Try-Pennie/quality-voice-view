@@ -109,7 +109,7 @@ test('unnecessary alert with no retained issues requires no invented follow-up',
   await page.goto('/dashboard/alerts/no-followup/full_qa')
   await page.getByRole('radio', { name: 'No, the alert was unnecessary', exact: true }).check()
   await page.getByRole('textbox', { name: 'Explain your decision', exact: true }).fill('The recorded evidence does not support an escalation on this call.')
-  await page.getByRole('combobox', { name: 'Why was the alert unnecessary?' }).selectOption('wrong_context')
+  await page.getByRole('radiogroup', { name: 'Why was the alert unnecessary?' }).getByRole('radio', { name: 'Wrong context', exact: true }).check()
   await expect(page.getByRole('region', { name: 'Follow-up with the rep' })).toContainText('No confirmed coaching issues. No follow-up required.')
   await expect(page.getByRole('textbox', { name: 'Coaching or next steps' })).toHaveCount(0)
   await page.getByRole('button', { name: 'Save review', exact: true }).click()
