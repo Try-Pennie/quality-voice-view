@@ -20,6 +20,7 @@ import {
   fetchManagerNames,
 } from '../lib/team-queries'
 import { fetchCallDetail } from '../lib/queries'
+import { fetchRecordingTiming } from '../lib/recording-timestamps'
 import {
   fetchCallsPage,
   fetchCallsSummary,
@@ -63,6 +64,18 @@ const scopeKey = (scope: UserScope | null | undefined) =>
         agents: [...scope.managedAgents].sort(),
       }
     : null
+
+/** Optional staging capability: one scoped cache read, never a transcription request. */
+export function useRecordingTiming(callId: string | undefined, moduleName: string | undefined, reference: string | null | undefined, scope: UserScope) {
+  return useQuery({
+    queryKey: ['recordingTiming', callId, moduleName, reference, scopeKey(scope)],
+    queryFn: () => fetchRecordingTiming(callId ?? '', moduleName ?? ''),
+    enabled: import.meta.env.VITE_RECORDING_TIMESTAMPS === 'true' && !!callId && !!reference &&
+      !!moduleName && !['disposition_review', 'achieve_welcome_call_qa'].includes(moduleName),
+    retry: false,
+    staleTime: 60_000,
+  })
+}
 
 // Server-side filters (date + module) form the cache identity for the alerts
 // list. Status / search are applied client-side and don't belong in the key.

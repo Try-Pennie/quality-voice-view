@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useId, useMemo, useRef, useState, type ReactNode } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { ChevronDown, Flag, MessageSquare, Plus, Trash2 } from 'lucide-react'
 import { toast } from 'sonner'
@@ -43,6 +43,7 @@ interface Props {
   readonly scope: UserScope
   readonly editable: boolean
   readonly canReloadReview: boolean
+  readonly renderAudioLink?: (quote: string) => ReactNode
   readonly onStaleReview: () => void
   readonly onDirtyChange: (dirty: boolean) => void
   readonly onBusyChange: (busy: boolean) => void
@@ -136,7 +137,7 @@ function seededEvidence(evidence: unknown, notes: readonly string[]): string {
 // entries. Only explicit quote fields are presented as quotations; notes stay notes.
 type Excerpt = { readonly key: number; readonly lead: JSX.Element; readonly context: string | null; readonly attribution: string | null }
 
-function excerptItems(evidence: unknown, displayedNotes: readonly string[]): readonly Excerpt[] {
+function excerptItems(evidence: unknown, displayedNotes: readonly string[], renderAudioLink?: (quote: string) => ReactNode): readonly Excerpt[] {
   return evidenceEntries(evidence).flatMap((entry, index): Excerpt[] => {
     if (typeof entry === 'string' && entry.trim()) return displayedNotes.includes(entry.trim()) ? [] : [{ key: index, context: null, attribution: null,
       lead: <p key={index} className="whitespace-pre-wrap break-words text-sm leading-relaxed">{entry}</p> }]
@@ -148,6 +149,7 @@ function excerptItems(evidence: unknown, displayedNotes: readonly string[]): rea
       lead: <figure key={index} className="space-y-1">
         <figcaption className="text-xs font-semibold text-pennie-graphite/70">{attribution}</figcaption>
         <blockquote className="whitespace-pre-wrap break-words border-l-2 border-pennie-yellow-dark pl-3 text-sm leading-relaxed">{quote}</blockquote>
+        {renderAudioLink?.(quote)}
       </figure> }]
   })
 }
@@ -227,7 +229,7 @@ function ManagerReviewOutcome({ context }: { readonly context: FullQaReviewConte
 }
 
 /** Full QA-specific review: immutable AI judgments, 23 criterion treatments, distinct findings, and escalation. */
-export function FullQaRubricReview({ alert, scope, editable, canReloadReview, onStaleReview, onDirtyChange, onBusyChange, onSaveStateChange, onSubmitted }: Props) {
+export function FullQaRubricReview({ alert, scope, editable, canReloadReview, renderAudioLink, onStaleReview, onDirtyChange, onBusyChange, onSaveStateChange, onSubmitted }: Props) {
   const queryClient = useQueryClient()
   const scorecardId = useId()
   const [showFullScorecard, setShowFullScorecard] = useState(false)
@@ -442,7 +444,7 @@ export function FullQaRubricReview({ alert, scope, editable, canReloadReview, on
         : originalValue === undefined ? 'Eavesly score unavailable' : humanChanged ? 'Manager review item'
           : attentionKeys.has(criterion.key) ? 'Included in this review' : 'Other Eavesly score'
       const entries = evidenceEntries(evidence)
-      const excerpts = excerptItems(evidence, aiConcern ? notes : [])
+      const excerpts = excerptItems(evidence, aiConcern ? notes : [], renderAudioLink)
       const sourceHeading = aiConcern ? 'What Eavesly flagged' : 'Eavesly’s assessment'
       const responseHeading = editable ? 'Your review' : 'Manager’s response'
       return <article key={criterion.key} aria-label={criterion.label} hidden={!showFullScorecard && !attentionKeys.has(criterion.key)} className="border-b border-border py-5">

@@ -22,6 +22,7 @@ import {
 import { AudioPlayer } from '@/components/call-detail/AudioPlayer'
 import { AlertTranscript } from './AlertTranscript'
 import { extractEvidenceQuotes } from '@/lib/transcript-evidence'
+import { createAudioQuoteMatcher } from '@/lib/recording-timestamps'
 import { isHumanReviewed, needsCoachingFollowUp } from '@/lib/alert-review-queue'
 import {
   ACTION_TAKEN_LABELS,
@@ -39,7 +40,7 @@ import {
   submitInternalAlertFeedback,
   type UserScope,
 } from '@/lib/alert-queries'
-import { useAgentFeedbackForCall, useAlertThread } from '@/hooks/use-queries'
+import { useAgentFeedbackForCall, useAlertThread, useRecordingTiming } from '@/hooks/use-queries'
 import { registerHistoryNavigationGuard } from '@/lib/history-navigation-guard'
 import { PennieAgentFeedbackSection } from '@/components/PennieAgentFeedbackSection'
 import { FULL_QA_FORM_ID, FullQaRubricReview, type FullQaSaveState } from './FullQaRubricReview'
@@ -157,6 +158,20 @@ export function AlertReviewDrawer({
   queuePosition,
 }: Props) {
   const isFullQa = workload === 'internal' && alert?.module_name === 'full_qa'
+  const { data: recordingTiming } = useRecordingTiming(alert?.call_id, alert?.module_name, alert?.recording_reference, scope)
+  const [audioSeek, setAudioSeek] = useState<{ callId: string; url: string; time: number; expectedDuration: number; sequence: number } | null>(null)
+  const matchAudioQuote = useMemo(() => recordingTiming ? createAudioQuoteMatcher(recordingTiming) : null, [recordingTiming])
+  const renderAudioLink = (quote: string) => {
+    if (!recordingTiming || !alert?.recording_link || recordingTiming.recording_reference !== alert.recording_reference) return null
+    const time = matchAudioQuote?.(quote) ?? null
+    if (time === null) return null
+    const label = `${Math.floor(time / 60)}:${Math.floor(time % 60).toString().padStart(2, '0')}`
+    return <button type="button" className="pennie-focus-ring inline-flex min-h-[44px] items-center rounded-full px-2 text-xs font-semibold text-pennie-blue-deeper hover:underline"
+      title="Move the recording to this quote. Press Play to listen."
+      onClick={() => setAudioSeek(previous => ({ callId: alert.call_id, url: alert.recording_link, time, expectedDuration: recordingTiming.duration, sequence: (previous?.sequence ?? 0) + 1 }))}>
+      Jump to {label}
+    </button>
+  }
   const [accurate, setAccurate] = useState<boolean | null>(null)
   const [action, setAction] = useState<AlertActionTaken | null>(null)
   const [reason, setReason] = useState<AlertInaccuracyReason | null>(null)
@@ -213,6 +228,7 @@ export function AlertReviewDrawer({
   )
 
   useEffect(() => {
+    setAudioSeek(null)
     if (!alert) return
     setAccurate(alert.accurate)
     setAction(alert.action_taken)
@@ -751,7 +767,8 @@ export function AlertReviewDrawer({
             <button type="button" onClick={onRetryDetails} className="pennie-focus-ring min-h-[44px] rounded-full border border-border px-3 font-semibold text-pennie-blue-deeper">Retry recording</button>
           </div> : detailsLoading || alert.recording_link === undefined
             ? <p role="status" aria-busy="true" className="min-h-[112px] sm:min-h-[68px] text-xs text-pennie-graphite/70">Loading recording…</p>
-            : alert.recording_link && <AudioPlayer key={alert.call_id} recordingUrl={alert.recording_link} onRetry={onRetryDetails} />}
+            : alert.recording_link && <AudioPlayer key={alert.call_id} recordingUrl={alert.recording_link} onRetry={onRetryDetails}
+              seekRequest={audioSeek?.callId === alert.call_id && audioSeek.url === alert.recording_link ? audioSeek : undefined} />}
         </section>
 
         {showLegacyAckBar && (
@@ -865,6 +882,7 @@ export function AlertReviewDrawer({
                   <blockquote className="border-l-2 border-pennie-blue-main pl-4 italic text-pennie-graphite leading-relaxed">
                     {evidence}
                   </blockquote>
+                  {renderAudioLink(evidence)}
                 </div>
               )}
               {alert.call_summary && (
@@ -884,6 +902,7 @@ export function AlertReviewDrawer({
             {showTranscript && <div className="mt-4"><AlertTranscript
               key={alert.call_id}
               callId={alert.call_id}
+              renderAudioLink={renderAudioLink}
               evidence={extractEvidenceQuotes(alert.violation_type, reviewSource)}
             /></div>}
           </section>}
@@ -913,6 +932,7 @@ export function AlertReviewDrawer({
               scope={scope}
               editable={showStructuredForm}
               canReloadReview={!detailsLoading && !detailsError}
+              renderAudioLink={renderAudioLink}
               onStaleReview={onRetryDetails}
               onDirtyChange={setFullQaDraftDirty}
               onBusyChange={setFullQaBusy}
@@ -954,6 +974,7 @@ export function AlertReviewDrawer({
                     key={alert.call_id}
                     focusRequest={transcriptFocusRequest}
                     callId={alert.call_id}
+                    renderAudioLink={renderAudioLink}
                     evidence={extractEvidenceQuotes(alert.violation_type, reviewSource)}
                   /></div>}
                 </div>

@@ -15,4 +15,6 @@ The hosted sample is staging-only. Before importing customer content, verify:
 
 The isolated staging project additionally uses a PostgREST pre-request allowlist (including inherited security-definer views), restrictive table-RLS backstops, and a separate Storage policy. That environment configuration is **not a production migration**. Its deployment CSP allows media only from the isolated Supabase project.
 
+A separately approved 2026-09-20 exception permits one existing staging sample to be processed by xAI Grok through Cloudflare Gateway BYOK for timestamp evaluation. That operator-run proof does not enable integrations, browser-triggered transcription, other samples, backfill, or production processing. The original transcript and QA remain untouched; only the scoped timing cache is added. See [recording timestamp staging proof](recording-timestamps.md).
+
 Verification: `npx playwright test tests/private-recording.spec.ts tests/recording-placement.spec.ts`. These use synthetic HTTP fixtures; hosted real-data playback and authorization checks are separate private operational checks, not an AI-accuracy evaluation.

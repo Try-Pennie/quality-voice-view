@@ -3,12 +3,14 @@ import { ChevronDown, ChevronLeft, ChevronRight } from 'lucide-react'
 import { findTranscriptRanges, parseTranscriptTurns } from '@/lib/transcript-evidence'
 
 /** Searchable speaker turns with literal evidence navigation; no inferred audio timestamps. */
-export function TranscriptView({ transcript, evidence = [], constrainHeight = true, focusRequest = 0 }: {
+export function TranscriptView({ transcript, evidence = [], constrainHeight = true, focusRequest = 0, renderAudioLink }: {
   transcript: string
   evidence?: string[]
   constrainHeight?: boolean
   /** Explicit navigation request, not focus on every data refresh. */
   focusRequest?: number
+  /** Optional verified timing; unmatched turns retain the original text without a link. */
+  renderAudioLink?: (quote: string) => ReactNode
 }) {
   const [expanded, setExpanded] = useState(false)
   const [search, setSearch] = useState('')
@@ -109,7 +111,10 @@ export function TranscriptView({ transcript, evidence = [], constrainHeight = tr
             })
             parts.push(block.text.slice(cursor))
             return <li key={index}>
-              {block.speaker && <span className="block text-[11px] font-bold uppercase tracking-wider mb-0.5 text-pennie-navy">{block.speaker}</span>}
+              <div className="flex flex-wrap items-center justify-between gap-x-2">
+                {block.speaker && <span className="block text-[11px] font-bold uppercase tracking-wider mb-0.5 text-pennie-navy">{block.speaker}</span>}
+                {renderAudioLink?.(block.text)}
+              </div>
               <p className="text-sm text-pennie-graphite leading-relaxed whitespace-pre-wrap">{parts}</p>
             </li>
           })}

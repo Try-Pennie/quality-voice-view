@@ -28,6 +28,8 @@ interface Props {
   readonly enableKeyboard?: boolean
   /** Reload details to refresh private signed URLs without losing the review draft. */
   readonly onRetry?: () => void
+  /** A user-requested seek, scoped to this player's recording by its parent. Never auto-plays. */
+  readonly seekRequest?: { readonly time: number; readonly expectedDuration: number; readonly sequence: number }
 }
 
 export function AudioPlayer(props: Props) {
@@ -35,7 +37,7 @@ export function AudioPlayer(props: Props) {
   return <RecordingPlayer key={props.recordingUrl} {...props} />
 }
 
-function RecordingPlayer({ recordingUrl, enableKeyboard = true, onRetry }: Props) {
+function RecordingPlayer({ recordingUrl, enableKeyboard = true, onRetry, seekRequest }: Props) {
   const audioRef = useRef<HTMLAudioElement>(null)
   const [isPlaying, setIsPlaying] = useState(false)
   const [currentTime, setCurrentTime] = useState(0)
@@ -50,6 +52,24 @@ function RecordingPlayer({ recordingUrl, enableKeyboard = true, onRetry }: Props
   const playRequested = useRef(false)
   const resumeNative = useRef(false)
   const resumeTime = useRef(0)
+  const appliedSeek = useRef<Props['seekRequest']>()
+  const [seekNotice, setSeekNotice] = useState('')
+  const applyRequestedSeek = () => {
+    const audio = audioRef.current
+    if (!audio || !metadataLoaded.current || !seekRequest || appliedSeek.current === seekRequest) return
+    appliedSeek.current = seekRequest
+    const { time, expectedDuration } = seekRequest
+    if (!Number.isFinite(time) || time < 0 || !Number.isFinite(audio.duration) || !Number.isFinite(expectedDuration) ||
+      expectedDuration <= 0 || time >= audio.duration || Math.abs(audio.duration - expectedDuration) > Math.max(2, expectedDuration * 0.005)) {
+      setSeekNotice('This timestamp does not match the recording. Use the player to find the passage.')
+      return
+    }
+    audio.currentTime = time
+    setCurrentTime(time)
+    setSeekNotice(`Moved to ${Math.floor(time / 60)}:${Math.floor(time % 60).toString().padStart(2, '0')}. ${audio.paused ? 'Press Play to listen.' : ''}`)
+  }
+  // Metadata can arrive after the click; onLoadedMetadata applies the same request.
+  useEffect(applyRequestedSeek, [seekRequest])
 
   const disposeGraph = () => {
     const current = graph.current
@@ -170,6 +190,7 @@ function RecordingPlayer({ recordingUrl, enableKeyboard = true, onRetry }: Props
         audio.playbackRate = playbackRate
         if (resumeTime.current && Number.isFinite(audio.duration)) audio.currentTime = Math.min(resumeTime.current, audio.duration)
         resumeTime.current = 0
+        applyRequestedSeek()
         setFailed(false)
         if (resumeNative.current) { resumeNative.current = false; play(audio, true) }
       }}
@@ -177,6 +198,7 @@ function RecordingPlayer({ recordingUrl, enableKeyboard = true, onRetry }: Props
       onPause={() => { playRequested.current = false; setIsPlaying(false); setBuffering(false) }}
       onEnded={() => { playRequested.current = false; setIsPlaying(false); setBuffering(false) }}
     />
+    <p role="status" className={seekNotice.startsWith('This timestamp') ? 'mb-2 text-xs text-pennie-graphite' : 'sr-only'}>{seekNotice}</p>
     {failed && <div className="mb-2 flex flex-wrap items-center justify-between gap-2 text-xs">
       <p role="alert">Recording could not be played. Try loading it again.</p>
       <button type="button" onClick={() => {

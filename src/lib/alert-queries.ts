@@ -242,7 +242,7 @@ export async function fetchAlertOne(
   const recording = await resolveRecordingUrl(data.recording_link)
   // Translate the typed adapter failure at this existing promise/query boundary.
   if (!recording.ok) throw new Error('Recording could not be loaded. Please reopen this alert.')
-  return { ...data, recording_link: recording.url } as AlertWithFeedback
+  return { ...data, recording_reference: data.recording_link, recording_link: recording.url } as AlertWithFeedback
 }
 
 /** Preserve the legacy direct-write path for restricted partner feedback only. */
