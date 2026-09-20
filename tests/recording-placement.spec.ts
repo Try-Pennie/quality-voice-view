@@ -29,7 +29,7 @@ for (let sample = 0; sample < 15 * 8000; sample++) {
   const envelope = 0.35 + 0.3 * Math.sin(time * Math.PI * 4)
   audibleWav.writeInt16LE(Math.round(20000 * envelope * (Math.sin(time * Math.PI * 400) + 0.35 * Math.sin(time * Math.PI * 1600))), 44 + sample * 2)
 }
-test('an exact quote seeks real audio without auto-play, repeat clicks work and the next call starts fresh', async ({ page }, testInfo) => {
+test('verified passages play in one click, highlight without scrolling and reset with the next call', async ({ page }, testInfo) => {
   const reference = '/synthetic-recording-timestamps.wav'
   const state = await reviewFixture(page, [alertRow('timestamp-a', { recording_link: reference }), alertRow('timestamp-b', { recording_link: '/synthetic-recording-next-timestamp.wav' })])
   await recordingRoute(page)
@@ -39,32 +39,121 @@ test('an exact quote seeks real audio without auto-play, repeat clicks work and 
     words: QUOTES[0].split(' ').map((text, index) => ({ text, start: 12 + index * 0.3, end: 12.2 + index * 0.3 })),
   } }))
   await page.goto('/dashboard/alerts/timestamp-a/full_qa')
-  const link = page.getByRole('button', { name: 'Jump to 0:12', exact: true }).first()
+  const audio = page.locator('audio')
+  await expect.poll(() => audio.evaluate(element => element.duration)).toBe(30)
+  const link = page.getByRole('button', { name: /^Play from here at 0:12/ }).first()
   await expect(link).toBeVisible()
   await link.focus(); await page.keyboard.press('Enter')
-  await expect.poll(() => page.locator('audio').evaluate(audio => audio.currentTime)).toBe(12)
-  await expect.poll(() => page.locator('audio').evaluate(audio => audio.paused)).toBe(true)
+  await expect.poll(() => audio.evaluate(element => !element.paused && element.currentTime >= 12 && element.currentTime < 14)).toBe(true)
+  await page.getByRole('button', { name: 'Pause', exact: true }).click()
   await page.getByRole('slider', { name: 'Seek', exact: true }).fill('2')
   await link.click()
-  await expect.poll(() => page.locator('audio').evaluate(audio => audio.currentTime)).toBe(12)
-  await page.getByText('Transcript and call summary', { exact: true }).click()
-  await page.getByRole('button', { name: 'Inspect transcript context', exact: true }).click()
-  const transcriptJump = page.getByRole('region', { name: 'Transcript context' }).getByRole('button', { name: 'Jump to 0:12', exact: true })
+  await expect.poll(() => audio.evaluate(element => !element.paused && element.currentTime >= 12 && element.currentTime < 14)).toBe(true)
+  await page.getByRole('button', { name: 'View transcript', exact: true }).click()
+  const transcript = page.getByRole('region', { name: 'Transcript context' })
+  const transcriptJump = transcript.getByRole('button', { name: 'Play from here at 0:12 — handling agent', exact: true })
   await expect(transcriptJump).toBeVisible()
+  await page.getByRole('combobox', { name: 'Playback speed' }).selectOption('0.5')
   await transcriptJump.click()
-  await expect.poll(() => page.locator('audio').evaluate(audio => audio.currentTime)).toBe(12)
-  await page.screenshot({ path: testInfo.outputPath('timestamp-jump-desktop.png') })
+  const active = transcript.locator('li[aria-current="true"]')
+  await expect(active).toContainText(QUOTES[0])
+  await expect(transcript.getByText(/Timestamps appear only for verified audio matches/)).toHaveCount(1)
+  await page.screenshot({ path: testInfo.outputPath('timestamp-play-desktop.png') })
+  const scroll = page.getByRole('dialog').locator('.overflow-y-auto').first()
+  await scroll.evaluate(element => { element.scrollTop = 0 })
+  // Progress leaving the verified range must not pull the reader back to that passage.
+  await expect(active).toHaveCount(0)
+  expect(await scroll.evaluate(element => element.scrollTop)).toBe(0)
+  await transcriptJump.click()
+  await expect(active).toHaveCount(1)
+  await page.getByRole('button', { name: 'Pause', exact: true }).click()
+  await expect(active).toHaveCount(0)
+  await page.getByRole('slider', { name: 'Seek', exact: true }).fill('20')
+  await page.getByRole('button', { name: 'Play', exact: true }).click()
+  await expect.poll(() => audio.evaluate(element => element.currentTime)).toBeGreaterThan(20)
+  await expect(active).toHaveCount(0)
+  await page.emulateMedia({ reducedMotion: 'reduce' })
   await page.setViewportSize({ width: 375, height: 812 })
-  await link.scrollIntoViewIfNeeded()
-  await expect(link).toBeInViewport()
-  await page.screenshot({ path: testInfo.outputPath('timestamp-jump-mobile.png') })
+  await transcriptJump.click()
+  await expect(active).toHaveCount(1)
+  expect((await transcriptJump.boundingBox())?.height).toBeGreaterThanOrEqual(44)
+  expect(await transcript.evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true)
+  await page.screenshot({ path: testInfo.outputPath('timestamp-play-mobile.png') })
   await page.getByRole('button', { name: 'Next alert (j)', exact: true }).click()
   await expect(page.locator('audio')).toHaveAttribute('src', '/synthetic-recording-next-timestamp.wav')
   await expect.poll(() => page.locator('audio').evaluate(audio => audio.currentTime)).toBe(0)
-  await expect(page.getByRole('button', { name: /^Jump to/ })).toHaveCount(0)
+  await expect(page.getByRole('button', { name: /^Play from here/ })).toHaveCount(0)
   await page.getByRole('button', { name: 'Previous alert (k)', exact: true }).click()
   await expect(page.locator('audio')).toHaveAttribute('src', reference)
   await expect.poll(() => page.locator('audio').evaluate(audio => audio.currentTime)).toBe(0)
+  expect(state.writes).toEqual([])
+})
+
+test('unverified audio quotes offer literal transcript navigation, not invented timestamps or paraphrase links', async ({ page }) => {
+  const reference = '/synthetic-recording-find.wav'
+  const state = await reviewFixture(page, [alertRow('find-quote', { recording_link: reference })])
+  await recordingRoute(page)
+  state.transcript = `[handling agent]:Welcome to this synthetic call.\n[contact]:I have a question.\n[handling agent]:${QUOTES[0]}\n[contact]:Thank you for explaining.`
+  let release: () => void = () => {}
+  state.transcriptGate = new Promise(resolve => { release = resolve })
+  await page.route('**/rest/v1/rpc/get_recording_word_timestamps', route => route.fulfill({ json: {
+    recording_reference: reference, original_transcript: state.transcript, duration: 30,
+    words: 'A wholly different passage.'.split(' ').map((text, index) => ({ text, start: index, end: index + 0.5 })),
+  } }))
+  await page.goto('/dashboard/alerts/find-quote/full_qa')
+  const find = page.getByRole('button', { name: 'Find in transcript', exact: true })
+  await expect(find).toHaveCount(1)
+  await expect(page.getByRole('button', { name: /^Play from here/ })).toHaveCount(0)
+  await find.focus(); await page.keyboard.press('Enter')
+  const transcript = page.getByRole('region', { name: 'Transcript context' })
+  await expect(transcript).toBeFocused()
+  await expect(transcript.getByText('Loading transcript…')).toBeVisible()
+  release()
+  const search = transcript.getByRole('searchbox', { name: 'Search transcript' })
+  await expect(search).toHaveValue(QUOTES[0])
+  await expect(search).toBeFocused()
+  await expect(transcript.locator('mark[aria-current="true"]')).toHaveText(QUOTES[0])
+  await expect(transcript.locator('mark[aria-current="true"]')).toBeInViewport()
+  await expect.poll(() => page.locator('audio').evaluate(audio => audio.paused)).toBe(true)
+  await search.fill('nothing matches')
+  await find.click()
+  await expect(search).toHaveValue(QUOTES[0])
+  await expect(search).toBeFocused()
+  await search.fill('explaining')
+  await page.getByRole('button', { name: 'View transcript', exact: true }).click()
+  await expect(search).toHaveValue('explaining')
+  await page.locator('summary', { hasText: 'Discussion' }).click()
+  const message = page.getByRole('textbox', { name: 'Add a message', exact: true })
+  await message.focus()
+  const scroll = page.getByRole('dialog').locator('.overflow-y-auto').first()
+  const beforeTyping = await scroll.evaluate(element => element.scrollTop)
+  await message.pressSequentially('Keep this unsaved draft while I read.', { delay: 20 })
+  await expect(message).toBeInViewport()
+  expect(await scroll.evaluate(element => element.scrollTop)).toBe(beforeTyping)
+  expect(state.writes).toEqual([])
+})
+
+test('a passage click before metadata loads never queues unexpected playback', async ({ page }) => {
+  const reference = '/synthetic-recording-delayed-timing.wav'
+  const state = await reviewFixture(page, [alertRow('delayed-timing', { recording_link: reference })])
+  await recordingRoute(page)
+  let release: () => void = () => {}
+  const gate = new Promise<void>(resolve => { release = resolve })
+  await page.route('**/synthetic-recording-delayed-timing.wav', async route => { await gate; await route.fallback() })
+  await page.route('**/rest/v1/rpc/get_recording_word_timestamps', route => route.fulfill({ json: {
+    recording_reference: reference, original_transcript: QUOTES[0], duration: 30,
+    words: QUOTES[0].split(' ').map((text, index) => ({ text, start: 12 + index * 0.3, end: 12.2 + index * 0.3 })),
+  } }))
+  await page.goto('/dashboard/alerts/delayed-timing/full_qa', { waitUntil: 'domcontentloaded' })
+  const link = page.getByRole('button', { name: /^Play from here at 0:12/ }).first()
+  await link.click()
+  await expect(page.getByText(/Recording is not ready/)).toBeVisible()
+  release()
+  await expect.poll(() => page.locator('audio').evaluate(audio => audio.duration)).toBe(30)
+  expect(await page.locator('audio').evaluate(audio => ({ time: audio.currentTime, paused: audio.paused }))).toEqual({ time: 0, paused: true })
+  await link.click()
+  await expect.poll(() => page.locator('audio').evaluate(audio => !audio.paused && audio.currentTime >= 12)).toBe(true)
+  await expect(page.getByText(/Recording is not ready/)).toHaveCount(0)
   expect(state.writes).toEqual([])
 })
 
@@ -82,13 +171,41 @@ for (const kind of ['repeated', 'original-repeated', 'mismatched-recording', 'in
   await page.goto('/dashboard/alerts/timestamp-rejection/full_qa')
   await expect.poll(() => page.locator('audio').evaluate(audio => audio.duration)).toBe(30)
   if (kind === 'duration-mismatch') {
-    await page.getByRole('button', { name: 'Jump to 0:10', exact: true }).first().click()
+    await page.getByRole('button', { name: /^Play from here at 0:10/ }).first().click()
     await expect(page.getByText('This timestamp does not match the recording. Use the player to find the passage.')).toBeVisible()
-  } else await expect(page.getByRole('button', { name: /^Jump to/ })).toHaveCount(0)
+  } else await expect(page.getByRole('button', { name: /^Play from here/ })).toHaveCount(0)
   await expect.poll(() => page.locator('audio').evaluate(audio => audio.currentTime)).toBe(0)
   await page.getByRole('button', { name: 'Play', exact: true }).click()
   await expect.poll(() => page.locator('audio').evaluate(audio => audio.currentTime)).toBeGreaterThan(0)
   expect(state.writes).toEqual([])
+})
+
+test('a not-yet-seekable HTTP recording refuses a passage instead of starting at the wrong time', async ({ page }) => {
+  const server = createServer((_request, response) => {
+    response.writeHead(200, { 'Content-Type': 'audio/wav', 'Content-Length': wav.length, 'Access-Control-Allow-Origin': '*' })
+    // Deliberately ignore Range, reproducing the non-seekable HTTP media boundary.
+    response.end(wav)
+  })
+  await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve))
+  try {
+    const address = server.address()
+    if (!address || typeof address === 'string') throw new Error('Expected local TCP fixture')
+    const reference = `http://127.0.0.1:${address.port}/unseekable.wav`
+    const state = await reviewFixture(page, [alertRow('unseekable', { recording_link: reference })])
+    await page.route('**/rest/v1/rpc/get_recording_word_timestamps', route => route.fulfill({ json: {
+      recording_reference: reference, original_transcript: QUOTES[0], duration: 30,
+      words: QUOTES[0].split(' ').map((text, index) => ({ text, start: 12 + index * 0.3, end: 12.2 + index * 0.3 })),
+    } }))
+    await page.goto('/dashboard/alerts/unseekable/full_qa', { waitUntil: 'domcontentloaded' })
+    await expect.poll(() => page.locator('audio').evaluate(audio => audio.duration)).toBe(30)
+    await page.getByRole('button', { name: /^Play from here at 0:12/ }).first().click()
+    await expect(page.getByText('This passage is not ready. Play the recording to load it, or use the player to find the passage.')).toBeVisible()
+    expect(await page.locator('audio').evaluate(audio => ({ paused: audio.paused, time: audio.currentTime }))).toEqual({ paused: true, time: 0 })
+    expect(state.writes).toEqual([])
+  } finally {
+    server.closeAllConnections()
+    await new Promise<void>((resolve, reject) => server.close(error => error ? reject(error) : resolve()))
+  }
 })
 
 test('timing flag controls cache reads without changing playback', async ({ page }) => {
@@ -114,7 +231,7 @@ test('literal audio matching keeps signs, amounts and negation and rejects short
     return [match(quote), match('Your balance is $500 today.'), match('Your balance is not -$500 today.'), match('Your balance is'),
       createAudioQuoteMatcher({ recording_reference: 'synthetic', original_transcript: 'A different sentence entirely.', duration: 30, words })(quote)]
   }, '/src/lib/recording-timestamps.ts')
-  expect(results).toEqual([0, null, null, null, null])
+  expect(results).toEqual([{ start: 0, end: 4.5 }, null, null, null, null])
 })
 
 const spectrumInk = (page: Page) => page.getByRole('img', { name: 'Live audio frequencies, not a recording timeline' }).evaluate((canvas: HTMLCanvasElement) => {
@@ -194,15 +311,25 @@ test('speech frequencies use the full visualizer width instead of leaving a quie
 
 for (const cors of [false, true]) test(`cross-origin recording ${cors ? 'with CORS has a real spectrum' : 'without CORS falls back to ordinary playback'}`, async ({ page }) => {
   // route.fulfill adds CORS headers automatically. Use real HTTP to exercise browser enforcement.
-  const server = createServer((_request, response) => {
-    response.writeHead(200, { 'Content-Type': 'audio/wav', 'Content-Length': audibleWav.length, ...(cors ? { 'Access-Control-Allow-Origin': '*' } : {}) })
-    response.end(audibleWav)
+  const server = createServer((request, response) => {
+    const range = request.headers.range?.match(/^bytes=(\d+)-(\d*)$/)
+    const start = range ? Number(range[1]) : 0
+    const end = range?.[2] ? Math.min(Number(range[2]), audibleWav.length - 1) : audibleWav.length - 1
+    const body = audibleWav.subarray(start, end + 1)
+    response.writeHead(range ? 206 : 200, { 'Content-Type': 'audio/wav', 'Content-Length': body.length, 'Accept-Ranges': 'bytes',
+      ...(range ? { 'Content-Range': `bytes ${start}-${end}/${audibleWav.length}` } : {}), ...(cors ? { 'Access-Control-Allow-Origin': '*' } : {}) })
+    response.end(body)
   })
   await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve))
   try {
     const address = server.address()
     if (!address || typeof address === 'string') throw new Error('Expected local TCP fixture')
-    const state = await reviewFixture(page, [alertRow('cross-origin', { recording_link: `http://127.0.0.1:${address.port}/audio.wav` })])
+    const reference = `http://127.0.0.1:${address.port}/audio.wav`
+    const state = await reviewFixture(page, [alertRow('cross-origin', { recording_link: reference })])
+    await page.route('**/rest/v1/rpc/get_recording_word_timestamps', route => route.fulfill({ json: {
+      recording_reference: reference, original_transcript: QUOTES[0], duration: 30,
+      words: QUOTES[0].split(' ').map((text, index) => ({ text, start: 5 + index * 0.3, end: 5.2 + index * 0.3 })),
+    } }))
     await page.goto('/dashboard/alerts/cross-origin/full_qa')
     await expect.poll(() => page.locator('audio').evaluate(audio => audio.duration)).toBe(30)
     const recording = page.getByRole('region', { name: 'Call recording', exact: true })
@@ -210,8 +337,8 @@ for (const cors of [false, true]) test(`cross-origin recording ${cors ? 'with CO
       await expect(recording.getByText('Audio only', { exact: true })).toBeVisible()
       await expect(recording.getByRole('img')).toHaveCount(0)
     }
-    await recording.getByRole('button', { name: 'Play', exact: true }).click()
-    await expect.poll(() => page.locator('audio').evaluate(audio => audio.currentTime)).toBeGreaterThan(0.1)
+    await page.getByRole('button', { name: /^Play from here at 0:05/ }).first().click()
+    await expect.poll(() => page.locator('audio').evaluate(audio => !audio.paused && audio.currentTime > 5)).toBe(true)
     await expect(recording.getByRole('button', { name: 'Retry recording', exact: true })).toHaveCount(0)
     if (cors) await expect.poll(() => spectrumInk(page)).toBeGreaterThan(2000)
     else {

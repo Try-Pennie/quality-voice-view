@@ -4,19 +4,19 @@
 
 This is **cached audio navigation, not production transcription activation**. The build flag `VITE_RECORDING_TIMESTAMPS=true` enables one scoped read when an internal alert opens. It never starts a transcription, sends customer data to a model, or writes a review. Default/production builds leave the flag off.
 
-Open **Transcript and call summary → Inspect transcript context**. A matching speaker turn has a **Jump to m:ss** button. It moves the existing player without auto-playing; press Play to listen. If already playing, playback continues from the chosen time. The same links can appear beside saved QA evidence when it meets the identical matching rules.
+Open **View transcript**. A matching speaker turn has a **Play from here · m:ss** button that seeks and plays in one click. Its accessible name includes the saved speaker. The verified turn highlights only while playing within its own saved word interval; playback never scrolls the transcript. The same play buttons can appear beside saved QA quotes that meet the identical matching rules. Otherwise, a quote with a literal original-transcript match offers **Find in transcript**, which opens context and searches without starting audio.
 
 - A phrase needs at least four words and one occurrence in both the original Regal transcript and Grok's timestamped words.
 - No semantic/fuzzy matching or filler removal. Monetary signs, amounts and negation survive normalization.
 - Labels are removed only by the existing conservative speaker parser; matching never crosses turns.
-- Ambiguous, unavailable, invalid or mismatched recordings produce no jump link. A native-duration mismatch refuses the seek.
+- Ambiguous, unavailable, invalid or mismatched recordings produce no audio link. A native-duration mismatch refuses playback from a timestamp. A click before metadata is ready asks the user to retry; it never queues surprise playback.
 - Signing/refresh, ordinary playback, review drafts, keyboard shortcuts and other calls keep working. Going back to a call does not replay an old jump.
 
 ## Measured scope
 
 The user approved **one** existing private staging recording for xAI processing on 2026-09-20. No bulk backfill or other real-call provider requests were performed.
 
-The result contains 5,143 words over 2,799.987 seconds. Of 13 saved QA quote fields, three match Grok alone, but **zero match uniquely in both sources**. Their links therefore stay hidden. **125 of 521 original transcript turns** pass the stricter check. This proves useful turn-level navigation, not universal quote alignment or transcription accuracy. The estimated provider cost for this recording is about $0.078 at the published $0.10/audio-hour rate, not an invoice reconciliation.
+The result contains 5,143 words over 2,799.987 seconds. Of 13 saved QA quote fields, three match Grok alone, but **zero match uniquely in both sources**. Their audio links therefore stay hidden; literal text matches can still offer transcript-only navigation. **125 of 521 original transcript turns** pass the stricter check. This proves useful turn-level navigation, not universal quote alignment or transcription accuracy. The estimated provider cost for this recording is about $0.078 at the published $0.10/audio-hour rate, not an invoice reconciliation.
 
 Timing data is kept separately in `eavesly_recording_word_timestamps`. Authenticated users have no direct table privileges. The read RPC uses `internal_alert_actor_email` and `alert_visible_to`, excludes partner/disposition-only modules, requires `alert_sent`, and binds the result to the alert's current stored recording reference. Client parsing and a second reference check guard the playback boundary.
 
@@ -31,7 +31,7 @@ npm test -- --workers=1 --reporter=line
 VITE_RECORDING_TIMESTAMPS=false npm test -- tests/recording-placement.spec.ts --grep 'timing flag' --workers=1 --reporter=line
 ```
 
-New browser checks cover native seeking, no autoplay, repeated clicks, transcript links, return-to-prior-call state, ambiguity in either transcript, invalid/stale data, server failure, duration mismatch, monetary signs/negation, mobile controls and flag-off zero-RPC behavior. Fixtures are synthetic. Hosted screenshots, transcripts, recording URLs and credentials stay private.
+Browser checks cover one-click native playback, verified highlighting without scrolling, repeat clicks, literal transcript search/focus, late metadata without queued autoplay, return-to-prior-call state, cross-origin/native fallback, ambiguity in either transcript, invalid/stale data, server failure, duration mismatch, monetary signs/negation, mobile controls and flag-off zero-RPC behavior. Fixtures are synthetic. Hosted screenshots, transcripts, recording URLs and credentials stay private.
 
 Actual staging SQL checks cover both reviewer roles, excluded/unknown calls, denial of direct table and anonymous access, duplicate claims, and invalid ready states. The existing 11 protected tables and Auth user count must match their pre-change hashes/counts; exactly one ready timing row is expected.
 

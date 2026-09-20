@@ -43,7 +43,7 @@ interface Props {
   readonly scope: UserScope
   readonly editable: boolean
   readonly canReloadReview: boolean
-  readonly renderAudioLink?: (quote: string) => ReactNode
+  readonly renderAudioLink?: (quote: string, speaker?: string) => ReactNode
   readonly onStaleReview: () => void
   readonly onDirtyChange: (dirty: boolean) => void
   readonly onBusyChange: (busy: boolean) => void
@@ -137,7 +137,7 @@ function seededEvidence(evidence: unknown, notes: readonly string[]): string {
 // entries. Only explicit quote fields are presented as quotations; notes stay notes.
 type Excerpt = { readonly key: number; readonly lead: JSX.Element; readonly context: string | null; readonly attribution: string | null }
 
-function excerptItems(evidence: unknown, displayedNotes: readonly string[], renderAudioLink?: (quote: string) => ReactNode): readonly Excerpt[] {
+function excerptItems(evidence: unknown, displayedNotes: readonly string[], renderAudioLink?: (quote: string, speaker?: string) => ReactNode): readonly Excerpt[] {
   return evidenceEntries(evidence).flatMap((entry, index): Excerpt[] => {
     if (typeof entry === 'string' && entry.trim()) return displayedNotes.includes(entry.trim()) ? [] : [{ key: index, context: null, attribution: null,
       lead: <p key={index} className="whitespace-pre-wrap break-words text-sm leading-relaxed">{entry}</p> }]
@@ -149,7 +149,7 @@ function excerptItems(evidence: unknown, displayedNotes: readonly string[], rend
       lead: <figure key={index} className="space-y-1">
         <figcaption className="text-xs font-semibold text-pennie-graphite/70">{attribution}</figcaption>
         <blockquote className="whitespace-pre-wrap break-words border-l-2 border-pennie-yellow-dark pl-3 text-sm leading-relaxed">{quote}</blockquote>
-        {renderAudioLink?.(quote)}
+        {renderAudioLink?.(quote, savedText(valueAtPath(entry, 'speaker')) ?? undefined)}
       </figure> }]
   })
 }

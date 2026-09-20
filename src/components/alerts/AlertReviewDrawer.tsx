@@ -19,9 +19,9 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from '@/components/ui/alert-dialog'
-import { AudioPlayer } from '@/components/call-detail/AudioPlayer'
+import { AudioPlayer, type RecordingControls } from '@/components/call-detail/AudioPlayer'
 import { AlertTranscript } from './AlertTranscript'
-import { extractEvidenceQuotes } from '@/lib/transcript-evidence'
+import { extractEvidenceQuotes, findTranscriptRanges, parseTranscriptTurns } from '@/lib/transcript-evidence'
 import { createAudioQuoteMatcher } from '@/lib/recording-timestamps'
 import { isHumanReviewed, needsCoachingFollowUp } from '@/lib/alert-review-queue'
 import {
@@ -159,17 +159,30 @@ export function AlertReviewDrawer({
 }: Props) {
   const isFullQa = workload === 'internal' && alert?.module_name === 'full_qa'
   const { data: recordingTiming } = useRecordingTiming(alert?.call_id, alert?.module_name, alert?.recording_reference, scope)
-  const [audioSeek, setAudioSeek] = useState<{ callId: string; url: string; time: number; expectedDuration: number; sequence: number } | null>(null)
-  const matchAudioQuote = useMemo(() => recordingTiming ? createAudioQuoteMatcher(recordingTiming) : null, [recordingTiming])
-  const renderAudioLink = (quote: string) => {
-    if (!recordingTiming || !alert?.recording_link || recordingTiming.recording_reference !== alert.recording_reference) return null
-    const time = matchAudioQuote?.(quote) ?? null
-    if (time === null) return null
-    const label = `${Math.floor(time / 60)}:${Math.floor(time % 60).toString().padStart(2, '0')}`
-    return <button type="button" className="pennie-focus-ring inline-flex min-h-[44px] items-center rounded-full px-2 text-xs font-semibold text-pennie-blue-deeper hover:underline"
-      title="Move the recording to this quote. Press Play to listen."
-      onClick={() => setAudioSeek(previous => ({ callId: alert.call_id, url: alert.recording_link, time, expectedDuration: recordingTiming.duration, sequence: (previous?.sequence ?? 0) + 1 }))}>
-      Jump to {label}
+  const player = useRef<RecordingControls>(null)
+  const [audioElement, setAudioElement] = useState<HTMLAudioElement | null>(null)
+  const verifiedTiming = alert?.recording_link && recordingTiming?.recording_reference === alert.recording_reference ? recordingTiming : null
+  const matchAudioQuote = useMemo(() => verifiedTiming ? createAudioQuoteMatcher(verifiedTiming) : null, [verifiedTiming])
+  const hasTranscriptQuote = useMemo(() => {
+    // Reuse only the already-authorized cache; don't eagerly fetch every call's transcript.
+    const original = verifiedTiming ? (parseTranscriptTurns(verifiedTiming.original_transcript) ?? [{ text: verifiedTiming.original_transcript }]).map(turn => turn.text).join('\u0000') : ''
+    const matches = new Map<string, boolean>()
+    return (quote: string) => {
+      if (!matches.has(quote)) matches.set(quote, quote.trim().length >= 12 && findTranscriptRanges(original, [quote]).length > 0)
+      return matches.get(quote)
+    }
+  }, [verifiedTiming])
+  const renderAudioLink = (quote: string, speaker?: string, allowFind = false) => {
+    const range = matchAudioQuote?.(quote)
+    const buttonClass = 'pennie-focus-ring inline-flex min-h-[44px] items-center rounded-full px-2 text-xs font-semibold text-pennie-blue-deeper hover:underline'
+    if (!range) return allowFind && hasTranscriptQuote(quote)
+      ? <button type="button" className={buttonClass} onClick={() => { openTranscript(); setTranscriptQuote(quote) }}
+        aria-label={`Find in transcript${speaker ? ` — ${speaker}` : ''}`}>Find in transcript</button> : null
+    const label = `${Math.floor(range.start / 60)}:${Math.floor(range.start % 60).toString().padStart(2, '0')}`
+    return <button type="button" className={buttonClass}
+      aria-label={`Play from here at ${label}${speaker ? ` — ${speaker}` : ''}`}
+      onClick={() => player.current?.playFrom(range.start, verifiedTiming.duration)}>
+      Play from here <span className="ml-1 tabular-nums">· {label}</span>
     </button>
   }
   const [accurate, setAccurate] = useState<boolean | null>(null)
@@ -185,7 +198,9 @@ export function AlertReviewDrawer({
   const [showTranscript, setShowTranscript] = useState(false)
   const transcriptDetails = useRef<HTMLDetailsElement>(null)
   const [transcriptFocusRequest, setTranscriptFocusRequest] = useState(0)
+  const [transcriptQuote, setTranscriptQuote] = useState('')
   const openTranscript = () => {
+    setTranscriptQuote('')
     if (transcriptDetails.current) transcriptDetails.current.open = true
     setShowTranscript(true)
     setTranscriptFocusRequest(request => request + 1)
@@ -228,7 +243,6 @@ export function AlertReviewDrawer({
   )
 
   useEffect(() => {
-    setAudioSeek(null)
     if (!alert) return
     setAccurate(alert.accurate)
     setAction(alert.action_taken)
@@ -240,6 +254,7 @@ export function AlertReviewDrawer({
     setShowRaw(false)
     setShowTranscript(false)
     setTranscriptFocusRequest(0)
+    setTranscriptQuote('')
     if (transcriptDetails.current) transcriptDetails.current.open = false
     setOverrideMode(false)
     setDraftBody('')
@@ -768,7 +783,7 @@ export function AlertReviewDrawer({
           </div> : detailsLoading || alert.recording_link === undefined
             ? <p role="status" aria-busy="true" className="min-h-[112px] sm:min-h-[68px] text-xs text-pennie-graphite/70">Loading recording…</p>
             : alert.recording_link && <AudioPlayer key={alert.call_id} recordingUrl={alert.recording_link} onRetry={onRetryDetails}
-              seekRequest={audioSeek?.callId === alert.call_id && audioSeek.url === alert.recording_link ? audioSeek : undefined} />}
+              ref={player} onAudioElement={setAudioElement} />}
         </section>
 
         {showLegacyAckBar && (
@@ -882,7 +897,7 @@ export function AlertReviewDrawer({
                   <blockquote className="border-l-2 border-pennie-blue-main pl-4 italic text-pennie-graphite leading-relaxed">
                     {evidence}
                   </blockquote>
-                  {renderAudioLink(evidence)}
+                  {renderAudioLink(evidence, undefined, true)}
                 </div>
               )}
               {alert.call_summary && (
@@ -902,6 +917,8 @@ export function AlertReviewDrawer({
             {showTranscript && <div className="mt-4"><AlertTranscript
               key={alert.call_id}
               callId={alert.call_id}
+              focusRequest={transcriptFocusRequest} searchQuote={transcriptQuote}
+              audioElement={audioElement} recordingTiming={verifiedTiming}
               renderAudioLink={renderAudioLink}
               evidence={extractEvidenceQuotes(alert.violation_type, reviewSource)}
             /></div>}
@@ -932,7 +949,7 @@ export function AlertReviewDrawer({
               scope={scope}
               editable={showStructuredForm}
               canReloadReview={!detailsLoading && !detailsError}
-              renderAudioLink={renderAudioLink}
+              renderAudioLink={(quote, speaker) => renderAudioLink(quote, speaker, true)}
               onStaleReview={onRetryDetails}
               onDirtyChange={setFullQaDraftDirty}
               onBusyChange={setFullQaBusy}
@@ -972,8 +989,9 @@ export function AlertReviewDrawer({
                   </button>
                   {showTranscript && <div className="mt-4"><AlertTranscript
                     key={alert.call_id}
-                    focusRequest={transcriptFocusRequest}
+                    focusRequest={transcriptFocusRequest} searchQuote={transcriptQuote}
                     callId={alert.call_id}
+                    audioElement={audioElement} recordingTiming={verifiedTiming}
                     renderAudioLink={renderAudioLink}
                     evidence={extractEvidenceQuotes(alert.violation_type, reviewSource)}
                   /></div>}

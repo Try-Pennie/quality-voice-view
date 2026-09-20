@@ -1,16 +1,21 @@
 import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from 'react'
 import { ChevronDown, ChevronLeft, ChevronRight } from 'lucide-react'
 import { findTranscriptRanges, parseTranscriptTurns } from '@/lib/transcript-evidence'
+import { createAudioQuoteMatcher, type RecordingTiming } from '@/lib/recording-timestamps'
 
 /** Searchable speaker turns with literal evidence navigation; no inferred audio timestamps. */
-export function TranscriptView({ transcript, evidence = [], constrainHeight = true, focusRequest = 0, renderAudioLink }: {
+export function TranscriptView({ transcript, evidence = [], constrainHeight = true, focusRequest = 0, searchQuote = '', audioElement, recordingTiming, renderAudioLink }: {
   transcript: string
   evidence?: string[]
   constrainHeight?: boolean
   /** Explicit navigation request, not focus on every data refresh. */
   focusRequest?: number
+  /** A literal quote to find on an explicit focus request, never on playback updates. */
+  searchQuote?: string
+  audioElement?: HTMLAudioElement | null
+  recordingTiming?: RecordingTiming | null
   /** Optional verified timing; unmatched turns retain the original text without a link. */
-  renderAudioLink?: (quote: string) => ReactNode
+  renderAudioLink?: (quote: string, speaker?: string) => ReactNode
 }) {
   const [expanded, setExpanded] = useState(false)
   const [search, setSearch] = useState('')
@@ -19,13 +24,33 @@ export function TranscriptView({ transcript, evidence = [], constrainHeight = tr
   const contentId = useId()
   const contentRef = useRef<HTMLDivElement>(null)
   const searchRef = useRef<HTMLInputElement>(null)
-  useEffect(() => {
-    if (focusRequest > 0) {
-      searchRef.current?.focus({ preventScroll: true })
-      searchRef.current?.scrollIntoView({ block: 'center', behavior: 'instant' })
-    }
-  }, [focusRequest])
   const turns = useMemo(() => parseTranscriptTurns(transcript), [transcript])
+  const timedTurns = useMemo(() => {
+    // A refreshed original transcript must not inherit another revision's highlighting.
+    if (!recordingTiming || recordingTiming.original_transcript !== transcript) return []
+    const match = createAudioQuoteMatcher(recordingTiming)
+    return (turns ?? [{ text: transcript }]).map(turn => match(turn.text))
+  }, [recordingTiming, transcript, turns])
+  const [playingTurn, setPlayingTurn] = useState(-1)
+  useEffect(() => {
+    const clear = () => setPlayingTurn(-1)
+    if (!audioElement || !recordingTiming) { clear(); return }
+    const update = () => {
+      if (audioElement.paused || audioElement.ended || audioElement.seeking || audioElement.error || audioElement.readyState < 3 ||
+        !Number.isFinite(audioElement.duration) || Math.abs(audioElement.duration - recordingTiming.duration) > Math.max(2, recordingTiming.duration * 0.005)) { clear(); return }
+      const matches = timedTurns.flatMap((range, index) => range && audioElement.currentTime >= range.start && audioElement.currentTime < range.end ? [index] : [])
+      setPlayingTurn(matches.length === 1 ? matches[0] : -1)
+    }
+    const updates = ['timeupdate', 'playing', 'seeked', 'durationchange']
+    const stops = ['pause', 'ended', 'waiting', 'seeking', 'error', 'emptied']
+    updates.forEach(event => audioElement.addEventListener(event, update))
+    stops.forEach(event => audioElement.addEventListener(event, clear))
+    update()
+    return () => {
+      updates.forEach(event => audioElement.removeEventListener(event, update))
+      stops.forEach(event => audioElement.removeEventListener(event, clear))
+    }
+  }, [audioElement, recordingTiming, timedTurns])
   const searching = search.trim().length > 0
   const blocks = useMemo(() => {
     const needles = searching ? [search] : evidence.filter(quote => quote.trim().length >= 12)
@@ -46,9 +71,16 @@ export function TranscriptView({ transcript, evidence = [], constrainHeight = tr
   }, [transcript])
 
   useEffect(() => {
+    if (focusRequest <= 0) return
+    if (searchQuote) { setSearch(searchQuote); setActive(0) }
+    searchRef.current?.focus({ preventScroll: true })
+    if (!searchQuote) searchRef.current?.scrollIntoView({ block: 'center', behavior: 'instant' })
+  }, [focusRequest, searchQuote])
+
+  useEffect(() => {
     if (position < 0) return
     contentRef.current?.querySelector(`[data-transcript-match="${position}"]`)?.scrollIntoView({ block: 'nearest' })
-  }, [position, blocks])
+  }, [position, search, focusRequest])
 
   const advance = (delta: number) => {
     if (!count) return
@@ -93,6 +125,7 @@ export function TranscriptView({ transcript, evidence = [], constrainHeight = tr
           : searching ? 'No search matches.' : evidence.length ? 'No literal evidence match in this transcript. Review the context; the quote may be paraphrased or from another call.' : 'No verbatim evidence quotes available. Search to inspect the call.'}
         {searching && ' · Enter / Shift+Enter moves between matches.'}
       </p>
+      {recordingTiming?.original_transcript === transcript && <p className="text-xs text-pennie-graphite/70">Timestamps appear only for verified audio matches. The current passage highlights while playing; scrolling stays in your control.</p>}
       <div ref={contentRef} id={contentId} className={`bg-pennie-beige/60 rounded-2xl p-4 sm:p-5 ${constrainHeight ? `overflow-y-auto ${expanded ? 'max-h-[70vh]' : 'max-h-96'}` : ''}`}>
         <ol className="space-y-4">
           {blocks.map((block, index) => {
@@ -110,12 +143,12 @@ export function TranscriptView({ transcript, evidence = [], constrainHeight = tr
               cursor = range.end
             })
             parts.push(block.text.slice(cursor))
-            return <li key={index}>
-              <div className="flex flex-wrap items-center justify-between gap-x-2">
-                {block.speaker && <span className="block text-[11px] font-bold uppercase tracking-wider mb-0.5 text-pennie-navy">{block.speaker}</span>}
-                {renderAudioLink?.(block.text)}
-              </div>
+            return <li key={index} aria-current={index === playingTurn ? 'true' : undefined}
+              className={`border-l-2 pl-3 py-1 rounded-r-lg ${index === playingTurn ? 'border-pennie-blue-deeper bg-pennie-blue-light' : 'border-transparent'}`}>
+              {block.speaker && <span className="block text-[11px] font-bold uppercase tracking-wider mb-1 text-pennie-navy">{block.speaker}</span>}
               <p className="text-sm text-pennie-graphite leading-relaxed whitespace-pre-wrap">{parts}</p>
+              {index === playingTurn && <span className="sr-only">Playing this passage</span>}
+              {renderAudioLink?.(block.text, block.speaker)}
             </li>
           })}
         </ol>
