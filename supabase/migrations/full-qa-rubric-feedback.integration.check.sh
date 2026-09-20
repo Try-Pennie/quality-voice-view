@@ -2,7 +2,7 @@
 set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-migration="$repo_root/supabase/migrations/20260918010000_full_qa_rubric_feedback.sql"
+migration="$repo_root/supabase/migrations/20260918020000_full_qa_rubric_feedback.sql"
 container="full-qa-rubric-check-$RANDOM-$$"
 tmp="$(mktemp -d)"
 cleanup() { docker rm -f "$container" >/dev/null 2>&1 || true; rm -rf "$tmp"; }
@@ -272,4 +272,6 @@ do $$ declare anchor timestamptz:=clock_timestamp(); begin begin perform public.
 reset role;
 select 'full-qa-rubric-feedback.integration.check.sh: all assertions passed' result;
 SQL
+cat "$repo_root/supabase/migrations/20260920120000_recording_word_timestamps.sql"
+cat "$repo_root/supabase/tests/recording-word-timestamps.sql"
 } | docker exec -i "$container" psql -X -v ON_ERROR_STOP=1 -U postgres -d postgres

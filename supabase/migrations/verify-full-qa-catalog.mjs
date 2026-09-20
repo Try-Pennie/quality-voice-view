@@ -5,7 +5,7 @@ import { dirname, resolve } from 'node:path'
 
 const expectedHash = '1396c17a6ae639b1172a1ff5d04ee21b22e4ab5ceb08c5915c090a34da291e37'
 const here = dirname(fileURLToPath(import.meta.url))
-const migrationPath = resolve(here, '20260918010000_full_qa_rubric_feedback.sql')
+const migrationPath = resolve(here, '20260918020000_full_qa_rubric_feedback.sql')
 const backendPromptPath = process.argv[2]
 if (!backendPromptPath) throw new Error('Usage: node verify-full-qa-catalog.mjs /path/to/eavesly/prompts/full-qa.txt')
 
