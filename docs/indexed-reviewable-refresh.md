@@ -36,14 +36,14 @@ The replacement MV is populated beside the serving snapshot. Only after populati
 
 The management migration API wraps DDL in a transaction and rejects `CREATE INDEX CONCURRENTLY`. A plain index build on these populated source tables would block ingestion writes, so production uses one temporary pg_cron maintenance job at a time, executing a **single** concurrent-index statement outside a migration transaction.
 
-Each job is scheduled for one specific upcoming GMT minute/day/month, retains the existing timeout, and is removed immediately after completion. Inspect `pg_stat_progress_create_index`, `cron.job_run_details`, and `pg_index.indisvalid/indisready`; do not blindly retry an invalid or running build. The ordinary `CREATE INDEX IF NOT EXISTS` migration then registers the completed definition and rejects invalid indexes. On empty/local databases it creates the index normally.
+Each job is scheduled for one specific upcoming GMT minute/day/month, retains the existing timeout, and is removed immediately after completion. Inspect `pg_stat_progress_create_index`, `cron.job_run_details`, and `pg_index.indisvalid/indisready`; do not blindly retry an invalid or running build. The ordinary `CREATE INDEX IF NOT EXISTS` migration then registers the completed definition and rejects invalid indexes. On empty/local databases it creates the index normally. Apply migration registrations serially: the management API assigns second-resolution versions, which can collide on simultaneous requests.
 
 Operational preparation steps are recorded in the production migration ledger as `20260921124157_prepare_regal_transcript_index_build` and `20260921124355_prepare_qa_transcript_index_build`. These schedule-only operations are not a reason to recreate the temporary jobs on another deployment. Reconcile these operational ledger entries before a CLI-wide migration push, alongside the previously documented historical migration drift.
 
 ## Verification record
 
 - `REVIEWABLE_BENCHMARK=1 bash supabase/migrations/reviewable-call-metrics.integration.check.sh`: PostgreSQL 17, full bidirectional row equivalence, cached RPC plan invalidation after MV replacement, latest retry becoming blank, late Regal transcript, JSON object rejection, QA transcript edits, source deletes, and scope/grants.
-- 20,000 TOAST-heavy synthetic calls: old materialized-population SELECT 1.10s → indexed SELECT 0.09s; exact rows match. The test requires **both membership indexes and the covering latest-QA index** to appear as index-only scans. These are local SELECT timings, not production refresh timings.
+- Latest 20,000 TOAST-heavy synthetic check: old materialized-population SELECT 1.37s → indexed SELECT 0.108s; exact rows match. The test requires **both membership indexes and the covering latest-QA index** to appear as index-only scans. These are local SELECT timings, not production refresh timings.
 - Regal concurrent build: 19.25s, valid/ready index of 7.35MB. QA concurrent build: 72.74s, valid/ready index of 11MB. Both temporary jobs were removed.
 - Canonical production migrations: `20260921124725_qa_usable_transcript_index`, `20260921124740_regal_usable_transcript_index`, `20260921125014_indexed_reviewable_metrics`, and `20260921125540_resume_indexed_metrics_refresh`. Repository filenames match these versions.
 - During QA build, manager metrics + pitch-risk query completed in 3.00s under the unchanged eight-second API budget.
@@ -52,4 +52,6 @@ Operational preparation steps are recorded in the production migration ledger as
 - Replacement MV owner is `postgres`, ACL remains NULL, actual default ACLs are absent, and authenticated users still lack private-schema usage.
 - Manager metrics + pitch-risk completed in 4.42s immediately after a refresh, within the unchanged eight-second API budget. Cold/warm timings vary; do not generalize warm subsecond checks to every request.
 - The job is re-enabled on its unchanged `*/5 * * * *` cadence with **two-minute** session timeout and 32MB work memory. This ops migration is verified by production read-back/scheduled runs, not the bare-PG integration fixture (which lacks pg_cron).
-- Scheduled-run verification: pending. Investigate any refresh that trends toward two minutes; pause rather than repeatedly increasing its timeout.
+- Two consecutive scheduled runs succeeded: **13:00 UTC in 27.96s**, then **13:05 UTC in 26.77s**. Each left over four minutes idle before the next scheduled run; no back-to-back refresh backlog remains.
+- After both scheduled runs, manager RPC verification returned 311 rows, zero outside-scope/invalid rows, and zero unauthorized-agent rows. These are authenticated-role database checks, not a claimed browser login.
+- Fresh review integration, build, and committed-diff whitespace checks also passed. Investigate any refresh that trends toward two minutes; pause rather than repeatedly increasing its timeout.
