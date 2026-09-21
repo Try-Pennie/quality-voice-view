@@ -27,7 +27,7 @@ import {
   type TerminationEnrollmentPlan,
 } from '../_shared/achieve-first-pay-outcomes.ts'
 
-type RequestAction = 'scheduled' | 'test'
+type RequestAction = 'scheduled' | 'test' | 'refresh'
 type Config = SnowflakeOutcomeConfig & {
   readonly requestSecret: string
   readonly supabaseUrl: string
@@ -58,7 +58,7 @@ function record(value: unknown): Readonly<Record<string, unknown>> | null {
 function parseAction(value: unknown): RequestAction | null {
   const body = record(value)
   if (!body || Object.keys(body).length !== 1) return null
-  return body.action === 'scheduled' || body.action === 'test' ? body.action : null
+  return body.action === 'scheduled' || body.action === 'test' || body.action === 'refresh' ? body.action : null
 }
 
 function parseConfig(): Config | null {
@@ -184,23 +184,27 @@ Deno.serve(async (request: Request) => {
       throw new SyncRunFailure('termination_ingest_response_invalid')
     }
 
-    const completed = await admin
-      .from('achieve_first_pay_outcome_sync_runs')
-      .update({
-        status: 'succeeded',
-        finished_at: new Date().toISOString(),
-        source_as_of: plan.sourceAsOf,
-        aggregate_rows: plan.expectedAggregateRows,
-        enrollments: plan.expectedEnrollments,
-        error_code: null,
-      })
-      .eq('run_date', runDate)
-      .eq('status', 'running')
-    if (completed.error) throw new SyncRunFailure('run_status_update_failed')
+    // An explicit refresh updates snapshots without rewriting the daily run's
+    // history or deleting a successful scheduled claim.
+    if (claimed) {
+      const completed = await admin
+        .from('achieve_first_pay_outcome_sync_runs')
+        .update({
+          status: 'succeeded',
+          finished_at: new Date().toISOString(),
+          source_as_of: plan.sourceAsOf,
+          aggregate_rows: plan.expectedAggregateRows,
+          enrollments: plan.expectedEnrollments,
+          error_code: null,
+        })
+        .eq('run_date', runDate)
+        .eq('status', 'running')
+      if (completed.error) throw new SyncRunFailure('run_status_update_failed')
+    }
 
     return json({
       ok: true,
-      mode: 'scheduled',
+      mode: action,
       run_date: runDate,
       source_as_of: plan.sourceAsOf,
       aggregate_rows: plan.expectedAggregateRows,

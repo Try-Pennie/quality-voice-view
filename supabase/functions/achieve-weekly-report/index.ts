@@ -37,7 +37,7 @@ import { achieveWeeklyEmailEnvelope, buildAchieveWeeklyEmail } from './email.ts'
 const GMAIL_SEND_SCOPE = 'https://www.googleapis.com/auth/gmail.send'
 
 type ReportRequest =
-  | { readonly action: 'scheduled' | 'test' | 'preview' }
+  | { readonly action: 'scheduled' | 'test' | 'preview' | 'preview_test' }
   | { readonly action: 'send'; readonly week_ending: string }
 type Config = {
   readonly reportSecret: string
@@ -135,7 +135,8 @@ function parseReportRequest(value: unknown): ReportRequest | null {
     return { action: 'send', week_ending: body.week_ending }
   }
   if (Object.keys(body).length !== 1) return null
-  return body.action === 'scheduled' || body.action === 'test' || body.action === 'preview'
+  return body.action === 'scheduled' || body.action === 'test'
+    || body.action === 'preview' || body.action === 'preview_test'
     ? { action: body.action }
     : null
 }
@@ -220,7 +221,7 @@ Deno.serve(async (request: Request) => {
       parseFirstPayQaRollups(qaResult.data),
     )
     const envelope = achieveWeeklyEmailEnvelope(
-      action === 'test',
+      action === 'test' || action === 'preview_test',
       config.recipients,
       config.ccRecipients,
       config.testRecipient,
@@ -235,7 +236,7 @@ Deno.serve(async (request: Request) => {
     )
     // Authenticated, non-sending preview: the exact MIME includes sensitive
     // enrollment data. Never log it, persist it in Eavesly, or cache the response.
-    if (action === 'preview') {
+    if (action === 'preview' || action === 'preview_test') {
       return new Response(JSON.stringify({ ok: true, mode: action, week_ending: weekEnding, raw: email.raw }), {
         headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' },
       })

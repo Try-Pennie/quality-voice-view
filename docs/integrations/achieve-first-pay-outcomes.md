@@ -62,7 +62,7 @@ The email body and portal remain aggregate-only. The third attachment contains A
 
 ## Activation and cutover
 
-For termination enrollment activity, apply `20260830120000_achieve_termination_enrollment_activity.sql` before deploying the updated `achieve-first-pay-sync`; otherwise the scheduled function cannot call its new ingest RPC. Run one successful scheduled sync before loading the portal or sending the weekly report, and rerun it after adding a terminated agent so the fail-closed snapshot includes that agent.
+For termination enrollment activity, apply `20260830120000_achieve_termination_enrollment_activity.sql` before deploying the updated `achieve-first-pay-sync`; otherwise the scheduled function cannot call its new ingest RPC. Run one successful sync before loading the portal or sending the weekly report, and refresh it after adding a terminated agent so the fail-closed snapshot includes that agent. If today's scheduled run has already succeeded, use the authenticated `{"action":"refresh"}` command: it rebuilds both validated snapshots without deleting or rewriting the successful daily claim.
 
 For the original first-pay cutover, do these in order so there is never more than one active writer:
 
@@ -99,7 +99,7 @@ from cron.job
 where jobname = 'achieve_first_pay_outcome_sync';
 ```
 
-A successful daily run has `status = 'succeeded'`, today's `source_as_of`, and positive reconciled totals. Investigate `failed` or stale rows before the Monday report. To retry the same day after fixing the cause, delete only that day's `failed` claim—or a `running` claim after confirming the invocation is no longer active—then invoke `{"action":"scheduled"}` again. Never delete a `succeeded` claim.
+A successful daily run has `status = 'succeeded'`, today's `source_as_of`, and positive reconciled totals. Investigate `failed` or stale rows before the Monday report. To retry the same day after fixing the cause, delete only that day's `failed` claim—or a `running` claim after confirming the invocation is no longer active—then invoke `{"action":"scheduled"}` again. Never delete a `succeeded` claim. Use authenticated `{"action":"refresh"}` for an intentional same-day refresh or activation after a successful scheduled run; its completion is verified from both snapshot timestamps and its response, not by rewriting the scheduled-run ledger.
 
 ## Rollback
 

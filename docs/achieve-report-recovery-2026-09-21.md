@@ -20,6 +20,8 @@ The affected SQL existed before the recent September changes; no direct schema/c
 
 ## Important deployment boundary
 
+**Historical state during the 12:33 PM recovery; superseded by the explicitly authorized termination activation below.**
+
 **Do not blindly redeploy all current-main report dependencies.** Production had not activated the August 30 post-termination-enrollment feature (`59c227f` and migration `20260830120000`). Production monitoring still uses the earlier seven-day assignment-activity contract. Activating the 30-day enrollment contract is a separate coordinated release, not part of this incident.
 
 The recovery deployment overlays only the changed `achieve-weekly-report/index.ts` onto the downloaded pre-incident production function dependencies. Its email, management-report, enrollment-export, and Google-auth modules match the `c6d8cd2` source after TypeScript/whitespace normalization; the downloaded first-pay module uses the same older contract (with transpiled class-field differences). No first-pay-sync code was redeployed. The initial current-main bundle was replaced with this isolated production-baseline bundle before any email was sent.
@@ -58,6 +60,25 @@ Inspected the complete decoded MIME, HTML screenshot, plain text, portal link, r
 - Four-week totals: **288 reviews / 35 negative / 1,607 AI QA**. Six-week: **423 reviews / 68 negative / 2,456 AI QA**.
 - All-time mature first-pay: **14,559 / 11,322 paid**; 2-week **866 / 660**; 4-week **1,748 / 1,369**; 6-week **2,373 / 1,874**; 6-month **5,076 / 4,045**.
 - Desktop HTML: complete tables, no invalid numbers, correct portal URL, no browser errors. The existing wide-table template overflows a 390px browser viewport; mobile/Gmail-client responsive rendering is **not verified** and was not redesigned in this backend recovery. No actual mailbox inbox-delivery/read verification was attempted; Gmail acceptance plus the sent ledger are confirmed.
+
+## Follow-up: termination correction and internal-only send
+
+Noah noticed the blank termination section and explicitly requested a fix and corrected report **only to nmogil@trypennie.com**. The earlier verification missed the consequence of retaining the seven-day legacy contract: all 13 terminations were older than seven days, and recent terminated representatives appeared in the active-4-week rankings. The earlier production-distribution email is not retroactively corrected.
+
+Activated the existing August 30 implementation rather than changing the report methodology:
+
+- Applied `20260830120000_achieve_termination_enrollment_activity.sql`, adding a finite 60-second budget to the service-only aggregate ingest. The migration API initially recorded `20260921190520`; its single history entry was aligned to the existing source filename `20260830120000` after checking that source version was absent. This avoids replaying an already-applied older migration.
+- Deployed matching `achieve-first-pay-sync`, `achieve-weekly-report`, and `achieve-portal` code/dependencies. Production portal entrypoint and portal-logic matched current source after TypeScript/whitespace normalization; no unrelated portal change was introduced.
+- Added authenticated sync `refresh`: both validated snapshots are refreshed without deleting or modifying today's succeeded scheduled claim. Verified that ledger row is byte-for-byte unchanged.
+- Refresh succeeded: September 21 source, 8,544 outcome aggregate rows / 14,559 mature enrollments; 606 termination-source buckets / 1,751 recent enrollments. The resulting 13 monitored agents have one post-termination enrollment in total. The snapshot was populated before loading or sending the updated report.
+- All 13 termination dates fall inside the 30-day window (10 September 9; one August 25; two August 24). Report and frontend-parser verification confirms all 13 appear, their risk ranks are null, and none occurs in the active High Risk, Negative Reviews, or Intelligibility selectors. Historical first-pay screening is intentionally unchanged.
+- Added `preview_test` using exactly the existing internal-test envelope. Set only `ACHIEVE_REPORT_TEST_RECIPIENT=nmogil@trypennie.com`; production recipient lists were not changed. Decoded preview headers confirmed that sole To address and no Cc/Bcc.
+- Inspected the rendered full report and 13-row termination table, HTML/plain text, and all three CSVs (206 management rows, 653 outcome rows, 15,700 enrollment rows with unique/nonblank AFF numbers). The updated management CSV marks terminated representatives and excludes them from all active selectors.
+- Invoked `test` once: Gmail accepted the corrected week-ending-September-20 report at approximately **3:10 PM Eastern (19:10Z)**. The original production send-ledger entry remains unchanged at 12:33 PM Eastern; the corrected report was not sent to the distribution list.
+
+Checks: real PostgreSQL termination integration (including strict post-term date and day-30 boundary) PASS; report, outcomes, enrollment-export, email, frontend contract checks PASS; fresh build PASS; expanded live HTTP check PASS (auth, strict actions, stale week, both preview modes, internal-only To/no Cc/Bcc, attachments). Independent Claude Opus review approved activation, recipient routing, and refresh ledger isolation. Existing repository lint/typecheck issues from the earlier incident remain outside this change.
+
+Operational caveats: adding a termination requires another successful sync/refresh or the monitoring RPC fails closed. The 30-day monitoring window is anchored to runtime while report windows end on the last completed Monday; off-schedule recovery late in the week can have a narrow age-out/status edge. This does not affect today's Monday correction and was not broadened into a reporting-window redesign.
 
 ## Unrelated advisor findings
 

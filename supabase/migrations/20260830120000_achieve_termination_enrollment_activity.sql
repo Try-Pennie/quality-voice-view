@@ -43,6 +43,7 @@ returns jsonb
 language plpgsql
 security definer
 set search_path = ''
+set statement_timeout = '60s'
 as $$
 declare
   item jsonb;
