@@ -60,6 +60,37 @@ test('reviewable counts aggregate independently of QA and drive manager sorting 
   expect(errors).toEqual([])
 })
 
+test('selected manager derives its roster again when team dates change', async ({ page }) => {
+  await reviewFixture(page, [], options)
+  const mappingDates: string[] = []
+  await page.route('**/rest/v1/rpc/agent_manager_mapping_at', route => {
+    const { p_as_of } = route.request().postDataJSON() as { p_as_of: string }
+    mappingDates.push(p_as_of)
+    const current = p_as_of === '2026-09-07'
+    return route.fulfill({ json: current ? options.managerMapping : [
+      { agent_email: metric.agent_email, manager_email: 'manager-b@example.test' },
+      { agent_email: beta.agent_email, manager_email: 'manager-a@example.test' },
+      { agent_email: unscored.agent_email, manager_email: 'manager-b@example.test' },
+    ] })
+  })
+  await page.goto('/dashboard/team?start=2026-09-07&end=2026-09-07')
+  const teams = page.getByRole('region', { name: 'Team outcomes by manager', exact: true })
+  await teams.getByRole('button', { name: 'Manager Alpha', exact: true }).click()
+  const representatives = page.getByRole('region', { name: 'Alerts by representative', exact: true })
+  await expect(representatives.locator('tbody tr')).toHaveCount(2)
+  await expect(representatives).toContainText('Agent Alpha')
+  await expect(representatives).toContainText('Agent Unscored')
+
+  await page.getByRole('button', { name: /Date range:/ }).click()
+  await page.getByRole('button', { name: 'Last month', exact: true }).click()
+  await expect(page).toHaveURL(/start=2026-08-01&end=2026-08-31/)
+  await expect.poll(() => mappingDates.at(-1)).toBe('2026-08-31')
+  await expect(representatives.locator('tbody tr')).toHaveCount(1)
+  await expect(representatives).toContainText('Agent Beta')
+  await expect(representatives).not.toContainText('Agent Alpha')
+  expect(new URL(page.url()).searchParams.get('mgr')).toBe('manager-a@example.test')
+})
+
 test('mobile shows pending coverage and does not treat unscored calls as AI failures', async ({ page }, testInfo) => {
   await page.setViewportSize({ width: 390, height: 844 })
   await reviewFixture(page, [], options)

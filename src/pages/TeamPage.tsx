@@ -148,11 +148,9 @@ export default function TeamPage() {
       ? q
       : 'all'
   })
-  // Manager email persisted from URL, hydrated to ManagerRollup once
-  // managerRollups are computed (god-mode only).
-  const initialManagerEmail = searchParams.get('mgr')
-  const [selectedManager, setSelectedManager] = useState<ManagerRollup | null>(
-    null,
+  // Persist only identity. The current date-aware rollups own the roster.
+  const [selectedManagerEmail, setSelectedManagerEmail] = useState<string | null>(
+    () => searchParams.get('mgr'),
   )
 
   const [breakdownSortKey, setBreakdownSortKey] = useState<ManagerSortKey>(() => {
@@ -278,21 +276,10 @@ export default function TeamPage() {
     return aggregateManagerRollups(rollupWithVisibleAlertCounts, managerMapping, managerNames)
   }, [scope, rollupWithVisibleAlertCounts, managerMapping, managerNames])
 
-  // Hydrate selectedManager from URL once the manager rollups exist. Tracked
-  // by a ref so we only attempt hydration on the first qualifying render.
-  const hydratedManagerRef = useRef(false)
-  useEffect(() => {
-    if (hydratedManagerRef.current) return
-    if (!scope?.isGodMode) return
-    if (managerRollups.length === 0) return
-    if (initialManagerEmail) {
-      const match = managerRollups.find(
-        m => m.manager_email === initialManagerEmail,
-      )
-      if (match) setSelectedManager(match)
-    }
-    hydratedManagerRef.current = true
-  }, [scope, managerRollups, initialManagerEmail])
+  const selectedManager = useMemo(
+    () => managerRollups.find(manager => manager.manager_email === selectedManagerEmail) ?? null,
+    [managerRollups, selectedManagerEmail],
+  )
 
   // Write filter state back to URL so the current view is shareable.
   useEffect(() => {
@@ -301,7 +288,7 @@ export default function TeamPage() {
     params.set('end', formatDateParam(endDate))
     if (search.trim()) params.set('search', search.trim())
     if (quickFilter !== 'all') params.set('qf', quickFilter)
-    if (selectedManager) params.set('mgr', selectedManager.manager_email)
+    if (selectedManagerEmail) params.set('mgr', selectedManagerEmail)
     if (breakdownSortKey !== 'confirmed_issue_count') params.set('sort', breakdownSortKey)
     if (!breakdownSortDesc) params.set('dir', 'asc')
     setSearchParams(params, { replace: true })
@@ -310,7 +297,7 @@ export default function TeamPage() {
     endDate,
     search,
     quickFilter,
-    selectedManager,
+    selectedManagerEmail,
     breakdownSortKey,
     breakdownSortDesc,
     setSearchParams,
@@ -320,10 +307,10 @@ export default function TeamPage() {
   // heatmap, themes, leaderboard). search + quickFilter further narrow only
   // the leaderboard — they're inspection tools, not data filters.
   const scopedRollup = useMemo(() => {
-    if (!selectedManager) return rollupWithVisibleAlertCounts
-    const agentSet = new Set(selectedManager.agent_emails)
+    if (!selectedManagerEmail) return rollupWithVisibleAlertCounts
+    const agentSet = new Set(selectedManager?.agent_emails ?? [])
     return rollupWithVisibleAlertCounts.filter(r => agentSet.has(r.agent_email))
-  }, [rollupWithVisibleAlertCounts, selectedManager])
+  }, [rollupWithVisibleAlertCounts, selectedManager, selectedManagerEmail])
 
   const filtered = useMemo(() => {
     let rows = scopedRollup
@@ -392,23 +379,23 @@ export default function TeamPage() {
 
   // Heatmap cells filtered to scoped agents — avoids a second round-trip.
   const scopedBreakdown = useMemo(() => {
-    if (!selectedManager) return breakdown
-    const agentSet = new Set(selectedManager.agent_emails)
+    if (!selectedManagerEmail) return breakdown
+    const agentSet = new Set(selectedManager?.agent_emails ?? [])
     return breakdown.filter(c => agentSet.has(c.agent_email))
-  }, [breakdown, selectedManager])
+  }, [breakdown, selectedManager, selectedManagerEmail])
 
   // Coaching themes refetch when selectedManager changes — themes are
   // pre-aggregated server-side, so we re-run with a synthesized scope.
   const themesScope = useMemo(() => {
     if (!scope) return null
-    return selectedManager
+    return selectedManagerEmail
       ? {
           email: scope.email,
           isGodMode: false,
-          managedAgents: selectedManager.agent_emails,
+          managedAgents: selectedManager?.agent_emails ?? [],
         }
       : scope
-  }, [scope, selectedManager])
+  }, [scope, selectedManager, selectedManagerEmail])
   const {
     data: teamThemesData,
     isPending: themesPending,
@@ -523,7 +510,7 @@ export default function TeamPage() {
           loading={loading}
           selectedManager={selectedManager?.manager_email ?? null}
           onSelect={mgr => {
-            setSelectedManager(mgr)
+            setSelectedManagerEmail(mgr?.manager_email ?? null)
             if (mgr) {
               requestAnimationFrame(() => {
                 leaderboardRef.current?.scrollIntoView({
