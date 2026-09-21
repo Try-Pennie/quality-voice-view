@@ -27,7 +27,9 @@ create table public.eavesly_transcription_qa (
   compliance_rating text, manager_escalation boolean, customer_satisfaction_likely text,
   original_transcript text, created_at timestamptz default now()
 );
-create index on public.eavesly_transcription_qa(call_id);
+create index eavesly_transcription_qa_latest_idx
+  on public.eavesly_transcription_qa(call_id, created_at desc nulls last, id desc)
+  include (compliance_rating, customer_satisfaction_likely, manager_escalation);
 create table public.eavesly_regal_call_events (
   regal_task_id text, event_type text, payload jsonb,
   primary key (regal_task_id, event_type)
@@ -83,6 +85,26 @@ for migration in 20260427230000_team_rollup_mv.sql 20260619162000_hide_dispositi
   sql < "$root/supabase/migrations/$migration"
 done
 sql <<'SQL'
+create table baseline_definition as select pg_get_viewdef('private.mv_agent_daily_metrics', true) as query;
+create table baseline_rows as table private.mv_agent_daily_metrics;
+SQL
+for migration in 20260921124725_qa_usable_transcript_index.sql 20260921124740_regal_usable_transcript_index.sql; do
+  sql < "$root/supabase/migrations/$migration"
+done
+# Warm the RPC's cached relation plan, replace the MV in the same connection,
+# then prove both cached RPC execution and the refresh function use the new MV.
+{
+  printf "set request.jwt.claims = '{\"email\":\"manager@example.test\"}'; select count(*) from public.team_daily_metrics('2026-09-21','2026-09-21');\n"
+  cat "$root/supabase/migrations/20260921125014_indexed_reviewable_metrics.sql"
+  printf "select count(*) from public.team_daily_metrics('2026-09-21','2026-09-21'); select private.refresh_agent_daily_metrics();\n"
+} | sql
+sql <<'SQL'
+do $$ begin
+  assert not exists (
+    (table baseline_rows except all table private.mv_agent_daily_metrics)
+    union all (table private.mv_agent_daily_metrics except all table baseline_rows)
+  ), 'indexed eligibility must preserve every rollup field';
+end $$;
 select private.refresh_agent_daily_metrics();
 set role authenticated;
 set request.jwt.claims = '{"email":"manager@example.test"}';
@@ -128,7 +150,44 @@ do $$ begin
     where call_count = 11 and reviewable_call_count = 6 and qa_count = 4);
 end $$;
 SQL
-printf '\nReviewable call metrics: PASS (population, QA retries, ET dates, refresh, scope, grants)\n'
+sql <<'SQL'
+-- PostgreSQL maintains predicate membership for late transcripts, edits, latest
+-- retry changes and deletes. An older usable QA must not qualify a blank winner.
+insert into public.eavesly_transcription_qa(call_id, original_transcript, created_at)
+values ('legacy', E' \n\t ', '2026-09-22 12:00Z');
+select private.refresh_agent_daily_metrics();
+do $$ begin
+  assert (select reviewable_call_count = 5 and qa_count = 3 from private.mv_agent_daily_metrics
+    where agent_email='agent@example.test' and bucket_day='2026-09-21');
+end $$;
+insert into public.eavesly_regal_call_events values ('legacy','transcript_available','{"transcript":"Late transcript"}');
+select private.refresh_agent_daily_metrics();
+do $$ begin
+  assert (select reviewable_call_count = 6 and qa_count = 4 from private.mv_agent_daily_metrics
+    where agent_email='agent@example.test' and bucket_day='2026-09-21');
+end $$;
+update public.eavesly_regal_call_events set payload='{"transcript":{"text":"Not a string"}}' where regal_task_id='legacy';
+select private.refresh_agent_daily_metrics();
+do $$ begin
+  assert (select reviewable_call_count = 5 from private.mv_agent_daily_metrics
+    where agent_email='agent@example.test' and bucket_day='2026-09-21');
+end $$;
+update public.eavesly_transcription_qa set original_transcript='Restored transcript'
+where call_id='legacy' and created_at='2026-09-22 12:00Z';
+select private.refresh_agent_daily_metrics();
+do $$ begin
+  assert (select reviewable_call_count = 6 from private.mv_agent_daily_metrics
+    where agent_email='agent@example.test' and bucket_day='2026-09-21');
+end $$;
+delete from public.eavesly_transcription_qa where call_id='legacy';
+delete from public.eavesly_regal_call_events where regal_task_id='short';
+select private.refresh_agent_daily_metrics();
+do $$ begin
+  assert (select reviewable_call_count = 4 and qa_count = 3 from private.mv_agent_daily_metrics
+    where agent_email='agent@example.test' and bucket_day='2026-09-21');
+end $$;
+SQL
+printf '\nReviewable call metrics: PASS (population, QA retries, ET dates, refresh, scope, grants, indexed transcript changes)\n'
 
 # Optional TOAST-heavy benchmark: checks exact results and reports both runtimes.
 if [[ "${REVIEWABLE_BENCHMARK:-0}" == "1" ]]; then
@@ -147,21 +206,25 @@ insert into public.eavesly_transcription_qa(call_id, compliance_rating, manager_
 insert into public.eavesly_regal_call_events
   select 'bench-'||i, 'transcript_available', jsonb_build_object('transcript', t.transcript)
   from generate_series(10001, 20000) i cross join text_fixture t;
-analyze public.eavesly_calls;
-analyze public.eavesly_transcription_qa;
-analyze public.eavesly_regal_call_events;
+vacuum analyze public.eavesly_calls;
+vacuum analyze public.eavesly_transcription_qa;
+vacuum analyze public.eavesly_regal_call_events;
 do $$
-declare original text; optimized text; started timestamptz;
+declare original text; optimized text; started timestamptz; plan json;
 begin
   optimized := pg_get_viewdef('private.mv_agent_daily_metrics', true);
-  original := replace(optimized, 'call_population AS MATERIALIZED (', 'call_population AS (');
-  assert optimized <> original, 'reviewability must be evaluated once per call';
+  select query into original from baseline_definition;
+  execute 'explain (format json) ' || optimized into plan;
+  assert jsonb_path_query_array(plan::jsonb,
+    '$.** ? (@."Node Type" == "Index Only Scan")."Index Name"')
+    @> '["eavesly_qa_usable_transcript_idx", "eavesly_regal_usable_transcript_idx", "eavesly_transcription_qa_latest_idx"]'::jsonb,
+    'refresh must use index-only membership and latest-QA scans';
   started := clock_timestamp();
   execute 'create temp table baseline_results as ' || original;
   raise notice 'baseline_elapsed: %', clock_timestamp() - started;
   started := clock_timestamp();
   execute 'create temp table materialized_results as ' || optimized;
-  raise notice 'materialized_elapsed: %', clock_timestamp() - started;
+  raise notice 'indexed_elapsed: %', clock_timestamp() - started;
   assert not exists(
     (table baseline_results except table materialized_results)
     union all (table materialized_results except table baseline_results)

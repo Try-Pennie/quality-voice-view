@@ -36,6 +36,8 @@ Captured with synthetic data by the three passing regression tests at code commi
 
 ## Production follow-up (2026-09-21)
 
+**The initial refresh-budget workaround below was not sustainable.** It later caused back-to-back ten-minute timeouts and was paused during the [manager-loading incident](manager-loading-incident-2026-09-21.md). The [indexed refresh recovery](indexed-reviewable-refresh.md) supersedes that workaround and restores the shorter timeout; retain these notes as incident history, not current operating instructions.
+
 The frontend deployed after PR #123 merged, before the database migration was applied. That made Team fail visibly on the missing `reviewable_call_count` field. With explicit approval, the corrected migration was applied to production as `20260921022034_reviewable_call_metrics`, and the PostgREST schema cache was reloaded.
 
 The initial full-history attempts could not finish within the migration budget. Two plan changes preserve the results while avoiding unnecessary work:
