@@ -119,7 +119,7 @@ type PortalDatabase = {
         Returns: unknown
       }
       get_achieve_first_pay_outcomes: { Args: never; Returns: unknown }
-      list_achieve_agent_termination_monitoring: {
+      get_achieve_termination_monitoring_report: {
         Args: { p_end_at?: string | null }
         Returns: unknown
       }

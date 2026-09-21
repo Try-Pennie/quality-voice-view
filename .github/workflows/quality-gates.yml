@@ -53,6 +53,9 @@ jobs:
       - name: Check Achieve report contracts
         run: npm run test:achieve:ci
 
+      - name: Typecheck deployed Achieve functions
+        run: npx --yes deno@2.9.6 check --frozen supabase/functions/achieve-weekly-report/index.ts supabase/functions/achieve-first-pay-sync/index.ts supabase/functions/achieve-portal/index.ts
+
       - name: Install Chromium
         run: npx playwright install --with-deps chromium
 
