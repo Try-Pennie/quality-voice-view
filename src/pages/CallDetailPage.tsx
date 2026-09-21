@@ -32,7 +32,6 @@ import {
   PhoneOutgoing,
 } from 'lucide-react'
 import { toast } from 'sonner'
-import type { QAJson } from '../types/database'
 
 export default function CallDetailPage() {
   const { callId } = useParams()

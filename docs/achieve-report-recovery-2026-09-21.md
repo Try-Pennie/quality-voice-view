@@ -45,7 +45,7 @@ Applied migration ledger versions exactly match the three committed filenames:
 - `npm run lint` — existing repository failures: 45 errors / 6 warnings; no unrelated lint cleanup attempted.
 - Deno 2.9 typecheck — four errors also reproduced on the unchanged base: Error.name override, private-key Uint8Array typing, and two outcome-period key inference errors. Runtime bundling and real HTTP checks passed; do not describe whole-repository typecheck/lint as clean.
 - Independent Pi/Claude Opus review: no blocking correctness/security findings in the entrypoint, both SQL optimizations, or scoped timeout migration. Operational notes: bounded index-build write lock, immutable-predicate rebuild coupling, high-value preview secret, and seven sequential range loads remain relevant.
-- Final preview completed in 47.1 seconds; actual send completed in 60.8 seconds, below the cron request's 120-second budget. This verifies current operation, not a guarantee against future load growth.
+- Final preview completed in 47.1 seconds; actual send completed in 60.8 seconds. **Audit correction:** the later September 21 read-back found the weekly cron still had a **30-second** HTTP budget; 120 seconds belonged to the first-pay sync. Manual-send success did not verify scheduled delivery. The audit reliability migration corrects this mismatch only when explicitly deployed; see `audit-release-runbook.md`.
 
 ## Email/data inspection
 
