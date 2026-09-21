@@ -276,9 +276,11 @@ export default function TeamPage() {
     return aggregateManagerRollups(rollupWithVisibleAlertCounts, managerMapping, managerNames)
   }, [scope, rollupWithVisibleAlertCounts, managerMapping, managerNames])
 
+  // Shared director links must not override an ordinary manager's own scope.
+  const activeManagerEmail = scope?.isGodMode ? selectedManagerEmail : null
   const selectedManager = useMemo(
-    () => managerRollups.find(manager => manager.manager_email === selectedManagerEmail) ?? null,
-    [managerRollups, selectedManagerEmail],
+    () => managerRollups.find(manager => manager.manager_email === activeManagerEmail) ?? null,
+    [managerRollups, activeManagerEmail],
   )
 
   // Write filter state back to URL so the current view is shareable.
@@ -288,7 +290,7 @@ export default function TeamPage() {
     params.set('end', formatDateParam(endDate))
     if (search.trim()) params.set('search', search.trim())
     if (quickFilter !== 'all') params.set('qf', quickFilter)
-    if (selectedManagerEmail) params.set('mgr', selectedManagerEmail)
+    if (activeManagerEmail) params.set('mgr', activeManagerEmail)
     if (breakdownSortKey !== 'confirmed_issue_count') params.set('sort', breakdownSortKey)
     if (!breakdownSortDesc) params.set('dir', 'asc')
     setSearchParams(params, { replace: true })
@@ -297,7 +299,7 @@ export default function TeamPage() {
     endDate,
     search,
     quickFilter,
-    selectedManagerEmail,
+    activeManagerEmail,
     breakdownSortKey,
     breakdownSortDesc,
     setSearchParams,
@@ -307,10 +309,10 @@ export default function TeamPage() {
   // heatmap, themes, leaderboard). search + quickFilter further narrow only
   // the leaderboard — they're inspection tools, not data filters.
   const scopedRollup = useMemo(() => {
-    if (!selectedManagerEmail) return rollupWithVisibleAlertCounts
+    if (!activeManagerEmail) return rollupWithVisibleAlertCounts
     const agentSet = new Set(selectedManager?.agent_emails ?? [])
     return rollupWithVisibleAlertCounts.filter(r => agentSet.has(r.agent_email))
-  }, [rollupWithVisibleAlertCounts, selectedManager, selectedManagerEmail])
+  }, [rollupWithVisibleAlertCounts, selectedManager, activeManagerEmail])
 
   const filtered = useMemo(() => {
     let rows = scopedRollup
@@ -379,23 +381,23 @@ export default function TeamPage() {
 
   // Heatmap cells filtered to scoped agents — avoids a second round-trip.
   const scopedBreakdown = useMemo(() => {
-    if (!selectedManagerEmail) return breakdown
+    if (!activeManagerEmail) return breakdown
     const agentSet = new Set(selectedManager?.agent_emails ?? [])
     return breakdown.filter(c => agentSet.has(c.agent_email))
-  }, [breakdown, selectedManager, selectedManagerEmail])
+  }, [breakdown, selectedManager, activeManagerEmail])
 
   // Coaching themes refetch when selectedManager changes — themes are
   // pre-aggregated server-side, so we re-run with a synthesized scope.
   const themesScope = useMemo(() => {
     if (!scope) return null
-    return selectedManagerEmail
+    return activeManagerEmail
       ? {
           email: scope.email,
           isGodMode: false,
           managedAgents: selectedManager?.agent_emails ?? [],
         }
       : scope
-  }, [scope, selectedManager, selectedManagerEmail])
+  }, [scope, selectedManager, activeManagerEmail])
   const {
     data: teamThemesData,
     isPending: themesPending,

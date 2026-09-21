@@ -91,6 +91,15 @@ test('selected manager derives its roster again when team dates change', async (
   expect(new URL(page.url()).searchParams.get('mgr')).toBe('manager-a@example.test')
 })
 
+test('ordinary managers can open director-shared manager links without losing their own team', async ({ page }) => {
+  await reviewFixture(page, [], { ...options, god: false, managedAgents: [metric.agent_email], dailyMetrics: [metric] })
+  await page.goto(`${url}&mgr=manager-b%40example.test`)
+  const representatives = page.getByRole('region', { name: 'Alerts by representative', exact: true })
+  await expect(representatives.locator('tbody tr')).toHaveCount(1)
+  await expect(representatives).toContainText('Agent Alpha')
+  await expect(page).not.toHaveURL(/[?&]mgr=/)
+})
+
 test('mobile shows pending coverage and does not treat unscored calls as AI failures', async ({ page }, testInfo) => {
   await page.setViewportSize({ width: 390, height: 844 })
   await reviewFixture(page, [], options)
