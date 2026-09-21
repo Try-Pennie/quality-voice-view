@@ -6,13 +6,14 @@ test.use({ video: 'on' })
 const opener = (page: Page) => page.getByRole('button', { name: 'Review Manager escalation alert for Example motion-review', exact: true })
 const overlay = (page: Page) => page.locator('[data-state="open"].fixed.inset-0').filter({ hasNot: page.getByRole('heading') }).first()
 
-// Pause real CSS animations at their first frame; no patched animation or media methods.
+// Pause native CSS timelines before mounting. Pausing in animationstart races
+// compositor progress/event delivery on a busy runner; durations/keyframes stay real.
 async function pauseEntry(page: Page) {
+  await page.addStyleTag({ content: '[role="dialog"][data-state="open"], .fixed.inset-0[data-state="open"] { animation-play-state: paused !important; }' })
   await page.evaluate(() => document.addEventListener('animationstart', event => {
     const element = event.target
     if (!(element instanceof HTMLElement) || !(element.matches('[role="dialog"]') || element.matches('.fixed.inset-0'))) return
     element.dataset.testAnimationStarts = String(Number(element.dataset.testAnimationStarts ?? 0) + 1)
-    for (const animation of element.getAnimations()) { animation.pause(); animation.currentTime = 0 }
   }))
 }
 
