@@ -169,6 +169,34 @@ where call_id = 'CALL-LEGACY-EDITED';
 SQL
   cat "$migration"
   cat <<'SQL'
+-- Compare every projected field before/after the plan-only view change for
+-- manager, super-admin, outsider, and missing-identity access contexts.
+create temp table original_alert_projection (caller text, row_data jsonb);
+do $$ declare v_caller text; begin
+  foreach v_caller in array array['manager.one@trypennie.com', 'director.one@trypennie.com', 'outsider@trypennie.com', ''] loop
+    perform set_config('request.jwt.claims', jsonb_build_object('email', v_caller)::text, false);
+    insert into original_alert_projection
+      select v_caller, to_jsonb(a) from public.eavesly_alerts_with_feedback a;
+  end loop;
+end $$;
+SQL
+  cat "$repo_root/supabase/migrations/20260921121227_alert_queue_ordered_feedback.sql"
+  cat "$repo_root/supabase/migrations/20260921121807_alert_queue_access_once.sql"
+  cat <<'SQL'
+do $$ declare v_caller text; begin
+  foreach v_caller in array array['manager.one@trypennie.com', 'director.one@trypennie.com', 'outsider@trypennie.com', ''] loop
+    perform set_config('request.jwt.claims', jsonb_build_object('email', v_caller)::text, false);
+    assert not exists (
+      (select row_data from original_alert_projection p where p.caller = v_caller
+       except all select to_jsonb(a) from public.eavesly_alerts_with_feedback a)
+      union all
+      (select to_jsonb(a) from public.eavesly_alerts_with_feedback a
+       except all select row_data from original_alert_projection p where p.caller = v_caller)
+    ), 'ordered feedback lookup must preserve all projected rows and fields';
+  end loop;
+end $$;
+SQL
+  cat <<'SQL'
 
 do $$
 begin
