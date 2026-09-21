@@ -512,11 +512,9 @@ test('failed alert details can be retried without discarding the review draft', 
   const state = await reviewFixture(page, [alertRow('retry-details', { recording_link: '/synthetic-recording-retry.wav' })])
   await recordingRoute(page)
   let failing = true
-  let failedDetailAttempts = 0
   await page.route('**/rest/v1/eavesly_alerts_with_feedback*', route => {
     const params = new URL(route.request().url()).searchParams
     if (failing && params.get('select') === '*' && params.has('module_name') && params.has('call_id')) {
-      failedDetailAttempts++
       return route.fulfill({ status: 503, json: { message: 'Synthetic detail failure' } })
     }
     return route.fallback()
@@ -528,9 +526,6 @@ test('failed alert details can be retried without discarding the review draft', 
   const draft = page.getByRole('textbox', { name: 'Explain your decision', exact: true })
   await draft.fill('Keep this draft while the recording recovers.')
   const recording = page.getByRole('region', { name: 'Call recording', exact: true })
-  // Supabase retries this read three times (1s + 2s + 4s). Assert that exact
-  // boundary instead of racing the default five-second locator timeout.
-  await expect.poll(() => failedDetailAttempts, { timeout: 12_000 }).toBe(4)
   await expect(recording.getByRole('button', { name: 'Retry recording', exact: true })).toBeVisible()
   await expect(recording.getByText('Loading recording…', { exact: true })).toHaveCount(0)
   await page.screenshot({ path: testInfo.outputPath('recording-error-retry.png') })

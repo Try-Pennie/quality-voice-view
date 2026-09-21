@@ -8,19 +8,24 @@ const saveButton = (page: Page) => page.getByRole('button', { name: /^(Save|Upda
 
 async function expectCenteredDesktopDialog(page: Page) {
   await page.setViewportSize({ width: 1440, height: 900 })
-  const box = await page.getByRole('dialog').boundingBox()
-  expect(box).not.toBeNull()
-  expect(box?.width).toBeGreaterThanOrEqual(1040)
-  expect(box?.width).toBeLessThanOrEqual(1080)
-  expect(Math.abs((box?.x ?? 0) - (1440 - (box?.width ?? 0)) / 2)).toBeLessThanOrEqual(1)
-  expect(box?.height).toBe(810)
-  expect(box?.y).toBe(45)
+  const dialog = page.getByRole('dialog')
+  await expect(dialog).toBeVisible()
+  await expect.poll(async () => {
+    const box = await dialog.boundingBox()
+    return box && {
+      width: box.width >= 1040 && box.width <= 1080,
+      centered: Math.abs(box.x - (1440 - box.width) / 2) <= 1,
+      height: box.height === 810,
+      y: box.y === 45,
+    }
+  }).toEqual({ width: true, centered: true, height: true, y: true })
 }
 
 async function expectFullscreenMobileDialog(page: Page) {
   await page.setViewportSize({ width: 375, height: 812 })
-  const box = await page.getByRole('dialog').boundingBox()
-  expect(box).toEqual({ x: 0, y: 0, width: 375, height: 812 })
+  const dialog = page.getByRole('dialog')
+  await expect(dialog).toBeVisible()
+  await expect.poll(() => dialog.boundingBox()).toEqual({ x: 0, y: 0, width: 375, height: 812 })
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
 }
 
@@ -182,7 +187,9 @@ test('Full QA saves string-scale corrections and a retained finding independentl
   await page.getByRole('button', { name: 'Save review', exact: true }).click()
   await expect(page.getByText('Full QA review saved')).toBeVisible()
 
-  const write = state.writes.find(value => value && typeof value === 'object' && 'p_corrections' in value)
+  const fullQaWrites = () => state.writes.filter(value => value && typeof value === 'object' && 'p_corrections' in value)
+  await expect.poll(() => fullQaWrites().length).toBe(1)
+  const write = fullQaWrites()[0]
   expect(write).toMatchObject({
     p_escalation_justified: false,
     p_inaccuracy_reason: 'wrong_context',

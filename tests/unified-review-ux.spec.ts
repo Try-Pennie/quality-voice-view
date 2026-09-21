@@ -3,15 +3,18 @@ import { alertRow, genericAlertRow, NOW, QUOTES, reviewFixture } from './review-
 
 async function expectUnifiedWorkspace(page: Page, width: number, height: number) {
   const dialog = page.getByRole('dialog')
-  const box = await dialog.boundingBox()
-  expect(box).not.toBeNull()
+  await expect(dialog).toBeVisible()
   if (width < 640) {
-    expect(box).toEqual({ x: 0, y: 0, width, height })
+    await expect.poll(() => dialog.boundingBox()).toEqual({ x: 0, y: 0, width, height })
   } else {
-    expect(box?.width).toBeGreaterThanOrEqual(1040)
-    expect(box?.width).toBeLessThanOrEqual(1080)
-    expect(Math.abs((box?.x ?? 0) - (width - (box?.width ?? 0)) / 2)).toBeLessThanOrEqual(1)
-    expect(Math.abs((box?.height ?? 0) - height * 0.9)).toBeLessThanOrEqual(1)
+    await expect.poll(async () => {
+      const box = await dialog.boundingBox()
+      return box && {
+        width: box.width >= 1040 && box.width <= 1080,
+        centered: Math.abs(box.x - (width - box.width) / 2) <= 1,
+        height: Math.abs(box.height - height * 0.9) <= 1,
+      }
+    }).toEqual({ width: true, centered: true, height: true })
   }
 }
 
@@ -128,6 +131,7 @@ test('partner QA keeps its writer and required-note policy inside the same works
   await notes.fill(partnerNotes)
   await page.screenshot({ path: testInfo.outputPath('partner-unified-desktop.png'), animations: 'disabled' })
   await page.getByRole('button', { name: 'Save override' }).click()
+  await expect.poll(() => feedbackWrites().length).toBe(1)
   await expect(page.getByText('Review saved')).toBeVisible()
   expect(feedbackWrites()).toEqual([expect.objectContaining({
     call_id: 'unified-partner', accurate: true, action_taken: 'coached', comment: partnerNotes,

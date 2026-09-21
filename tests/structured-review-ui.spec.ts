@@ -45,11 +45,11 @@ test('internal form requires distinct bounded real details and an explanation fo
   const explanation = page.getByRole('textbox', { name: /Why was the alert unnecessary/ })
   await explanation.fill(falseExplanation)
   await page.getByRole('button', { name: 'Save review' }).click()
+  const rpcWrites = () => state.writes.filter(write => write && typeof write === 'object' && 'p_verdict' in write)
+  await expect.poll(() => rpcWrites().length).toBe(2)
   await expect(page.getByText('Review saved').last()).toBeVisible()
 
-  const rpcWrites = state.writes.filter(write => write && typeof write === 'object' && 'p_verdict' in write)
-  expect(rpcWrites).toHaveLength(2)
-  expect(rpcWrites[0]).toMatchObject({
+  expect(rpcWrites()[0]).toMatchObject({
     p_expected_revision: 0,
     p_expected_decision_id: null,
     p_verdict: true,
@@ -57,7 +57,7 @@ test('internal form requires distinct bounded real details and an explanation fo
     p_action_details: action,
     p_false_alarm_details: null,
   })
-  expect(rpcWrites[1]).toMatchObject({
+  expect(rpcWrites()[1]).toMatchObject({
     p_verdict: false,
     p_reason: 'wrong_context',
     p_false_alarm_details: falseExplanation,
