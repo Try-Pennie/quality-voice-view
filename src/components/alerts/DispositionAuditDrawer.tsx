@@ -162,6 +162,14 @@ export function DispositionAuditDrawer({ row, currentUserEmail, onClose, onSubmi
       <section aria-label="Call recording" className="shrink-0 border-b border-border bg-pennie-blue-main/30 px-4 py-2 sm:px-8 sm:py-3 lg:px-10">
         <div className="flex flex-wrap items-center justify-between gap-x-3">
           {row.recording_link ? <h2 className="pennie-label hidden items-center gap-1.5 sm:inline-flex"><Headphones className="h-3.5 w-3.5" aria-hidden="true" />Recording</h2> : <p className="text-xs text-pennie-graphite/70">Recording not available</p>}
+          {row.transcript_url && (
+            <a href={row.transcript_url} target="_blank" rel="noopener noreferrer"
+              className="pennie-focus-ring inline-flex min-h-[44px] items-center gap-2 rounded-full border border-border bg-pennie-white px-4 py-2 text-sm font-semibold text-pennie-blue-deeper transition-colors hover:bg-pennie-beige motion-safe:active:scale-[0.96]">
+              View Regal transcript
+              <span className="sr-only"> (opens in a new tab)</span>
+              <ExternalLink className="h-3.5 w-3.5" aria-hidden="true" />
+            </a>
+          )}
           <button type="button" onClick={openTranscript} className="pennie-focus-ring ml-auto mr-4 min-h-[44px] text-xs font-semibold text-pennie-blue-deeper hover:underline">View transcript</button>
           {row.recording_link && <a href={row.recording_link} target="_blank" rel="noopener noreferrer" className="pennie-focus-ring inline-flex min-h-[44px] items-center gap-1 text-xs font-semibold text-pennie-blue-deeper hover:underline">Open recording <ExternalLink className="h-3 w-3" aria-hidden="true" /></a>}
         </div>
@@ -181,7 +189,6 @@ export function DispositionAuditDrawer({ row, currentUserEmail, onClose, onSubmi
             {evidence.length > 0 && <div><p className="pennie-label mb-2">Evidence</p><ul className="space-y-3">{evidence.map((item, index) => <li key={index}><blockquote className="border-l-2 border-pennie-yellow-dark pl-3 text-sm leading-relaxed text-pennie-graphite">{item.quote}</blockquote>{(item.speaker || item.rationale) && <p className="mt-1 text-xs text-pennie-graphite/60">{item.speaker}{item.speaker && item.rationale ? ' · ' : ''}{item.rationale}</p>}</li>)}</ul></div>}
             {row.call_summary && <div><p className="pennie-label mb-1">Call summary</p><p className="whitespace-pre-wrap text-sm leading-relaxed text-pennie-graphite">{row.call_summary}</p></div>}
             <div className="flex flex-wrap gap-4">
-              {row.transcript_url && <a href={row.transcript_url} target="_blank" rel="noopener noreferrer" className="inline-flex min-h-[44px] items-center gap-1 text-sm font-semibold text-pennie-blue-deeper hover:underline">External transcript <ExternalLink className="h-3 w-3" aria-hidden="true" /></a>}
               {row.sfdc_lead_id && <a href={`https://trypennie.lightning.force.com/lightning/r/Lead/${row.sfdc_lead_id}/view`} target="_blank" rel="noopener noreferrer" className="inline-flex min-h-[44px] items-center gap-1 text-sm font-semibold text-pennie-blue-deeper hover:underline">SFDC: {row.sfdc_lead_id} <ExternalLink className="h-3 w-3" aria-hidden="true" /></a>}
             </div>
             <button type="button" onClick={() => showTranscript ? setShowTranscript(false) : openTranscript()} aria-expanded={showTranscript} className="pennie-focus-ring min-h-[44px] rounded-full border border-border bg-white px-4 text-sm font-semibold text-pennie-blue-deeper">{showTranscript ? 'Hide transcript context' : 'Inspect transcript context'}</button>
