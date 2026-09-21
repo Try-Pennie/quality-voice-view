@@ -58,7 +58,7 @@ export default defineConfig(({ mode }) => {
       alias: [
         ...(isStaging
           ? [{
-              find: /^(?:@\/|\.\.\/)integrations\/supabase\/client$/,
+              find: /^(?:@\/|(?:\.\.\/)+)integrations\/supabase\/client$/,
               replacement: path.resolve(__dirname, "./src/integrations/supabase/staging-client.ts"),
             }]
           : []),

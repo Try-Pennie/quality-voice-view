@@ -54,13 +54,10 @@ Build this exact PR commit, not a stale independent staging application branch:
 ```sh
 npm run check:staging-build
 # Supply this branch's public anon key (not service_role) privately via environment.
-VITE_STAGING_SUPABASE_URL=https://xuvveqaizlletsqvwpgx.supabase.co npm run build:staging
-cfp wrangler pennie -- pages deploy dist \
-  --project-name=eavesly --branch=rubric-staging \
-  --commit-hash="$(git rev-parse HEAD)"
+VITE_STAGING_SUPABASE_URL=https://xuvveqaizlletsqvwpgx.supabase.co npm run deploy:staging
 ```
 
-The Vite seam rejects other project refs and privileged keys. The artifact validator rejects production bundles and adds staging-only network/media CSP, noindex, no-referrer and no-store. `check:staging-build` uses a synthetic key: **never deploy its output**. A normal `npm run build` still targets production and must not be deployed as staging. Existing automatic PR previews are not the isolated sandbox and must not be used for test saves.
+`deploy:staging` refuses main, detached or dirty checkouts and destination overrides, builds afresh, and hardcodes the existing Pages project/staging branch. `build:staging` keeps accepted recording timestamps enabled. The Vite seam rejects other project refs and privileged keys. The artifact validator rejects production bundles and adds staging-only network/media CSP, noindex, no-referrer and no-store. `check:staging-build` uses a synthetic key: **never deploy its output**. A normal `npm run build` still targets production and must not be deployed as staging. Existing automatic PR previews are not the isolated sandbox and must not be used for test saves.
 
 Use the existing private password at https://rubric-staging.eavesly.pages.dev/login. No password, session token, service key or customer screenshot belongs in Git/PR comments. Preserve draft work before refreshing. Capture protected-table hashes and user count before and after native checks. Do not reseed existing examples or reviews. Keep third-party integrations and HTTP cron jobs disabled. Test delivery/failure behavior locally with synthetic adapters; do not send actual partner email from staging.
 
