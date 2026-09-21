@@ -64,6 +64,11 @@ ACHIEVE_REPORT_CC=observer.one@trypennie.com,observer.two@trypennie.com
 ACHIEVE_REPORT_TEST_RECIPIENT=internal.tester@trypennie.com
 ACHIEVE_PORTAL_URL=https://YOUR-EAVESLY-HOST/achieve
 GMAIL_SENDER=eavesly-reports@trypennie.com
+DEPLOYMENT_ENVIRONMENT=production
+ACHIEVE_EXTERNAL_IO_ENABLED=true
+# Add only after the dedicated operations-channel destination is verified:
+# ACHIEVE_SLACK_ALERTS_ENABLED=true
+# ACHIEVE_SLACK_ALERT_WEBHOOK_URL=https://hooks.slack.com/services/...
 EOF
 chmod 600 /tmp/achieve-weekly-email.env
 
@@ -124,7 +129,7 @@ npx supabase functions deploy achieve-feedback-sync \
 
 Deploy the frontend through the repository's normal release process so `/achieve` can call the new `get_management_report` action.
 
-The direct Snowflake sync runs daily at 12:00 UTC, before the Monday report window. The weekly-report migration separately invokes the email function every 15 minutes during both UTC hours that can contain 9 AM Eastern; the email function sends once and handles daylight-saving changes.
+The direct Snowflake sync runs daily at 12:00 UTC. After reliability migration `20260921211000`, the existing production weekly endpoint is invoked every 15 minutes for PII-free health checks; it still builds/sends email only during Monday's 9 AM Eastern hour. The migration rewrites only an existing, recognized production cron template and creates no HTTP job when that row is absent. See [`achieve-reliability-hardening-2026-09-21.md`](./achieve-reliability-hardening-2026-09-21.md) for the staging gate and Slack activation boundary.
 
 ## 7. Send a real test
 
@@ -176,7 +181,7 @@ from cron.job
 where jobname = 'achieve_weekly_management_report';
 ```
 
-Expected schedule: `*/15 13,14 * * 1`.
+Expected schedule after reliability migration `20260921211000`: `*/15 * * * *`. The handler performs monitoring on every invocation and report delivery only during Monday's 9 AM Eastern hour. Expected HTTP timeout: `120000` ms; the handler's internal deadline is 110 seconds.
 
 After Monday delivery, check the idempotency ledger:
 
@@ -196,7 +201,7 @@ The same `x-report-secret` authentication protects all actions. Recipients canno
 1. POST `{"action":"preview"}` to build the current completed-week report and all three attachments **without calling Gmail or claiming the week**. The response contains `week_ending` and base64url `raw` MIME with `Cache-Control: no-store`. This contains sensitive enrollment data: inspect only in a restricted local directory; never paste the payload in logs, tickets, or source control.
 2. Check source freshness, completed-week boundaries, recipient headers, rendered HTML/plain text, and all three parsed CSVs. Run the non-delivering HTTP check with `REPORT_URL`, `REPORT_SECRET`, and the expected `REPORT_TEST_RECIPIENT` in the process environment: `npx tsx supabase/functions/achieve-weekly-report/live.check.ts`.
 3. After approval and validation, POST `{"action":"send","week_ending":"YYYY-MM-DD"}` using the preview's week. This bypasses only the delivery-hour gate, not validation, recipients, or the send ledger. A different week returns `409 week_ending_mismatch`; an existing claim returns `already_sent_or_sending`. It cannot backdate a report.
-4. Verify `status = 'sent'` in the ledger. Do not blindly retry an ambiguous Gmail/network failure; confirm the ledger and sender's mailbox first. A prior week's missed report is not automatically resent.
+4. Verify `status = 'sent'` in the ledger. Do not blindly retry an ambiguous Gmail/network failure; confirm the ledger and sender's mailbox first. A prior week's missed report is not automatically resent. The handler intentionally retains a `sending` claim after any post-claim failure; monitoring reports it after five minutes but never deletes or retries it.
 
 For a correction requested by one internal recipient, configure `ACHIEVE_REPORT_TEST_RECIPIENT` to that explicitly approved address, inspect `{"action":"preview_test"}`, and confirm the exact To header with no Cc/Bcc before invoking `{"action":"test"}`. The internal preview and test use the same envelope and all three attachments; neither changes the production send ledger. Do not invoke `send` or alter production To/Cc lists for an internal-only correction.
 

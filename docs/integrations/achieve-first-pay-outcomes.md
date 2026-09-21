@@ -34,7 +34,7 @@ SNOWFLAKE_SCHEMA
 SNOWFLAKE_PRIVATE_KEY
 ```
 
-`ACHIEVE_WEEKLY_REPORT_SECRET` is also reused only to authenticate the cron request. Its matching Vault secret remains `achieve_weekly_report_secret`. Never place the private key in chat, source control, or a command that prints it.
+`ACHIEVE_WEEKLY_REPORT_SECRET` is also reused only to authenticate the cron request. Its matching Vault secret remains `achieve_weekly_report_secret`. Production provider access additionally requires `DEPLOYMENT_ENVIRONMENT=production` and `ACHIEVE_EXTERNAL_IO_ENABLED=true`. Staging uses `DEPLOYMENT_ENVIRONMENT=staging` and leaves external I/O disabled, so authenticated sync commands fail before Snowflake, claims, or snapshot writes. Never place the private key or Slack webhook in chat, source control, or a command that prints it.
 
 The Snowflake user must have only its dedicated read role, `USAGE` on the selected warehouse/database/schema, and `SELECT` on `ENROLLMENT__C`.
 
@@ -99,7 +99,7 @@ from cron.job
 where jobname = 'achieve_first_pay_outcome_sync';
 ```
 
-A successful daily run has `status = 'succeeded'`, today's `source_as_of`, and positive reconciled totals. Investigate `failed` or stale rows before the Monday report. To retry the same day after fixing the cause, delete only that day's `failed` claim—or a `running` claim after confirming the invocation is no longer active—then invoke `{"action":"scheduled"}` again. Never delete a `succeeded` claim. Use authenticated `{"action":"refresh"}` for an intentional same-day refresh or activation after a successful scheduled run; its completion is verified from both snapshot timestamps and its response, not by rewriting the scheduled-run ledger.
+A successful daily run has `status = 'succeeded'`, the expected UTC `source_as_of`, and positive reconciled totals. Coherent prior-day or current-day snapshots are accepted before 12:15 UTC; the current date is mandatory afterward. The handler is bounded to 110 seconds under the cron's 120-second request budget. Cancellation can intentionally leave a `running` claim for ambiguity-safe investigation; monitoring flags it after five minutes and never deletes it. Investigate `failed`, stuck, stale, or mixed-date snapshots before the Monday report. To retry the same day after fixing the cause, delete only that day's `failed` claim—or a `running` claim after confirming the invocation is no longer active—then invoke `{"action":"scheduled"}` again. Never delete a `succeeded` claim. Use authenticated `{"action":"refresh"}` for an intentional same-day refresh or activation after a successful scheduled run; its completion is verified from both snapshot timestamps and its response, not by rewriting the scheduled-run ledger.
 
 ## Rollback
 
