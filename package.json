@@ -7,8 +7,14 @@
     "dev": "vite",
     "build": "vite build",
     "build:dev": "vite build --mode development",
+    "build:staging": "vite build --mode staging && node scripts/verify-staging-artifact.mjs",
+    "typecheck": "tsc --noEmit -p tsconfig.app.json",
     "lint": "eslint .",
+    "check:release-preflight": "node scripts/release-preflight.check.mjs",
+    "check:staging-build": "node scripts/check-staging-build.mjs",
     "test": "playwright test",
+    "test:browser:ci": "playwright test tests/review-logic.spec.ts tests/private-recording.spec.ts tests/manager-launch-readiness.spec.ts tests/reviewable-call-metrics.spec.ts tests/full-qa-rubric-feedback.spec.ts --workers=2",
+    "test:postgres:ci": "bash supabase/migrations/full-qa-rubric-feedback.integration.check.sh && bash supabase/migrations/reviewable-call-metrics.integration.check.sh && bash supabase/migrations/structured-manager-review.integration.check.sh && bash supabase/migrations/achieve-report-qa-scan.integration.check.sh",
     "preview": "vite preview"
   },
   "dependencies": {
