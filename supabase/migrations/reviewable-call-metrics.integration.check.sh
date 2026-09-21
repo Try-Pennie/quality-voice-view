@@ -69,7 +69,9 @@ insert into public.eavesly_transcription_qa(call_id, compliance_rating, manager_
   ('scored', 'pass', true, 'high', 'Conversation', '2026-09-21 13:00Z'),
   ('legacy', 'fail', false, 'low', 'Legacy conversation', '2026-09-21 13:00Z'),
   ('retry', 'fail', true, 'low', 'Conversation', '2026-09-21 13:00Z'),
+  ('retry', 'fail', true, 'low', 'Conversation', '2026-09-21 14:00Z'),
   ('retry', 'pass', false, 'high', 'Conversation', '2026-09-21 14:00Z'),
+  ('retry', 'fail', true, 'low', 'Conversation', null),
   ('no-answer', 'fail', true, 'low', 'Voicemail', '2026-09-21 13:00Z'),
   ('unknown', 'fail', true, 'low', 'Unknown conversation', '2026-09-21 13:00Z');
 insert into public.eavesly_module_results values
@@ -127,3 +129,44 @@ do $$ begin
 end $$;
 SQL
 printf '\nReviewable call metrics: PASS (population, QA retries, ET dates, refresh, scope, grants)\n'
+
+# Optional TOAST-heavy benchmark: checks exact results and reports both runtimes.
+if [[ "${REVIEWABLE_BENCHMARK:-0}" == "1" ]]; then
+  sql <<'SQL'
+reset role;
+set jit = off;
+set statement_timeout = '3min';
+create temp table text_fixture as
+  select string_agg(md5(i::text), '') as transcript from generate_series(1, 256) i;
+insert into public.eavesly_calls
+  select 'bench-'||i, 'agent@example.test', 'Agent Alpha', '2026-09-21 12:00Z', 60, true
+  from generate_series(1, 20000) i;
+insert into public.eavesly_transcription_qa(call_id, compliance_rating, manager_escalation, customer_satisfaction_likely, original_transcript)
+  select 'bench-'||i, 'pass', false, 'high', t.transcript
+  from generate_series(1, 10000) i cross join text_fixture t;
+insert into public.eavesly_regal_call_events
+  select 'bench-'||i, 'transcript_available', jsonb_build_object('transcript', t.transcript)
+  from generate_series(10001, 20000) i cross join text_fixture t;
+analyze public.eavesly_calls;
+analyze public.eavesly_transcription_qa;
+analyze public.eavesly_regal_call_events;
+do $$
+declare original text; optimized text; started timestamptz;
+begin
+  optimized := pg_get_viewdef('private.mv_agent_daily_metrics', true);
+  original := replace(optimized, 'call_population AS MATERIALIZED (', 'call_population AS (');
+  assert optimized <> original, 'reviewability must be evaluated once per call';
+  started := clock_timestamp();
+  execute 'create temp table baseline_results as ' || original;
+  raise notice 'baseline_elapsed: %', clock_timestamp() - started;
+  started := clock_timestamp();
+  execute 'create temp table materialized_results as ' || optimized;
+  raise notice 'materialized_elapsed: %', clock_timestamp() - started;
+  assert not exists(
+    (table baseline_results except table materialized_results)
+    union all (table materialized_results except table baseline_results)
+  ), 'output must match in both directions';
+  raise notice 'EXCEPT equivalence passed (20,000 TOAST-heavy calls)';
+end $$;
+SQL
+fi
