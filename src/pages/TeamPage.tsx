@@ -38,6 +38,7 @@ import {
 
 const MANAGER_SORT_KEYS: readonly ManagerSortKey[] = [
   'call_count',
+  'reviewable_call_count',
   'qa_count',
   'compliance_pass_rate',
   'escalation_rate',
@@ -63,6 +64,7 @@ function emptyAlertOnlyRollup(
     agent_email: agentEmail,
     agent_full_name: agentFullName,
     call_count: 0,
+    reviewable_call_count: 0,
     qa_count: 0,
     avg_talk_time: 0,
     compliance_pass_rate: 0,
@@ -155,6 +157,7 @@ export default function TeamPage() {
 
   const [breakdownSortKey, setBreakdownSortKey] = useState<ManagerSortKey>(() => {
     const raw = searchParams.get('sort')
+    if (raw === 'call_count') return 'reviewable_call_count'
     return (MANAGER_SORT_KEYS as readonly string[]).includes(raw ?? '')
       ? (raw as ManagerSortKey)
       : 'confirmed_issue_count'
@@ -263,12 +266,9 @@ export default function TeamPage() {
         system_closed_count: systemClosed,
         pitch_call_count: pitch?.pitch_call_count ?? 0,
         rushed_pitch_count: pitch?.rushed_pitch_count ?? 0,
-        needs_attention:
-          agent.call_count > 0 &&
-          (agent.compliance_pass_rate < 80 ||
-            agent.escalation_rate >= 10 ||
-            agent.csat_high_rate < 50 ||
-            unreviewed > 0),
+        needs_attention: unreviewed > 0 ||
+          (agent.qa_count > 0 && (agent.compliance_pass_rate < 80 ||
+            agent.escalation_rate >= 10 || agent.csat_high_rate < 50)),
       }
     })
   }, [rollup, breakdown, pitchRisk])
@@ -338,7 +338,7 @@ export default function TeamPage() {
     if (quickFilter === 'attention') rows = rows.filter(r => r.needs_attention)
     if (quickFilter === 'top')
       rows = [...rows]
-        .filter(r => r.call_count > 0)
+        .filter(r => r.qa_count > 0)
         .sort((a, b) => b.compliance_pass_rate - a.compliance_pass_rate)
         .slice(0, 10)
     if (quickFilter === 'alerts') rows = rows.filter(r => r.unreviewed_alerts_count > 0)
@@ -350,6 +350,8 @@ export default function TeamPage() {
       return {
         agentCount: 0,
         callCount: 0,
+        reviewableCallCount: 0,
+        qaCount: 0,
         avgCompliance: 0,
         avgEscalation: 0,
         openAlerts: 0,
@@ -357,7 +359,9 @@ export default function TeamPage() {
       }
     }
     const callCount = scopedRollup.reduce((s, r) => s + r.call_count, 0)
-    const withCalls = scopedRollup.filter(r => r.call_count > 0)
+    const reviewableCallCount = scopedRollup.reduce((s, r) => s + r.reviewable_call_count, 0)
+    const qaCount = scopedRollup.reduce((s, r) => s + r.qa_count, 0)
+    const withCalls = scopedRollup.filter(r => r.qa_count > 0)
     const avgCompliance =
       withCalls.length > 0
         ? withCalls.reduce((s, r) => s + r.compliance_pass_rate, 0) / withCalls.length
@@ -375,6 +379,8 @@ export default function TeamPage() {
     return {
       agentCount: scopedRollup.length,
       callCount,
+      reviewableCallCount,
+      qaCount,
       avgCompliance: Math.round(avgCompliance),
       avgEscalation: Math.round(avgEscalation),
       openAlerts,

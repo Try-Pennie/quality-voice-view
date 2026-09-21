@@ -76,7 +76,7 @@ test('god-mode team outcomes sort visibly and retain historical team filtering a
     alertRow('beta-two', { agent_email: other, is_reviewed: true, accurate: true, feedback_by: manager }),
   ], { god: true, managerNames: { [manager]: 'Manager Alpha', 'second@example.test': 'Manager Beta' },
     managerMapping: [{ agent_email: agent, manager_email: manager }, { agent_email: other, manager_email: 'second@example.test' }],
-    dailyMetrics: [{ agent_email: agent, agent_full_name: 'Agent Alpha', bucket_day: '2026-09-04', call_count: 100, qa_count: 10 }, { agent_email: other, agent_full_name: 'Agent Beta', bucket_day: '2026-09-04', call_count: 5, qa_count: 5 }],
+    dailyMetrics: [{ agent_email: agent, agent_full_name: 'Agent Alpha', bucket_day: '2026-09-04', call_count: 100, reviewable_call_count: 12, qa_count: 10 }, { agent_email: other, agent_full_name: 'Agent Beta', bucket_day: '2026-09-04', call_count: 5, reviewable_call_count: 5, qa_count: 5 }],
   })
   const errors: string[] = []
   page.on('pageerror', error => errors.push(error.message))
@@ -114,7 +114,7 @@ test('representative outcomes show review coverage and exact warranted-alert dri
     alertRow('confirmed', { agent_email: agent, is_reviewed: true, accurate: true, feedback_by: manager }),
     alertRow('unnecessary', { agent_email: agent, is_reviewed: true, accurate: false, feedback_by: manager }),
     alertRow('pending', { agent_email: agent }),
-  ], { dailyMetrics: [{ agent_email: agent, agent_full_name: 'Agent Alpha', bucket_day: '2026-09-04', call_count: 10, qa_count: 8 }] })
+  ], { dailyMetrics: [{ agent_email: agent, agent_full_name: 'Agent Alpha', bucket_day: '2026-09-04', call_count: 10, reviewable_call_count: 9, qa_count: 8 }] })
   await page.goto('/dashboard/team?start=2026-08-09&end=2026-09-07')
   const outcomes = page.getByRole('region', { name: 'Alerts by representative' })
   await expect(outcomes.getByText('2 / 3 reviewed', { exact: true }).first()).toBeVisible()

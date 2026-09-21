@@ -10,6 +10,7 @@ const dailyMetrics = [{
   agent_full_name: 'Agent Alpha',
   bucket_day: '2026-09-04',
   call_count: 7,
+  reviewable_call_count: 7,
   talk_time_sum: 8_400,
   talk_time_n: 7,
   qa_count: 6,
@@ -281,7 +282,7 @@ test('Team and agent drilldown use the same internal sent-row counts', async ({ 
   const state = await reviewFixture(page, reviewRows(), { managedAgents: [AGENT_A], dailyMetrics })
   await page.goto('/dashboard/team?start=2026-08-09&end=2026-09-07')
   await page.getByRole('button', { name: 'More metrics', exact: true }).click()
-  await expect(page.getByText('AI-evaluated calls', { exact: true })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'AI-evaluated calls', exact: true })).toBeVisible()
   await expect(page.getByText('Received alerts', { exact: true })).toBeVisible()
   await expect(page.getByText('Warranted alerts', { exact: true })).toBeVisible()
   await expect(page.getByRole('button', { name: 'Pitch calls under 30 min' })).toBeVisible()

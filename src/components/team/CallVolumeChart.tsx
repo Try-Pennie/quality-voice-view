@@ -22,14 +22,14 @@ export function CallVolumeChart({
   points: TrendPoint[]
   loading: boolean
 }) {
-  const hasData = points.some(p => p.call_count > 0)
+  const hasData = points.some(p => p.reviewable_call_count > 0)
 
   return (
-    <ChartCard title="Call volume" subtitle="Calls + escalations" loading={loading}>
+    <ChartCard title="Call volume" subtitle="Reviewable calls + AI escalations" loading={loading}>
       {!hasData ? (
-        <EmptyChart label="No calls in this window" />
+        <EmptyChart label="No reviewable calls in this window" />
       ) : (
-        <div role="img" aria-label="Call volume and escalations over time" className="h-[240px]">
+        <div role="img" aria-label="Reviewable call volume and AI escalations over time" className="h-[240px]">
           <ResponsiveContainer width="100%" height="100%">
             <BarChart
               data={points}
@@ -60,8 +60,8 @@ export function CallVolumeChart({
                 }}
               />
               <Bar
-                dataKey="call_count"
-                name="Calls"
+                dataKey="reviewable_call_count"
+                name="Reviewable calls"
                 fill={PENNIE_BLUE_DARK}
                 radius={[4, 4, 0, 0]}
               />

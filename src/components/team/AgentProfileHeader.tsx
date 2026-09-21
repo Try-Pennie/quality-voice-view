@@ -38,9 +38,7 @@ export function AgentProfileHeader({
           {loading
             ? 'Loading…'
             : r && r.call_count > 0
-              ? `${r.call_count.toLocaleString()} ${
-                  r.call_count === 1 ? 'call' : 'calls'
-                } in this window. Avg talk ${formatDuration(r.avg_talk_time)}.`
+              ? `${r.reviewable_call_count.toLocaleString()} reviewable calls · ${r.call_count.toLocaleString()} total calls. ${r.qa_count.toLocaleString()} AI-evaluated · ${(r.reviewable_call_count - r.qa_count).toLocaleString()} not yet evaluated. Avg reviewable talk ${formatDuration(r.avg_talk_time)}.`
               : 'No calls in this window.'}
         </p>
       </div>

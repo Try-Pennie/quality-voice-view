@@ -105,7 +105,9 @@ export async function reviewFixture(page: Page, rows: AlertWithFeedback[], optio
     if (table === 'agent_manager_mapping_at') return respond(options.managerMapping ?? [])
     if (table === 'team_daily_metrics') return respond(options.dailyMetrics ?? [])
     if (table === 'agent_daily_metrics') {
-      const email = url.searchParams.get('p_agent_email')?.replace(/^eq\./, '')
+      const body: unknown = request.method() === 'POST' ? request.postDataJSON() : null
+      const email = body && typeof body === 'object' && 'p_agent_email' in body
+        ? body.p_agent_email : url.searchParams.get('p_agent_email')?.replace(/^eq\./, '')
       return respond((options.dailyMetrics ?? []).filter(row => !email || (row && typeof row === 'object' && 'agent_email' in row && row.agent_email === email)))
     }
     if (table === 'eavesly_disposition_audit') {
