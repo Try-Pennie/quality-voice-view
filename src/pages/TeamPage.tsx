@@ -531,6 +531,19 @@ export default function TeamPage() {
         />
       )}
 
+      {activeManagerEmail && !loading && !selectedManager && (
+        <div className="flex flex-wrap items-center gap-3 rounded-xl border border-border p-4" role="status">
+          <p>The selected manager has no team in this date range.</p>
+          <button
+            type="button"
+            className="min-h-[44px] rounded-lg px-3 text-pennie-blue-deeper underline focus-visible:outline focus-visible:outline-2"
+            onClick={() => setSelectedManagerEmail(null)}
+          >
+            Clear manager filter
+          </button>
+        </div>
+      )}
+
       <div className="space-y-3">
           <div className="flex flex-col">
             <label htmlFor="agent-search" className="pennie-label mb-2 sr-only sm:not-sr-only">

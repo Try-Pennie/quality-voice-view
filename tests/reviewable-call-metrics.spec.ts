@@ -91,6 +91,15 @@ test('selected manager derives its roster again when team dates change', async (
   expect(new URL(page.url()).searchParams.get('mgr')).toBe('manager-a@example.test')
 })
 
+test('directors can clear a selected manager with no roster in the chosen range', async ({ page }) => {
+  await reviewFixture(page, [], options)
+  await page.goto(`${url}&mgr=missing-manager%40example.test`)
+  await expect(page.getByText('The selected manager has no team in this date range.', { exact: true })).toBeVisible()
+  await page.getByRole('button', { name: 'Clear manager filter', exact: true }).click()
+  await expect(page).not.toHaveURL(/[?&]mgr=/)
+  await expect(page.getByRole('region', { name: 'Alerts by representative', exact: true }).locator('tbody tr')).toHaveCount(3)
+})
+
 test('ordinary managers can open director-shared manager links without losing their own team', async ({ page }) => {
   await reviewFixture(page, [], { ...options, god: false, managedAgents: [metric.agent_email], dailyMetrics: [metric] })
   await page.goto(`${url}&mgr=manager-b%40example.test`)
