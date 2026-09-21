@@ -27,4 +27,11 @@ Manager and representative AI views sort by reviewable volume on entry. Existing
 
 The base commit `36cd2ef` already has 45 ESLint errors / 6 warnings and two TypeScript errors (`replaceAll` with an ES2020 lib in `achieve-feedback-overview.ts` and `recording-timestamps.ts`). These are outside this change; compare against the base rather than suppressing them.
 
+## Screenshots
+
+Captured with synthetic data by the three passing regression tests at code commit `90d34aafb9a43b3b5e25bd72f6dc62c83516383f`:
+
+- [Manager table](screenshots/reviewable-calls/90d34aa/managers.png)
+- [Mobile representative metrics](screenshots/reviewable-calls/90d34aa/mobile.png)
+
 The PR includes the database migration for review. It has not been applied to production. Frontend reporting requires that migration; absent/invalid coverage is surfaced as an error rather than fabricated zeros. The existing private materialized-view refresh schedule remains in place, and raw transcripts are not exposed to the browser.
