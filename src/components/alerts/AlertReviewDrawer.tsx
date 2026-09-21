@@ -1068,7 +1068,7 @@ export function AlertReviewDrawer({
                 <button type="button" aria-controls={fullQaSave.nextSectionId} disabled={decisionPending} onClick={() => {
                   const section = document.getElementById(fullQaSave.nextSectionId ?? '')
                   section?.focus({ preventScroll: true })
-                  section?.scrollIntoView({ block: 'start', behavior: 'instant' })
+                  section?.scrollIntoView({ block: section instanceof HTMLTextAreaElement ? 'center' : 'start', behavior: 'instant' })
                 }} className="pennie-focus-ring mr-auto min-h-[44px] text-sm font-semibold text-pennie-blue-deeper underline-offset-4 hover:underline disabled:opacity-40">
                   Continue review
                 </button>

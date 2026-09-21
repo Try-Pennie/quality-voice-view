@@ -62,7 +62,7 @@ test('neutral guidance links to the incomplete decision, score or coaching secti
   await consent.getByRole('textbox').fill(correctionReason)
   await consent.getByRole('button', { name: 'Add as coaching issue' }).click()
   await next.click()
-  await expect(page.getByRole('heading', { name: 'Coaching issues', exact: true })).toBeFocused()
+  await expect(page.getByRole('textbox', { name: 'Finding 1 summary' })).toBeFocused()
   await expect(page.getByRole('textbox', { name: 'Finding 1 summary' })).toHaveValue('')
   await page.getByRole('textbox', { name: 'Finding 1 summary' }).fill(findingSummary)
   await expect(status).toContainText('Record the coaching or follow-up for retained findings.')
@@ -441,7 +441,7 @@ test('a warranted alert with two distinct issues records shared and repeated cri
   await page.getByRole('radiogroup', { name: 'What did you do about the issue?' }).getByRole('radio', { name: 'Coached the agent', exact: true }).check()
   await page.getByRole('textbox', { name: 'Coaching or next steps' }).fill('Coached the agent on consent and on outcome language the same day.')
   await page.getByRole('radio', { name: 'Yes, the alert was warranted', exact: true }).check()
-  await page.getByRole('textbox', { name: 'What happened?', exact: true }).fill('Two distinct compliance issues were confirmed on this call.')
+  await expect(page.getByRole('textbox', { name: 'What happened?', exact: true })).toHaveCount(0)
   await expect(page.getByRole('status')).toHaveCount(0)
 
   let release = () => {}

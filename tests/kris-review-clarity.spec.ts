@@ -1,20 +1,17 @@
 import { test, expect } from '@playwright/test'
 import { alertRow, reviewFixture } from './review-fixture'
 
-test('warranted alerts pair what happened with the action taken and preserve both through save', async ({ page }, testInfo) => {
+test('warranted alerts preserve issue descriptions and the action taken through save', async ({ page }, testInfo) => {
   const state = await reviewFixture(page, [alertRow('clear-followup')])
   await page.goto('/dashboard/alerts/clear-followup/full_qa')
   const followup = page.getByRole('region', { name: 'Follow-up with the rep', exact: true })
   await expect(followup).toHaveCount(0)
   await page.getByRole('radio', { name: 'Yes, the alert was warranted', exact: true }).check()
   await expect(followup).toBeVisible()
-  const happened = followup.getByRole('textbox', { name: 'What happened?', exact: true })
+  await expect(followup.getByRole('textbox', { name: 'What happened?', exact: true })).toHaveCount(0)
   const action = followup.getByRole('textbox', { name: 'What action did you take?', exact: true })
-  await expect(happened).toBeVisible()
   await expect(action).toBeVisible()
-  await expect(happened).toHaveAttribute('aria-required', 'true')
   await expect(action).toHaveAttribute('aria-required', 'true')
-  await expect(happened).toHaveAttribute('placeholder', 'Describe the specific behavior or missed requirement.')
   await expect(action).toHaveAttribute('placeholder', 'Describe the coaching, escalation, or planned follow-up.')
   await expect(page.getByRole('textbox', { name: 'Explain your decision', exact: true })).toHaveCount(0)
   await expect(page.getByRole('button', { name: 'Save review', exact: true })).toBeDisabled()
@@ -22,7 +19,6 @@ test('warranted alerts pair what happened with the action taken and preserve bot
     await page.getByRole('article', { name: criterion, exact: true }).getByRole('button', { name: 'Add as coaching issue' }).click()
     await page.getByRole('textbox', { name: `What was the issue? Finding ${index + 1} summary`, exact: true }).fill(`Confirmed separate compliance issue ${index + 1} from this synthetic call.`)
   }
-  await happened.fill('Two separate confirmed compliance issues warrant this alert.')
   await page.getByRole('button', { name: 'Continue review', exact: true }).click()
   await expect(followup.getByRole('heading', { name: 'How did you address it with the agent?', exact: true })).toBeFocused()
   await expect(followup).toBeInViewport()
@@ -37,27 +33,19 @@ test('warranted alerts pair what happened with the action taken and preserve bot
   await expect(page.getByRole('button', { name: 'Save review', exact: true })).toBeDisabled()
   await expect(page.getByRole('status')).toContainText('Describe the action you took using 12–4,000 characters.')
   await action.fill('Reviewed both issues with the rep and practiced the approved language.')
-  await happened.fill('a'.repeat(11))
-  await expect(page.getByRole('button', { name: 'Save review', exact: true })).toBeDisabled()
-  await expect(page.getByRole('status')).toContainText('Describe what happened using 12–4,000 characters.')
-  await happened.fill('Two separate confirmed compliance issues warrant this alert.')
   await expect(page.getByRole('button', { name: 'Save review', exact: true })).toBeEnabled()
-  // Verdict changes must not discard either answer or the chosen action.
+  // Verdict changes preserve the action without inventing a dismissal explanation.
   await page.getByRole('radio', { name: 'No, the alert was unnecessary', exact: true }).check()
-  await expect(page.getByRole('textbox', { name: 'Explain your decision', exact: true })).toHaveValue('Two separate confirmed compliance issues warrant this alert.')
+  await expect(page.getByRole('textbox', { name: 'Explain your decision', exact: true })).toHaveValue('')
   await expect(followup.getByRole('textbox', { name: 'Coaching or next steps', exact: true })).toHaveValue('Reviewed both issues with the rep and practiced the approved language.')
   await page.getByRole('radio', { name: 'Yes, the alert was warranted', exact: true }).check()
-  await expect(happened).toHaveValue('Two separate confirmed compliance issues warrant this alert.')
   await expect(action).toHaveValue('Reviewed both issues with the rep and practiced the approved language.')
   await expect(actions.getByRole('radio', { name: 'Coached the agent', exact: true })).toBeChecked()
   for (const width of [1440, 375, 320]) {
     await page.setViewportSize({ width, height: 900 })
     await followup.scrollIntoViewIfNeeded()
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
-    const first = await happened.boundingBox(), second = await action.boundingBox()
-    expect(first!.height).toBeGreaterThanOrEqual(112)
-    expect(second!.height).toBeGreaterThanOrEqual(112)
-    expect(second!.y).toBeGreaterThan(first!.y + first!.height)
+    expect((await action.boundingBox())?.height).toBeGreaterThanOrEqual(112)
     for (const chip of await actions.locator('label').all()) {
       expect((await chip.boundingBox())!.height).toBeGreaterThanOrEqual(44)
     }
@@ -67,18 +55,18 @@ test('warranted alerts pair what happened with the action taken and preserve bot
   await expect.poll(() => state.fullQaReviews.has('clear-followup')).toBe(true)
   const saved = state.fullQaReviews.get('clear-followup')!
   expect(saved.action_details).toBe('Reviewed both issues with the rep and practiced the approved language.')
-  expect(saved.escalation_reason).toBe('Two separate confirmed compliance issues warrant this alert.')
+  expect(saved.escalation_reason).toBe([1, 2].map(index => `Confirmed separate compliance issue ${index} from this synthetic call.`).join('\n\n'))
   const kris = await page.context().newPage()
   await reviewFixture(kris, state.rows, { god: true, email: 'kris@example.test', fullQaReviews: state.fullQaReviews })
   await kris.goto('/dashboard/alerts/clear-followup/full_qa')
   const outcome = kris.getByRole('region', { name: 'Manager’s review', exact: true })
   await expect(outcome).toContainText(saved.action_details as string)
   await expect(outcome).toContainText(saved.escalation_reason as string)
-  await expect(outcome.getByText('What happened?', { exact: true })).toBeVisible()
+  await expect(outcome.getByText('Review summary', { exact: true })).toBeVisible()
   await expect(outcome.getByText('What action did you take?', { exact: true })).toBeVisible()
   await expect(kris.getByRole('button', { name: 'Approve review', exact: true })).toBeEnabled()
   await page.goto('/dashboard/alerts/clear-followup/full_qa?status=all')
-  await expect(happened).toHaveValue(saved.escalation_reason as string)
+  await expect(page.getByRole('textbox', { name: 'Finding 1 summary' })).toHaveValue('Confirmed separate compliance issue 1 from this synthetic call.')
   await expect(action).toHaveValue(saved.action_details as string)
   await expect(page.getByRole('button', { name: 'Update review', exact: true })).toBeDisabled()
 })

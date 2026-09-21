@@ -71,7 +71,7 @@ insert into public.eavesly_module_results(call_id,module_name,violation_type,age
 select x,'full_qa','manager_escalation','agent@example.test',anchor+delta,value
 from source_fixture cross join test_clock cross join (values
  ('CALL-COACHED','-2 days'::interval),('CALL-AFTER','2 days'),('CALL-PENDING','-3 days'),
- ('CALL-MISSING','4 days'),('CALL-UNKNOWN','5 days'),('CALL-LEGACY','6 days'),('CALL-DISTINCT','7 days'))v(x,delta);
+ ('CALL-MISSING','4 days'),('CALL-UNKNOWN','5 days'),('CALL-LEGACY','6 days'),('CALL-DISTINCT','7 days'),('CALL-STREAMLINED','7 days'))v(x,delta);
 update public.eavesly_module_results set result_json=jsonb_set(result_json,'{_evaluation_provenance,prompt_sha256}',to_jsonb(repeat('f',64))) where call_id='CALL-UNKNOWN';
 update public.eavesly_module_results set result_json=result_json-'_evaluation_provenance' where call_id='CALL-LEGACY';
 insert into public.eavesly_calls(call_id,agent_email,started_at)
@@ -105,7 +105,7 @@ do $$ begin
  exception when others then if sqlerrm='TEST_EXPECTED_FAILURE_MISSING' or sqlerrm<>'EAVESLY_FULL_QA_USE_STRUCTURED_RPC' then raise; end if; end;
 end $$;
 create temporary table context_cache(call_id text primary key,context jsonb);
-insert into context_cache select x,public.get_full_qa_review_context(x) from (values('CALL-COACHED'),('CALL-AFTER'),('CALL-PENDING'),('CALL-MISSING'),('CALL-UNKNOWN'),('CALL-LEGACY'),('CALL-DISTINCT'))v(x);
+insert into context_cache select x,public.get_full_qa_review_context(x) from (values('CALL-COACHED'),('CALL-AFTER'),('CALL-PENDING'),('CALL-MISSING'),('CALL-UNKNOWN'),('CALL-LEGACY'),('CALL-DISTINCT'),('CALL-STREAMLINED'))v(x);
 do $$ begin
  if (select context->>'source_reference_kind' from context_cache where call_id='CALL-COACHED')<>'known' then raise exception 'known source missing'; end if;
  if (select context->>'source_reference_kind' from context_cache where call_id='CALL-LEGACY')<>'legacy_current_reference' then raise exception 'legacy label missing'; end if;
@@ -121,6 +121,22 @@ select c.call_id,jsonb_agg(jsonb_build_object('criterion_key',m->>'key','disposi
  'corrected_value',coalesce(c.context->'source_result_json'#>string_to_array(m->>'score_path','.'),'null'::jsonb),
  'reason',case when c.context->'source_result_json'#>string_to_array(m->>'score_path','.') is null then to_jsonb('Source field unavailable; more context is required.'::text) else 'null'::jsonb end)),c.context->>'source_fingerprint'
 from context_cache c cross join lateral jsonb_array_elements(c.context->'criteria_manifest')m group by c.call_id,c.context;
+-- The streamlined UI sends an overview derived from issue summaries, not a second manager answer.
+-- The bounded overview must save through the unchanged RPC without truncating the actual findings.
+do $$ declare findings jsonb; overview text; saved jsonb; suffix text:='… See coaching issues for full details.'; begin
+ findings:=jsonb_build_array(
+  jsonb_build_object('finding_id','00000000-0000-4000-8000-000000000010','category','compliance','related_criteria',jsonb_build_array('credit_pull_consent'),
+   'summary','Credit was pulled without consent.'||repeat(' Detail.',400),'evidence','The customer refused permission before the credit pull.'),
+  jsonb_build_object('finding_id','00000000-0000-4000-8000-000000000011','category','compliance','related_criteria',jsonb_build_array('accurate_representations'),
+   'summary','The agent guaranteed a debt-free date.'||repeat(' Context.',400),'evidence','The agent promised a guaranteed completion date.'));
+ overview:=left((findings->0->>'summary')||E'\n\n'||(findings->1->>'summary'),4000-char_length(suffix))||suffix;
+ perform public.submit_full_qa_review('CALL-STREAMLINED',0,null,fingerprint,corrections,findings,true,overview,null,
+  'no_action_needed','Reviewed the issues; existing coaching already addresses both.')
+ from review_fixture where call_id='CALL-STREAMLINED';
+ saved:=public.get_full_qa_review_context('CALL-STREAMLINED')->'review';
+ if saved->'findings' is distinct from findings or saved->>'escalation_reason' is distinct from overview
+   or char_length(saved->>'escalation_reason')<>4000 then raise exception 'streamlined review lost issue details or overview'; end if;
+end $$;
 -- Dismiss the unnecessary escalation while retaining a confirmed finding and coaching action.
 select public.submit_full_qa_review('CALL-COACHED',0,null,fingerprint,corrections,
  jsonb_build_array(jsonb_build_object('finding_id','00000000-0000-4000-8000-000000000001','category','compliance','related_criteria',jsonb_build_array('credit_pull_consent'),'summary','Consent context requires manager coaching.','evidence','The synthetic call contains a distinct consent issue.')),
