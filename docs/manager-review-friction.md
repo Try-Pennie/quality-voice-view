@@ -47,7 +47,12 @@ Branch: `nmogil/reduce-full-qa-review-friction`.
   tests/full-qa-rubric-feedback.spec.ts tests/kris-review-clarity.spec.ts
   tests/final-polish.spec.ts`: **36 passed**. Includes mobile/desktop,
   corrections, evidence reuse, failed-save draft retention, verdict switching,
-  approval, stale-source protection, and saved-review reopening.
+  approval, stale-source protection, and saved-review reopening. A later rerun
+  pinned to `9401a7e` passed 35/36, with the long dismissed-review/approval test
+  (`full-qa-rubric-feedback.spec.ts:97`) reaching the suite's 30-second test
+  timeout. That test then passed alone with the unchanged default timeout
+  (**17.1 seconds**). Both outcomes are retained here rather than hiding the
+  intermittent timeout with retries.
 - `npm test`: **202 passed, 1 failed**. The failure at
   `tests/recording-placement.spec.ts:511` waits for “Retry recording” while the
   recording region remains loading. Reproduced independently on unchanged base
@@ -67,5 +72,13 @@ Branch: `nmogil/reduce-full-qa-review-friction`.
   The reviewer noted that blank issue fields are announced as invalid before
   typing; this intentionally exposes the save requirement without an alarming
   visual error state.
+
+## Commit-pinned screenshots
+
+Captured from implementation commit `9401a7e`, with synthetic data only:
+
+- [Desktop: no duplicate explanation, Save enabled](qa-evidence/manager-review-friction/9401a7e/desktop-followup.png)
+- [320px mobile follow-up](qa-evidence/manager-review-friction/9401a7e/mobile-followup.png)
+- [375px mobile: exact missing issue field focused](qa-evidence/manager-review-friction/9401a7e/missing-issue-field.png)
 
 No production calls were reviewed or changed as part of verification.
