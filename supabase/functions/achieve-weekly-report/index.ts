@@ -1,8 +1,8 @@
 // Weekly Achieve management email.
 //
-// pg_cron invokes {"action":"scheduled"} every 15 minutes during the two UTC
-// hours that can contain 9 AM Eastern. The handler sends only during Monday's
-// 9 AM ET hour and claims the completed week before calling Gmail.
+// pg_cron invokes {"action":"scheduled"} every 15 minutes. The handler runs
+// PII-free reliability monitoring each time, but sends only during Monday's
+// 9 AM ET hour and claims the completed week immediately before Gmail.
 //
 // Required function secrets:
 //   ACHIEVE_WEEKLY_REPORT_SECRET — shared with Vault for the cron request
@@ -14,8 +14,13 @@
 //   GOOGLE_SA_EMAIL               — domain-delegated Google service account
 //   GOOGLE_SA_PRIVATE_KEY         — service-account PKCS8 private key
 //   SNOWFLAKE_*                   — the eight shared key-pair SQL API secrets
+//   DEPLOYMENT_ENVIRONMENT        — production or staging (staging is inert)
+//   ACHIEVE_EXTERNAL_IO_ENABLED   — exact "true" only after production approval
+// Optional production monitoring (both required to post):
+//   ACHIEVE_SLACK_ALERTS_ENABLED, ACHIEVE_SLACK_ALERT_WEBHOOK_URL
 import 'jsr:@supabase/functions-js/edge-runtime.d.ts'
 import { createClient } from 'jsr:@supabase/supabase-js@2'
+import { isAchieveExternalIoAllowed } from '../_shared/achieve-deployment-safety.ts'
 import {
   achieveFirstPayEnrollmentCsv,
   parseFirstPayQaRollups,
@@ -27,20 +32,34 @@ import {
 } from '../_shared/achieve-first-pay-outcomes.ts'
 import {
   ACHIEVE_REPORT_REPRESENTATIVE_LIMIT,
-  achieveReportWeekEnding,
   isAchieveReportDeliveryHour,
   loadAchieveManagementReport,
 } from '../_shared/achieve-management-report.ts'
 import { googleServiceAccountAccessToken } from '../_shared/google-service-account.ts'
 import { achieveWeeklyEmailEnvelope, buildAchieveWeeklyEmail } from './email.ts'
+import {
+  parseAchieveReliabilitySnapshot,
+  runAchieveReliabilityAlert,
+  type AchieveReliabilityAlertOperations,
+} from './monitoring.ts'
+import {
+  runAchieveWeeklyReport,
+  type AchieveWeeklyReportCommand,
+  type AchieveWeeklyReportOperations,
+} from './orchestration.ts'
 
 const GMAIL_SEND_SCOPE = 'https://www.googleapis.com/auth/gmail.send'
+const HANDLER_DEADLINE_MS = 110_000
 
-type ReportRequest =
-  | { readonly action: 'scheduled' | 'test' | 'preview' | 'preview_test' }
-  | { readonly action: 'send'; readonly week_ending: string }
-type Config = {
+type ReportRequest = AchieveWeeklyReportCommand | { readonly action: 'monitor' }
+type RuntimeConfig = {
   readonly reportSecret: string
+  readonly supabaseUrl: string
+  readonly serviceRoleKey: string
+  readonly deploymentEnvironment: 'production' | 'staging'
+  readonly externalIoEnabled: boolean
+}
+type Config = {
   readonly snowflake: SnowflakeOutcomeConfig
   readonly recipients: ReadonlyArray<string>
   readonly testRecipient: string
@@ -79,8 +98,41 @@ function parseEmailList(value: string): ReadonlyArray<string> | null {
     : [...new Set(parsed.flatMap(email => email === null ? [] : [email]))]
 }
 
-function parseConfig(): Config | null {
+function parseRuntimeConfig(): RuntimeConfig | null {
   const reportSecret = Deno.env.get('ACHIEVE_WEEKLY_REPORT_SECRET')?.trim() ?? ''
+  const supabaseUrl = Deno.env.get('SUPABASE_URL')?.trim() ?? ''
+  const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')?.trim() ?? ''
+  const deploymentEnvironment = Deno.env.get('DEPLOYMENT_ENVIRONMENT')?.trim().toLowerCase()
+  if (
+    !reportSecret || !supabaseUrl || !serviceRoleKey
+    || (deploymentEnvironment !== 'production' && deploymentEnvironment !== 'staging')
+  ) return null
+  return {
+    reportSecret,
+    supabaseUrl,
+    serviceRoleKey,
+    deploymentEnvironment,
+    externalIoEnabled: Deno.env.get('ACHIEVE_EXTERNAL_IO_ENABLED') === 'true',
+  }
+}
+
+function parseSlackWebhookUrl(): string | null {
+  if (Deno.env.get('ACHIEVE_SLACK_ALERTS_ENABLED') !== 'true') return null
+  try {
+    const candidate = new URL(Deno.env.get('ACHIEVE_SLACK_ALERT_WEBHOOK_URL') ?? '')
+    if (
+      candidate.protocol === 'https:'
+      && (candidate.hostname === 'hooks.slack.com' || candidate.hostname === 'hooks.slack-gov.com')
+      && /^\/services\/[^/]+\/[^/]+\/[^/]+$/.test(candidate.pathname)
+      && candidate.username === '' && candidate.password === '' && candidate.search === '' && candidate.hash === ''
+    ) return candidate.toString()
+  } catch {
+    return null
+  }
+  return null
+}
+
+function parseExternalConfig(): Config | null {
   const gmailSender = parseEmail(Deno.env.get('GMAIL_SENDER') ?? '')
   const serviceAccountEmail = parseEmail(Deno.env.get('GOOGLE_SA_EMAIL') ?? '')
   const serviceAccountPrivateKey = Deno.env.get('GOOGLE_SA_PRIVATE_KEY')?.trim() ?? ''
@@ -96,13 +148,12 @@ function parseConfig(): Config | null {
     portalUrl = null
   }
   if (
-    !reportSecret || gmailSender === null || serviceAccountEmail === null || !serviceAccountPrivateKey
+    gmailSender === null || serviceAccountEmail === null || !serviceAccountPrivateKey
     || recipients === null || testRecipient === null || ccRecipients === null || recipients.length === 0
     || recipients.length + ccRecipients.length > 20
     || ccRecipients.some(email => recipients.includes(email)) || portalUrl === null || snowflake === null
   ) return null
   return {
-    reportSecret,
     snowflake,
     recipients,
     testRecipient,
@@ -136,7 +187,7 @@ function parseReportRequest(value: unknown): ReportRequest | null {
   }
   if (Object.keys(body).length !== 1) return null
   return body.action === 'scheduled' || body.action === 'test'
-    || body.action === 'preview' || body.action === 'preview_test'
+    || body.action === 'preview' || body.action === 'preview_test' || body.action === 'monitor'
     ? { action: body.action }
     : null
 }
@@ -149,10 +200,10 @@ function parseGmailMessageId(value: unknown): string | null {
 Deno.serve(async (request: Request) => {
   if (request.method !== 'POST') return json({ error: 'method_not_allowed' }, 405)
 
-  const config = parseConfig()
-  if (!config) return json({ error: 'not_configured' }, 503)
+  const runtime = parseRuntimeConfig()
+  if (!runtime) return json({ error: 'not_configured' }, 503)
   const suppliedSecret = request.headers.get('x-report-secret') ?? ''
-  if (!suppliedSecret || !(await secretsMatch(suppliedSecret, config.reportSecret))) {
+  if (!suppliedSecret || !(await secretsMatch(suppliedSecret, runtime.reportSecret))) {
     return json({ error: 'unauthorized' }, 401)
   }
 
@@ -164,125 +215,176 @@ Deno.serve(async (request: Request) => {
   }
   const command = parseReportRequest(rawBody)
   if (!command) return json({ error: 'bad_request' }, 400)
-  const { action } = command
 
+  // Staging is deliberately inert. This gate precedes client construction and
+  // every Snowflake, Google, Gmail, and delivery-ledger operation.
+  if (!isAchieveExternalIoAllowed(runtime)) {
+    return json({ error: 'external_io_disabled' }, 503)
+  }
+  const signal = AbortSignal.any([request.signal, AbortSignal.timeout(HANDLER_DEADLINE_MS)])
   const now = new Date()
-  if (action === 'scheduled' && !isAchieveReportDeliveryHour(now)) {
-    return json({ ok: true, skipped: 'outside_delivery_hour' })
+  const admin = createClient(runtime.supabaseUrl, runtime.serviceRoleKey)
+
+  let monitorError: 'monitor_not_configured' | 'monitor_failed' | null = null
+  if (command.action === 'scheduled' || command.action === 'monitor') {
+    const webhookUrl = parseSlackWebhookUrl()
+    if (webhookUrl === null) {
+      monitorError = 'monitor_not_configured'
+    } else {
+      try {
+        const snapshotResult = await admin.rpc('achieve_report_reliability_snapshot', { p_now: now.toISOString() })
+          .abortSignal(signal)
+        if (snapshotResult.error) throw new Error('monitor_snapshot_failed')
+        const snapshot = parseAchieveReliabilitySnapshot(snapshotResult.data)
+        if (snapshot === null) throw new Error('monitor_snapshot_invalid')
+        const alertOperations: AchieveReliabilityAlertOperations = {
+          claim: async (fingerprint, notificationHour, options) => {
+            const claim = await admin
+              .from('achieve_reliability_alert_deliveries')
+              .insert({ fingerprint, notification_hour: notificationHour })
+              .abortSignal(options.signal)
+            if (claim.error?.code === '23505') return 'duplicate'
+            if (claim.error) throw new Error('monitor_claim_failed')
+            return 'claimed'
+          },
+          send: async (payload, options) => {
+            const slackSignal = AbortSignal.any([options.signal, AbortSignal.timeout(10_000)])
+            const response = await fetch(webhookUrl, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(payload),
+              signal: slackSignal,
+            })
+            if (!response.ok) throw new Error('monitor_delivery_failed')
+          },
+        }
+        const monitor = await runAchieveReliabilityAlert(snapshot, now, signal, alertOperations)
+        console.info('achieve reliability monitor completed', { status: monitor.status })
+      } catch {
+        monitorError = 'monitor_failed'
+      }
+    }
+    if (monitorError !== null) {
+      console.error('achieve reliability monitor unavailable', { reason: monitorError })
+    }
+    if (command.action === 'monitor') {
+      return monitorError === null
+        ? json({ ok: true, mode: 'monitor' })
+        : json({ error: monitorError }, 503)
+    }
+    if (!isAchieveReportDeliveryHour(now)) {
+      return monitorError === null
+        ? json({ ok: true, skipped: 'outside_delivery_hour' })
+        : json({ error: monitorError }, 503)
+    }
   }
 
-  const admin = createClient(
-    Deno.env.get('SUPABASE_URL') ?? '',
-    Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '',
-  )
-  let claimedWeek: string | null = null
-  let gmailSent = false
-
-  try {
-    const loadReport = (at: Date) => loadAchieveManagementReport(
+  const config = parseExternalConfig()
+  if (!config) return json({ error: 'not_configured' }, 503)
+  const operations: AchieveWeeklyReportOperations = {
+    loadReport: (at, options) => loadAchieveManagementReport(
       async range => admin.rpc('get_achieve_agent_feedback_dashboard', {
         p_start_at: range.startAt,
         p_end_at: range.endAt,
         p_representative_limit: ACHIEVE_REPORT_REPRESENTATIVE_LIMIT,
         p_representative_offset: 0,
-      }),
-      async () => admin.rpc('get_achieve_first_pay_outcomes'),
-      async endAt => admin.rpc('list_achieve_agent_termination_monitoring', { p_end_at: endAt }),
+      }).abortSignal(options.signal),
+      async () => admin.rpc('get_achieve_first_pay_outcomes').abortSignal(options.signal),
+      async endAt => admin.rpc('get_achieve_termination_monitoring_report', { p_end_at: endAt })
+        .abortSignal(options.signal),
       at,
-    )
-    const reportResult = await loadReport(now)
-    if (!reportResult.ok) {
-      console.error('achieve weekly report load failed', { reason: reportResult.reason })
-      return json({ error: reportResult.reason }, 500)
-    }
-    const weekEnding = achieveReportWeekEnding(reportResult.report)
-    if (command.action === 'send' && command.week_ending !== weekEnding) {
-      return json({ error: 'week_ending_mismatch' }, 409)
-    }
-    if (action === 'scheduled' || action === 'send') {
-      const claim = await admin
-        .from('achieve_weekly_report_sends')
-        .insert({ week_ending: weekEnding, status: 'sending' })
-      if (claim.error?.code === '23505') return json({ ok: true, skipped: 'already_sent_or_sending' })
-      if (claim.error) {
-        console.error('achieve weekly report claim failed', { code: claim.error.code })
-        return json({ error: 'claim_failed' }, 500)
-      }
-      claimedWeek = weekEnding
-    }
-
-    const [enrollmentPlan, qaResult] = await Promise.all([
-      fetchSnowflakeFirstPayEnrollments(config.snowflake, now),
-      admin.rpc('get_achieve_first_pay_export_qa_rollups'),
-    ])
-    if (qaResult.error) throw new Error('achieve_first_pay_qa_rollup_query_failed')
-    const enrollmentCsv = achieveFirstPayEnrollmentCsv(
-      enrollmentPlan,
-      parseFirstPayQaRollups(qaResult.data),
-    )
-    const envelope = achieveWeeklyEmailEnvelope(
-      action === 'test' || action === 'preview_test',
-      config.recipients,
-      config.ccRecipients,
-      config.testRecipient,
-    )
-    const email = buildAchieveWeeklyEmail(
-      reportResult.report,
-      config.gmailSender,
-      envelope.recipients,
-      envelope.ccRecipients,
-      config.portalUrl,
-      { sourceAsOf: enrollmentPlan.sourceAsOf, csv: enrollmentCsv },
-    )
-    // Authenticated, non-sending preview: the exact MIME includes sensitive
-    // enrollment data. Never log it, persist it in Eavesly, or cache the response.
-    if (action === 'preview' || action === 'preview_test') {
-      return new Response(JSON.stringify({ ok: true, mode: action, week_ending: weekEnding, raw: email.raw }), {
-        headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' },
-      })
-    }
-    const accessToken = await googleServiceAccountAccessToken({
+    ),
+    prepareEmail: async (report, internalOnly, options) => {
+      const [enrollmentPlan, qaResult] = await Promise.all([
+        fetchSnowflakeFirstPayEnrollments(config.snowflake, now, { signal: options.signal }),
+        admin.rpc('get_achieve_first_pay_export_qa_rollups').abortSignal(options.signal),
+      ])
+      if (qaResult.error) throw new Error('achieve_first_pay_qa_rollup_query_failed')
+      const enrollmentCsv = achieveFirstPayEnrollmentCsv(
+        enrollmentPlan,
+        parseFirstPayQaRollups(qaResult.data),
+      )
+      const envelope = achieveWeeklyEmailEnvelope(
+        internalOnly,
+        config.recipients,
+        config.ccRecipients,
+        config.testRecipient,
+      )
+      return buildAchieveWeeklyEmail(
+        report,
+        config.gmailSender,
+        envelope.recipients,
+        envelope.ccRecipients,
+        config.portalUrl,
+        { sourceAsOf: enrollmentPlan.sourceAsOf, csv: enrollmentCsv },
+      )
+    },
+    accessToken: options => googleServiceAccountAccessToken({
       serviceAccountEmail: config.serviceAccountEmail,
       privateKeyPem: config.serviceAccountPrivateKey,
       scope: GMAIL_SEND_SCOPE,
       subject: config.gmailSender,
-    })
-    const gmailResponse = await fetch('https://gmail.googleapis.com/gmail/v1/users/me/messages/send', {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ raw: email.raw }),
-    })
-    if (!gmailResponse.ok) throw new Error(`gmail_send_failed:${gmailResponse.status}`)
-    gmailSent = true
-    const messageId = parseGmailMessageId(await gmailResponse.json())
-    if (!messageId) throw new Error('gmail_send_response_invalid')
-
-    if (claimedWeek !== null) {
+    }, options),
+    claimDelivery: async (weekEnding, options) => {
+      const claim = await admin
+        .from('achieve_weekly_report_sends')
+        .insert({ week_ending: weekEnding, status: 'sending' })
+        .abortSignal(options.signal)
+      if (claim.error?.code === '23505') return 'exists'
+      if (claim.error) throw new Error('claim_failed')
+      return 'claimed'
+    },
+    sendEmail: async (raw, accessToken, options) => {
+      const response = await fetch('https://gmail.googleapis.com/gmail/v1/users/me/messages/send', {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ raw }),
+        signal: options.signal,
+      })
+      if (!response.ok) throw new Error(`gmail_send_failed:${response.status}`)
+      const messageId = parseGmailMessageId(await response.json())
+      if (!messageId) throw new Error('gmail_send_response_invalid')
+      return messageId
+    },
+    markSent: async (weekEnding, messageId, options) => {
       const delivery = await admin
         .from('achieve_weekly_report_sends')
         .update({ status: 'sent', sent_at: new Date().toISOString(), gmail_message_id: messageId })
-        .eq('week_ending', claimedWeek)
+        .eq('week_ending', weekEnding)
         .eq('status', 'sending')
-      if (delivery.error) throw new Error(`delivery_record_failed:${delivery.error.code}`)
-    }
-
-    return json({ ok: true, mode: action, week_ending: weekEnding, message_id: messageId })
-  } catch (cause: unknown) {
-    if (claimedWeek !== null && !gmailSent) {
-      const release = await admin
-        .from('achieve_weekly_report_sends')
-        .delete()
-        .eq('week_ending', claimedWeek)
-        .eq('status', 'sending')
-      if (release.error) console.error('achieve weekly report claim release failed', { code: release.error.code })
-    }
-    console.error('achieve weekly report failed', {
-      stage: gmailSent ? 'delivery_record' : 'report_or_gmail',
-      reason: cause instanceof Error ? cause.message.split(':')[0] : 'unknown',
-    })
-    return json({ error: 'weekly_report_failed' }, 500)
+        .abortSignal(options.signal)
+        .select('week_ending')
+        .maybeSingle()
+      if (delivery.error || delivery.data === null) throw new Error('delivery_record_failed')
+    },
   }
+
+  const result = await runAchieveWeeklyReport(command, now, signal, operations)
+  if (!result.ok) {
+    console.error('achieve weekly report failed', {
+      stage: 'stage' in result ? result.stage : 'week_validation',
+      reason: result.error,
+      claimRetained: 'claimRetained' in result ? result.claimRetained : false,
+    })
+    return json({ error: result.error }, result.status)
+  }
+  if ('skipped' in result) return json({ ok: true, skipped: result.skipped })
+  if (result.raw !== undefined) {
+    // The exact MIME includes sensitive enrollment data. Never log or cache it.
+    return new Response(JSON.stringify({
+      ok: true,
+      mode: result.mode,
+      week_ending: result.weekEnding,
+      raw: result.raw,
+    }), { headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' } })
+  }
+  return json({
+    ok: true,
+    mode: result.mode,
+    week_ending: result.weekEnding,
+    message_id: result.messageId,
+  })
 })

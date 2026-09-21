@@ -150,6 +150,7 @@ export type AchieveManagementReportFailure =
   | 'invalid_outcomes_response'
   | 'termination_query_failed'
   | 'invalid_termination_response'
+  | 'snapshot_freshness_failed'
 
 /** Typed result for loading the canonical management report. */
 export type AchieveManagementReportResult =
@@ -294,6 +295,21 @@ export function isAchieveReportDeliveryHour(now: Date): boolean {
   return eastern.weekday === 'Mon' && eastern.hour === 9
 }
 
+/** Minimum accepted Snowflake UTC source date around the daily 12:15 UTC deadline. */
+export function expectedAchieveSourceDate(now: Date): string {
+  const expected = new Date(now)
+  if (expected.getUTCHours() < 12 || (expected.getUTCHours() === 12 && expected.getUTCMinutes() < 15)) {
+    expected.setUTCDate(expected.getUTCDate() - 1)
+  }
+  return expected.toISOString().slice(0, 10)
+}
+
+/** Accept yesterday or today before 12:15 UTC, then require today exactly. */
+export function isAcceptableAchieveSourceDate(sourceAsOf: string, now: Date): boolean {
+  const today = now.toISOString().slice(0, 10)
+  return sourceAsOf === today || sourceAsOf === expectedAchieveSourceDate(now)
+}
+
 function parseTermination(value: unknown): AchieveManagementTermination | null {
   const row = record(value)
   if (!row || typeof row.agent_name !== 'string' || typeof row.agent_email !== 'string') return null
@@ -433,6 +449,11 @@ function parseOutcomeAgent(value: unknown): AchieveFirstPayOutcomeAgent | null {
   }
 }
 
+function outcomePeriodKey(value: unknown): AchieveOutcomePeriodKey | null {
+  return value === 'all_time' || value === 'mature_2_weeks' || value === 'mature_4_weeks'
+    || value === 'mature_6_weeks' || value === 'mature_6_months' ? value : null
+}
+
 function parseFirstPayOutcomes(value: unknown): AchieveFirstPayOutcomes | null {
   const payload = record(value)
   const sourceAsOf = isoDate(payload?.source_as_of)
@@ -441,6 +462,7 @@ function parseFirstPayOutcomes(value: unknown): AchieveFirstPayOutcomes | null {
   if (!payload || sourceAsOf === null || maturityCutoff === null || refreshedAt === undefined || refreshedAt === null || !Array.isArray(payload.periods)) return null
   const periods = payload.periods.map(raw => {
     const period = record(raw)
+    const key = outcomePeriodKey(period?.key)
     const startDate = period?.start_date === null ? null : isoDate(period?.start_date)
     const endDate = isoDate(period?.end_date)
     const previousStartDate = period?.previous_start_date === null ? null : isoDate(period?.previous_start_date)
@@ -450,9 +472,8 @@ function parseFirstPayOutcomes(value: unknown): AchieveFirstPayOutcomes | null {
     const previousN = period?.previous_n === null ? null : count(period?.previous_n)
     const previousPaid = period?.previous_paid === null ? null : count(period?.previous_paid)
     if (
-      !period || !Array.isArray(period.agents) || endDate === null || n === null || paid === null || paid > n
-      || (period.key !== 'all_time' && period.key !== 'mature_2_weeks' && period.key !== 'mature_4_weeks' && period.key !== 'mature_6_weeks' && period.key !== 'mature_6_months')
-      || (period.key === 'all_time'
+      !period || key === null || !Array.isArray(period.agents) || endDate === null || n === null || paid === null || paid > n
+      || (key === 'all_time'
         ? startDate !== null || previousStartDate !== null || previousEndDate !== null || previousN !== null || previousPaid !== null
         : startDate === null || previousStartDate === null || previousEndDate === null
           || (previousN === null) !== (previousPaid === null)
@@ -467,7 +488,7 @@ function parseFirstPayOutcomes(value: unknown): AchieveFirstPayOutcomes | null {
       validAgents.reduce((total, agent) => total + agent.n, 0) !== n
       || validAgents.reduce((total, agent) => total + agent.n - agent.failures, 0) !== paid
     ) return null
-    return { key: period.key, startDate, endDate, n, paid, previousStartDate, previousEndDate, previousN, previousPaid, agents: validAgents }
+    return { key, startDate, endDate, n, paid, previousStartDate, previousEndDate, previousN, previousPaid, agents: validAgents }
   })
   if (periods.some(period => period === null)) return null
   const validPeriods = periods.flatMap(period => period === null ? [] : [period])
@@ -583,15 +604,30 @@ export async function loadAchieveManagementReport(
     || loadedAllTime.error !== null
   ) return { ok: false, reason: 'dashboard_query_failed' }
   if (outcomeResult.error !== null) return { ok: false, reason: 'outcomes_query_failed' }
+  if (terminationResult.error !== null) return { ok: false, reason: 'termination_query_failed' }
+  const rawOutcomes = record(outcomeResult.data)
+  const rawTerminations = record(terminationResult.data)
+  const outcomeSourceAsOf = isoDate(rawOutcomes?.source_as_of)
+  const terminationSourceAsOf = isoDate(rawTerminations?.source_as_of)
+  if (outcomeSourceAsOf === null) return { ok: false, reason: 'invalid_outcomes_response' }
+  if (terminationSourceAsOf === null || !Array.isArray(rawTerminations?.rows)) {
+    return { ok: false, reason: 'invalid_termination_response' }
+  }
+  if (
+    !isAcceptableAchieveSourceDate(outcomeSourceAsOf, now)
+    || !isAcceptableAchieveSourceDate(terminationSourceAsOf, now)
+    || outcomeSourceAsOf !== terminationSourceAsOf
+  ) return { ok: false, reason: 'snapshot_freshness_failed' }
   const outcomes = parseFirstPayOutcomes(outcomeResult.data)
   if (!outcomes) return { ok: false, reason: 'invalid_outcomes_response' }
-  if (terminationResult.error !== null) return { ok: false, reason: 'termination_query_failed' }
-  if (!Array.isArray(terminationResult.data)) return { ok: false, reason: 'invalid_termination_response' }
-  const parsedTerminations = terminationResult.data.map(parseTermination)
+  const parsedTerminations = rawTerminations.rows.map(parseTermination)
   if (parsedTerminations.some(termination => termination === null)) {
     return { ok: false, reason: 'invalid_termination_response' }
   }
   const terminations = parsedTerminations.flatMap(termination => termination === null ? [] : [termination])
+  if (terminations.some(termination => termination.activitySourceAsOf !== terminationSourceAsOf)) {
+    return { ok: false, reason: 'invalid_termination_response' }
+  }
   if (new Set(terminations.map(termination => termination.agentEmail)).size !== terminations.length) {
     return { ok: false, reason: 'invalid_termination_response' }
   }

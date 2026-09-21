@@ -15,27 +15,33 @@
 //   SNOWFLAKE_DATABASE
 //   SNOWFLAKE_SCHEMA
 //   SNOWFLAKE_PRIVATE_KEY
+//   DEPLOYMENT_ENVIRONMENT       — production or staging (staging is inert)
+//   ACHIEVE_EXTERNAL_IO_ENABLED  — exact "true" only after production approval
 import 'jsr:@supabase/functions-js/edge-runtime.d.ts'
 import { createClient } from 'jsr:@supabase/supabase-js@2'
+import { isAchieveExternalIoAllowed } from '../_shared/achieve-deployment-safety.ts'
 import {
   fetchSnowflakeOutcomeSnapshot,
   fetchSnowflakeTerminationEnrollments,
   OutcomeSyncFailure,
   snowflakeConfigFromEnv,
   type OutcomeSnapshotPlan,
-  type SnowflakeOutcomeConfig,
   type TerminationEnrollmentPlan,
 } from '../_shared/achieve-first-pay-outcomes.ts'
 
+const HANDLER_DEADLINE_MS = 110_000
+
 type RequestAction = 'scheduled' | 'test' | 'refresh'
-type Config = SnowflakeOutcomeConfig & {
+type RuntimeConfig = {
   readonly requestSecret: string
   readonly supabaseUrl: string
   readonly serviceRoleKey: string
+  readonly deploymentEnvironment: 'production' | 'staging'
+  readonly externalIoEnabled: boolean
 }
 
 class SyncRunFailure extends Error {
-  readonly name = 'SyncRunFailure'
+  override readonly name = 'SyncRunFailure'
 
   constructor(readonly code: 'ingest_failed' | 'ingest_response_invalid' | 'termination_ingest_failed' | 'termination_ingest_response_invalid' | 'run_status_update_failed') {
     super(code)
@@ -61,13 +67,22 @@ function parseAction(value: unknown): RequestAction | null {
   return body.action === 'scheduled' || body.action === 'test' || body.action === 'refresh' ? body.action : null
 }
 
-function parseConfig(): Config | null {
+function parseRuntimeConfig(): RuntimeConfig | null {
   const requestSecret = Deno.env.get('ACHIEVE_WEEKLY_REPORT_SECRET')?.trim() ?? ''
   const supabaseUrl = Deno.env.get('SUPABASE_URL')?.trim() ?? ''
   const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')?.trim() ?? ''
-  const snowflake = snowflakeConfigFromEnv(name => Deno.env.get(name))
-  if (!requestSecret || !supabaseUrl || !serviceRoleKey || snowflake === null) return null
-  return { requestSecret, supabaseUrl, serviceRoleKey, ...snowflake }
+  const deploymentEnvironment = Deno.env.get('DEPLOYMENT_ENVIRONMENT')?.trim().toLowerCase()
+  if (
+    !requestSecret || !supabaseUrl || !serviceRoleKey
+    || (deploymentEnvironment !== 'production' && deploymentEnvironment !== 'staging')
+  ) return null
+  return {
+    requestSecret,
+    supabaseUrl,
+    serviceRoleKey,
+    deploymentEnvironment,
+    externalIoEnabled: Deno.env.get('ACHIEVE_EXTERNAL_IO_ENABLED') === 'true',
+  }
 }
 
 async function secretsMatch(supplied: string, expected: string): Promise<boolean> {
@@ -114,10 +129,10 @@ function safeFailure(cause: unknown): {
 Deno.serve(async (request: Request) => {
   if (request.method !== 'POST') return json({ error: 'method_not_allowed' }, 405)
 
-  const config = parseConfig()
-  if (!config) return json({ error: 'not_configured' }, 503)
+  const runtime = parseRuntimeConfig()
+  if (!runtime) return json({ error: 'not_configured' }, 503)
   const suppliedSecret = request.headers.get('x-report-secret') ?? ''
-  if (!suppliedSecret || !(await secretsMatch(suppliedSecret, config.requestSecret))) {
+  if (!suppliedSecret || !(await secretsMatch(suppliedSecret, runtime.requestSecret))) {
     return json({ error: 'unauthorized' }, 401)
   }
 
@@ -130,15 +145,25 @@ Deno.serve(async (request: Request) => {
   const action = parseAction(rawBody)
   if (!action) return json({ error: 'bad_request' }, 400)
 
+  // No Snowflake, snapshot, or claim I/O is allowed outside an explicitly
+  // enabled production deployment.
+  if (!isAchieveExternalIoAllowed(runtime)) {
+    return json({ error: 'external_io_disabled' }, 503)
+  }
+  const config = snowflakeConfigFromEnv(name => Deno.env.get(name))
+  if (config === null) return json({ error: 'not_configured' }, 503)
+
+  const signal = AbortSignal.any([request.signal, AbortSignal.timeout(HANDLER_DEADLINE_MS)])
   const now = new Date()
   const runDate = now.toISOString().slice(0, 10)
-  const admin = createClient(config.supabaseUrl, config.serviceRoleKey)
+  const admin = createClient(runtime.supabaseUrl, runtime.serviceRoleKey)
   let claimed = false
 
   if (action === 'scheduled') {
     const claim = await admin
       .from('achieve_first_pay_outcome_sync_runs')
       .insert({ run_date: runDate, status: 'running' })
+      .abortSignal(signal)
     if (claim.error?.code === '23505') return json({ ok: true, skipped: 'already_claimed', run_date: runDate })
     if (claim.error) {
       console.error('achieve first-pay sync claim failed', { databaseCode: claim.error.code })
@@ -148,8 +173,8 @@ Deno.serve(async (request: Request) => {
   }
 
   try {
-    const plan = await fetchSnowflakeOutcomeSnapshot(config, now)
-    const terminationPlan = await fetchSnowflakeTerminationEnrollments(config, now)
+    const plan = await fetchSnowflakeOutcomeSnapshot(config, now, { signal })
+    const terminationPlan = await fetchSnowflakeTerminationEnrollments(config, now, { signal })
     if (action === 'test') {
       return json({
         ok: true,
@@ -169,7 +194,7 @@ Deno.serve(async (request: Request) => {
       p_expected_aggregate_rows: plan.expectedAggregateRows,
       p_expected_enrollments: plan.expectedEnrollments,
       p_rows: plan.rows,
-    })
+    }).abortSignal(signal)
     if (ingested.error) throw new SyncRunFailure('ingest_failed')
     if (!rpcResultMatches(ingested.data, plan)) throw new SyncRunFailure('ingest_response_invalid')
 
@@ -178,7 +203,7 @@ Deno.serve(async (request: Request) => {
       p_expected_aggregate_rows: terminationPlan.expectedAggregateRows,
       p_expected_enrollments: terminationPlan.expectedEnrollments,
       p_rows: terminationPlan.rows,
-    })
+    }).abortSignal(signal)
     if (terminationIngested.error) throw new SyncRunFailure('termination_ingest_failed')
     if (!terminationRpcResultMatches(terminationIngested.data, terminationPlan)) {
       throw new SyncRunFailure('termination_ingest_response_invalid')
@@ -199,6 +224,7 @@ Deno.serve(async (request: Request) => {
         })
         .eq('run_date', runDate)
         .eq('status', 'running')
+        .abortSignal(signal)
       if (completed.error) throw new SyncRunFailure('run_status_update_failed')
     }
 
@@ -214,12 +240,13 @@ Deno.serve(async (request: Request) => {
     })
   } catch (cause: unknown) {
     const failure = safeFailure(cause)
-    if (claimed) {
+    if (claimed && !signal.aborted) {
       const failed = await admin
         .from('achieve_first_pay_outcome_sync_runs')
         .update({ status: 'failed', finished_at: new Date().toISOString(), error_code: failure.code })
         .eq('run_date', runDate)
         .eq('status', 'running')
+        .abortSignal(signal)
       if (failed.error) {
         console.error('achieve first-pay sync failure status update failed', { databaseCode: failed.error.code })
       }
