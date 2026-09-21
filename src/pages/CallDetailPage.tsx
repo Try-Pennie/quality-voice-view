@@ -32,6 +32,7 @@ import {
   PhoneOutgoing,
 } from 'lucide-react'
 import { toast } from 'sonner'
+import type { QAJson } from '../types/database'
 
 export default function CallDetailPage() {
   const { callId } = useParams()
@@ -113,8 +114,9 @@ export default function CallDetailPage() {
     )
   }
 
-  // SAFETY: the QA writer owns this JSON contract; render sections remain optional.
-  const qaData = call.qa?.qa_json as QAJson | null
+  // SAFETY: preserve the existing writer-owned QA contract at this legacy render
+  // boundary. This annotation does not add runtime validation of persisted JSON.
+  const qaData = call.qa?.qa_json as QAJson | null | undefined
   const pitch = pitchCallRisk(call)
 
   const copyTranscript = () => {
@@ -185,7 +187,10 @@ export default function CallDetailPage() {
             <Headphones className="w-3.5 h-3.5" aria-hidden="true" />Recording
           </h2>
           <AudioPlayer key={`${call.call_id}:${callUpdatedAt}`} recordingUrl={call.qa.recording_link} onRetry={() => refetchCall()} />
-        </> : <p className="text-xs text-pennie-graphite/70">Recording not available</p>}
+        </> : call.qa?.recording_error ? <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
+          <p role="alert">Recording unavailable. Call details, QA, and transcript are still available.</p>
+          <button type="button" onClick={() => refetchCall()} className="pennie-focus-ring min-h-[44px] rounded-full border border-border px-3 font-semibold text-pennie-blue-deeper">Retry recording</button>
+        </div> : <p className="text-xs text-pennie-graphite/70">Recording not available</p>}
       </section>
 
       {/* SECTION 1: Call header */}

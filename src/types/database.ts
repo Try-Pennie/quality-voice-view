@@ -136,7 +136,12 @@ export type QAJson = {
 }
 
 export type CallWithQA = Call & {
-  qa: TranscriptionQA | null
+  qa: (TranscriptionQA & {
+    /** Stable stored reference, before a private Storage URL is signed for playback. */
+    readonly recording_reference?: string | null
+    /** Signing failed; call and QA details remain usable while audio can be retried. */
+    readonly recording_error?: boolean
+  }) | null
 }
 
 // Eavesly alerts — rows from view eavesly_alerts_with_feedback
@@ -174,10 +179,41 @@ export type AlertInaccuracyReason =
   | 'call_dropped_incomplete'
   | 'other'
 
+export type AlertResultJson = {
+  readonly grading_skipped?: boolean
+  readonly skip_reason?: unknown
+  readonly script_version?: string
+  readonly script_adherence?: Readonly<Record<string, unknown>> & {
+    readonly overall_script_adherence?: string
+    readonly violation?: boolean
+    readonly violation_reason?: string
+    readonly key_evidence_quotes?: readonly unknown[]
+  }
+  readonly assessment_confidence?: {
+    readonly level?: string
+    readonly score?: number
+    readonly rationale?: string
+    readonly limitations?: readonly unknown[]
+  }
+  readonly transfer_experience?: unknown
+  readonly transcript_segment?: {
+    readonly segment_type?: string
+    readonly start_line?: number
+    readonly marker?: string
+    readonly segmentation_confidence?: string
+    readonly segmentation_score?: number
+    readonly used_full_transcript_fallback?: boolean
+    readonly segment_found?: boolean
+  }
+  readonly [key: string]: unknown
+}
+
 export type AlertWithFeedback = {
   module_result_id: number
   /** Stable stored reference, before a private Storage URL is signed for playback. */
   recording_reference?: string | null
+  /** Signing failed; alert evidence remains usable while audio can be retried. */
+  recording_error?: boolean
   alert_created_at: string
   alert_sent_at: string | null
   call_id: string
@@ -193,7 +229,7 @@ export type AlertWithFeedback = {
   call_summary: string | null
   sfdc_lead_id: string | null
   processing_time_ms: number | null
-  result_json: any
+  result_json: AlertResultJson | null
   assigned_manager_email: string | null
   feedback_id: number | null
   feedback_by: string | null

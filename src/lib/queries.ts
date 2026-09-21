@@ -48,10 +48,13 @@ export async function fetchCallDetail(callId: string) {
   }
 
   const recording = await resolveRecordingUrl(qa?.recording_link)
-  // Translate the typed adapter failure at React Query's promise boundary.
-  if (!recording.ok) throw new Error('Recording could not be loaded. Please reload this call.')
   return {
     ...call,
-    qa: qa ? { ...qa, recording_link: recording.url } : null,
+    qa: qa ? {
+      ...qa,
+      recording_reference: qa.recording_link,
+      recording_link: recording.ok ? recording.url : null,
+      recording_error: !recording.ok,
+    } : null,
   }
 }
