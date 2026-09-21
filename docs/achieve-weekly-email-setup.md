@@ -105,8 +105,9 @@ npx supabase functions deploy achieve-first-pay-sync \
   --project-ref miikotqnovnixpeqtqnd \
   --no-verify-jwt
 
-# After the direct-sync test and Pipedream first-pay cutover:
-npx supabase db push --project-ref miikotqnovnixpeqtqnd
+# STOP: production history has known drift. Do not run a blanket db push.
+# After explicit approval, apply only reviewed, hash-pinned SQL artifacts.
+# See docs/audit-release-runbook.md for read-only preflight and rollout order.
 
 npx supabase functions deploy achieve-portal \
   --project-ref miikotqnovnixpeqtqnd
