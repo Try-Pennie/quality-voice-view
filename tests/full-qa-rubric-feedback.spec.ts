@@ -458,6 +458,39 @@ test('a warranted alert with two distinct issues records shared and repeated cri
   expect(state.rows[0].accurate).toBe(true)
 })
 
+test('generated IDs cannot make duplicate normalized findings distinct', async ({ page }) => {
+  const state = await reviewFixture(page, [alertRow('duplicate-findings')])
+  await page.goto('/dashboard/alerts/duplicate-findings/full_qa')
+  await page.getByRole('article', { name: 'Credit pull consent', exact: true }).getByRole('button', { name: 'Add as coaching issue' }).click()
+  await page.getByRole('textbox', { name: 'Finding 1 summary' }).fill('The agent ignored the customer consent refusal.')
+  await page.getByRole('textbox', { name: 'Finding 1 evidence' }).fill('The refusal and subsequent credit pull are both recorded.')
+  await page.getByRole('radio', { name: 'No, the alert was unnecessary', exact: true }).check()
+  await page.getByRole('textbox', { name: 'Explain your decision', exact: true }).fill('The escalation itself was unnecessary despite retained coaching findings.')
+  await page.getByRole('radiogroup', { name: 'Why was the alert unnecessary?' }).getByRole('radio', { name: 'Wrong context', exact: true }).check()
+  await page.getByRole('radiogroup', { name: 'What did you do about the issue?' }).getByRole('radio', { name: 'Coached the agent', exact: true }).check()
+  await page.getByRole('textbox', { name: 'Coaching or next steps' }).fill('The manager coached the agent on the consent requirement.')
+  await page.getByRole('button', { name: 'Add another issue' }).click()
+  await page.getByRole('group', { name: 'Finding 2 related criteria' }).getByRole('checkbox', { name: 'Credit pull consent' }).check()
+  await page.getByRole('textbox', { name: 'Finding 2 summary' }).fill('  THE agent ignored  the customer consent refusal. ')
+  await page.getByRole('textbox', { name: 'Finding 2 evidence' }).fill('The refusal and subsequent credit pull are both recorded.')
+  await expect(page.getByRole('status')).toContainText('Each coaching issue must describe a distinct finding.')
+  await expect(saveButton(page)).toBeDisabled()
+  expect(state.writes).toEqual([])
+
+  await page.getByRole('textbox', { name: 'Finding 2 evidence' }).fill('A second, separate consent request was skipped later in the call.')
+  await expect(page.getByRole('status')).toHaveCount(0)
+  await expect(saveButton(page)).toBeEnabled()
+  await saveButton(page).click()
+  await expect(page.getByText('Full QA review saved')).toBeVisible()
+  const write = state.writes.find(value => value && typeof value === 'object' && 'p_findings' in value)
+  expect((write as { p_findings: { finding_id: string; related_criteria: string[] }[] }).p_findings).toEqual([
+    expect.objectContaining({ related_criteria: ['credit_pull_consent'] }),
+    expect.objectContaining({ related_criteria: ['credit_pull_consent'] }),
+  ])
+  const findings = (write as { p_findings: { finding_id: string }[] }).p_findings
+  expect(findings[0].finding_id).not.toBe(findings[1].finding_id)
+})
+
 test('a realistic supported seed keeps the reason, first evidence, and first decision on the first screen', async ({ page }) => {
   const reason = 'Two separate compliance issues prompted this review: the agent announced a credit pull after the customer explicitly refused permission, then guaranteed the customer would be debt-free in exactly 48 months. The unsupported guarantee is one issue, even though it was repeated across the closing segment of the call.'
   const result = { ...FULL_QA_RESULT,
@@ -703,6 +736,33 @@ test('Full QA provenance never presents an unknown stamped hash as current, whil
   await expect(consent.getByText('Exact synthetic rule for Credit pull consent.')).toBeHidden()
   await consent.getByText('Rule and saved evidence', { exact: true }).click()
   await expect(consent.getByText('Exact synthetic rule for Credit pull consent.')).toBeVisible()
+})
+
+test.describe('Pacific reviewer business-date boundaries', () => {
+  test.use({ timezoneId: 'America/Los_Angeles' })
+
+  test('recurrence sends exact ET bounds across both DST transitions', async ({ page }) => {
+    await reviewFixture(page, [])
+    const requests: Record<string, unknown>[] = []
+    await page.route('**/rest/v1/rpc/full_qa_finding_occurrences', async route => {
+      requests.push(route.request().postDataJSON())
+      await route.fallback()
+    })
+
+    await page.goto('/dashboard/team/agent%40example.test?start=2026-03-07&end=2026-03-09')
+    await expect.poll(() => requests.length).toBe(1)
+    expect(requests[0]).toMatchObject({
+      p_start: '2026-03-07T05:00:00.000Z',
+      p_end: '2026-03-10T03:59:59.999Z',
+    })
+
+    await page.goto('/dashboard/team/agent%40example.test?start=2026-10-31&end=2026-11-02')
+    await expect.poll(() => requests.length).toBe(2)
+    expect(requests[1]).toMatchObject({
+      p_start: '2026-10-31T04:00:00.000Z',
+      p_end: '2026-11-03T04:59:59.999Z',
+    })
+  })
 })
 
 test('an unmapped approved finding fails closed rather than disappearing from recurrence totals', async ({ page }) => {
