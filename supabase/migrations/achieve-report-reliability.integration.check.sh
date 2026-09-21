@@ -25,7 +25,10 @@ create table cron.job (
   jobid bigint generated always as identity primary key,
   jobname text unique not null,
   schedule text not null,
-  command text not null
+  command text not null,
+  database text not null default current_database(),
+  username text not null default current_user,
+  active boolean not null default true
 );
 create function cron.schedule(text, text, text) returns bigint language plpgsql as $$
 declare new_id bigint;
@@ -38,6 +41,25 @@ create function cron.unschedule(bigint) returns boolean language plpgsql as $$
 begin
   delete from cron.job where jobid = $1;
   return found;
+end
+$$;
+create function cron.alter_job(
+  job_id bigint,
+  schedule text default null,
+  command text default null,
+  database text default null,
+  username text default null,
+  active boolean default null
+) returns void language plpgsql as $$
+begin
+  update cron.job j
+  set schedule = coalesce($2, j.schedule),
+      command = coalesce($3, j.command),
+      database = coalesce($4, j.database),
+      username = coalesce($5, j.username),
+      active = coalesce($6, j.active)
+  where j.jobid = $1;
+  if not found then raise exception 'cron job % not found', $1; end if;
 end
 $$;
 

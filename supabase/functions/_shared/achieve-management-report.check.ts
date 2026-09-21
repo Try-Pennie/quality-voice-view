@@ -366,6 +366,54 @@ assert.deepStrictEqual(ambiguousSend, {
 })
 assert.deepStrictEqual(orchestrationCalls, ['load', 'prepare', 'token', 'claim', 'send'])
 
+const postGmailController = new AbortController()
+const postGmailCalls: Array<string> = []
+const postGmailResult = await runAchieveWeeklyReport(
+  { action: 'send', week_ending: '2026-08-16' },
+  new Date('2026-08-19T12:30:00Z'),
+  postGmailController.signal,
+  {
+    loadReport: async (_now, options) => {
+      assert.strictEqual(options.signal, postGmailController.signal)
+      postGmailCalls.push('load')
+      return loaded
+    },
+    prepareEmail: async (_report, _internalOnly, options) => {
+      assert.strictEqual(options.signal, postGmailController.signal)
+      postGmailCalls.push('prepare')
+      return { raw: 'mime' }
+    },
+    accessToken: async options => {
+      assert.strictEqual(options.signal, postGmailController.signal)
+      postGmailCalls.push('token')
+      return 'token'
+    },
+    claimDelivery: async (_week, options) => {
+      assert.strictEqual(options.signal, postGmailController.signal)
+      postGmailCalls.push('claim')
+      return 'claimed'
+    },
+    sendEmail: async (_raw, _token, options) => {
+      assert.strictEqual(options.signal, postGmailController.signal)
+      postGmailCalls.push('send')
+      postGmailController.abort()
+      return 'gmail-message-id'
+    },
+    markSent: async (_week, _messageId, options) => {
+      assert.notStrictEqual(options.signal, postGmailController.signal)
+      assert.strictEqual(options.signal.aborted, false)
+      postGmailCalls.push('mark')
+    },
+  },
+)
+assert.deepStrictEqual(postGmailResult, {
+  ok: true,
+  mode: 'send',
+  weekEnding: '2026-08-16',
+  messageId: 'gmail-message-id',
+})
+assert.deepStrictEqual(postGmailCalls, ['load', 'prepare', 'token', 'claim', 'send', 'mark'])
+
 orchestrationCalls.length = 0
 const rejectedBeforeDelivery = await runAchieveWeeklyReport(
   { action: 'scheduled' },

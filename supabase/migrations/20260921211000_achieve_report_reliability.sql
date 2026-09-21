@@ -2,8 +2,10 @@
 -- Slack-monitoring state. Staging has no weekly cron, so this migration never
 -- creates an HTTP job or enables an external integration there.
 
-set lock_timeout = '5s';
-set statement_timeout = '30s';
+begin;
+
+set local lock_timeout = '5s';
+set local statement_timeout = '30s';
 
 create function public.get_achieve_termination_monitoring_report(
   p_end_at timestamptz default now()
@@ -178,9 +180,13 @@ begin
     -- Reuse the already-authorized production endpoint and Vault secret. The
     -- scheduled handler performs a cheap monitor pass every 15 minutes and
     -- only builds/sends the report during Monday's 9 AM ET hour.
-    update cron.job
-    set schedule = '*/15 * * * *', command = bounded_command
-    where jobid = weekly_job.jobid;
+    perform cron.alter_job(
+      weekly_job.jobid,
+      schedule := '*/15 * * * *',
+      command := bounded_command
+    );
   end if;
 end
 $$;
+
+commit;

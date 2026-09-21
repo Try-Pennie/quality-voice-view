@@ -95,7 +95,7 @@ export async function runAchieveWeeklyReport(
     const messageId = await operations.sendEmail(prepared.raw, accessToken, { signal })
     if (claimed) {
       stage = 'delivery_record'
-      await operations.markSent(weekEnding, messageId, { signal })
+      await operations.markSent(weekEnding, messageId, { signal: AbortSignal.timeout(5_000) })
     }
     return { ok: true, mode: command.action, weekEnding, messageId }
   } catch {
