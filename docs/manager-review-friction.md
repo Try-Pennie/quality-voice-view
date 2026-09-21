@@ -73,6 +73,27 @@ Branch: `nmogil/reduce-full-qa-review-friction`.
   typing; this intentionally exposes the save requirement without an alarming
   visual error state.
 
+## Integration into PR #128
+
+The user requested adding this patch to PR #128 and merging to main. The patch
+was cherry-picked onto `nmogil/audit-reliability-fixes` at `c7ee325`; both the
+existing normalized duplicate-finding guard and the new overview behavior are
+preserved, as are both SQL regression fixtures.
+
+Fresh combined checks: typecheck passed; lint passed with five existing Fast
+Refresh warnings; production build passed; 38 focused browser tests passed with
+one worker and no retries; Full QA PostgreSQL 17 integration passed. Independent
+cross-family integration review found no blocking conflict-resolution defects.
+The earlier base-branch lint/type failures above are historical, not failures of
+this combined branch.
+
+A read-only production check found `role_insert_protected=false`,
+`duplicate_finding_validation_present=false`, and
+`reviewable_metrics_available=true`. The streamlined review uses the existing
+RPC contract, but merging code does not apply the separate production security,
+duplicate-validation, or Achieve database/Edge rollout. No production database
+or Edge changes have been made under the user's merge request.
+
 ## Commit-pinned screenshots
 
 Captured from implementation commit `9401a7e`, with synthetic data only:
