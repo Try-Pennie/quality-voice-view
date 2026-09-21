@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import type { QAJson } from '../../types/database'
 import {
   AlertTriangle,
   CheckCircle2,
@@ -11,7 +12,7 @@ import {
 } from 'lucide-react'
 import { getScoreBadgeColor } from '../../lib/utils'
 
-export function CustomerExperienceScorecard({ data }: { data: any }) {
+export function CustomerExperienceScorecard({ data }: { data: NonNullable<QAJson['customer_experience_scorecard']> }) {
   const [isExpanded, setIsExpanded] = useState(false)
 
   const aspects = [

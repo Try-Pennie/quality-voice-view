@@ -1,6 +1,12 @@
 import jsPDF from 'jspdf'
 import { agentDisplayName } from './utils'
 import type { CallListRow } from './calls-queries'
+import type { Database, Json } from '../integrations/supabase/types'
+import type { QAJson } from '../types/database'
+
+type CallDetail = Database['public']['Tables']['eavesly_calls']['Row'] & {
+  qa: (Database['public']['Tables']['eavesly_transcription_qa']['Row'] & { qa_json: Json | null }) | null
+}
 
 /**
  * Export dashboard data to PDF
@@ -143,13 +149,14 @@ export async function exportDashboardToPDF(
 /**
  * Export call detail to PDF
  */
-export async function exportCallDetailToPDF(call: any) {
+export async function exportCallDetailToPDF(call: CallDetail) {
   const pdf = new jsPDF('p', 'mm', 'a4')
   const pageWidth = pdf.internal.pageSize.getWidth()
   const pageHeight = pdf.internal.pageSize.getHeight()
   let yPosition = 20
 
-  const qaData = call.qa?.qa_json
+  // SAFETY: the QA writer owns this JSON contract; absent sections are optional.
+  const qaData = call.qa?.qa_json as QAJson | null
 
   // Helper function for page breaks
   function checkPageBreak() {

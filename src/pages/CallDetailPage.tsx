@@ -1,4 +1,5 @@
 import { useCallback, useMemo } from 'react'
+import type { QAJson } from '../types/database'
 import { useParams, useNavigate, useLocation } from 'react-router-dom'
 import { useCallDetail, useAlertsForCall, useAgentFeedbackForCall, useUserScope } from '../hooks/use-queries'
 import { useAuth } from '../hooks/useAuth'
@@ -112,7 +113,8 @@ export default function CallDetailPage() {
     )
   }
 
-  const qaData = call.qa?.qa_json as any
+  // SAFETY: the QA writer owns this JSON contract; render sections remain optional.
+  const qaData = call.qa?.qa_json as QAJson | null
   const pitch = pitchCallRisk(call)
 
   const copyTranscript = () => {

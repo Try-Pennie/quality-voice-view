@@ -487,7 +487,7 @@ const REPRESENTATIVE_CSV_HEADERS = [
 function csvCell(value: string | number): string {
   const text = String(value)
   const safe = /^[\t\r ]*[=+\-@]/.test(text) ? `'${text}` : text
-  return `"${safe.replaceAll('"', '""')}"`
+  return `"${safe.replace(/"/g, '""')}"`
 }
 
 /** Serialize the displayed representative rollups without exposing call identifiers. */

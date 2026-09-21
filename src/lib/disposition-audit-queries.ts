@@ -8,9 +8,11 @@ import type {
   AlertInaccuracyReason,
 } from '@/types/database'
 
-// The generated Database<> type doesn't include this new view yet; cast at the
-// boundary, matching alert-queries.ts.
-const sb = supabase as any
+const record = (value: unknown): Record<string, unknown> | null =>
+  typeof value === 'object' && value !== null && !Array.isArray(value)
+    // SAFETY: the runtime checks establish a string-keyed record.
+    ? value as Record<string, unknown>
+    : null
 
 export type AuditCategory = 'ended_live_lead' | 'phantom_conversation'
 
@@ -68,8 +70,8 @@ export async function fetchDispositionAudit(
   if (!scope.isGodMode && scope.managedAgents.length === 0) return []
 
   return fetchAllPaginated<DispositionAuditRow>((from, to) => {
-    let q = sb
-      .from('eavesly_disposition_audit')
+    let q = supabase
+      .from('eavesly_disposition_audit' as never)
       .select(AUDIT_LIST_COLUMNS)
       .gte('alert_created_at', startOfBusinessDay(filters.startDate).toISOString())
       .lte('alert_created_at', endOfBusinessDay(filters.endDate).toISOString())
@@ -84,8 +86,8 @@ export async function fetchDispositionAudit(
 export async function fetchDispositionAuditOne(
   callId: string,
 ): Promise<DispositionAuditRow | null> {
-  const { data, error } = await sb
-    .from('eavesly_disposition_audit')
+  const { data, error } = await supabase
+    .from('eavesly_disposition_audit' as never)
     .select('*')
     .eq('call_id', callId)
     .eq('module_name', 'disposition_review')
@@ -124,7 +126,7 @@ export async function submitAuditFeedback(
     comment: input.comment?.trim() || null,
     reviewed_at: new Date().toISOString(),
   }
-  const { error } = await sb
+  const { error } = await supabase
     .from('eavesly_alert_feedback')
     .upsert(payload, { onConflict: 'call_id,module_name' })
   if (error) {
@@ -138,12 +140,21 @@ export async function submitAuditFeedback(
 // its own extractors (the alert-queries extractEvidence/extractReason switch has no
 // disposition case).
 export function auditEvidence(
-  result: any,
+  result: unknown,
 ): { speaker?: string; quote?: string; rationale?: string }[] {
-  const ev = result?.evidence
-  return Array.isArray(ev) ? ev : []
+  const evidence = record(result)?.evidence
+  if (!Array.isArray(evidence)) return []
+  return evidence.flatMap(value => {
+    const item = record(value)
+    if (!item) return []
+    const speaker = typeof item.speaker === 'string' ? item.speaker : undefined
+    const quote = typeof item.quote === 'string' ? item.quote : undefined
+    const rationale = typeof item.rationale === 'string' ? item.rationale : undefined
+    return [{ speaker, quote, rationale }]
+  })
 }
 
-export function auditReasoning(result: any): string {
-  return result?.reasoning_summary || ''
+export function auditReasoning(result: unknown): string {
+  const reasoning = record(result)?.reasoning_summary
+  return typeof reasoning === 'string' ? reasoning : ''
 }

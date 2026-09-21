@@ -1,7 +1,9 @@
 import { supabase } from '@/integrations/supabase/client'
 import type {
+  Call,
   CallWithQA,
   QAJson,
+  TranscriptionQA,
   AlertWithFeedback,
 } from '../types/database'
 import type { UserScope } from './alert-queries'
@@ -16,7 +18,26 @@ import { fetchAllPaginated } from './supabase-helpers'
 import { startOfBusinessDay, endOfBusinessDay } from './time-zone'
 import { isHumanReviewed, isSystemClosed } from './alert-review-queue'
 
-const sb = supabase as any
+const sb = {
+  from: (table: string) => supabase.from(table as never),
+  rpc: (fn: string, args: Record<string, unknown>) => supabase.rpc(fn as never, args as never),
+}
+
+type SampleCallRow = Pick<Call, 'call_id' | 'agent_email' | 'agent_full_name' | 'talk_time' | 'started_at'>
+type RecentCallRow = Pick<Call, 'id' | 'call_id' | 'agent_email' | 'agent_full_name' | 'started_at' | 'contact_phone' | 'talk_time' | 'handle_time'>
+type QaSummaryRow = Pick<TranscriptionQA, 'call_id' | 'agent_email' | 'overall_score' | 'compliance_rating' | 'customer_satisfaction_likely' | 'manager_escalation' | 'created_at'>
+type ManagerMappingRow = { manager_email: string; agent_email: string }
+type AgentNameRow = { agent_email: string; agent_full_name: string | null }
+type CallIdRow = { call_id: string | null }
+type AgentEmailRow = { agent_email: string | null }
+
+function record(value: unknown): Record<string, unknown> {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    throw new Error('Invalid reporting response. Check the reporting migration.')
+  }
+  // SAFETY: the runtime checks establish a string-keyed record.
+  return value as Record<string, unknown>
+}
 
 // ---------- Types ----------
 
@@ -197,7 +218,8 @@ export function filterDailyRowsToScope<T extends { agent_email: string }>(
   return rows.filter(r => allowed.has(r.agent_email))
 }
 
-function normalizeDailyRow(r: any): DailyMetricRow {
+function normalizeDailyRow(input: unknown): DailyMetricRow {
+  const r = record(input)
   // Fail visibly on an absent migration or invalid coverage, rather than inventing zero.
   const reviewable: unknown = typeof r.reviewable_call_count === 'string'
     ? Number(r.reviewable_call_count) : r.reviewable_call_count
@@ -205,10 +227,19 @@ function normalizeDailyRow(r: any): DailyMetricRow {
       reviewable < toNum(r.qa_count) || reviewable < 0 || reviewable > toNum(r.call_count)) {
     throw new Error('Invalid reviewable call metrics. Check the reporting migration.')
   }
+  const agentEmail = r.agent_email
+  const bucketDay = r.bucket_day
+  if (typeof agentEmail !== 'string' || typeof bucketDay !== 'string') {
+    throw new Error('Invalid reporting response. Check the reporting migration.')
+  }
+  let agentFullName: string | null
+  if (r.agent_full_name === null || r.agent_full_name === undefined) agentFullName = null
+  else if (typeof r.agent_full_name === 'string') agentFullName = r.agent_full_name
+  else throw new Error('Invalid reporting response. Check the reporting migration.')
   return {
-    agent_email: r.agent_email,
-    agent_full_name: r.agent_full_name ?? null,
-    bucket_day: r.bucket_day,
+    agent_email: agentEmail,
+    agent_full_name: agentFullName,
+    bucket_day: bucketDay,
     call_count: toNum(r.call_count),
     reviewable_call_count: reviewable,
     talk_time_sum: toNum(r.talk_time_sum),
@@ -348,7 +379,7 @@ export async function fetchTeamRollup(
   // setting (default 1000). The MV emits ~one row per (agent, bucket_day),
   // so even a 30-day team query exceeds the cap. Pull with explicit
   // pagination to be sure we get every row.
-  const rows: any[] = []
+  const rows: unknown[] = []
   const PAGE_SIZE = 1000
   let from = 0
   while (true) {
@@ -364,7 +395,7 @@ export async function fetchTeamRollup(
       console.error('Error calling team_daily_metrics:', error)
       throw error
     }
-    const chunk = (data || []) as any[]
+    const chunk = (data || []) as unknown[]
     rows.push(...chunk)
     if (chunk.length < PAGE_SIZE) break
     from += PAGE_SIZE
@@ -431,7 +462,8 @@ async function fetchAgentDisplayNames(
       console.error('Error fetching agent display names:', error)
       throw error
     }
-    for (const row of (data || []) as any[]) {
+    // SAFETY: this query selects only the two fields in AgentNameRow.
+    for (const row of (data || []) as unknown as AgentNameRow[]) {
       if (!result.has(row.agent_email) && row.agent_full_name) {
         result.set(row.agent_email, row.agent_full_name)
       }
@@ -501,8 +533,9 @@ export async function fetchAgentProfile(
     console.error('Error calling agent_daily_metrics:', metricsRes.error)
     throw metricsRes.error
   }
-  const dailyRows = ((metricsRes.data || []) as any[]).map(normalizeDailyRow)
-  const sampleCalls = ((sampleCallsRes.data || []) as any[])
+  const dailyRows = (metricsRes.data || []).map(normalizeDailyRow)
+  // SAFETY: the query selects exactly the SampleCallRow columns.
+  const sampleCalls = (sampleCallsRes.data || []) as unknown as SampleCallRow[]
   const visibleAlerts = alerts
   const visibleAlertTotal = visibleAlerts.length
   const visibleUnreviewedAlerts = visibleAlerts.filter(
@@ -543,26 +576,29 @@ export async function fetchAgentProfile(
               console.error('Error fetching agent qa_json batch:', error)
               throw error
             }
-            return (data || []) as any[]
+            // SAFETY: the query selects call_id and qa_json only.
+            return (data || []) as unknown as { call_id: string; qa_json: QAJson | null }[]
           },
         ),
     recentCallIds.length === 0
-      ? Promise.resolve<any[]>([])
+      ? Promise.resolve<QaSummaryRow[]>([])
       : (async () => {
           const { data } = await sb
             .from('eavesly_transcription_qa')
             .select(QA_SUMMARY_COLUMNS)
             .in('call_id', recentCallIds)
-          return (data || []) as any[]
+          // SAFETY: the query selects exactly the QaSummaryRow columns.
+          return (data || []) as unknown as QaSummaryRow[]
         })(),
     recentCallIds.length === 0
-      ? Promise.resolve<any[]>([])
+      ? Promise.resolve<RecentCallRow[]>([])
       : (async () => {
           const { data } = await sb
             .from('eavesly_calls')
             .select(RECENT_CALL_COLUMNS)
             .in('call_id', recentCallIds)
-          return (data || []) as any[]
+          // SAFETY: the query selects exactly the RecentCallRow columns.
+          return (data || []) as unknown as RecentCallRow[]
         })(),
   ])
 
@@ -572,11 +608,11 @@ export async function fetchAgentProfile(
 
   let recentCallsFull: CallWithQA[] = []
   if (recentCallIds.length) {
-    const fullCallById = new Map<string, any>(
+    const fullCallById = new Map<string, RecentCallRow>(
       fullCallRows.map(c => [c.call_id, c]),
     )
-    const qaByCallId = new Map<string, any>(
-      qaSummaryRows.map(q => [q.call_id, q]),
+    const qaByCallId = new Map<string, QaSummaryRow>(
+      qaSummaryRows.flatMap(q => q.call_id ? [[q.call_id, q]] : []),
     )
     recentCallsFull = recentCallRows.map(c => {
       const full = fullCallById.get(c.call_id) || c
@@ -667,7 +703,8 @@ export async function fetchAgentManagerMapping(): Promise<
     console.error('Error fetching agent_manager_mapping:', error)
     throw error
   }
-  return ((data || []) as any[]).map(r => ({
+  // SAFETY: the query selects exactly the manager/agent email pair.
+  return ((data || []) as unknown as ManagerMappingRow[]).map(r => ({
     manager_email: r.manager_email,
     agent_email: r.agent_email,
   }))
@@ -688,13 +725,14 @@ export async function fetchAgentManagerMappingAt(
   if (error) {
     // 42883 = "function does not exist" — migration not applied yet; degrade
     // gracefully to the live snapshot so the page keeps rendering.
-    if ((error as any).code === '42883') {
+    if (error.code === '42883') {
       return fetchAgentManagerMapping()
     }
     console.error('Error calling agent_manager_mapping_at:', error)
     throw error
   }
-  return ((data || []) as any[]).map(r => ({
+  // SAFETY: the RPC returns exactly the manager/agent email pair.
+  return ((data || []) as unknown as ManagerMappingRow[]).map(r => ({
     manager_email: r.manager_email,
     agent_email: r.agent_email,
   }))
@@ -849,7 +887,8 @@ async function fetchQaJsonByAgent(
         console.error(`Error fetching recent calls for ${email}:`, error)
         throw error
       }
-      const callIds = ((data || []) as any[])
+      // SAFETY: the query selects only call_id.
+      const callIds = ((data || []) as unknown as CallIdRow[])
         .map(c => c.call_id)
         .filter(Boolean) as string[]
       return { email, callIds }
@@ -880,7 +919,8 @@ async function fetchQaJsonByAgent(
         console.error('Error fetching team qa_json batch:', error)
         throw error
       }
-      return (data || []) as any[]
+      // SAFETY: the query selects call_id and qa_json only.
+      return (data || []) as unknown as { call_id: string; qa_json: QAJson | null }[]
     },
   )
 
@@ -915,7 +955,9 @@ async function resolveThemeAgents(
     console.error('Error fetching godmode agents for themes:', error)
     throw error
   }
-  return Array.from(new Set(((data || []) as any[]).map(r => r.agent_email)))
+  // SAFETY: the query selects only non-null agent_email rows.
+  return Array.from(new Set(((data || []) as unknown as AgentEmailRow[])
+    .flatMap(r => r.agent_email ? [r.agent_email] : [])))
 }
 
 // Fetch coaching themes aggregated across the manager's team.
