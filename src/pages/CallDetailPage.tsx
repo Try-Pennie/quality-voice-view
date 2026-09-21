@@ -167,9 +167,10 @@ export default function CallDetailPage() {
               href={call.qa.transcription_link}
               target="_blank"
               rel="noopener noreferrer"
-              className="pennie-focus-ring inline-flex items-center gap-2 min-h-[40px] px-4 py-2 rounded-full border border-border bg-pennie-white text-sm font-semibold text-pennie-graphite hover:bg-pennie-beige transition-colors"
+              className="pennie-focus-ring inline-flex items-center gap-2 min-h-[44px] px-4 py-2 rounded-full border border-border bg-pennie-white text-sm font-semibold text-pennie-blue-deeper hover:bg-pennie-beige transition-colors motion-safe:active:scale-[0.96]"
             >
-              Transcription
+              View Regal transcript
+              <span className="sr-only"> (opens in a new tab)</span>
               <ExternalLink className="w-3.5 h-3.5" aria-hidden="true" />
             </a>
           )}
