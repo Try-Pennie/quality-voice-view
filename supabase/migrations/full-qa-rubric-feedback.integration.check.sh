@@ -10,8 +10,9 @@ cleanup() { docker rm -f "$container" >/dev/null 2>&1 || true; rm -rf "$tmp"; }
 trap cleanup EXIT
 
 docker run --rm -d --name "$container" -e POSTGRES_PASSWORD=test postgres:17-alpine >/dev/null
-for _ in $(seq 1 30); do docker exec "$container" pg_isready -U postgres >/dev/null 2>&1 && break; sleep 1; done
-docker exec "$container" pg_isready -U postgres >/dev/null
+# TCP excludes the temporary Unix-socket-only server used during initdb.
+for _ in $(seq 1 30); do docker exec "$container" pg_isready -h 127.0.0.1 -U postgres >/dev/null 2>&1 && break; sleep 1; done
+docker exec "$container" pg_isready -h 127.0.0.1 -U postgres >/dev/null
 
 {
 cat <<'SQL'
