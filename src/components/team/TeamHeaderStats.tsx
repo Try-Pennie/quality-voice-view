@@ -5,6 +5,8 @@ import type { HelpId } from '../../lib/help-content'
 type TeamMetrics = {
   agentCount: number
   callCount: number
+  reviewableCallCount: number
+  qaCount: number
   avgCompliance: number
   avgEscalation: number
   openAlerts: number
@@ -38,9 +40,7 @@ export function TeamHeaderStats({
         <p className="mt-3 text-pennie-graphite/70">
           {loading
             ? 'Loading…'
-            : `${metrics.callCount.toLocaleString()} ${
-                metrics.callCount === 1 ? 'call' : 'calls'
-              } in this window${
+            : `${metrics.reviewableCallCount.toLocaleString()} reviewable calls · ${metrics.callCount.toLocaleString()} total calls in this window${
                 metrics.topAgent
                   ? `. Top performer: ${metrics.topAgent.agent_full_name || metrics.topAgent.agent_email}.`
                   : ''
@@ -50,14 +50,14 @@ export function TeamHeaderStats({
       <dl className="lg:col-span-5 grid grid-cols-2 sm:grid-cols-3 gap-3">
         <SupportingStat
           label="Compliance"
-          value={loading ? '—' : `${metrics.avgCompliance}%`}
+          value={loading || metrics.qaCount === 0 ? '—' : `${metrics.avgCompliance}%`}
           onClick={onComplianceClick}
           actionLabel="Show agents needing attention"
           helpId="metric.team_compliance"
         />
         <SupportingStat
           label="Escalation"
-          value={loading ? '—' : `${metrics.avgEscalation}%`}
+          value={loading || metrics.qaCount === 0 ? '—' : `${metrics.avgEscalation}%`}
           onClick={onEscalationClick}
           actionLabel="Show agents needing attention"
           helpId="metric.team_escalation"

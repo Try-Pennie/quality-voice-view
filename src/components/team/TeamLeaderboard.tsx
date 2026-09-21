@@ -41,7 +41,7 @@ export function TeamLeaderboard({
           // Needs attention first, then by call count desc, then name asc
           if (a.needs_attention !== b.needs_attention)
             return a.needs_attention ? -1 : 1
-          cmp = b.call_count - a.call_count
+          cmp = b.reviewable_call_count - a.reviewable_call_count
           if (cmp === 0) cmp = (a.agent_full_name || a.agent_email).localeCompare(
             b.agent_full_name || b.agent_email,
           )
@@ -52,7 +52,7 @@ export function TeamLeaderboard({
           )
           break
         case 'calls':
-          cmp = a.call_count - b.call_count
+          cmp = a.reviewable_call_count - b.reviewable_call_count
           break
         case 'reviewed':
           cmp = a.qa_count - b.qa_count
@@ -98,10 +98,11 @@ export function TeamLeaderboard({
     <section aria-label="Alerts by representative" className="bg-pennie-white rounded-3xl shadow-resting overflow-hidden">
       <header className="flex flex-wrap items-center justify-between gap-3 p-4 sm:p-6">
         <div><h2 className="text-base font-semibold text-pennie-navy">Alerts by representative</h2><p className="mt-1 text-xs text-pennie-graphite/70">Manager verdicts · not Kris approvals. One alert per call and alert type.</p></div>
-        <button type="button" aria-pressed={showMetrics} onClick={() => { setShowMetrics(value => !value); if (showMetrics) { setSortKey('confirmed_issues'); setSortDir('desc') } }} className="pennie-focus-ring min-h-[44px] rounded-full border border-border px-4 text-sm font-semibold text-pennie-blue-deeper">{showMetrics ? 'Alert outcomes' : 'More metrics'}</button>
+        <button type="button" aria-pressed={showMetrics} onClick={() => { setShowMetrics(value => !value); setSortKey(showMetrics ? 'confirmed_issues' : 'calls'); setSortDir('desc') }} className="pennie-focus-ring min-h-[44px] rounded-full border border-border px-4 text-sm font-semibold text-pennie-blue-deeper">{showMetrics ? 'Alert outcomes' : 'More metrics'}</button>
       </header>
       {!showMetrics && <div className="px-4 pb-3 sm:px-6"><label className="text-xs font-semibold text-pennie-graphite">Sort alerts <select value={sortKey === 'name' ? 'name' : sortKey === 'alerts' ? 'alerts' : sortKey === 'total_alerts' ? 'total_alerts' : 'confirmed_issues'} onChange={event => { const key = event.target.value; if (key === 'name' || key === 'alerts' || key === 'total_alerts' || key === 'confirmed_issues') { setSortKey(key); setSortDir(key === 'name' ? 'asc' : 'desc') } }} className="pennie-focus-ring ml-2 min-h-[44px] rounded-full border border-border bg-white px-3"><option value="confirmed_issues">Warranted alerts</option><option value="alerts">Awaiting manager</option><option value="total_alerts">Received alerts</option><option value="name">Representative name</option></select></label></div>}
       {!showMetrics ? <AlertOutcomes rows={sorted} loading={loading} onSelect={onSelect} onSelectAlerts={onSelectAlerts} /> : <>
+      <p className="px-4 pb-3 text-xs text-pennie-graphite/70 sm:px-6">Reviewable = Regal confirms a conversation and a nonblank transcript is available. AI metrics use only these calls. Not yet evaluated includes pending or failed QA; total calls includes excluded calls.</p>
       {/* Mobile sort control — the desktop table sorts via column headers,
           which collapse on phone, so expose a single dropdown instead. */}
       <div className="md:hidden border-b border-border bg-pennie-beige/40 px-4 py-3 flex items-center justify-between gap-2">
@@ -119,11 +120,11 @@ export function TeamLeaderboard({
             setSortKey(k)
             setSortDir(d)
           }}
-          className="pennie-focus-ring flex-1 min-h-[40px] rounded-full border border-border bg-pennie-white px-3 text-sm font-semibold text-pennie-navy"
+          className="pennie-focus-ring flex-1 min-w-0 min-h-[40px] rounded-full border border-border bg-pennie-white px-3 text-sm font-semibold text-pennie-navy"
         >
           <option value="attention:desc">Needs attention first</option>
           <option value="name:asc">Agent name (A → Z)</option>
-          <option value="calls:desc">Calls (high → low)</option>
+          <option value="calls:desc">Reviewable calls (high → low)</option>
           <option value="compliance:asc">Compliance (low → high)</option>
           <option value="csat:asc">CSAT high (low → high)</option>
           <option value="escalation:desc">Escalation (high → low)</option>
@@ -194,10 +195,18 @@ export function TeamLeaderboard({
                       </div>
                       <div>
                         <dt className="text-[10px] uppercase tracking-wider text-pennie-graphite/50 font-bold">
-                          Calls
+                          Reviewable calls
                         </dt>
                         <dd className="mt-0.5 text-sm font-semibold text-pennie-navy tabular-nums">
-                          {agent.call_count}
+                          {agent.reviewable_call_count.toLocaleString()}
+                          <span className="block text-xs font-normal text-pennie-graphite/70">{agent.call_count.toLocaleString()} total calls</span>
+                        </dd>
+                      </div>
+                      <div>
+                        <dt className="text-[10px] uppercase tracking-wider text-pennie-graphite/70 font-bold">AI-evaluated calls</dt>
+                        <dd className="mt-0.5 text-sm font-semibold text-pennie-navy tabular-nums">
+                          {agent.qa_count.toLocaleString()}
+                          <span className="block text-xs font-normal text-pennie-graphite/70">{(agent.reviewable_call_count - agent.qa_count).toLocaleString()} not yet evaluated</span>
                         </dd>
                       </div>
                       <div>
@@ -256,7 +265,7 @@ export function TeamLeaderboard({
                 onClick={() => handleSort('name')}
               />
               <SortableTh
-                label="Calls"
+                label="Reviewable calls"
                 active={sortKey === 'calls'}
                 dir={sortDir}
                 onClick={() => handleSort('calls')}
@@ -389,14 +398,12 @@ export function TeamLeaderboard({
                       </div>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-pennie-graphite tabular-nums text-right">
-                      {agent.call_count}
+                      {agent.reviewable_call_count.toLocaleString()}
+                      <p className="mt-1 text-xs text-pennie-graphite/70">{agent.call_count.toLocaleString()} total calls</p>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-pennie-graphite tabular-nums text-right">
-                      {agent.qa_count > 0 ? (
-                        agent.qa_count
-                      ) : (
-                        <span className="text-pennie-graphite/40">—</span>
-                      )}
+                      {agent.qa_count.toLocaleString()}
+                      <p className="mt-1 text-xs text-pennie-graphite/70">{(agent.reviewable_call_count - agent.qa_count).toLocaleString()} not yet evaluated</p>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-right">
                       <PercentCell

@@ -155,7 +155,7 @@ test('a blank coaching issue exposes its required criterion picker', async ({ pa
 })
 
 test('Team prioritizes representative outcomes, keeps mobile filters reachable, and makes zero counts static', async ({ page }, testInfo) => {
-  const state = await reviewFixture(page, [alertRow('team-pending')], { dailyMetrics: [{ agent_email: 'agent@example.test', agent_full_name: 'Agent Alpha', bucket_day: '2026-09-04', call_count: 10, qa_count: 8 }] })
+  const state = await reviewFixture(page, [alertRow('team-pending')], { dailyMetrics: [{ agent_email: 'agent@example.test', agent_full_name: 'Agent Alpha', bucket_day: '2026-09-04', call_count: 10, reviewable_call_count: 9, qa_count: 8 }] })
   await page.goto('/dashboard/team?start=2026-08-09&end=2026-09-07')
   const outcomes = page.getByRole('region', { name: 'Alerts by representative', exact: true })
   await expect(outcomes.getByRole('button', { name: 'Filter Agent Alpha Awaiting manager 1', exact: true })).toBeVisible()

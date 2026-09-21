@@ -9,6 +9,7 @@ const terminalWeekMetric = {
   agent_full_name: 'Player Coach',
   bucket_day: '2026-09-21',
   call_count: 10,
+  reviewable_call_count: 7,
   talk_time_sum: 2_000,
   talk_time_n: 10,
   qa_count: 5,

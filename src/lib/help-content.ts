@@ -75,13 +75,13 @@ const ENTRIES = {
     category: 'Metrics',
     title: 'Average compliance',
     body:
-      'Average pass rate across all agents on the selected team in the date window. Click to jump to agents needing attention.',
+      'Average pass rate across agents with AI-evaluated reviewable calls on the selected team in the date window. Click to jump to agents needing attention.',
   },
   'metric.team_escalation': {
     category: 'Metrics',
     title: 'Average escalation rate',
     body:
-      'Share of an agent\'s calls where Eavesly recommended a manager review, averaged across the team. A persistently high rate is a coaching signal.',
+      'Share of an agent\'s AI-evaluated reviewable calls where Eavesly recommended a manager review, averaged across agents with evaluations. A persistently high rate is a coaching signal.',
   },
   'metric.team_open_alerts': {
     category: 'Metrics',
@@ -95,20 +95,20 @@ const ENTRIES = {
     category: 'Metrics',
     title: 'Agent compliance',
     body:
-      'Share of this agent\'s scored calls in the window that passed every required compliance check. Highlighted when below 80%.',
+      'Share of this agent\'s reviewable calls graded pass or fail in the window that passed every required compliance check. Highlighted when below 80%.',
     formula: 'agent passing calls ÷ agent scored calls × 100',
   },
   'metric.agent_csat_high': {
     category: 'Metrics',
     title: 'Agent CSAT high',
     body:
-      'Share of this agent\'s scored calls where inferred customer satisfaction is "High". Highlighted when below 50%.',
+      'Share of this agent\'s reviewable calls with a CSAT rating where inferred customer satisfaction is "High". Highlighted when below 50%.',
   },
   'metric.agent_escalation': {
     category: 'Metrics',
     title: 'Agent escalation rate',
     body:
-      'Share of this agent\'s scored calls where Eavesly recommended a manager review. Highlighted when at 10% or higher — a coaching signal.',
+      'Share of this agent\'s AI-evaluated reviewable calls where Eavesly recommended a manager review. Highlighted when at 10% or higher — a coaching signal.',
   },
   'metric.agent_open_alerts': {
     category: 'Metrics',
@@ -126,15 +126,15 @@ const ENTRIES = {
   },
   'metric.manager_call_count': {
     category: 'Metrics',
-    title: 'Calls placed',
+    title: 'Reviewable calls',
     body:
-      'Total calls placed by this manager\'s agents in the date window, before any quick-filter narrowing.',
+      'Calls where Regal confirms a conversation and Eavesly has a nonblank transcript. Total calls is shown separately and includes no-conversation, unknown-conversation, and missing-transcript calls. QA success is not required.',
   },
   'metric.manager_qa_count': {
     category: 'Metrics',
     title: 'AI-evaluated calls',
     body:
-      'How many of this team\'s calls received a QA scorecard. Calls without a scorecard (e.g. very short, no conversation) are excluded from compliance and CSAT averages.',
+      'How many of this team\'s reviewable calls received a QA scorecard. Not yet evaluated is reviewable minus AI-evaluated, including pending or failed QA. Unscored calls are not treated as passes, failures, or non-escalations.',
   },
   'metric.manager_total_alerts': {
     category: 'Metrics',

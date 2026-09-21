@@ -24,6 +24,7 @@ export type TrendPoint = {
   bucket: string // ISO date string for the bucket start
   label: string // human-readable label e.g. "Apr 21"
   call_count: number
+  reviewable_call_count: number
   // null when no compliance-graded calls landed in this bucket — lets the
   // line chart render a gap instead of a misleading 0%.
   compliance_pass_rate: number | null
@@ -39,6 +40,7 @@ export type AgentRollup = {
   agent_email: string
   agent_full_name: string | null
   call_count: number
+  reviewable_call_count: number
   qa_count: number
   avg_talk_time: number
   compliance_pass_rate: number // 0-100
@@ -78,6 +80,7 @@ type DailyMetricRow = {
   agent_full_name: string | null
   bucket_day: string // YYYY-MM-DD
   call_count: number
+  reviewable_call_count: number
   talk_time_sum: number
   talk_time_n: number
   qa_count: number
@@ -157,6 +160,7 @@ function buildEmptyBuckets(
         bucket: key,
         label: bucketLabel(key, size),
         call_count: 0,
+        reviewable_call_count: 0,
         compliance_pass_rate: null,
         compliance_pass: 0,
         compliance_total: 0,
@@ -194,11 +198,19 @@ export function filterDailyRowsToScope<T extends { agent_email: string }>(
 }
 
 function normalizeDailyRow(r: any): DailyMetricRow {
+  // Fail visibly on an absent migration or invalid coverage, rather than inventing zero.
+  const reviewable: unknown = typeof r.reviewable_call_count === 'string'
+    ? Number(r.reviewable_call_count) : r.reviewable_call_count
+  if (typeof reviewable !== 'number' || !Number.isSafeInteger(reviewable) ||
+      reviewable < toNum(r.qa_count) || reviewable < 0 || reviewable > toNum(r.call_count)) {
+    throw new Error('Invalid reviewable call metrics. Check the reporting migration.')
+  }
   return {
     agent_email: r.agent_email,
     agent_full_name: r.agent_full_name ?? null,
     bucket_day: r.bucket_day,
     call_count: toNum(r.call_count),
+    reviewable_call_count: reviewable,
     talk_time_sum: toNum(r.talk_time_sum),
     talk_time_n: toNum(r.talk_time_n),
     qa_count: toNum(r.qa_count),
@@ -238,6 +250,7 @@ function trendPointsFromDailyRows(
     const point = buckets.get(key)
     if (!point) continue
     point.call_count += r.call_count
+    point.reviewable_call_count += r.reviewable_call_count
     point.compliance_pass += r.compliance_pass_count
     point.compliance_total += r.compliance_total_count
     point.csat_high += r.csat_high_count
@@ -265,6 +278,7 @@ function rollupFromDailyRows(
   trend: TrendPoint[],
 ): AgentRollup {
   const callCount = rows.reduce((s, r) => s + r.call_count, 0)
+  const reviewableCallCount = rows.reduce((s, r) => s + r.reviewable_call_count, 0)
   const qaCount = rows.reduce((s, r) => s + r.qa_count, 0)
   const talkTimeSum = rows.reduce((s, r) => s + r.talk_time_sum, 0)
   const talkTimeN = rows.reduce((s, r) => s + r.talk_time_n, 0)
@@ -294,17 +308,14 @@ function rollupFromDailyRows(
     0,
   )
 
-  const needsAttention =
-    callCount > 0 &&
-    (compliancePassRate < 80 ||
-      escalationRate >= 10 ||
-      csatHighRate < 50 ||
-      unreviewedAlerts > 0)
+  const needsAttention = unreviewedAlerts > 0 ||
+    (qaCount > 0 && (compliancePassRate < 80 || escalationRate >= 10 || csatHighRate < 50))
 
   return {
     agent_email: agentEmail,
     agent_full_name: agentFullName,
     call_count: callCount,
+    reviewable_call_count: reviewableCallCount,
     qa_count: qaCount,
     avg_talk_time: avgTalkTime,
     compliance_pass_rate: compliancePassRate,
@@ -585,12 +596,9 @@ export async function fetchAgentProfile(
   rollup.confirmed_issue_count = visibleConfirmedIssues
   rollup.false_positive_count = visibleFalsePositiveAlerts
   rollup.system_closed_count = visibleSystemClosed
-  rollup.needs_attention =
-    rollup.call_count > 0 &&
-    (rollup.compliance_pass_rate < 80 ||
-      rollup.escalation_rate >= 10 ||
-      rollup.csat_high_rate < 50 ||
-      visibleUnreviewedAlerts > 0)
+  rollup.needs_attention = visibleUnreviewedAlerts > 0 ||
+    (rollup.qa_count > 0 && (rollup.compliance_pass_rate < 80 ||
+      rollup.escalation_rate >= 10 || rollup.csat_high_rate < 50))
   return {
     agent_email: agentEmail,
     agent_full_name: agentFullName,
@@ -610,6 +618,7 @@ export type ManagerRollup = {
   agent_count: number
   agent_emails: string[]
   call_count: number
+  reviewable_call_count: number
   qa_count: number
   compliance_pass_rate: number // 0-100
   csat_high_rate: number // 0-100
@@ -729,6 +738,7 @@ export function aggregateManagerRollups(
   const results: ManagerRollup[] = []
   for (const [manager_email, agents] of buckets) {
     const callCount = agents.reduce((s, a) => s + a.call_count, 0)
+    const reviewableCallCount = agents.reduce((s, a) => s + a.reviewable_call_count, 0)
     if (
       callCount === 0 &&
       manager_email === '__unassigned__' &&
@@ -782,20 +792,17 @@ export function aggregateManagerRollups(
       0,
     )
     const topAgent = agents
-      .filter(a => a.call_count > 0)
+      .filter(a => a.qa_count > 0)
       .sort((x, y) => y.compliance_pass_rate - x.compliance_pass_rate)[0]
-    const needs_attention =
-      callCount > 0 &&
-      (compliance_pass_rate < 80 ||
-        escalation_rate >= 10 ||
-        csat_high_rate < 50 ||
-        unreviewed_alerts_count > 0)
+    const needs_attention = unreviewed_alerts_count > 0 ||
+      (qa_count > 0 && (compliance_pass_rate < 80 || escalation_rate >= 10 || csat_high_rate < 50))
     results.push({
       manager_email,
       manager_full_name: managerNames.get(manager_email) ?? null,
       agent_count: agents.length,
       agent_emails: agents.map(a => a.agent_email),
       call_count: callCount,
+      reviewable_call_count: reviewableCallCount,
       qa_count,
       compliance_pass_rate,
       csat_high_rate,
@@ -811,7 +818,7 @@ export function aggregateManagerRollups(
       needs_attention,
     })
   }
-  return results.sort((a, b) => b.call_count - a.call_count)
+  return results.sort((a, b) => b.reviewable_call_count - a.reviewable_call_count)
 }
 
 // Sample the most recent N calls per agent and return their qa_json grouped by
@@ -1062,6 +1069,7 @@ export function aggregateTeamTrend(rollups: AgentRollup[]): TrendPoint[] {
         byBucket.set(p.bucket, { ...p })
       } else {
         existing.call_count += p.call_count
+        existing.reviewable_call_count += p.reviewable_call_count
         existing.compliance_pass += p.compliance_pass
         existing.compliance_total += p.compliance_total
         existing.csat_high += p.csat_high
