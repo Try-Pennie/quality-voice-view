@@ -1,5 +1,7 @@
 # Achieve weekly email setup (Google Workspace)
 
+> Production recovery note (September 21, 2026): the current-main termination-enrollment feature is not yet activated in production. Read [the recovery deployment boundary](./achieve-report-recovery-2026-09-21.md#important-deployment-boundary) before using the deployment commands below; the incident fix intentionally preserves the existing production report dependencies.
+
 The report sends every Monday at 9:00 AM Eastern from a real Google Workspace mailbox through the Gmail API. The existing Google service account used by `achieve-feedback-sync` is reused with domain-wide delegation and the narrow `gmail.send` scope. The weekly function also uses the shared Snowflake key-pair identity to build Geoff's enrollment-level follow-through attachment in memory; it never stores that export in Supabase.
 
 ## 1. Choose the sender mailbox
@@ -125,7 +127,7 @@ The direct Snowflake sync runs daily at 12:00 UTC, before the Monday report wind
 
 ## 7. Send a real test
 
-A test action sends the current completed-week report to the configured recipients without consuming the Monday delivery record:
+A test action sends the current completed-week report only to `ACHIEVE_REPORT_TEST_RECIPIENT`, without consuming the Monday delivery record:
 
 ```sh
 read -rsp 'Weekly report secret: ' REPORT_SECRET && echo
@@ -185,6 +187,17 @@ limit 10;
 ```
 
 A successful run has `status = 'sent'`. Gmail message IDs are retained for delivery troubleshooting but should not be copied into public logs.
+
+## Recover a missed delivery safely
+
+The same `x-report-secret` authentication protects all actions. Recipients cannot be overridden in a request.
+
+1. POST `{"action":"preview"}` to build the current completed-week report and all three attachments **without calling Gmail or claiming the week**. The response contains `week_ending` and base64url `raw` MIME with `Cache-Control: no-store`. This contains sensitive enrollment data: inspect only in a restricted local directory; never paste the payload in logs, tickets, or source control.
+2. Check source freshness, completed-week boundaries, recipient headers, rendered HTML/plain text, and all three parsed CSVs. Run the non-delivering HTTP check with `REPORT_URL` and `REPORT_SECRET` in the process environment: `npx tsx supabase/functions/achieve-weekly-report/live.check.ts`.
+3. After approval and validation, POST `{"action":"send","week_ending":"YYYY-MM-DD"}` using the preview's week. This bypasses only the delivery-hour gate, not validation, recipients, or the send ledger. A different week returns `409 week_ending_mismatch`; an existing claim returns `already_sent_or_sending`. It cannot backdate a report.
+4. Verify `status = 'sent'` in the ledger. Do not blindly retry an ambiguous Gmail/network failure; confirm the ledger and sender's mailbox first. A prior week's missed report is not automatically resent.
+
+The ordinary-QA covering index embeds `private.achieve_is_ordinary_graded_qa`. Any migration changing that immutable function must rebuild `eavesly_module_results_achieve_ordinary_created_idx` so index membership remains correct.
 
 ## Troubleshooting
 

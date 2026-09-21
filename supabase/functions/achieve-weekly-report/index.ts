@@ -36,7 +36,9 @@ import { achieveWeeklyEmailEnvelope, buildAchieveWeeklyEmail } from './email.ts'
 
 const GMAIL_SEND_SCOPE = 'https://www.googleapis.com/auth/gmail.send'
 
-type RequestAction = 'scheduled' | 'test'
+type ReportRequest =
+  | { readonly action: 'scheduled' | 'test' | 'preview' }
+  | { readonly action: 'send'; readonly week_ending: string }
 type Config = {
   readonly reportSecret: string
   readonly snowflake: SnowflakeOutcomeConfig
@@ -125,10 +127,17 @@ async function secretsMatch(supplied: string, expected: string): Promise<boolean
   return difference === 0
 }
 
-function parseAction(value: unknown): RequestAction | null {
+function parseReportRequest(value: unknown): ReportRequest | null {
   const body = record(value)
-  if (!body || Object.keys(body).length !== 1) return null
-  return body.action === 'scheduled' || body.action === 'test' ? body.action : null
+  if (!body) return null
+  if (body.action === 'send' && Object.keys(body).length === 2
+    && typeof body.week_ending === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(body.week_ending)) {
+    return { action: 'send', week_ending: body.week_ending }
+  }
+  if (Object.keys(body).length !== 1) return null
+  return body.action === 'scheduled' || body.action === 'test' || body.action === 'preview'
+    ? { action: body.action }
+    : null
 }
 
 function parseGmailMessageId(value: unknown): string | null {
@@ -152,8 +161,9 @@ Deno.serve(async (request: Request) => {
   } catch {
     return json({ error: 'bad_json' }, 400)
   }
-  const action = parseAction(rawBody)
-  if (!action) return json({ error: 'bad_request' }, 400)
+  const command = parseReportRequest(rawBody)
+  if (!command) return json({ error: 'bad_request' }, 400)
+  const { action } = command
 
   const now = new Date()
   if (action === 'scheduled' && !isAchieveReportDeliveryHour(now)) {
@@ -185,7 +195,10 @@ Deno.serve(async (request: Request) => {
       return json({ error: reportResult.reason }, 500)
     }
     const weekEnding = achieveReportWeekEnding(reportResult.report)
-    if (action === 'scheduled') {
+    if (command.action === 'send' && command.week_ending !== weekEnding) {
+      return json({ error: 'week_ending_mismatch' }, 409)
+    }
+    if (action === 'scheduled' || action === 'send') {
       const claim = await admin
         .from('achieve_weekly_report_sends')
         .insert({ week_ending: weekEnding, status: 'sending' })
@@ -220,6 +233,13 @@ Deno.serve(async (request: Request) => {
       config.portalUrl,
       { sourceAsOf: enrollmentPlan.sourceAsOf, csv: enrollmentCsv },
     )
+    // Authenticated, non-sending preview: the exact MIME includes sensitive
+    // enrollment data. Never log it, persist it in Eavesly, or cache the response.
+    if (action === 'preview') {
+      return new Response(JSON.stringify({ ok: true, mode: action, week_ending: weekEnding, raw: email.raw }), {
+        headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' },
+      })
+    }
     const accessToken = await googleServiceAccountAccessToken({
       serviceAccountEmail: config.serviceAccountEmail,
       privateKeyPem: config.serviceAccountPrivateKey,
