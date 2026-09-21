@@ -1,7 +1,7 @@
 // Behavior check for canonical Achieve report selection, comparisons, and CSV.
 // Run: npx tsx supabase/functions/_shared/achieve-management-report.check.ts
 import assert from 'node:assert/strict'
-import { runAchieveWeeklyReport, type AchieveWeeklyReportOperations } from '../achieve-weekly-report/orchestration'
+import { runAchieveWeeklyReport, type AchieveWeeklyReportOperations } from '../achieve-weekly-report/orchestration.ts'
 import {
   achieveFirstPayOutcomesCsv,
   achieveManagementReportCsv,
@@ -12,7 +12,7 @@ import {
   isAchieveReportDeliveryHour,
   loadAchieveManagementReport,
   type AchieveDashboardRange,
-} from './achieve-management-report'
+} from './achieve-management-report.ts'
 
 assert.deepStrictEqual(completedAchieveReportRanges(new Date('2026-08-19T12:00:00Z')), [
   { weeks: 2, startAt: '2026-08-03T04:00:00.000Z', endAt: '2026-08-17T04:00:00.000Z' },

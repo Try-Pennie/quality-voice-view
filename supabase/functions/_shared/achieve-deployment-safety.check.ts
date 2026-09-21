@@ -1,6 +1,6 @@
 // Run: npx tsx supabase/functions/_shared/achieve-deployment-safety.check.ts
 import assert from 'node:assert/strict'
-import { isAchieveExternalIoAllowed } from './achieve-deployment-safety'
+import { isAchieveExternalIoAllowed } from './achieve-deployment-safety.ts'
 
 const productionUrl = 'https://miikotqnovnixpeqtqnd.supabase.co'
 assert.strictEqual(isAchieveExternalIoAllowed({

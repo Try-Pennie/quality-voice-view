@@ -18,7 +18,7 @@ import {
   sanitizeResultJson,
   trimTranscript,
   validateFeedback,
-} from './portal-logic'
+} from './portal-logic.ts'
 
 // --- trimTranscript ----------------------------------------------------------
 

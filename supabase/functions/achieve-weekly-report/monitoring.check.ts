@@ -5,7 +5,7 @@ import {
   parseAchieveReliabilitySnapshot,
   runAchieveReliabilityAlert,
   type AchieveReliabilityAlertOperations,
-} from './monitoring'
+} from './monitoring.ts'
 
 const raw = {
   ok: false,

@@ -50,6 +50,9 @@ jobs:
       - name: Check isolated staging build
         run: npm run check:staging-build
 
+      - name: Check Achieve report contracts
+        run: npm run test:achieve:ci
+
       - name: Install Chromium
         run: npx playwright install --with-deps chromium
 
