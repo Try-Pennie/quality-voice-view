@@ -34,4 +34,25 @@ Captured with synthetic data by the three passing regression tests at code commi
 - [Manager table](screenshots/reviewable-calls/90d34aa/managers.png)
 - [Mobile representative metrics](screenshots/reviewable-calls/90d34aa/mobile.png)
 
-The PR includes the database migration for review. It has not been applied to production. Frontend reporting requires that migration; absent/invalid coverage is surfaced as an error rather than fabricated zeros. The existing private materialized-view refresh schedule remains in place, and raw transcripts are not exposed to the browser.
+## Production follow-up (2026-09-21)
+
+The frontend deployed after PR #123 merged, before the database migration was applied. That made Team fail visibly on the missing `reviewable_call_count` field. With explicit approval, the corrected migration was applied to production as `20260921022034_reviewable_call_metrics`, and the PostgREST schema cache was reloaded.
+
+The initial full-history attempts could not finish within the migration budget. Two plan changes preserve the results while avoiding unnecessary work:
+
+- Materialize the narrow `call_population` once, so ten aggregate filters do not each re-read/decompress transcripts.
+- Select latest QA **IDs only** in one indexed pass, then bulk-join scores. Production read-only `EXPLAIN` confirms index-only latest-ID selection and sequential/hash joins, replacing per-call probes and UUID-ordered heap scans.
+
+The migration's ten-minute timeout and 32 MB work memory are transaction-local, not permanent database settings. This corrects the migration before its first successful production application. An environment that previously applied an older body must explicitly reconcile/reapply it; migration trackers do not rerun changed files automatically.
+
+Fresh checks:
+
+- `bash supabase/migrations/reviewable-call-metrics.integration.check.sh`: passed, including equal-time QA retries and NULL timestamps.
+- `REVIEWABLE_BENCHMARK=1 bash supabase/migrations/reviewable-call-metrics.integration.check.sh`: 20,000 TOAST-heavy synthetic calls; exact bidirectional `EXCEPT` equivalence. The bulk query without the population barrier took 11.70s; with it, 1.12s. This measures the SELECT, not production refresh wall time.
+- Separate local comparison against PR #123's original full view: identical fixture output, checked with `EXCEPT` in both directions.
+- Production date window Aug 22–Sep 20: 1,949 daily rows; 69,520 total calls; 29,782 reviewable; 29,724 evaluated; 58 not yet evaluated; zero invalid coverage rows. The one-call reduction from the old total is exactly one duplicate QA join row; raw call volume matches.
+- Production team RPC returned those same totals with the user's claims. A regular manager returned 311 daily rows, zero outside-scope rows, and zero rows from an unauthorized agent RPC. Anonymous execution and direct access to raw events/private reporting remain denied.
+
+The first scheduled refresh after deployment hit the same two-minute default. Migration `20260921023309_reviewable_metrics_refresh_budget` gives only this cron session a ten-minute timeout and 32 MB work memory. The job remains enabled with its existing `*/5 * * * *` schedule; no global database setting or access grant changes. Configuration read-back passed; completion of the next scheduled refresh must be verified separately from initial population.
+
+The advisor's [signed-in SECURITY DEFINER warning](https://supabase.com/docs/guides/database/database-linter?lint=0029_authenticated_security_definer_function_executable) is expected for these scoped RPCs; the access checks above verify the intended boundary. Unrelated advisory findings were not changed.

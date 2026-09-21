@@ -3,6 +3,10 @@
 -- No guessed duration threshold: Full QA runs when a transcript is available.
 -- Keep total call volume; restrict AI metrics to the reviewable population.
 BEGIN;
+-- Full-history population needs more than the management API's two-minute default.
+-- These budgets end with this transaction; no permanent settings are changed.
+SET LOCAL statement_timeout = '10min';
+SET LOCAL work_mem = '32MB';
 
 DROP FUNCTION IF EXISTS public.team_daily_metrics(date, date);
 DROP FUNCTION IF EXISTS public.agent_daily_metrics(text, date, date);
@@ -14,7 +18,17 @@ WITH managers AS (
   UNION
   SELECT DISTINCT lower(manager_email) FROM public.manager_coaching_prompts
 ),
-call_population AS (
+-- Pick retry winners in one index-only pass. Carry only IDs here so the full
+-- rollup can use sequential/hash joins instead of per-call random heap reads.
+latest_qa AS MATERIALIZED (
+  SELECT DISTINCT ON (call_id) call_id, id
+  FROM public.eavesly_transcription_qa
+  WHERE call_id IS NOT NULL
+  ORDER BY call_id, created_at DESC NULLS LAST, id DESC
+),
+-- Evaluate transcript availability once per call, not once per aggregate FILTER.
+-- Keep large transcript/JSON values out of the materialized rows.
+call_population AS MATERIALIZED (
   SELECT
     c.agent_email, c.started_at, c.talk_time,
     qa.call_id AS qa_call_id, qa.compliance_rating,
@@ -26,14 +40,8 @@ call_population AS (
     ) IS TRUE AS reviewable
   FROM public.eavesly_calls c
   -- QA has no unique call_id constraint. A retry must not multiply call counts.
-  LEFT JOIN LATERAL (
-    SELECT q.call_id, q.compliance_rating, q.manager_escalation,
-      q.customer_satisfaction_likely, q.original_transcript
-    FROM public.eavesly_transcription_qa q
-    WHERE q.call_id = c.call_id
-    ORDER BY q.created_at DESC NULLS LAST, q.id DESC
-    LIMIT 1
-  ) qa ON true
+  LEFT JOIN latest_qa latest ON latest.call_id = c.call_id
+  LEFT JOIN public.eavesly_transcription_qa qa ON qa.id = latest.id
   LEFT JOIN public.eavesly_regal_call_events e
     ON e.regal_task_id = c.call_id AND e.event_type = 'transcript_available'
   WHERE c.agent_email IS NOT NULL
