@@ -64,3 +64,12 @@ jobs:
 
       - name: Run representative PostgreSQL checks
         run: npm run test:postgres:ci
+
+      - name: Preserve synthetic browser screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: synthetic-browser-screenshots
+          path: test-results/**/*.png
+          if-no-files-found: ignore
+          retention-days: 14
