@@ -529,6 +529,12 @@ export function FullQaRubricReview({ alert, scope, editable, canReloadReview, re
     {context.sourceReferenceKind !== 'known' && <p className={context.sourceReferenceKind === 'legacy_current_reference' ? 'text-xs text-pennie-graphite/70' : 'rounded-xl border border-pennie-peach-dark bg-pennie-peach-light/30 p-3 text-xs text-pennie-graphite'}>{context.sourceReferenceKind === 'legacy_current_reference' ? 'Original rubric unknown; current reference only.' : 'Original rubric unavailable for this stamped hash; current field map only.'}</p>}
     {editable && context.review && <p className="text-xs text-pennie-graphite/70">Saved revision {context.review.feedbackRevision} · {formatDateTime(context.review.savedAt)} by {context.review.savedBy}</p>}
 
+    {editable && <p className="text-sm text-pennie-graphite/70">Optional score feedback below helps improve Eavesly. Only answers you select are recorded; you do not need to review every score.</p>}
+    {editable ? scorecard : <details className="border-y border-border py-3">
+      <summary className="pennie-focus-ring min-h-[36px] cursor-pointer text-sm font-semibold text-pennie-blue-deeper">Eavesly’s evidence and scores · {attentionKeys.size} {attentionKeys.size === 1 ? 'item' : 'items'}</summary>
+      <div className="mt-3 space-y-5">{scorecard}</div>
+    </details>}
+
     {editable && <fieldset disabled={locked} className="space-y-3 border-t border-border pt-5"><legend id={`${scorecardId}-decision`} tabIndex={-1} className="pennie-focus-ring pr-2 text-base font-semibold text-pennie-navy">Was this alert warranted?</legend>
       <p className="text-sm text-pennie-graphite">Choose your decision and save. Score feedback and coaching are optional.</p>
       <div role="radiogroup" aria-label="Alert verdict" className="flex flex-wrap gap-2">{([true, false] as const).map(value => <ReviewChoice key={String(value)} name={`${scorecardId}-escalation`} checked={escalationJustified === value} onChange={() => setEscalationJustified(value)} pill={false} label={value ? 'Yes, the alert was warranted' : 'No, the alert was unnecessary'} />)}</div>
@@ -538,13 +544,6 @@ export function FullQaRubricReview({ alert, scope, editable, canReloadReview, re
         <fieldset><legend className="mb-2 text-xs font-semibold">Reason category (optional)</legend><div className="flex flex-wrap gap-2" role="radiogroup" aria-label="Why was the alert unnecessary?">{REASONS.map(value => <ReviewChoice key={value} name={`${scorecardId}-reason`} checked={inaccuracyReason === value} onChange={() => setInaccuracyReason(value)} label={INACCURACY_REASON_LABELS[value]} />)}</div>{inaccuracyReason !== null && <button type="button" onClick={() => setInaccuracyReason(null)} className="pennie-focus-ring min-h-[44px] text-xs font-semibold text-pennie-blue-deeper">Clear reason category</button>}</fieldset>
       </>}
     </fieldset>}
-
-    {editable && <p className="text-sm text-pennie-graphite/70">Optional score feedback below helps improve Eavesly. Only answers you select are recorded; you do not need to review every score.</p>}
-    {editable ? scorecard : <details className="border-y border-border py-3">
-      <summary className="pennie-focus-ring min-h-[36px] cursor-pointer text-sm font-semibold text-pennie-blue-deeper">Eavesly’s evidence and scores · {attentionKeys.size} {attentionKeys.size === 1 ? 'item' : 'items'}</summary>
-      <div className="mt-3 space-y-5">{scorecard}</div>
-    </details>}
-
 
     {editable && <section aria-label="Coaching issues" className="space-y-4 border-t border-border pt-5">
       <div><h2 id={`${scorecardId}-coaching`} tabIndex={-1} className="pennie-focus-ring text-base font-semibold text-pennie-navy">Coaching issues (optional)</h2><p className="mt-1 text-sm text-pennie-graphite">Only add details if useful for coaching. You can save the alert decision without adding any issues.</p></div>
