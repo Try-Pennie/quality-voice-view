@@ -38,6 +38,15 @@ Captured during the complete browser run at the implementation commit above; ins
 - [Desktop: agreement alone enables Save](qa-evidence/alert-decision-first/faee824/agree-desktop.png)
 - [Mobile: decision and persistent Save](qa-evidence/alert-decision-first/faee824/agree-mobile.png)
 
+### Noah's staging feedback — section order (`473f0a0`)
+
+Moved the alert verdict below the evidence/score review, immediately above **Coaching issues (optional)**. This is a JSX reorder only: save requirements, state, navigation targets, and the read-only view are unchanged.
+
+- Typecheck and build passed; lint: 0 errors, 5 existing warnings.
+- Fresh focused Playwright run: **33 passed**, 1 worker, no retries. Includes desktop/mobile section-order assertions, agree/disagree saves, footer navigation, stale drafts, and optional coaching.
+- Commit-pinned synthetic screenshots: [desktop](qa-evidence/alert-decision-first/473f0a0/agree-desktop.png), [mobile](qa-evidence/alert-decision-first/473f0a0/agree-mobile.png).
+- Inspected the complete reorder diff and both screenshots. No backend changes or new migration needed; broad PR review/merge gates below remain unchanged.
+
 ### Independent review
 
 A separate-context Pi/Sol reviewer traced the client, private validator, existing public RPC, approvals and recurrence. Findings addressed:
