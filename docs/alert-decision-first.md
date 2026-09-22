@@ -73,6 +73,10 @@ Scope: the editable Full QA form, draft-to-save projection, and browser regressi
 
 Verify: typecheck/lint/build, focused and full browser suites (conditional nesting, empty/no visibility, incomplete hidden drafts, toggle/failed-save retention, successful No save/reopen, historical No reviews and navigation guards), and hosted desktop/mobile checks before staging handoff. Stop at tested staging and the updated PR; no production deployment or merge.
 
+Verification for implementation `0de6432`: fresh typecheck/build passed, lint had 0 errors / 5 existing warnings, and the complete browser suite passed **221/221** (one worker, no retries, 11.8 minutes). A separate-context Pi/Sol review found no actionable defects in `6b67770..0de6432`; cross-family review remains outstanding as noted below. No backend changes required rerunning or reapplying the previously verified migrations.
+
+Screenshot framing was improved in test-only commit `0319071`; both conditional-coaching tests passed again. Inspected synthetic captures pinned to that commit: [Yes desktop](qa-evidence/alert-decision-first/0319071/coaching-yes-1280.png), [Yes mobile](qa-evidence/alert-decision-first/0319071/coaching-yes-375.png), [No desktop](qa-evidence/alert-decision-first/0319071/coaching-no-1280.png), [No mobile](qa-evidence/alert-decision-first/0319071/coaching-no-375.png). Production source is unchanged from the 221-test run.
+
 ### Independent review
 
 A separate-context Pi/Sol reviewer traced the client, private validator, existing public RPC, approvals and recurrence. Findings addressed:
