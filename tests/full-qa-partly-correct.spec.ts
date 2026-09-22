@@ -79,6 +79,27 @@ test('switching mixed feedback retains the explanation, clears incompatible scor
   await expect(save).toBeEnabled()
 })
 
+test('mixed explanations use the same Unicode character bounds as PostgreSQL and reopen intact', async ({ page }) => {
+  await reviewFixture(page, [alertRow('unicode-partly')])
+  await page.goto('/dashboard/alerts/unicode-partly/full_qa')
+  const item = page.getByRole('article', { name: 'Credit pull consent', exact: true })
+  await item.getByRole('radio', { name: 'Partly correct', exact: true }).check()
+  await page.getByRole('radio', { name: 'Yes, the alert was warranted', exact: true }).check()
+  const note = item.getByRole('textbox', { name: 'Credit pull consent partly correct explanation', exact: true })
+  const save = page.getByRole('button', { name: 'Save review', exact: true })
+  for (const [length, valid] of [[6, false], [12, true], [4001, false], [4000, true]] as const) {
+    await note.fill('😀'.repeat(length))
+    await expect(note).toHaveAttribute('aria-invalid', String(!valid))
+    if (valid) await expect(save).toBeEnabled()
+    else await expect(save).toBeDisabled()
+  }
+  await save.click()
+  await expect(page.getByText('Full QA review saved', { exact: true })).toBeVisible()
+  await page.goto('/dashboard/alerts/unicode-partly/full_qa')
+  await expect(note).toHaveValue('😀'.repeat(4000))
+  await expect(page.getByRole('button', { name: 'Update review', exact: true })).toBeDisabled()
+})
+
 for (const invalid of [{ corrected_value: 'pass', reason: explanation }, { corrected_value: null, reason: '' }]) {
   test(`malformed saved mixed feedback fails closed: ${JSON.stringify(invalid)}`, async ({ page }) => {
     const row = alertRow('bad-partly', { is_reviewed: true, feedback_id: 1, feedback_by: 'manager@example.test', review_revision: 1, accurate: true })

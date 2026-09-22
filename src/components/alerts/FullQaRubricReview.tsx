@@ -65,7 +65,7 @@ function ReviewText({ id, label, value, onChange, disabled, placeholder, showEmp
   readonly placeholder?: string
 }) {
   const hintId = useId()
-  const length = value.trim().length
+  const length = Array.from(value.trim()).length
   const { min, max } = INTERNAL_REVIEW_TEXT_LIMITS
   return <>
     <textarea id={id} aria-label={label} aria-required={required} aria-describedby={hintId} aria-invalid={length > max || (required && (showEmptyHint || length > 0) && length < min)}

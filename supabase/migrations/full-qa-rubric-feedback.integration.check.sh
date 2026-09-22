@@ -400,7 +400,7 @@ set role authenticated;
 do $$ declare ctx jsonb; correction jsonb; bad jsonb; saved jsonb; result jsonb; begin
  ctx:=public.get_full_qa_review_context('CALL-PARTLY');
  correction:=jsonb_build_object('criterion_key','accurate_representations','disposition','partially_correct','corrected_value',null,
-  'reason','The guarantee was misleading, but the interest explanation was qualified.');
+  'reason',repeat('😀',4000));
  perform public.submit_full_qa_review('CALL-PARTLY',0,null,ctx->>'source_fingerprint',jsonb_build_array(correction),'[]',true,'',null,null,null);
  saved:=public.get_full_qa_review_context('CALL-PARTLY');
  if saved->'review'->'corrections' is distinct from jsonb_build_array(correction) or saved->'review'->'findings'<>'[]'::jsonb
@@ -411,6 +411,7 @@ do $$ declare ctx jsonb; correction jsonb; bad jsonb; saved jsonb; result jsonb;
  for bad in select value from jsonb_array_elements(jsonb_build_array(
    correction||jsonb_build_object('reason',''), correction||jsonb_build_object('reason',null),
    correction||jsonb_build_object('reason','short'), correction||jsonb_build_object('reason',repeat('x',4001)),
+   correction||jsonb_build_object('reason',repeat('😀',6)), correction||jsonb_build_object('reason',repeat('😀',4001)),
    correction||jsonb_build_object('reason',123), correction||jsonb_build_object('corrected_value','pass'),
    correction||jsonb_build_object('corrected_value','fail'), correction||jsonb_build_object('criterion_key','not_a_criterion'),
    correction-'corrected_value', correction-'reason', correction||jsonb_build_object('disposition','unknown')))

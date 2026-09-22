@@ -265,7 +265,8 @@ export function initialFullQaCorrections(context: FullQaReviewContext): readonly
 }
 
 function bounded(text: string | null): boolean {
-  const length = text?.trim().length ?? 0
+  // PostgreSQL char_length counts Unicode code points, not UTF-16 code units.
+  const length = Array.from(text?.trim() ?? '').length
   return length >= TEXT_MIN && length <= TEXT_MAX
 }
 
@@ -309,7 +310,7 @@ export function parseFullQaReviewDraft(context: FullQaReviewContext, input: Omit
   if (new Set(normalizedFindings).size !== normalizedFindings.length) return { ok: false, message: 'Each coaching issue must describe a distinct finding.', section: 'coaching' }
   if (input.escalationJustified === null) return { ok: false, message: 'Choose whether this alert was warranted.', section: 'decision' }
   if (!input.escalationJustified && !bounded(input.escalationReason)) return { ok: false, message: `Explain your decision using ${TEXT_GUIDANCE}.`, section: 'decision' }
-  if (input.escalationReason.trim().length > TEXT_MAX) return { ok: false, message: `Keep your feedback within ${TEXT_MAX.toLocaleString('en-US')} characters.`, section: 'decision' }
+  if (Array.from(input.escalationReason.trim()).length > TEXT_MAX) return { ok: false, message: `Keep your feedback within ${TEXT_MAX.toLocaleString('en-US')} characters.`, section: 'decision' }
   if (input.inaccuracyReason !== null && (input.escalationJustified || !reason(input.inaccuracyReason))) return { ok: false, message: 'Choose a valid reason for disagreeing.', section: 'decision' }
   if (input.actionTaken === null && input.actionDetails?.trim()) return { ok: false, message: 'Choose an action for the follow-up you entered, or clear the follow-up.', section: 'followup' }
   if (input.actionTaken !== null && (!action(input.actionTaken) || !bounded(input.actionDetails))) return { ok: false, message: `Describe the coaching or next steps using ${TEXT_GUIDANCE}, or clear the optional follow-up.`, section: 'followup' }
