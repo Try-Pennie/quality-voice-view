@@ -200,7 +200,7 @@ export async function reviewFixture(page: Page, rows: AlertWithFeedback[], optio
       if (!input || typeof input !== 'object' || !('p_call_id' in input) || typeof input.p_call_id !== 'string'
         || !('p_expected_revision' in input) || typeof input.p_expected_revision !== 'number'
         || !('p_expected_source_fingerprint' in input) || typeof input.p_expected_source_fingerprint !== 'string'
-        || !('p_corrections' in input) || !Array.isArray(input.p_corrections) || input.p_corrections.length !== 23
+        || !('p_corrections' in input) || !Array.isArray(input.p_corrections) || input.p_corrections.length > 23
         || !('p_findings' in input) || !Array.isArray(input.p_findings) || !('p_escalation_justified' in input) || typeof input.p_escalation_justified !== 'boolean') return respond({ message: 'EAVESLY_INVALID_FULL_QA_REVIEW' }, 400)
       const row = state.rows.find(candidate => candidate.call_id === input.p_call_id)
       if (row && input.p_expected_source_fingerprint !== state.fullQaSourceFingerprints.get(row.call_id)) return respond({ message: 'EAVESLY_STALE_FULL_QA_SOURCE' }, 400)

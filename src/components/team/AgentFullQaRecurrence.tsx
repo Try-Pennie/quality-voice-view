@@ -17,9 +17,9 @@ interface Props {
 }
 
 function timingLabel(value: string) {
-  if (value === 'after_recorded_coached_review') return 'After recorded coached review (review-date proxy)'
-  if (value === 'before_or_same_as_recorded_coached_review') return 'Before recorded coached review (review-date proxy)'
-  if (value === 'no_prior_recorded_coaching') return 'No prior approved coached review recorded'
+  if (value === 'after_recorded_coached_review') return 'After approved coaching linked to this category (review-date proxy)'
+  if (value === 'before_or_same_as_recorded_coached_review') return 'Before or same as approved coaching linked to this category (review-date proxy)'
+  if (value === 'no_prior_recorded_coaching') return 'No prior approved coaching linked to this category'
   return 'Timing unknown'
 }
 
@@ -34,7 +34,7 @@ export function AgentFullQaRecurrence({ agentEmail, startDate, endDate, enabled 
   const frequencies = Object.entries(CATEGORY_LABELS).map(([category, label]) => ({ category, label, count: confirmed.filter(row => row.category === category).length })).filter(row => row.count > 0)
   const other = rows.filter(row => !row.confirmed || row.occurrenceKind !== 'finding')
   return <section className="rounded-3xl bg-pennie-white p-5 shadow-resting space-y-4" aria-label="Approved Full QA recurrence">
-    <div><h2 className="text-lg font-semibold text-pennie-navy">Approved Full QA recurrence</h2><p className="mt-1 text-xs text-pennie-graphite/70">Only explicit findings in the approved current structured revision count. Dismissed escalations may still contain approved real findings. Pending, disputed, uncertain, and legacy rows stay separate.</p></div>
+    <div><h2 className="text-lg font-semibold text-pennie-navy">Approved Full QA recurrence</h2><p className="mt-1 text-xs text-pennie-graphite/70">Only explicit findings in the approved current structured revision count. Dismissed escalations may still contain approved real findings. Pending, disputed, uncertain, and legacy rows stay separate.</p><p className="mt-1 text-xs text-pennie-graphite/70">Coaching comparisons use approved reviews with issues linked to the same category. Call-level coaching without linked issues stays on the call review; it does not establish category-specific recurrence.</p></div>
     {frequencies.length ? <div className="flex flex-wrap gap-2">{frequencies.map(row => <span key={row.category} className="rounded-full bg-pennie-blue-light px-3 py-1.5 text-xs font-semibold text-pennie-navy">{row.label}: {row.count}</span>)}</div> : <p className="rounded-2xl bg-pennie-beige/60 p-3 text-sm text-pennie-graphite">No approved structured findings in this call-occurrence window.</p>}
     <div className="space-y-2"><h3 className="text-sm font-semibold text-pennie-navy">Confirmed occurrence rows ({confirmed.length})</h3>{confirmed.map(row => <article key={`${row.callId}-${row.findingId}`} className="rounded-2xl border border-border p-3 text-sm">
       <div className="flex flex-wrap items-start justify-between gap-2"><p className="font-semibold text-pennie-navy">{row.category ? CATEGORY_LABELS[row.category] : 'Finding'}</p><Link to={`/dashboard/alerts/${encodeURIComponent(row.callId)}/full_qa`} className="text-xs font-semibold text-pennie-blue-deeper hover:underline">Open call review · listed revision {row.feedbackRevision}</Link></div>

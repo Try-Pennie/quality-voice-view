@@ -258,15 +258,9 @@ export function valueAtPath(input: unknown, path: string): unknown {
   return path.split('.').reduce<unknown>((value, key) => record(value) ? value[key] : undefined, input)
 }
 
-/** Create the initial 23 criterion treatments without converting unavailable context into pass/fail. */
+/** Only explicitly saved criterion responses are human labels; untouched scores remain unreviewed. */
 export function initialFullQaCorrections(context: FullQaReviewContext): readonly FullQaCriterionCorrection[] {
-  if (context.review) return context.review.corrections
-  return context.criteria.map(criterion => {
-    const original = valueAtPath(context.sourceResult, criterion.scorePath)
-    return criterion.domain.some(value => value === original)
-      ? { criterionKey: criterion.key, disposition: 'confirmed' as const, correctedValue: original as FullQaScore, reason: null }
-      : { criterionKey: criterion.key, disposition: 'needs_context' as const, correctedValue: null, reason: '' }
-  })
+  return context.review?.corrections ?? []
 }
 
 function bounded(text: string | null): boolean {
@@ -284,13 +278,6 @@ function normalizedFinding(finding: FullQaFinding): string {
   ])
 }
 
-// The overview fits the existing review/queue field; full descriptions stay in findings.
-function findingOverview(findings: readonly FullQaFinding[]): string {
-  const text = Array.from(findings.map(finding => finding.summary.trim()).join('\n\n'))
-  const suffix = '… See coaching issues for full details.'
-  return text.length <= TEXT_MAX ? text.join('') : text.slice(0, TEXT_MAX - suffix.length).join('') + suffix
-}
-
 /** Validation identifies the incomplete section or issue field without duplicating review rules. */
 export type FullQaDraftResult = { readonly ok: true; readonly value: FullQaReviewDraft }
   | { readonly ok: false; readonly message: string; readonly section: 'scores' | 'coaching' | 'decision' | 'followup';
@@ -298,12 +285,12 @@ export type FullQaDraftResult = { readonly ok: true; readonly value: FullQaRevie
 
 /** Validate a Full QA draft before the mutation seam. Findings remain explicit and independent of score corrections. */
 export function parseFullQaReviewDraft(context: FullQaReviewContext, input: Omit<FullQaReviewDraft, 'escalationJustified'> & { readonly escalationJustified: boolean | null }): FullQaDraftResult {
-  if (input.corrections.length !== 23 || new Set(input.corrections.map(item => item.criterionKey)).size !== 23) return { ok: false, message: 'Review all 23 criteria.', section: 'scores' }
+  if (new Set(input.corrections.map(item => item.criterionKey)).size !== input.corrections.length) return { ok: false, message: 'Each criterion can have only one response.', section: 'scores' }
   for (const correction of input.corrections) {
     const criterion = context.criteria.find(item => item.key === correction.criterionKey)
     const original = criterion ? valueAtPath(context.sourceResult, criterion.scorePath) : undefined
     if (!criterion) return { ok: false, message: 'A criterion is not part of this rubric.', section: 'scores' }
-    if (correction.disposition === 'confirmed' && (correction.correctedValue !== original || correction.reason !== null)) return { ok: false, message: `${criterion.label} must retain the original AI value when confirmed.`, section: 'scores' }
+    if (correction.disposition === 'confirmed' && (!criterion.domain.some(value => value === original) || correction.correctedValue !== original || correction.reason !== null)) return { ok: false, message: `${criterion.label} must retain the original AI value when confirmed.`, section: 'scores' }
     if (correction.disposition === 'corrected' && (!criterion.domain.some(value => value === correction.correctedValue) || correction.correctedValue === original)) return { ok: false, message: `${criterion.label} needs a different value and a reason.`, section: 'scores' }
     if (correction.disposition === 'corrected' && !bounded(correction.reason)) return { ok: false, message: `${criterion.label}: explain the correction using ${TEXT_GUIDANCE}.`, section: 'scores' }
     if (correction.disposition === 'needs_context' && (correction.correctedValue !== null || !bounded(correction.reason))) return { ok: false, message: `${criterion.label} needs a context explanation.`, section: 'scores' }
@@ -319,16 +306,13 @@ export function parseFullQaReviewDraft(context: FullQaReviewContext, input: Omit
   }
   if (new Set(normalizedFindings).size !== normalizedFindings.length) return { ok: false, message: 'Each coaching issue must describe a distinct finding.', section: 'coaching' }
   if (input.escalationJustified === null) return { ok: false, message: 'Choose whether this alert was warranted.', section: 'decision' }
-  const complianceCount = new Set(input.findings.flatMap((finding, index) => finding.category === 'compliance' ? [normalizedFindings[index]] : [])).size
-  const severe = input.findings.some(finding => finding.category === 'severe_customer_mistreatment')
-  if (input.escalationJustified && complianceCount < 2 && !severe) return { ok: false, message: 'A warranted alert requires two distinct compliance issues or an explicit severe-customer-mistreatment issue.', section: 'coaching' }
   if (!input.escalationJustified && !bounded(input.escalationReason)) return { ok: false, message: `Explain your decision using ${TEXT_GUIDANCE}.`, section: 'decision' }
-  if (input.escalationJustified ? input.inaccuracyReason !== null : !input.inaccuracyReason || !reason(input.inaccuracyReason)) return { ok: false, message: 'Choose why the alert was unnecessary.', section: 'decision' }
-  if (input.findings.length === 0 && (input.actionTaken !== null || input.actionDetails?.trim())) return { ok: false, message: 'Actions apply only to retained findings.', section: 'followup' }
-  if (input.findings.length > 0 && (!input.actionTaken || !action(input.actionTaken))) return { ok: false, message: 'Record the coaching or follow-up for retained findings.', section: 'followup' }
-  if (input.findings.length > 0 && !bounded(input.actionDetails)) return { ok: false, message: `${input.escalationJustified ? 'Describe the action you took' : 'Describe the coaching or next steps'} using ${TEXT_GUIDANCE}.`, section: 'followup' }
+  if (input.escalationReason.trim().length > TEXT_MAX) return { ok: false, message: `Keep your feedback within ${TEXT_MAX.toLocaleString('en-US')} characters.`, section: 'decision' }
+  if (input.inaccuracyReason !== null && (input.escalationJustified || !reason(input.inaccuracyReason))) return { ok: false, message: 'Choose a valid reason for disagreeing.', section: 'decision' }
+  if (input.actionTaken === null && input.actionDetails?.trim()) return { ok: false, message: 'Choose an action for the follow-up you entered, or clear the follow-up.', section: 'followup' }
+  if (input.actionTaken !== null && (!action(input.actionTaken) || !bounded(input.actionDetails))) return { ok: false, message: `Describe the coaching or next steps using ${TEXT_GUIDANCE}, or clear the optional follow-up.`, section: 'followup' }
   return { ok: true, value: { ...input, escalationJustified: input.escalationJustified,
-    escalationReason: input.escalationJustified ? findingOverview(input.findings) : input.escalationReason.trim(), actionDetails: input.actionDetails?.trim() ?? null,
+    escalationReason: input.escalationReason.trim(), actionDetails: input.actionDetails?.trim() || null,
     corrections: input.corrections.map(item => ({ ...item, reason: item.reason?.trim() ?? null })),
     findings: input.findings.map(item => ({ ...item, summary: item.summary.trim(), evidence: item.evidence.trim() })) } }
 }

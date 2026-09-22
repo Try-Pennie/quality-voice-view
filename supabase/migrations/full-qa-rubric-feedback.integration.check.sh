@@ -4,6 +4,7 @@ set -euo pipefail
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 migration="$repo_root/supabase/migrations/20260918020000_full_qa_rubric_feedback.sql"
 duplicate_fix="$repo_root/supabase/migrations/20260921210000_reject_duplicate_normalized_full_qa_findings.sql"
+decision_first="$repo_root/supabase/migrations/20260922040000_full_qa_alert_decision_first.sql"
 container="full-qa-rubric-check-$RANDOM-$$"
 tmp="$(mktemp -d)"
 cleanup() { docker rm -f "$container" >/dev/null 2>&1 || true; rm -rf "$tmp"; }
@@ -57,7 +58,7 @@ insert into auth.users values
  ('44444444-4444-4444-4444-444444444444','outsider@trypennie.com');
 insert into public.manager_coaching_prompts values
  ('manager@trypennie.com',false),('director@trypennie.com',true),('director.two@trypennie.com',true),('outsider@trypennie.com',false);
-insert into public.agent_manager_mapping values('agent@example.test','manager@trypennie.com');
+insert into public.agent_manager_mapping values('agent@example.test','manager@trypennie.com'),('decision-agent@example.test','manager@trypennie.com');
 create temporary table test_clock(anchor timestamptz not null);
 insert into test_clock values(clock_timestamp());
 create temporary table source_fixture(value jsonb);
@@ -72,6 +73,8 @@ select x,'full_qa','manager_escalation','agent@example.test',anchor+delta,value
 from source_fixture cross join test_clock cross join (values
  ('CALL-COACHED','-2 days'::interval),('CALL-AFTER','2 days'),('CALL-PENDING','-3 days'),
  ('CALL-MISSING','4 days'),('CALL-UNKNOWN','5 days'),('CALL-LEGACY','6 days'),('CALL-DISTINCT','7 days'),('CALL-STREAMLINED','7 days'))v(x,delta);
+insert into public.eavesly_module_results(call_id,module_name,violation_type,agent_email,result_json)
+select 'CALL-DECISION','full_qa','manager_escalation','decision-agent@example.test',value #- '{compliance_scorecard,credit_pull_consent}' from source_fixture;
 update public.eavesly_module_results set result_json=jsonb_set(result_json,'{_evaluation_provenance,prompt_sha256}',to_jsonb(repeat('f',64))) where call_id='CALL-UNKNOWN';
 update public.eavesly_module_results set result_json=result_json-'_evaluation_provenance' where call_id='CALL-LEGACY';
 insert into public.eavesly_calls(call_id,agent_email,started_at)
@@ -85,6 +88,7 @@ cat "$repo_root/supabase/migrations/20260911120000_structured_manager_review.sql
 cat "$migration"
 printf 'begin;\n'
 cat "$duplicate_fix"
+cat "$decision_first"
 printf 'commit;\n'
 cat <<'SQL'
 -- Exact prompt bytes and immutable catalog contract.
@@ -121,7 +125,44 @@ select c.call_id,jsonb_agg(jsonb_build_object('criterion_key',m->>'key','disposi
  'corrected_value',coalesce(c.context->'source_result_json'#>string_to_array(m->>'score_path','.'),'null'::jsonb),
  'reason',case when c.context->'source_result_json'#>string_to_array(m->>'score_path','.') is null then to_jsonb('Source field unavailable; more context is required.'::text) else 'null'::jsonb end)),c.context->>'source_fingerprint'
 from context_cache c cross join lateral jsonb_array_elements(c.context->'criteria_manifest')m group by c.call_id,c.context;
--- The streamlined UI sends an overview derived from issue summaries, not a second manager answer.
+-- Alert decisions use the real scoped RPC with no implied score labels or coaching.
+do $$ declare ctx jsonb; fp text; result jsonb; saved jsonb; correction jsonb; finding jsonb; begin
+ ctx:=public.get_full_qa_review_context('CALL-DECISION'); fp:=ctx->>'source_fingerprint';
+ result:=public.submit_full_qa_review('CALL-DECISION',0,null,fp,'[]','[]',true,'',null,null,null);
+ if (result->>'review_revision')::integer<>1 then raise exception 'decision-only review did not save'; end if;
+ saved:=public.get_full_qa_review_context('CALL-DECISION')->'review';
+ if saved->'corrections'<>'[]'::jsonb or saved->'findings'<>'[]'::jsonb or saved->'action_taken'<>'null'::jsonb
+   or saved->>'escalation_reason'<>'' then raise exception 'decision-only review fabricated feedback'; end if;
+ result:=public.submit_full_qa_review('CALL-DECISION',0,null,fp,'[]','[]',true,'',null,null,null);
+ if result->>'idempotent'<>'true' then raise exception 'decision-only retry was not idempotent'; end if;
+ begin perform public.submit_full_qa_review('CALL-DECISION',1,null,fp,'[]','[]',false,'',null,null,null); raise exception 'TEST_EXPECTED_FAILURE_MISSING';
+ exception when others then if sqlerrm='TEST_EXPECTED_FAILURE_MISSING' or sqlerrm<>'EAVESLY_INVALID_FULL_QA_REVIEW' then raise; end if; end;
+ begin perform public.submit_full_qa_review('CALL-DECISION',1,null,fp,'[]','[]',true,repeat('x',4001),null,null,null); raise exception 'TEST_EXPECTED_FAILURE_MISSING';
+ exception when others then if sqlerrm='TEST_EXPECTED_FAILURE_MISSING' or sqlerrm<>'EAVESLY_INVALID_FULL_QA_REVIEW' then raise; end if; end;
+ -- A missing AI score is not a human confirmation, even through a direct RPC caller.
+ correction:=jsonb_build_object('criterion_key','credit_pull_consent','disposition','confirmed','corrected_value',null,'reason',null);
+ begin perform public.submit_full_qa_review('CALL-DECISION',1,null,fp,jsonb_build_array(correction),'[]',true,'',null,null,null); raise exception 'TEST_EXPECTED_FAILURE_MISSING';
+ exception when others then if sqlerrm='TEST_EXPECTED_FAILURE_MISSING' or sqlerrm<>'EAVESLY_INVALID_FULL_QA_REVIEW' then raise; end if; end;
+ correction:=jsonb_build_object('criterion_key','accurate_representations','disposition','confirmed','corrected_value','fail','reason',null);
+ begin perform public.submit_full_qa_review('CALL-DECISION',1,null,fp,jsonb_build_array(correction,correction),'[]',true,'',null,null,null); raise exception 'TEST_EXPECTED_FAILURE_MISSING';
+ exception when others then if sqlerrm='TEST_EXPECTED_FAILURE_MISSING' or sqlerrm<>'EAVESLY_INVALID_FULL_QA_REVIEW' then raise; end if; end;
+ perform public.submit_full_qa_review('CALL-DECISION',1,null,fp,'[]','[]',false,'The customer gave consent earlier in the call.',null,null,null);
+ saved:=public.get_full_qa_review_context('CALL-DECISION')->'review';
+ if saved->>'escalation_justified'<>'false' or saved->'escalation_inaccuracy_reason'<>'null'::jsonb then raise exception 'explanation-only disagreement changed'; end if;
+ finding:=jsonb_build_object('finding_id','00000000-0000-4000-8000-000000000020','category','compliance',
+  'related_criteria',jsonb_build_array('accurate_representations'),'summary','The outcome guarantee is misleading.','evidence','The agent guaranteed a debt-free date.');
+ -- One issue is valid without coaching and without manufacturing a second issue.
+ perform public.submit_full_qa_review('CALL-DECISION',2,null,fp,jsonb_build_array(correction),jsonb_build_array(finding),true,'The guarantee is wrong; the interest explanation was qualified.',null,null,null);
+ saved:=public.get_full_qa_review_context('CALL-DECISION')->'review';
+ if jsonb_array_length(saved->'corrections')<>1 or jsonb_array_length(saved->'findings')<>1 or saved->'action_taken'<>'null'::jsonb then raise exception 'optional single finding changed'; end if;
+ begin perform public.submit_full_qa_review('CALL-DECISION',3,null,fp,'[]','[]',true,'',null,'coached',null); raise exception 'TEST_EXPECTED_FAILURE_MISSING';
+ exception when others then if sqlerrm='TEST_EXPECTED_FAILURE_MISSING' or sqlerrm<>'EAVESLY_INVALID_FULL_QA_REVIEW' then raise; end if; end;
+ -- A call-level follow-up does not require re-entering individual findings.
+ perform public.submit_full_qa_review('CALL-DECISION',3,null,fp,'[]','[]',true,'',null,'follow_up_later','Discuss the call at the next scheduled one-to-one.');
+ saved:=public.get_full_qa_review_context('CALL-DECISION')->'review';
+ if saved->>'action_taken'<>'follow_up_later' or saved->'findings'<>'[]'::jsonb then raise exception 'call-level follow-up lost'; end if;
+end $$;
+-- Old detailed reviews and overview text still round-trip without truncating findings.
 -- The bounded overview must save through the unchanged RPC without truncating the actual findings.
 do $$ declare findings jsonb; overview text; saved jsonb; suffix text:='… See coaching issues for full details.'; begin
  findings:=jsonb_build_array(
@@ -171,7 +212,7 @@ do $$ declare corr jsonb; fp text; finding jsonb; begin
    finding,
    finding||jsonb_build_object('finding_id','00000000-0000-4000-8000-000000000010','related_criteria',jsonb_build_array('credit_pull_consent'),'summary','  A DISTINCT consent finding  is retained. ','evidence','Synthetic consent evidence is available for review.')),
    true,'Generated IDs cannot make duplicate normalized findings distinct.',null,'coached','Coaching details exist for the retained finding.'); raise exception 'TEST_EXPECTED_FAILURE_MISSING'; exception when others then if sqlerrm='TEST_EXPECTED_FAILURE_MISSING' or sqlerrm<>'EAVESLY_INVALID_FULL_QA_REVIEW' then raise; end if; end;
- begin perform public.submit_full_qa_review('CALL-PENDING',0,null,fp,corr,jsonb_build_array(finding),false,'Escalation is not justified after review.',null,null,null); raise exception 'TEST_EXPECTED_FAILURE_MISSING'; exception when others then if sqlerrm='TEST_EXPECTED_FAILURE_MISSING' or sqlerrm<>'EAVESLY_INVALID_FULL_QA_REVIEW' then raise; end if; end;
+ begin perform public.submit_full_qa_review('CALL-PENDING',0,null,fp,corr,jsonb_build_array(finding),false,'short',null,null,null); raise exception 'TEST_EXPECTED_FAILURE_MISSING'; exception when others then if sqlerrm='TEST_EXPECTED_FAILURE_MISSING' or sqlerrm<>'EAVESLY_INVALID_FULL_QA_REVIEW' then raise; end if; end;
  begin perform public.submit_full_qa_review('CALL-PENDING',0,null,fp,corr,jsonb_build_array(finding),false,'Escalation is not justified after review.','other',null,'Coaching details exist for the retained finding.'); raise exception 'TEST_EXPECTED_FAILURE_MISSING'; exception when others then if sqlerrm='TEST_EXPECTED_FAILURE_MISSING' or sqlerrm<>'EAVESLY_INVALID_FULL_QA_REVIEW' then raise; end if; end;
 end $$;
 -- Two genuinely different findings may share a criterion and justify escalation.
@@ -297,11 +338,69 @@ do $$ begin
  if (select encode(extensions.digest(convert_to(prompt_text,'UTF8'),'sha256'),'hex') from public.eavesly_full_qa_rubric_catalog where contract_version=1)
    <> '1396c17a6ae639b1172a1ff5d04ee21b22e4ab5ceb08c5915c090a34da291e37' then raise exception 'proposal mutated production prompt'; end if;
 end $$;
--- Out-of-scope actor cannot read recurrence.
+-- Sparse review approval uses the same decision lock; call-level coaching is not category evidence.
+insert into public.eavesly_calls(call_id,agent_email,started_at) values('CALL-DECISION','decision-agent@example.test',clock_timestamp()+interval '1 day');
+select set_config('request.jwt.claims','{"sub":"11111111-1111-1111-1111-111111111111","email":"manager@trypennie.com"}',false);
+set role authenticated;
+do $$ declare ctx jsonb; begin
+ ctx:=public.get_full_qa_review_context('CALL-DECISION');
+ perform public.submit_full_qa_review('CALL-DECISION',4,null,ctx->>'source_fingerprint','[]','[]',true,'',null,null,null);
+end $$;
+reset role;
+select set_config('request.jwt.claims','{"sub":"22222222-2222-2222-2222-222222222222","email":"director@trypennie.com"}',false);
+set role authenticated;
+create temporary table decision_only_approval as select public.decide_internal_alert_feedback('CALL-DECISION','full_qa',5,'approved',null) result;
+reset role;
+select set_config('request.jwt.claims','{"sub":"11111111-1111-1111-1111-111111111111","email":"manager@trypennie.com"}',false);
+set role authenticated;
+do $$ declare ctx jsonb; decision_id bigint; begin
+ ctx:=public.get_full_qa_review_context('CALL-DECISION');
+ select (result->>'decision_id')::bigint into decision_id from decision_only_approval;
+ begin perform public.submit_full_qa_review('CALL-DECISION',5,null,ctx->>'source_fingerprint','[]','[]',true,'',null,'coached','Discussed the call with the agent in our one-to-one.'); raise exception 'TEST_EXPECTED_FAILURE_MISSING';
+ exception when others then if sqlerrm='TEST_EXPECTED_FAILURE_MISSING' or sqlerrm<>'EAVESLY_STALE_REVIEW' then raise; end if; end;
+ perform public.submit_full_qa_review('CALL-DECISION',5,decision_id,ctx->>'source_fingerprint','[]','[]',true,'',null,'coached','Discussed the call with the agent in our one-to-one.');
+ if not exists(select 1 from public.eavesly_alerts_with_feedback where call_id='CALL-DECISION' and review_revision=6 and current_decision is null)
+  then raise exception 'sparse review edit did not return to pending approval'; end if;
+end $$;
+reset role;
+select set_config('request.jwt.claims','{"sub":"22222222-2222-2222-2222-222222222222","email":"director@trypennie.com"}',false);
+set role authenticated;
+update decision_only_approval set result=public.decide_internal_alert_feedback('CALL-DECISION','full_qa',6,'approved',null);
+do $$ declare saved jsonb; begin
+ saved:=public.get_full_qa_review_context('CALL-DECISION')->'review';
+ if saved->>'action_taken'<>'coached' or saved->'findings'<>'[]'::jsonb then raise exception 'call-level coaching lost'; end if;
+ if public.full_qa_finding_occurrences('decision-agent@example.test',clock_timestamp()-interval '30 days',clock_timestamp()+interval '30 days')<>'[]'::jsonb
+  then raise exception 'call-level coaching invented category findings'; end if;
+end $$;
+reset role;
+select set_config('request.jwt.claims','{"sub":"11111111-1111-1111-1111-111111111111","email":"manager@trypennie.com"}',false);
+set role authenticated;
+do $$ declare ctx jsonb; decision_id bigint; finding jsonb; begin
+ ctx:=public.get_full_qa_review_context('CALL-DECISION');
+ select (result->>'decision_id')::bigint into decision_id from decision_only_approval;
+ finding:=jsonb_build_object('finding_id','00000000-0000-4000-8000-000000000021','category','compliance',
+  'related_criteria',jsonb_build_array('accurate_representations'),'summary','The outcome guarantee is misleading.','evidence','The agent guaranteed a debt-free date.');
+ perform public.submit_full_qa_review('CALL-DECISION',6,decision_id,ctx->>'source_fingerprint','[]',jsonb_build_array(finding),true,'',null,null,null);
+end $$;
+reset role;
+select set_config('request.jwt.claims','{"sub":"22222222-2222-2222-2222-222222222222","email":"director@trypennie.com"}',false);
+set role authenticated;
+select public.decide_internal_alert_feedback('CALL-DECISION','full_qa',7,'approved',null);
+do $$ declare rows jsonb; begin
+ rows:=public.full_qa_finding_occurrences('decision-agent@example.test',clock_timestamp()-interval '30 days',clock_timestamp()+interval '30 days');
+ if jsonb_array_length(rows)<>1 or rows->0->>'coaching_timing'<>'no_prior_recorded_coaching'
+  or rows->0->'coaching_review_proxy_saved_at'<>'null'::jsonb then raise exception 'unlinked coaching was attributed to a category'; end if;
+end $$;
+reset role;
+-- Out-of-scope actor cannot read recurrence or submit a decision-only review.
 select set_config('request.jwt.claims','{"sub":"44444444-4444-4444-4444-444444444444","email":"outsider@trypennie.com"}',false);
 set role authenticated;
-do $$ declare anchor timestamptz:=clock_timestamp(); begin begin perform public.full_qa_finding_occurrences('agent@example.test',anchor-interval '30 days',anchor+interval '30 days'); raise exception 'TEST_EXPECTED_FAILURE_MISSING';
- exception when others then if sqlerrm='TEST_EXPECTED_FAILURE_MISSING' or sqlerrm<>'EAVESLY_FORBIDDEN' then raise; end if; end; end $$;
+do $$ declare anchor timestamptz:=clock_timestamp(); begin
+ begin perform public.full_qa_finding_occurrences('agent@example.test',anchor-interval '30 days',anchor+interval '30 days'); raise exception 'TEST_EXPECTED_FAILURE_MISSING';
+ exception when others then if sqlerrm='TEST_EXPECTED_FAILURE_MISSING' or sqlerrm<>'EAVESLY_FORBIDDEN' then raise; end if; end;
+ begin perform public.submit_full_qa_review('CALL-DECISION',4,null,repeat('0',64),'[]','[]',true,'',null,null,null); raise exception 'TEST_EXPECTED_FAILURE_MISSING';
+ exception when others then if sqlerrm='TEST_EXPECTED_FAILURE_MISSING' or sqlerrm<>'EAVESLY_FORBIDDEN' then raise; end if; end;
+end $$;
 reset role;
 select 'full-qa-rubric-feedback.integration.check.sh: all assertions passed' result;
 SQL

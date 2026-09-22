@@ -41,7 +41,7 @@ test('neutral guidance links to the incomplete decision, score or coaching secti
   await page.goto('/dashboard/alerts/guided-review/full_qa')
   const next = page.getByRole('button', { name: 'Continue review', exact: true })
   const status = page.getByRole('contentinfo').getByRole('status')
-  await expect(status).toHaveText('Check the scores and add any coaching issues, then finish your decision.')
+  await expect(status).toHaveText('Choose whether this alert was warranted. Score feedback and coaching are optional.')
   await expect(saveButton(page)).toBeDisabled()
   await next.click()
   await expect(page.locator('legend', { hasText: 'Was this alert warranted?' })).toBeFocused()
@@ -65,10 +65,12 @@ test('neutral guidance links to the incomplete decision, score or coaching secti
   await expect(page.getByRole('textbox', { name: 'Finding 1 summary' })).toBeFocused()
   await expect(page.getByRole('textbox', { name: 'Finding 1 summary' })).toHaveValue('')
   await page.getByRole('textbox', { name: 'Finding 1 summary' }).fill(findingSummary)
-  await expect(status).toContainText('Record the coaching or follow-up for retained findings.')
+  await expect(saveButton(page)).toBeEnabled()
+  await expect(next).toHaveCount(0)
+  await page.getByRole('radiogroup', { name: 'What did you do about the issue?' }).getByRole('radio', { name: 'Coached the agent', exact: true }).check()
+  await expect(status).toContainText('Describe the coaching or next steps')
   await next.click()
   await expect(page.getByRole('heading', { name: 'Follow-up with the rep', exact: true })).toBeFocused()
-  await page.getByRole('radiogroup', { name: 'What did you do about the issue?' }).getByRole('radio', { name: 'Coached the agent', exact: true }).check()
   await page.getByRole('textbox', { name: 'Coaching or next steps' }).fill(actionDetails)
   await expect(saveButton(page)).toBeEnabled()
   await expect(next).toHaveCount(0)
@@ -197,10 +199,10 @@ test('Full QA saves string-scale corrections and a retained finding independentl
     p_action_details: actionDetails,
   })
   expect(write).toHaveProperty('p_corrections')
-  expect((write as { p_corrections: unknown[] }).p_corrections).toHaveLength(23)
+  expect((write as { p_corrections: unknown[] }).p_corrections).toHaveLength(3)
   expect((write as { p_corrections: unknown[] }).p_corrections).toEqual(expect.arrayContaining([
-    { criterion_key: 'social_security_verification', disposition: 'confirmed', corrected_value: 'pass', reason: null },
-    { criterion_key: 'step4_paydown_projections', disposition: 'confirmed', corrected_value: 'not_applicable', reason: null },
+    { criterion_key: 'call_recording_disclosure', disposition: 'corrected', corrected_value: 'fail', reason: correctionReason },
+    { criterion_key: 'credit_pull_consent', disposition: 'corrected', corrected_value: 'pass', reason: correctionReason },
     { criterion_key: 'professional_tone', disposition: 'corrected', corrected_value: 'poor', reason: 'The manager identified a tone concern the AI initially missed.' },
   ]))
   expect((write as { p_findings: unknown[] }).p_findings).toEqual([expect.objectContaining({
@@ -396,7 +398,7 @@ test('score answers and an explicit verdict save without manufacturing any coach
   await expect(saveButton(page)).toBeDisabled()
   await page.getByRole('radio', { name: 'No, the alert was unnecessary', exact: true }).check()
   await page.getByRole('textbox', { name: 'Explain your decision' }).fill(escalationReason)
-  await expect(page.getByRole('status')).toContainText('Choose why the alert was unnecessary.')
+  await expect(saveButton(page)).toBeEnabled()
   await page.getByRole('radiogroup', { name: 'Why was the alert unnecessary?' }).getByRole('radio', { name: 'Evidence misquoted', exact: true }).check()
   await expect(page.getByRole('status')).toHaveCount(0)
   // The footer button and the keyboard shortcut submit the same form once.
@@ -655,7 +657,7 @@ test('valid unfamiliar rubric values stay readable rather than appearing unavail
   await expect(consent.getByText('Unavailable', { exact: true })).toHaveCount(0)
 })
 
-test('empty focus is not a cleared alert and an unavailable score requires an explicit result', async ({ page }) => {
+test('empty focus is not a cleared alert and correcting an unavailable score is optional but must be explicit', async ({ page }) => {
   const scorecards: Record<string, Record<string, unknown>> = {}
   for (const criterion of FULL_QA_CRITERIA) {
     const [section, field] = criterion.score_path.split('.')
@@ -679,13 +681,13 @@ test('empty focus is not a cleared alert and an unavailable score requires an ex
   await expect(assessment.getByRole('radio')).toHaveCount(2)
   await expect(assessment.getByRole('radio', { checked: true })).toHaveCount(0)
   await expect(assessment.getByRole('radio', { name: 'Correct', exact: true })).toBeDisabled()
-  await expect(page.getByText('No score was saved. Check the transcript, then select Incorrect to enter the result.')).toBeVisible()
+  await expect(page.getByText('No score was saved. You can still review the alert; correcting this score is optional.')).toBeVisible()
   await expect(page.getByRole('textbox', { name: 'Social security verification correction reason' })).toHaveCount(0)
   await page.getByRole('radio', { name: 'No, the alert was unnecessary', exact: true }).check()
   await page.getByRole('textbox', { name: 'Explain your decision' }).fill(escalationReason)
   await page.getByRole('radiogroup', { name: 'Why was the alert unnecessary?' }).getByRole('radio', { name: 'Other', exact: true }).check()
-  await expect(saveButton(page)).toBeDisabled()
-  await expect(page.getByRole('status')).toContainText('Choose a result for Social security verification before saving.')
+  await expect(saveButton(page)).toBeEnabled()
+  await expect(page.getByRole('status')).toHaveCount(0)
   await assessment.getByRole('radio', { name: 'Incorrect', exact: true }).check()
   const result = page.getByRole('combobox', { name: 'Social security verification corrected value' })
   await expect(result).toHaveValue('')
@@ -797,7 +799,7 @@ test('Agent profile reconciles approved findings and keeps pending, needs-contex
   await expect(panel).toContainText('Compliance: 1')
   await expect(panel).toContainText('Confirmed occurrence rows (1)')
   await expect(panel).toContainText('Not counted (3)')
-  await expect(panel).toContainText('After recorded coached review (review-date proxy)')
+  await expect(panel).toContainText('After approved coaching linked to this category (review-date proxy)')
   await expect(panel).toContainText('Needs context: credit_pull_consent')
   await expect(panel).toContainText('Legacy review — no criterion mapping')
   await expect(panel).toContainText('Call time missing; timing unknown')
@@ -833,7 +835,7 @@ test('saved alert reasons and criterion context explain concerns without turning
   await expect(consent).toContainText('No reason saved for this score.')
   await expect(consent.locator('blockquote')).toHaveText(['No, do not pull my credit.', 'I have pulled it anyway.'])
   await expect(consent.locator('figcaption')).toHaveText(['Customer · Step 2 Credit Review', 'Agent · Step 2 Credit Review'])
-  await expect(consent.getByText('Is Eavesly’s assessment correct?', { exact: true })).toBeVisible()
+  await expect(consent.getByText('Is Eavesly’s assessment correct? (optional)', { exact: true })).toBeVisible()
   await expect(response(page, 'Credit pull consent').getByRole('radio')).toHaveCount(2)
   const coaching = page.getByRole('article', { name: 'patience empathy', exact: true })
   await expect(coaching.getByText('Eavesly score concern', { exact: true })).toBeVisible()
@@ -871,7 +873,7 @@ test('missing or malformed explanations never become invented reasons or confirm
   await expect(consent).toContainText('No reason saved for this score.')
   await expect(consent.locator('blockquote')).toHaveText('Yes, I authorize that credit review.')
   await expect(consent.locator('figcaption')).toHaveText('Speaker not saved')
-  await expect(consent.getByRole('radio', { name: 'Correct', exact: true })).toBeChecked()
+  await expect(consent.getByRole('radio', { name: 'Correct', exact: true })).not.toBeChecked()
   await expect(page.getByText('No coaching issues added.', { exact: true })).toBeVisible()
   // A production-mode render never adds staging guidance, even for a matching synthetic ID.
   await expect(page.getByRole('complementary', { name: 'Staging practice guidance' })).toHaveCount(0)

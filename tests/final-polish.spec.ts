@@ -47,6 +47,7 @@ test('adding an issue keeps evidence in view and verdict fields reveal without l
   expect(await description.evaluate(el => getComputedStyle(el).position)).toBe('absolute')
   await page.getByRole('radio', { name: 'Yes, the alert was warranted', exact: true }).check()
   await expect(page.getByRole('textbox', { name: 'What happened?', exact: true })).toHaveCount(0)
+  await page.getByRole('radiogroup', { name: 'Action taken', exact: true }).getByRole('radio', { name: 'Coached the agent', exact: true }).check()
   await page.getByRole('textbox', { name: 'What action did you take?', exact: true }).fill('Discussed the specific issue with the representative.')
   for (const width of [320, 375, 414, 768, 1440]) {
     await page.setViewportSize({ width, height: width < 768 ? 812 : 900 })
