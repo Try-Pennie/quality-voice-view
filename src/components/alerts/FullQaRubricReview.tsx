@@ -96,6 +96,15 @@ function scoreLabel(value: unknown): string {
   }
 }
 
+function correctionLabels(correction: FullQaCriterionCorrection) {
+  switch (correction.disposition) {
+    case 'confirmed': return { saved: 'Kept Eavesly’s result', summary: 'manager kept Eavesly’s result' }
+    case 'corrected': return { saved: `Changed to: ${scoreLabel(correction.correctedValue)}`, summary: `manager changed to ${scoreLabel(correction.correctedValue)}` }
+    case 'partially_correct': return { saved: 'Partly correct', summary: 'manager marked partly correct' }
+    case 'needs_context': return { saved: 'Needs more context', summary: 'manager needs more context' }
+  }
+}
+
 function savedText(input: unknown): string | null {
   return typeof input === 'string' && input.trim() ? input.trim() : null
 }
@@ -226,8 +235,8 @@ function ManagerReviewOutcome({ context }: { readonly context: FullQaReviewConte
       <p className="mt-1 whitespace-pre-wrap break-words">{review.actionTaken ? ACTION_TAKEN_LABELS[review.actionTaken] : 'No follow-up recorded'}{review.actionDetails ? ` · ${review.actionDetails}` : ''}</p>
     </div>
     <div className="text-sm text-pennie-graphite">
-      <p className="font-semibold text-pennie-navy">Changed or unresolved scores ({changed.length})</p>
-      {changed.length ? <ul className="mt-1 list-disc space-y-1 pl-5">{changed.map(item => <li key={item.criterionKey} className="break-words"><span className="font-semibold">{label(item.criterionKey)}</span>: Eavesly said {originalLabel(item.criterionKey)} → {item.disposition === 'corrected' ? `manager changed to ${scoreLabel(item.correctedValue)}` : 'manager needs more context'}{item.reason ? ` — ${item.reason}` : ''}</li>)}</ul> : <p className="mt-1">No score corrections recorded. Unanswered scores are not manager-confirmed.</p>}
+      <p className="font-semibold text-pennie-navy">Changed, partial, or unresolved scores ({changed.length})</p>
+      {changed.length ? <ul className="mt-1 list-disc space-y-1 pl-5">{changed.map(item => <li key={item.criterionKey} className="break-words"><span className="font-semibold">{label(item.criterionKey)}</span>: Eavesly said {originalLabel(item.criterionKey)} → {correctionLabels(item).summary}{item.reason ? ` — ${item.reason}` : ''}</li>)}</ul> : <p className="mt-1">No score corrections recorded. Unanswered scores are not manager-confirmed.</p>}
     </div>
   </section>
 }
@@ -473,26 +482,28 @@ export function FullQaRubricReview({ alert, scope, editable, canReloadReview, re
           <section aria-label={`${criterion.label}: ${responseHeading}`} className="min-w-0 space-y-3 border-t border-border p-4 sm:p-5 md:border-l md:border-t-0">
             {saved && <div className="border-b border-pennie-blue-main pb-3 text-sm">
               <p className="mb-1 text-xs font-bold text-pennie-blue-deeper">Manager’s saved response</p>
-              <p className="font-semibold text-pennie-navy">{saved.disposition === 'confirmed' ? 'Kept Eavesly’s result' : saved.disposition === 'corrected' ? `Changed to: ${scoreLabel(saved.correctedValue)}` : 'Needs more context'}</p>
+              <p className="font-semibold text-pennie-navy">{correctionLabels(saved).saved}</p>
               {saved.reason && <p className="mt-1 whitespace-pre-wrap break-words text-pennie-graphite">{saved.reason}</p>}
             </div>}
             {editable && <div className="space-y-3">
               <fieldset disabled={locked} role="radiogroup" aria-label={`${criterion.label} disposition`}>
                 <legend className="mb-2 text-sm font-semibold text-pennie-navy">Is Eavesly’s assessment correct? <span className="font-normal">(optional)</span></legend>
-                <div className="flex flex-wrap gap-2">{(['confirmed', 'corrected'] as const).map(disposition => <label key={disposition} className={`flex min-h-[44px] cursor-pointer items-center gap-2 rounded-xl border px-3 py-2 text-sm has-[:disabled]:cursor-not-allowed has-[:disabled]:opacity-50 ${correction?.disposition === disposition ? 'border-pennie-blue-deeper bg-pennie-blue-light text-pennie-navy' : 'border-border text-pennie-graphite hover:bg-pennie-blue-light/50'}`}>
+                <div className="flex flex-wrap gap-2">{([{ disposition: 'confirmed', label: 'Correct' }, { disposition: 'corrected', label: 'Incorrect' }, { disposition: 'partially_correct', label: 'Partly correct' }] as const).map(({ disposition, label }) => <label key={disposition} className={`flex min-h-[44px] cursor-pointer items-center gap-2 rounded-xl border px-3 py-2 text-sm has-[:disabled]:cursor-not-allowed has-[:disabled]:opacity-50 ${correction?.disposition === disposition ? 'border-pennie-blue-deeper bg-pennie-blue-light text-pennie-navy' : 'border-border text-pennie-graphite hover:bg-pennie-blue-light/50'}`}>
                   <input type="radio" name={`${scorecardId}-${criterion.key}`} checked={correction?.disposition === disposition} disabled={disposition === 'confirmed' && originalValue === undefined} className="pennie-focus-ring h-4 w-4 accent-pennie-blue-deeper" onChange={() => {
                     if (correction?.disposition === disposition) return
                     if (disposition === 'confirmed') {
                       if (originalValue !== undefined) updateCorrection(criterion.key, { disposition, correctedValue: originalValue, reason: null })
-                    } else updateCorrection(criterion.key, { disposition, correctedValue: originalValue === undefined ? null : criterion.domain.find(value => value !== original) ?? null, reason: '' })
+                    } else if (disposition === 'partially_correct') updateCorrection(criterion.key, { disposition, correctedValue: null, reason: correction?.reason ?? '' })
+                    else updateCorrection(criterion.key, { disposition, correctedValue: originalValue === undefined ? null : criterion.domain.find(value => value !== original) ?? null, reason: correction?.reason ?? '' })
                   }} />
-                  <span className="whitespace-nowrap">{disposition === 'confirmed' ? 'Correct' : 'Incorrect'}</span>
+                  <span className="whitespace-nowrap">{label}</span>
                 </label>)}</div>
               </fieldset>
               {correction?.disposition === 'corrected' && <label className="block text-sm font-semibold">What should the result be?<select aria-label={`${criterion.label} corrected value`} disabled={locked} value={correction.correctedValue === null ? '' : String(correction.correctedValue)} onChange={event => updateCorrection(criterion.key, { correctedValue: criterion.domain.find(value => String(value) === event.target.value) ?? null })} className="mt-1 min-h-[44px] w-full rounded-lg border border-border bg-white px-2 font-normal">{originalValue === undefined && <option value="" disabled>Choose a result</option>}{criterion.domain.map(value => <option key={String(value)} value={String(value)}>{scoreLabel(value)}</option>)}</select></label>}
               {originalValue === undefined && !correction && <p className="text-sm text-pennie-graphite">No score was saved. You can still review the alert; correcting this score is optional.</p>}
               {correction && <button type="button" disabled={locked} onClick={() => setCorrections(items => items.filter(item => item.criterionKey !== criterion.key))} className="pennie-focus-ring min-h-[44px] text-xs font-semibold text-pennie-blue-deeper">Clear score response</button>}
               {correction?.disposition === 'corrected' && <label className="block text-sm font-semibold">Why is the assessment incorrect?<ReviewText label={`${criterion.label} correction reason`} disabled={locked} value={correction.reason ?? ''} onChange={reason => updateCorrection(criterion.key, { reason })} /></label>}
+              {correction?.disposition === 'partially_correct' && <label className="block text-sm font-semibold">Which parts are right or wrong?<ReviewText label={`${criterion.label} partly correct explanation`} disabled={locked} value={correction.reason ?? ''} placeholder="A brief explanation is enough. No replacement score or coaching plan needed." onChange={reason => updateCorrection(criterion.key, { reason })} /></label>}
             </div>}
             {!editable && !saved && <p className="text-sm text-pennie-graphite/70">No structured response was recorded for this criterion.</p>}
             {editable && (linkedIndex >= 0

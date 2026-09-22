@@ -5,6 +5,7 @@ repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 migration="$repo_root/supabase/migrations/20260918020000_full_qa_rubric_feedback.sql"
 duplicate_fix="$repo_root/supabase/migrations/20260921210000_reject_duplicate_normalized_full_qa_findings.sql"
 decision_first="$repo_root/supabase/migrations/20260922040000_full_qa_alert_decision_first.sql"
+partly_correct="$repo_root/supabase/migrations/20260922140000_full_qa_partially_correct_feedback.sql"
 container="full-qa-rubric-check-$RANDOM-$$"
 tmp="$(mktemp -d)"
 cleanup() { docker rm -f "$container" >/dev/null 2>&1 || true; rm -rf "$tmp"; }
@@ -74,7 +75,7 @@ from source_fixture cross join test_clock cross join (values
  ('CALL-COACHED','-2 days'::interval),('CALL-AFTER','2 days'),('CALL-PENDING','-3 days'),
  ('CALL-MISSING','4 days'),('CALL-UNKNOWN','5 days'),('CALL-LEGACY','6 days'),('CALL-DISTINCT','7 days'),('CALL-STREAMLINED','7 days'))v(x,delta);
 insert into public.eavesly_module_results(call_id,module_name,violation_type,agent_email,result_json)
-select 'CALL-DECISION','full_qa','manager_escalation','decision-agent@example.test',value #- '{compliance_scorecard,credit_pull_consent}' from source_fixture;
+select call_id,'full_qa','manager_escalation','decision-agent@example.test',value #- '{compliance_scorecard,credit_pull_consent}' from source_fixture cross join (values ('CALL-DECISION'),('CALL-PARTLY'))calls(call_id);
 update public.eavesly_module_results set result_json=jsonb_set(result_json,'{_evaluation_provenance,prompt_sha256}',to_jsonb(repeat('f',64))) where call_id='CALL-UNKNOWN';
 update public.eavesly_module_results set result_json=result_json-'_evaluation_provenance' where call_id='CALL-LEGACY';
 insert into public.eavesly_calls(call_id,agent_email,started_at)
@@ -89,6 +90,7 @@ cat "$migration"
 printf 'begin;\n'
 cat "$duplicate_fix"
 cat "$decision_first"
+cat "$partly_correct"
 printf 'commit;\n'
 cat <<'SQL'
 -- Exact prompt bytes and immutable catalog contract.
@@ -390,6 +392,43 @@ do $$ declare rows jsonb; begin
  rows:=public.full_qa_finding_occurrences('decision-agent@example.test',clock_timestamp()-interval '30 days',clock_timestamp()+interval '30 days');
  if jsonb_array_length(rows)<>1 or rows->0->>'coaching_timing'<>'no_prior_recorded_coaching'
   or rows->0->'coaching_review_proxy_saved_at'<>'null'::jsonb then raise exception 'unlinked coaching was attributed to a category'; end if;
+end $$;
+reset role;
+-- Partly correct is explicit mixed feedback, never a replacement score or a confirmed finding.
+select set_config('request.jwt.claims','{"sub":"11111111-1111-1111-1111-111111111111","email":"manager@trypennie.com"}',false);
+set role authenticated;
+do $$ declare ctx jsonb; correction jsonb; bad jsonb; saved jsonb; result jsonb; begin
+ ctx:=public.get_full_qa_review_context('CALL-PARTLY');
+ correction:=jsonb_build_object('criterion_key','accurate_representations','disposition','partially_correct','corrected_value',null,
+  'reason','The guarantee was misleading, but the interest explanation was qualified.');
+ perform public.submit_full_qa_review('CALL-PARTLY',0,null,ctx->>'source_fingerprint',jsonb_build_array(correction),'[]',true,'',null,null,null);
+ saved:=public.get_full_qa_review_context('CALL-PARTLY');
+ if saved->'review'->'corrections' is distinct from jsonb_build_array(correction) or saved->'review'->'findings'<>'[]'::jsonb
+  or saved->'review'->'action_taken'<>'null'::jsonb or saved->'source_result_json' is distinct from ctx->'source_result_json'
+  then raise exception 'mixed feedback changed the score or manufactured coaching'; end if;
+ result:=public.submit_full_qa_review('CALL-PARTLY',0,null,ctx->>'source_fingerprint',jsonb_build_array(correction),'[]',true,'',null,null,null);
+ if result->>'idempotent'<>'true' then raise exception 'mixed feedback retry not idempotent'; end if;
+ for bad in select value from jsonb_array_elements(jsonb_build_array(
+   correction||jsonb_build_object('reason',''), correction||jsonb_build_object('reason',null),
+   correction||jsonb_build_object('reason','short'), correction||jsonb_build_object('reason',repeat('x',4001)),
+   correction||jsonb_build_object('reason',123), correction||jsonb_build_object('corrected_value','pass'),
+   correction||jsonb_build_object('corrected_value','fail'), correction||jsonb_build_object('criterion_key','not_a_criterion'),
+   correction-'corrected_value', correction-'reason', correction||jsonb_build_object('disposition','unknown')))
+ loop
+  begin perform public.submit_full_qa_review('CALL-PARTLY',1,null,ctx->>'source_fingerprint',jsonb_build_array(bad),'[]',true,'',null,null,null); raise exception 'TEST_EXPECTED_FAILURE_MISSING';
+  exception when others then if sqlerrm='TEST_EXPECTED_FAILURE_MISSING' or sqlerrm<>'EAVESLY_INVALID_FULL_QA_REVIEW' then raise; end if; end;
+ end loop;
+ begin perform public.submit_full_qa_review('CALL-PARTLY',1,null,ctx->>'source_fingerprint',jsonb_build_array(correction,correction),'[]',true,'',null,null,null); raise exception 'TEST_EXPECTED_FAILURE_MISSING';
+ exception when others then if sqlerrm='TEST_EXPECTED_FAILURE_MISSING' or sqlerrm<>'EAVESLY_INVALID_FULL_QA_REVIEW' then raise; end if; end;
+ if public.get_full_qa_review_context('CALL-PARTLY')->'review' is distinct from saved->'review' then raise exception 'invalid mixed feedback overwrote review'; end if;
+end $$;
+reset role;
+select set_config('request.jwt.claims','{"sub":"22222222-2222-2222-2222-222222222222","email":"director@trypennie.com"}',false);
+set role authenticated;
+select public.decide_internal_alert_feedback('CALL-PARTLY','full_qa',1,'approved',null);
+do $$ declare rows jsonb; begin
+ rows:=public.full_qa_finding_occurrences('decision-agent@example.test',clock_timestamp()-interval '30 days',clock_timestamp()+interval '30 days');
+ if exists(select 1 from jsonb_array_elements(rows)x where x->>'call_id'='CALL-PARTLY') then raise exception 'mixed feedback fabricated a recurrence or needs-context finding'; end if;
 end $$;
 reset role;
 -- Out-of-scope actor cannot read recurrence or submit a decision-only review.

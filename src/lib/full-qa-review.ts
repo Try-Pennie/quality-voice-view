@@ -24,10 +24,10 @@ export type FullQaCriterion = {
   readonly findingCategory: FullQaFindingCategory
 }
 
-/** Explicit review treatment for one criterion. */
+/** Explicit review treatment for one criterion. Partly correct records mixed feedback, not a replacement score. */
 export type FullQaCriterionCorrection = {
   readonly criterionKey: string
-  readonly disposition: 'confirmed' | 'corrected' | 'needs_context'
+  readonly disposition: 'confirmed' | 'corrected' | 'partially_correct' | 'needs_context'
   readonly correctedValue: FullQaScore | null
   readonly reason: string | null
 }
@@ -176,8 +176,9 @@ function parseCorrection(input: unknown): FullQaCriterionCorrection | null {
   const correctedValue = input.corrected_value
   const correctionReason = input.reason
   if (typeof input.criterion_key !== 'string'
-    || (input.disposition !== 'confirmed' && input.disposition !== 'corrected' && input.disposition !== 'needs_context')
+    || (input.disposition !== 'confirmed' && input.disposition !== 'corrected' && input.disposition !== 'partially_correct' && input.disposition !== 'needs_context')
     || !nullableString(correctionReason)) return null
+  if (input.disposition === 'partially_correct' && (correctedValue !== null || !bounded(correctionReason))) return null
   let parsedCorrectedValue: FullQaScore | null
   if (correctedValue === null) parsedCorrectedValue = null
   else if (score(correctedValue)) parsedCorrectedValue = correctedValue
@@ -293,6 +294,7 @@ export function parseFullQaReviewDraft(context: FullQaReviewContext, input: Omit
     if (correction.disposition === 'confirmed' && (!criterion.domain.some(value => value === original) || correction.correctedValue !== original || correction.reason !== null)) return { ok: false, message: `${criterion.label} must retain the original AI value when confirmed.`, section: 'scores' }
     if (correction.disposition === 'corrected' && (!criterion.domain.some(value => value === correction.correctedValue) || correction.correctedValue === original)) return { ok: false, message: `${criterion.label} needs a different value and a reason.`, section: 'scores' }
     if (correction.disposition === 'corrected' && !bounded(correction.reason)) return { ok: false, message: `${criterion.label}: explain the correction using ${TEXT_GUIDANCE}.`, section: 'scores' }
+    if (correction.disposition === 'partially_correct' && (correction.correctedValue !== null || !bounded(correction.reason))) return { ok: false, message: `${criterion.label}: explain which parts are right or wrong using ${TEXT_GUIDANCE}.`, section: 'scores' }
     if (correction.disposition === 'needs_context' && (correction.correctedValue !== null || !bounded(correction.reason))) return { ok: false, message: `${criterion.label} needs a context explanation.`, section: 'scores' }
   }
   const normalizedFindings = input.findings.map(normalizedFinding)

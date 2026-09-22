@@ -47,6 +47,18 @@ Moved the alert verdict below the evidence/score review, immediately above **Coa
 - Commit-pinned synthetic screenshots: [desktop](qa-evidence/alert-decision-first/473f0a0/agree-desktop.png), [mobile](qa-evidence/alert-decision-first/473f0a0/agree-mobile.png).
 - Inspected the complete reorder diff and both screenshots. No backend changes or new migration needed; broad PR review/merge gates below remain unchanged.
 
+### Partly correct — follow-up contract
+
+Goal: managers can distinguish mixed feedback from fully correct or incorrect assessments for each flagged criterion. Noah chose **each flagged item** and **unselected by default**.
+
+In scope: add `partially_correct` with a brief explanation (12–4000 characters), no replacement score, and no implied coaching/finding. Preserve it in saved manager and approver views. Clear/switch responses safely. The overall alert verdict remains separate.
+
+Out of scope: default confirmations, overall partial verdict, model/prompt changes, recurrence inference, Phase 2 layout, production rollout or merge.
+
+Done when mixed feedback round-trips, invalid payloads fail at the server/parser, empty feedback stays optional, and approval does not turn partial feedback into a confirmed finding. Verify via `npm run typecheck`, `npm run lint`, `npm run build`, focused/full Playwright, and `npm run test:postgres:ci`; inspect desktop/mobile screenshots and obtain independent review. Stop before production or merge; update PR/staging only after checks.
+
+The additional migration is `20260922140000_full_qa_partially_correct_feedback.sql`, after the decision-first migration. It replaces only the private validator; public RPCs and grants stay unchanged.
+
 ### Independent review
 
 A separate-context Pi/Sol reviewer traced the client, private validator, existing public RPC, approvals and recurrence. Findings addressed:
