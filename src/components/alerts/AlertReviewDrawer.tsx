@@ -848,7 +848,7 @@ export function AlertReviewDrawer({
           </div>}
           <div className={isFullQa ? 'grid min-h-0 flex-1 lg:grid-cols-[minmax(0,3fr)_minmax(360px,2fr)]' : 'contents'}>
             {isFullQa && <section id="full-qa-transcript-panel" aria-label="Transcript workspace" onFocusCapture={() => setFullQaView('transcript')} className={`${fullQaView === 'transcript' ? 'flex' : 'hidden lg:flex'} min-h-0 flex-col gap-5 overflow-y-auto overscroll-contain px-4 py-5 sm:px-6 lg:px-8`}>
-              <header>
+              <header className="hidden lg:block">
                 <p className="pennie-label text-pennie-blue-deeper">Call context</p>
                 <h2 className="mt-1 text-xl font-semibold text-pennie-navy">Transcript</h2>
                 <p className="mt-1 text-sm text-pennie-graphite/70">Search the call or jump here from Eavesly’s evidence. Playback never moves the transcript for you.</p>

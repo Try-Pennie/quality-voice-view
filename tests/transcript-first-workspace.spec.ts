@@ -84,6 +84,8 @@ test('mobile switch preserves one draft and audio instance through every support
     await page.setViewportSize({ width, height: 812 })
     await switchView(page, 'Transcript')
     await expect(transcriptButton).toHaveAttribute('aria-pressed', 'true')
+    await expect(page.getByRole('region', { name: 'Transcript workspace' }).getByText('Hello, let us discuss your program.', { exact: true })).toBeInViewport()
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
     await expect(audio).toHaveAttribute('data-workspace-owner', 'same-audio')
     if (width === 375) await page.screenshot({ path: testInfo.outputPath('transcript-first-mobile-transcript-375.png'), animations: 'disabled' })
     await switchView(page, 'Review')
