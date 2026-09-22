@@ -18,3 +18,38 @@ Done when:
 Verify: `npm run typecheck`, `npm run lint`, `npm run build`, focused Playwright tests followed by `npm run test:browser:ci`, `npm run test:postgres:ci`, and other CI-equivalent checks. Capture synthetic, commit-pinned screenshots. Inspect the complete diff and obtain independent review.
 
 Stop: open the tested PR and request Noah's review. No merge or production migration before approval. Phase 2 starts only after the approved Phase 1 merge. Merging frontend code alone does not apply the required Supabase migration.
+
+## Verification — implementation `faee8242e79789e47e55e9de64cb3b8f297c912f`
+
+- `npm run typecheck`: passed.
+- `npm run lint`: 0 errors, 5 existing Fast Refresh warnings.
+- `npm run build`: passed (existing large-chunk/Browserslist notices).
+- Focused Playwright review/history checks: 45 passed.
+- `npm run test:browser:ci`: **214 passed**, 1 worker, no retries, 10.8 minutes. Fresh process with no simultaneous Docker runs or source edits.
+- `npm run test:postgres:ci`: passed on real PostgreSQL 17. Includes actual RPC saves for empty/sparse corrections, zero/single findings, optional categories/actions, missing scores, invalid payloads, replay idempotency, scoped authorization, sparse approval → guarded edit → pending approval, and unlinked call-level coaching.
+- `npm run test:achieve:ci`, `npm run check:release-preflight`, `npm run check:staging-build`: passed.
+
+The first broad run had obsolete required-field expectations, which were updated to assert the new behavior. One failure's trace showed `ERR_NETWORK_CHANGED` for app assets during parallel Docker tests. A subsequent clean run was interrupted after 152 passing tests; it is not counted as complete. The final 214-test pass above supersedes those incomplete/failed runs.
+
+### Synthetic screenshots
+
+Captured during the complete browser run at the implementation commit above; inspected at desktop 1280×720 and mobile 375×812. No real customer data.
+
+- [Desktop: agreement alone enables Save](qa-evidence/alert-decision-first/faee824/agree-desktop.png)
+- [Mobile: decision and persistent Save](qa-evidence/alert-decision-first/faee824/agree-mobile.png)
+
+### Independent review
+
+A separate-context Pi/Sol reviewer traced the client, private validator, existing public RPC, approvals and recurrence. Findings addressed:
+
+1. Optional reason categories can now be cleared.
+2. Call-level coaching remains allowed without findings, per the user's requirement. Recurrence copy now explicitly describes **approved coaching linked to the same category**, not the absence of any coaching. Real SQL checks prove an approved unlinked coached review persists without inventing category occurrences or coaching proxies.
+3. Added sparse review approval/resubmission regression coverage.
+
+The reviewer accepted that resolution with no remaining blocker. This is same-family review, not cross-family evidence: Pi/Claude was blocked by account extra-usage exhaustion. Noah was DMed for approval to use the verified Claude Code account; that fallback has not been started.
+
+### Production boundary
+
+Read-only inspection of `miikotqnovnixpeqtqnd` confirmed the named corrections constraint still requires exactly 23 responses and the validator still enforces the finding threshold. Duplicate-finding rejection and the public submit RPC are present. No production writes were performed.
+
+The exact required migration is `20260922040000_full_qa_alert_decision_first.sql`. Obtain rollout approval, apply that migration through the approved database process, then merge/deploy the frontend. Do not blanket-push unrelated historical migrations. Existing RPC authorization, grants and immutable source/revision behavior are unchanged. Production end-to-end behavior is **not verified** until the approved rollout.
