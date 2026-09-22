@@ -1,0 +1,96 @@
+import { test, expect } from '@playwright/test'
+import { alertRow, EMAIL, reviewFixture } from './review-fixture'
+
+const summary = 'The agent guaranteed a debt-free date without explaining uncertainty.'
+const explanation = 'The recorded context does not justify sending this alert.'
+
+test('coaching belongs to Yes; hidden drafts never block No and survive toggles and failed saves', async ({ page }, testInfo) => {
+  const state = await reviewFixture(page, [alertRow('conditional-coaching')])
+  await page.goto('/dashboard/alerts/conditional-coaching/full_qa')
+  const decision = page.getByRole('group', { name: 'Was this alert warranted?', exact: true })
+  const coaching = page.getByRole('region', { name: 'Coaching issues', exact: true })
+  const yes = page.getByRole('radio', { name: 'Yes, the alert was warranted', exact: true })
+  const no = page.getByRole('radio', { name: 'No, the alert was unnecessary', exact: true })
+  const save = page.getByRole('button', { name: 'Save review', exact: true })
+  const issue = page.getByRole('textbox', { name: 'What was the issue? Finding 1 summary', exact: true })
+  await expect(coaching).toHaveCount(0)
+  await expect(page.getByRole('button', { name: 'Add as coaching issue', exact: true })).toHaveCount(0)
+  await yes.check()
+  await expect(decision.getByRole('region', { name: 'Coaching issues', exact: true })).toBeVisible()
+  await expect(save).toBeEnabled()
+  await page.getByRole('article', { name: 'Accurate representations', exact: true }).getByRole('button', { name: 'Add as coaching issue', exact: true }).click()
+  await issue.fill('draft')
+  await expect(save).toBeDisabled()
+  await no.check()
+  await expect(coaching).toHaveCount(0)
+  await expect(page.getByRole('button', { name: /^(Add as|Edit) coaching issue/ })).toHaveCount(0)
+  await page.getByRole('textbox', { name: 'Explain your decision', exact: true }).fill(explanation)
+  await expect(decision).toContainText('Coaching issues won’t be included when you save No.')
+  await expect(save).toBeEnabled()
+  await yes.check()
+  await expect(issue).toHaveValue('draft')
+  await expect(save).toBeDisabled()
+  await issue.fill(summary)
+  await expect(save).toBeEnabled()
+  for (const width of [1280, 375]) {
+    await page.setViewportSize({ width, height: 900 })
+    await decision.getByText('Was this alert warranted?', { exact: true }).evaluate(element => element.scrollIntoView({ block: 'start' }))
+    await expect(coaching.getByRole('heading', { name: 'Coaching issues (optional)', exact: true })).toBeInViewport()
+    await page.screenshot({ path: testInfo.outputPath(`coaching-yes-${width}.png`), animations: 'disabled' })
+    await no.check()
+    await expect(coaching).toHaveCount(0)
+    await expect(save).toBeEnabled()
+    await expect(save).toBeInViewport()
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
+    await page.screenshot({ path: testInfo.outputPath(`coaching-no-${width}.png`), animations: 'disabled' })
+    await yes.check()
+    await expect(issue).toHaveValue(summary)
+  }
+  await no.check()
+  state.failFeedback = true
+  await save.click()
+  await expect(page.getByText(/Couldn't save Full QA review/)).toBeVisible()
+  await yes.check()
+  await expect(issue).toHaveValue(summary)
+  await no.check()
+  state.failFeedback = false
+  await save.click()
+  await expect(page.getByText('Full QA review saved', { exact: true })).toBeVisible()
+  expect(state.fullQaReviews.get('conditional-coaching')).toMatchObject({ escalation_justified: false, findings: [], corrections: [], action_taken: null })
+  await page.goto('/dashboard/alerts/conditional-coaching/full_qa')
+  await expect(page.getByRole('button', { name: 'Update review', exact: true })).toBeDisabled()
+  await expect(coaching).toHaveCount(0)
+  await yes.check()
+  await expect(coaching).toContainText('No coaching issues added.')
+  await expect(issue).toHaveCount(0)
+})
+
+test('historical No reviews are untouched on load and hidden coaching edits still guard navigation', async ({ page }) => {
+  const finding = { finding_id: '00000000-0000-4000-8000-000000000001', category: 'compliance', related_criteria: ['accurate_representations'], summary, evidence: 'The guarantee was repeated at the end of the call.' }
+  const state = await reviewFixture(page, [alertRow('legacy-no-coaching', { is_reviewed: true, feedback_id: 1, feedback_by: EMAIL, accurate: false })], {
+    fullQaReviews: new Map([['legacy-no-coaching', { feedback_revision: 1, corrections: [], findings: [finding], escalation_justified: false,
+      escalation_reason: explanation, escalation_inaccuracy_reason: null, action_taken: null, action_details: null, saved_by: EMAIL, saved_at: '2026-09-05T14:00:00Z' }]]),
+  })
+  await page.goto('/dashboard/alerts/legacy-no-coaching/full_qa')
+  const update = page.getByRole('button', { name: 'Update review', exact: true })
+  await expect(update).toBeDisabled()
+  await expect(page.getByRole('region', { name: 'Coaching issues', exact: true })).toHaveCount(0)
+  expect(state.writes).toEqual([])
+  await page.getByRole('radio', { name: 'Yes, the alert was warranted', exact: true }).check()
+  const issue = page.getByRole('textbox', { name: 'What was the issue? Finding 1 summary', exact: true })
+  await expect(issue).toHaveValue(summary)
+  await issue.fill('Unsaved coaching text must survive a cancelled navigation.')
+  await page.getByRole('radio', { name: 'No, the alert was unnecessary', exact: true }).check()
+  await expect(update).toBeEnabled()
+  let confirmations = 0
+  page.once('dialog', async dialog => { confirmations++; await dialog.dismiss() })
+  await page.getByRole('button', { name: 'Close (Esc)', exact: true }).click()
+  expect(confirmations).toBe(1)
+  await page.getByRole('radio', { name: 'Yes, the alert was warranted', exact: true }).check()
+  await expect(issue).toHaveValue('Unsaved coaching text must survive a cancelled navigation.')
+  expect(state.writes).toEqual([])
+  await page.getByRole('radio', { name: 'No, the alert was unnecessary', exact: true }).check()
+  await update.click()
+  await expect.poll(() => state.fullQaReviews.get('legacy-no-coaching')?.feedback_revision).toBe(2)
+  expect(state.fullQaReviews.get('legacy-no-coaching')?.findings).toEqual([])
+})

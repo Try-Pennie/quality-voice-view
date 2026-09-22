@@ -7,6 +7,7 @@ const actionDetails = 'Coached the agent on consent and practiced accurate outco
 test('warranted reviews save issue descriptions once, retain evidence, and reopen cleanly', async ({ page }, testInfo) => {
   const state = await reviewFixture(page, [alertRow('less-typing')])
   await page.goto('/dashboard/alerts/less-typing/full_qa')
+  await page.getByRole('radio', { name: 'Yes, the alert was warranted', exact: true }).check()
   for (const [index, criterion] of ['Credit pull consent', 'Accurate representations'].entries()) {
     await page.getByRole('article', { name: criterion, exact: true }).getByRole('button', { name: 'Add as coaching issue' }).click()
     await page.getByRole('textbox', { name: `Finding ${index + 1} summary` }).fill(summaries[index])
@@ -20,7 +21,7 @@ test('warranted reviews save issue descriptions once, retain evidence, and reope
   await action.fill(actionDetails)
   await expect(page.getByRole('button', { name: 'Save review', exact: true })).toBeEnabled()
 
-  // A dismissed-alert explanation is a separate draft, never generated from confirmed issues.
+  // The optional review note survives verdict toggles and is never generated from issue text.
   await page.getByRole('radio', { name: 'No, the alert was unnecessary', exact: true }).check()
   const reason = page.getByRole('textbox', { name: 'Explain your decision', exact: true })
   await expect(reason).toHaveValue('')
@@ -46,7 +47,7 @@ test('warranted reviews save issue descriptions once, retain evidence, and reope
   await page.getByRole('button', { name: 'Save review', exact: true }).click()
   await expect(page.getByText('Full QA review saved', { exact: true })).toBeVisible()
   expect(state.fullQaReviews.get('less-typing')).toMatchObject({
-    escalation_reason: summaries.join('\n\n'), action_details: actionDetails,
+    escalation_reason: 'The two score flags concern the same underlying incident.', action_details: actionDetails,
     findings: summaries.map(summary => expect.objectContaining({ summary })),
   })
   await page.goto('/dashboard/alerts/less-typing/full_qa?status=all')
@@ -57,7 +58,7 @@ test('warranted reviews save issue descriptions once, retain evidence, and reope
   await page.getByRole('textbox', { name: 'Finding 1 summary' }).fill(changedSummary)
   await page.getByRole('button', { name: 'Update review', exact: true }).click()
   await expect.poll(() => state.fullQaReviews.get('less-typing')?.feedback_revision).toBe(2)
-  expect(state.fullQaReviews.get('less-typing')?.escalation_reason).toBe([changedSummary, summaries[1]].join('\n\n'))
+  expect(state.fullQaReviews.get('less-typing')?.escalation_reason).toBe('The two score flags concern the same underlying incident.')
 
   // Reviews saved before this change have a separately typed overview. Merely
   // opening one must not dirty it or write a replacement revision.
@@ -76,6 +77,7 @@ test('three logged issues guide directly to the missing summary and evidence, in
   const state = await reviewFixture(page, [alertRow('missing-fields')])
   await page.setViewportSize({ width: 375, height: 812 })
   await page.goto('/dashboard/alerts/missing-fields/full_qa')
+  await page.getByRole('radio', { name: 'Yes, the alert was warranted', exact: true }).check()
   for (const criterion of ['Credit pull consent', 'Accurate representations', 'patience empathy']) {
     await page.getByRole('article', { name: criterion, exact: true }).getByRole('button', { name: 'Add as coaching issue' }).click()
   }
@@ -111,9 +113,10 @@ test('three logged issues guide directly to the missing summary and evidence, in
   await expect.poll(() => state.fullQaReviews.has('missing-fields')).toBe(true)
 })
 
-test('long issue descriptions remain complete while the generated overview fits the existing save contract', async ({ page }) => {
+test('long optional issue descriptions remain complete without requiring a duplicate overview', async ({ page }) => {
   const state = await reviewFixture(page, [alertRow('long-issues')])
   await page.goto('/dashboard/alerts/long-issues/full_qa')
+  await page.getByRole('radio', { name: 'Yes, the alert was warranted', exact: true }).check()
   const longSummaries = [summaries[0] + ' Detail.'.repeat(400), summaries[1] + ' Context.'.repeat(400)]
   for (const [index, criterion] of ['Credit pull consent', 'Accurate representations'].entries()) {
     await page.getByRole('article', { name: criterion, exact: true }).getByRole('button', { name: 'Add as coaching issue' }).click()
@@ -126,7 +129,5 @@ test('long issue descriptions remain complete while the generated overview fits 
   await expect.poll(() => state.fullQaReviews.has('long-issues')).toBe(true)
   const saved = state.fullQaReviews.get('long-issues')
   expect(saved).toMatchObject({ findings: longSummaries.map(summary => expect.objectContaining({ summary })) })
-  expect(typeof saved?.escalation_reason).toBe('string')
-  expect(String(saved?.escalation_reason).length).toBeLessThanOrEqual(4000)
-  expect(String(saved?.escalation_reason)).toContain('See coaching issues for full details.')
+  expect(saved?.escalation_reason).toBe('')
 })
