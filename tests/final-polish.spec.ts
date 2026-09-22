@@ -11,6 +11,7 @@ test('dropdown typing never navigates and Full QA ignores generic verdict shortc
   await page.getByRole('button', { name: 'Close (Esc)', exact: true }).click()
   await expect(page.getByRole('dialog')).toHaveCount(0)
   await page.goto('/dashboard/alerts/polish-first/full_qa?status=awaiting_manager')
+  await page.getByRole('radio', { name: 'Yes, the alert was warranted', exact: true }).check()
   const add = page.getByRole('article', { name: 'Credit pull consent', exact: true }).getByRole('button', { name: 'Add as coaching issue' })
   await add.click()
   const category = page.getByRole('combobox', { name: 'Finding 1 category' })
@@ -32,6 +33,7 @@ test('adding an issue keeps evidence in view and verdict fields reveal without l
   await expect(page.getByRole('article', { name: 'Credit pull consent', exact: true })).toBeVisible()
   await page.screenshot({ path: testInfo.outputPath('polished-review-entry.png') })
   await expect(page.getByRole('textbox', { name: 'Explain your decision', exact: true })).toHaveCount(0)
+  await page.getByRole('radio', { name: 'Yes, the alert was warranted', exact: true }).check()
   const criterion = page.getByRole('article', { name: 'Credit pull consent', exact: true })
   await criterion.getByRole('button', { name: 'Add as coaching issue' }).click()
   const edit = criterion.getByRole('button', { name: 'Edit coaching issue 1' })
@@ -142,6 +144,7 @@ test('queue projects compact reasons and never presents a newer Full QA reason a
 test('a blank coaching issue exposes its required criterion picker', async ({ page }) => {
   const state = await reviewFixture(page, [alertRow('blank-finding')])
   await page.goto('/dashboard/alerts/blank-finding/full_qa')
+  await page.getByRole('radio', { name: 'Yes, the alert was warranted', exact: true }).check()
   await page.getByRole('button', { name: 'Add an issue', exact: true }).click()
   const consent = page.getByRole('checkbox', { name: 'Credit pull consent', exact: true })
   await expect(consent).toBeVisible()

@@ -8,8 +8,11 @@ test('agree alone saves without fabricated score confirmations or coaching, and 
   await expect(save).toBeDisabled()
   const reviewSections = page.locator('h2, legend').filter({ hasText: /^(Scores to review|Was this alert warranted\?|Coaching issues \(optional\))$/ })
   const expectedOrder = ['Scores to review', 'Was this alert warranted?', 'Coaching issues (optional)']
-  await expect(reviewSections).toHaveText(expectedOrder)
+  await expect(reviewSections).toHaveText(expectedOrder.slice(0, 2))
+  await expect(page.getByRole('region', { name: 'Coaching issues', exact: true })).toHaveCount(0)
   await page.getByRole('radio', { name: 'Yes, the alert was warranted', exact: true }).check()
+  await expect(reviewSections).toHaveText(expectedOrder)
+  await expect(page.getByRole('group', { name: 'Was this alert warranted?', exact: true }).getByRole('region', { name: 'Coaching issues', exact: true })).toBeVisible()
   await expect(save).toBeEnabled()
   await page.screenshot({ path: testInfo.outputPath('agree-desktop.png'), animations: 'disabled' })
   await page.setViewportSize({ width: 375, height: 812 })

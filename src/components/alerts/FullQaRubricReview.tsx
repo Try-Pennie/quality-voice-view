@@ -310,7 +310,7 @@ export function FullQaRubricReview({ alert, scope, editable, canReloadReview, re
   const latestContextToken = context ? `${context.sourceFingerprint}:${context.review?.feedbackRevision ?? 0}` : ''
   const contextChanged = staleReview || (!!context && !!contextToken.current && latestContextToken !== contextToken.current)
   const parsed: FullQaDraftResult = !context ? { ok: false, message: 'Loading the Full QA rubric.', section: 'scores' }
-    : parseFullQaReviewDraft(context, draft)
+    : parseFullQaReviewDraft(context, { ...draft, findings: escalationJustified === true ? findings : [] })
   const saveDisabled = !editable || busy || parsed.ok === false || !reviewDirty || contextChanged
   const saveLabel = saving ? 'Saving…' : context?.review ? 'Update review' : 'Save review'
   const saveMessage = query.isError ? 'Review unavailable. Retry above.'
@@ -395,6 +395,8 @@ export function FullQaRubricReview({ alert, scope, editable, canReloadReview, re
       }
       return
     }
+    // Keep hidden coaching in the draft until the manager successfully saves No.
+    setFindings(parsed.value.findings)
     baseline.current = serializeDraft(parsed.value)
     contextToken.current = `${context.sourceFingerprint}:${result.value.reviewRevision}`
     reviewIdentity.current = { revision: result.value.reviewRevision, decisionId: null }
@@ -506,7 +508,7 @@ export function FullQaRubricReview({ alert, scope, editable, canReloadReview, re
               {correction?.disposition === 'partially_correct' && <label className="block text-sm font-semibold">Which parts are right or wrong?<ReviewText label={`${criterion.label} partly correct explanation`} disabled={locked} value={correction.reason ?? ''} placeholder="A brief explanation is enough. No replacement score or coaching plan needed." onChange={reason => updateCorrection(criterion.key, { reason })} /></label>}
             </div>}
             {!editable && !saved && <p className="text-sm text-pennie-graphite/70">No structured response was recorded for this criterion.</p>}
-            {editable && (linkedIndex >= 0
+            {editable && escalationJustified === true && (linkedIndex >= 0
               ? <button type="button" disabled={locked} onClick={() => focusFinding(findings[linkedIndex].findingId)} className="pennie-focus-ring min-h-[44px] sm:min-h-[36px] text-xs font-semibold text-pennie-blue-deeper underline-offset-4 hover:underline">Edit coaching issue {linkedIndex + 1}</button>
               : <button type="button" disabled={locked} onClick={() => addIssueFromCriterion(criterion, evidence, notes)} className="pennie-focus-ring min-h-[44px] sm:min-h-[36px] rounded-full border border-border px-3 text-xs font-semibold text-pennie-blue-deeper disabled:opacity-40"><Plus className="mr-1 inline h-3.5 w-3.5" aria-hidden="true" />Add as coaching issue</button>)}
           </section>
@@ -553,10 +555,10 @@ export function FullQaRubricReview({ alert, scope, editable, canReloadReview, re
       {escalationJustified === false && <>
         <label className="block text-sm font-semibold">Explain your decision<ReviewText label="Explain your decision" value={escalationReason} placeholder="What did Eavesly miss or misunderstand? A brief explanation is enough." onChange={setEscalationReason} /></label>
         <fieldset><legend className="mb-2 text-xs font-semibold">Reason category (optional)</legend><div className="flex flex-wrap gap-2" role="radiogroup" aria-label="Why was the alert unnecessary?">{REASONS.map(value => <ReviewChoice key={value} name={`${scorecardId}-reason`} checked={inaccuracyReason === value} onChange={() => setInaccuracyReason(value)} label={INACCURACY_REASON_LABELS[value]} />)}</div>{inaccuracyReason !== null && <button type="button" onClick={() => setInaccuracyReason(null)} className="pennie-focus-ring min-h-[44px] text-xs font-semibold text-pennie-blue-deeper">Clear reason category</button>}</fieldset>
+        {findings.length > 0 && <p className="text-sm text-pennie-graphite/70">Coaching issues won’t be included when you save No. Select Yes to restore your draft. Earlier saved revisions remain in review history.</p>}
       </>}
-    </fieldset>}
 
-    {editable && <section aria-label="Coaching issues" className="space-y-4 border-t border-border pt-5">
+    {escalationJustified === true && <section aria-label="Coaching issues" className="space-y-4 border-t border-border pt-5">
       <div><h2 id={`${scorecardId}-coaching`} tabIndex={-1} className="pennie-focus-ring text-base font-semibold text-pennie-navy">Coaching issues (optional)</h2><p className="mt-1 text-sm text-pennie-graphite">Only add details if useful for coaching. You can save the alert decision without adding any issues.</p></div>
       {findings.map((finding, index) => <fieldset key={finding.findingId} id={findingElementId(finding.findingId)} disabled={locked} className="rounded-xl bg-pennie-beige/60 p-3 space-y-2"><legend className="px-1 text-xs font-semibold">Issue {index + 1}</legend>
         <label className="block text-xs font-semibold">Category<select aria-label={`Finding ${index + 1} category`} value={finding.category} onChange={event => updateFinding(finding.findingId, { category: event.target.value as FullQaFindingCategory })} className="mt-1 min-h-[40px] w-full rounded-lg border bg-white px-2 font-normal">{Object.entries(CATEGORY_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
@@ -571,6 +573,7 @@ export function FullQaRubricReview({ alert, scope, editable, canReloadReview, re
       {findings.length === 0 && <p className="text-sm text-pennie-graphite/70">No coaching issues added.</p>}
       <button type="button" disabled={locked} onClick={addBlankIssue} className="min-h-[40px] rounded-full border border-border px-3 text-xs font-semibold text-pennie-blue-deeper disabled:opacity-40"><Plus className="mr-1 inline h-4 w-4" aria-hidden="true" />{findings.length ? 'Add another issue' : 'Add an issue'}</button>
     </section>}
+    </fieldset>}
 
     {editable && escalationJustified !== null && <section aria-label="Follow-up with the rep" className="space-y-3 border-t border-border pt-5 [&_textarea]:min-h-28">
       <h2 id={`${scorecardId}-followup`} tabIndex={-1} className="pennie-focus-ring text-base font-semibold text-pennie-navy">Follow-up with the rep</h2>

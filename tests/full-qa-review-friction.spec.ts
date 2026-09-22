@@ -7,6 +7,7 @@ const actionDetails = 'Coached the agent on consent and practiced accurate outco
 test('warranted reviews save issue descriptions once, retain evidence, and reopen cleanly', async ({ page }, testInfo) => {
   const state = await reviewFixture(page, [alertRow('less-typing')])
   await page.goto('/dashboard/alerts/less-typing/full_qa')
+  await page.getByRole('radio', { name: 'Yes, the alert was warranted', exact: true }).check()
   for (const [index, criterion] of ['Credit pull consent', 'Accurate representations'].entries()) {
     await page.getByRole('article', { name: criterion, exact: true }).getByRole('button', { name: 'Add as coaching issue' }).click()
     await page.getByRole('textbox', { name: `Finding ${index + 1} summary` }).fill(summaries[index])
@@ -76,6 +77,7 @@ test('three logged issues guide directly to the missing summary and evidence, in
   const state = await reviewFixture(page, [alertRow('missing-fields')])
   await page.setViewportSize({ width: 375, height: 812 })
   await page.goto('/dashboard/alerts/missing-fields/full_qa')
+  await page.getByRole('radio', { name: 'Yes, the alert was warranted', exact: true }).check()
   for (const criterion of ['Credit pull consent', 'Accurate representations', 'patience empathy']) {
     await page.getByRole('article', { name: criterion, exact: true }).getByRole('button', { name: 'Add as coaching issue' }).click()
   }
@@ -114,6 +116,7 @@ test('three logged issues guide directly to the missing summary and evidence, in
 test('long optional issue descriptions remain complete without requiring a duplicate overview', async ({ page }) => {
   const state = await reviewFixture(page, [alertRow('long-issues')])
   await page.goto('/dashboard/alerts/long-issues/full_qa')
+  await page.getByRole('radio', { name: 'Yes, the alert was warranted', exact: true }).check()
   const longSummaries = [summaries[0] + ' Detail.'.repeat(400), summaries[1] + ' Context.'.repeat(400)]
   for (const [index, criterion] of ['Credit pull consent', 'Accurate representations'].entries()) {
     await page.getByRole('article', { name: criterion, exact: true }).getByRole('button', { name: 'Add as coaching issue' }).click()

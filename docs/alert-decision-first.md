@@ -65,6 +65,14 @@ Synthetic screenshots pinned to `688cdaa`: [desktop](qa-evidence/alert-decision-
 
 Independent same-family Pi/Sol review identified inconsistent rollout instructions and a UTF-16/PostgreSQL character-count mismatch. Both were addressed with explicit migration sequencing and shared code-point counts plus regression coverage. Pi/Claude could not start because extra usage was exhausted; no account switch or Claude Code fallback was used. Cross-family review remains outstanding.
 
+### Conditional coaching — final staging feedback
+
+Noah requested **Coaching issues** inside **Was this alert warranted?**, visible only after **Yes**. He chose to retain coaching drafts across Yes/No toggles until Save: saving No excludes those issues from the new revision; earlier saved revisions remain intact.
+
+Scope: the editable Full QA form, draft-to-save projection, and browser regression tests. Hide per-score Add/Edit coaching controls unless Yes, keep hidden drafts dirty for navigation protection, and clear them only after a successful No save. Follow-up actions, partial score feedback, read-only historical reviews, backend contracts, and the two existing migration requirements are unchanged. No new migration or production changes.
+
+Verify: typecheck/lint/build, focused and full browser suites (conditional nesting, empty/no visibility, incomplete hidden drafts, toggle/failed-save retention, successful No save/reopen, historical No reviews and navigation guards), and hosted desktop/mobile checks before staging handoff. Stop at tested staging and the updated PR; no production deployment or merge.
+
 ### Independent review
 
 A separate-context Pi/Sol reviewer traced the client, private validator, existing public RPC, approvals and recurrence. Findings addressed:
