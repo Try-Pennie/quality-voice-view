@@ -20,3 +20,25 @@ Done when:
 Verify: `npm run typecheck`, `npm run lint`, `npm run build`; focused Playwright workspace/transcript/recording/form tests then `npm run test:browser:ci`; CI-equivalent SQL/preflight checks as appropriate. Inspect synthetic commit-pinned desktop/mobile screenshots and actual hosted staging behavior. Independent review in a separate context; surface any unavailable cross-family review rather than silently waiving it.
 
 Stop: tested branch and separate PR, isolated staging deployment, Slack notification and Noah's review. No main merge or production changes. Escalate only if the design requires schema/authorization changes or cannot preserve existing review behavior.
+
+## Verification — `9a589a5`
+
+- Parent-owned fresh run: `npm run typecheck`, `npm run lint`, `npm run build`, `npm run test:browser:ci`, `npm run test:postgres:ci`, `npm run test:achieve:ci`, `npm run check:release-preflight`, and `npm run check:staging-build` all passed.
+- **229/229 browser tests passed**, one worker, no retries (12.4 minutes). PostgreSQL integration suites passed against disposable PostgreSQL 17; no live migrations are required for this phase.
+- Focused workspace/motion check: **13/13 passed**. Earlier broad run had two stale motion-layout expectations (227 passed); both were updated to assert the enlarged desktop workspace and default mobile transcript, and the complete rerun above is green.
+- Typecheck/build passed; lint: 0 errors / 5 existing Fast Refresh warnings. Existing Browserslist, bundle-size, Node experimental-type-transform and dependency-audit notices are not remediated by this UI work.
+- Mobile omits the redundant workspace title/instruction header while keeping its named region and view buttons. Tests assert the first transcript turn is visible at 320/375/414/768 widths.
+
+Synthetic captures at the verified source commit, visually inspected:
+- [Desktop entry](qa-evidence/transcript-first-review/9a589a5/transcript-first-desktop-entry.png)
+- [Mobile transcript](qa-evidence/transcript-first-review/9a589a5/transcript-first-mobile-transcript-375.png)
+- [Mobile review](qa-evidence/transcript-first-review/9a589a5/transcript-first-mobile-review-375.png)
+- [Literal evidence jump](qa-evidence/transcript-first-review/9a589a5/transcript-first-literal-match-375.png)
+
+## Independent review
+
+Separate-context Pi/Sol review identified eager transcript scope/cache isolation, duplicate QA selection, and focused-panel visibility across responsive changes. All three were corrected and covered by behavioral tests. Re-review of `0b8510d` and final delta through `9a589a5` found no remaining actionable issues. Parent inspected the production and test diff and executed the complete verification above independently.
+
+Pi/Claude could not start because extra usage was exhausted; no account switch or Claude Code fallback was used. This is same-family independent review, not cross-family evidence. Cross-family review remains outstanding before a future production rollout unless Noah explicitly waives it for this phase.
+
+Scope checks prevent the new eager UI path from reading off-team call transcripts and isolate its cache. They do **not** repair the pre-existing broad authenticated grants on raw call tables or make a claim about direct API authorization. That backend security debt is outside this UI-only change. Other alert modules retain their original layout/lazy transcript flow, now with the same supplied-scope guard; god-mode partner access is unchanged.
