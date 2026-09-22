@@ -32,7 +32,7 @@ test('warranted alerts preserve issue descriptions and the action taken through 
   await expect(action).toHaveAccessibleDescription(/12.*4,000.*11/)
   await expect(action).toHaveAttribute('aria-invalid', 'true')
   await expect(page.getByRole('button', { name: 'Save review', exact: true })).toBeDisabled()
-  await expect(page.getByRole('status')).toContainText('Describe the coaching or next steps using 12–4,000 characters, or clear the optional follow-up.')
+  await expect(page.getByRole('contentinfo').getByRole('status')).toContainText('Describe the coaching or next steps using 12–4,000 characters, or clear the optional follow-up.')
   await action.fill('Reviewed both issues with the rep and practiced the approved language.')
   await expect(page.getByRole('button', { name: 'Save review', exact: true })).toBeEnabled()
   // Verdict changes preserve the action without inventing a dismissal explanation.
@@ -44,6 +44,7 @@ test('warranted alerts preserve issue descriptions and the action taken through 
   await expect(actions.getByRole('radio', { name: 'Coached the agent', exact: true })).toBeChecked()
   for (const width of [1440, 375, 320]) {
     await page.setViewportSize({ width, height: 900 })
+    if (width === 375) await page.getByRole('button', { name: 'Review', exact: true }).click()
     await followup.scrollIntoViewIfNeeded()
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
     expect((await action.boundingBox())?.height).toBeGreaterThanOrEqual(112)
@@ -67,6 +68,7 @@ test('warranted alerts preserve issue descriptions and the action taken through 
   await expect(outcome.getByText('What action did you take?', { exact: true })).toBeVisible()
   await expect(kris.getByRole('button', { name: 'Approve review', exact: true })).toBeEnabled()
   await page.goto('/dashboard/alerts/clear-followup/full_qa?status=all')
+  await page.getByRole('button', { name: 'Review', exact: true }).click()
   await expect(page.getByRole('textbox', { name: 'Finding 1 summary' })).toHaveValue('Confirmed separate compliance issue 1 from this synthetic call.')
   await expect(action).toHaveValue(saved.action_details as string)
   await expect(page.getByRole('button', { name: 'Update review', exact: true })).toBeDisabled()

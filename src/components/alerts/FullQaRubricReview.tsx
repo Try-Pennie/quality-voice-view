@@ -462,9 +462,9 @@ export function FullQaRubricReview({ alert, scope, editable, canReloadReview, re
       const excerpts = excerptItems(evidence, aiConcern ? notes : [], renderAudioLink)
       const sourceHeading = aiConcern ? 'What Eavesly flagged' : 'Eavesly’s assessment'
       const responseHeading = editable ? 'Your review' : 'Manager’s response'
-      return <article key={criterion.key} aria-label={criterion.label} hidden={!showFullScorecard && !attentionKeys.has(criterion.key)} className="border-b border-border py-5">
-        <div className="grid min-w-0 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
-          <section aria-label={`${criterion.label}: ${sourceHeading}`} className="min-w-0 space-y-3 bg-pennie-beige p-4 sm:p-5">
+      return <article key={criterion.key} aria-label={criterion.label} hidden={!showFullScorecard && !attentionKeys.has(criterion.key)} className="border-b border-border py-4">
+        <div className="min-w-0 overflow-hidden rounded-2xl border border-border">
+          <section aria-label={`${criterion.label}: ${sourceHeading}`} className="min-w-0 space-y-3 bg-pennie-beige p-4">
             <div>
               <p className={`mb-0.5 inline-flex items-center gap-2 text-xs font-bold ${aiConcern ? 'text-pennie-yellow-deeper' : 'text-pennie-blue-deeper'}`}>{aiConcern ? <Flag className="h-4 w-4 shrink-0" aria-hidden="true" /> : <MessageSquare className="h-4 w-4 shrink-0" aria-hidden="true" />}{label}</p>
               <h3 className="min-w-0 break-words text-base font-semibold text-pennie-navy">{criterion.label}</h3>
@@ -481,7 +481,7 @@ export function FullQaRubricReview({ alert, scope, editable, canReloadReview, re
               {entries.length > 0 && <pre className="mt-2 whitespace-pre-wrap break-words text-xs">{JSON.stringify(evidence, null, 2)}</pre>}
             </details>
           </section>
-          <section aria-label={`${criterion.label}: ${responseHeading}`} className="min-w-0 space-y-3 border-t border-border p-4 sm:p-5 md:border-l md:border-t-0">
+          <section aria-label={`${criterion.label}: ${responseHeading}`} className="min-w-0 space-y-3 border-t border-border p-4">
             {saved && <div className="border-b border-pennie-blue-main pb-3 text-sm">
               <p className="mb-1 text-xs font-bold text-pennie-blue-deeper">Manager’s saved response</p>
               <p className="font-semibold text-pennie-navy">{correctionLabels(saved).saved}</p>

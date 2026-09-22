@@ -40,7 +40,7 @@ import {
   submitInternalAlertFeedback,
   type UserScope,
 } from '@/lib/alert-queries'
-import { useAgentFeedbackForCall, useAlertThread, useRecordingTiming } from '@/hooks/use-queries'
+import { useAgentFeedbackForCall, useAlertThread, useCallDetail, useRecordingTiming } from '@/hooks/use-queries'
 import { registerHistoryNavigationGuard } from '@/lib/history-navigation-guard'
 import { PennieAgentFeedbackSection } from '@/components/PennieAgentFeedbackSection'
 import { FULL_QA_FORM_ID, FullQaRubricReview, type FullQaSaveState } from './FullQaRubricReview'
@@ -158,32 +158,39 @@ export function AlertReviewDrawer({
   queuePosition,
 }: Props) {
   const isFullQa = workload === 'internal' && alert?.module_name === 'full_qa'
-  const { data: recordingTiming } = useRecordingTiming(alert?.call_id, alert?.module_name, alert?.recording_reference, scope)
+  const callInScope = scope.isGodMode || (!!alert?.agent_email && scope.managedAgents.some(email => email.toLowerCase() === alert.agent_email?.toLowerCase()))
+  const { data: transcriptCall } = useCallDetail(isFullQa && callInScope ? alert?.call_id : undefined, scope, alert?.agent_email)
+  const { data: recordingTiming } = useRecordingTiming(callInScope ? alert?.call_id : undefined, alert?.module_name, alert?.recording_reference, scope)
   const player = useRef<RecordingControls>(null)
   const [audioElement, setAudioElement] = useState<HTMLAudioElement | null>(null)
   const verifiedTiming = alert?.recording_link && recordingTiming?.recording_reference === alert.recording_reference ? recordingTiming : null
   const matchAudioQuote = useMemo(() => verifiedTiming ? createAudioQuoteMatcher(verifiedTiming) : null, [verifiedTiming])
   const hasTranscriptQuote = useMemo(() => {
-    // Reuse only the already-authorized cache; don't eagerly fetch every call's transcript.
-    const original = verifiedTiming ? (parseTranscriptTurns(verifiedTiming.original_transcript) ?? [{ text: verifiedTiming.original_transcript }]).map(turn => turn.text).join('\u0000') : ''
+    const loadedTranscript = transcriptCall?.qa?.original_transcript
+    const transcript = typeof loadedTranscript === 'string' ? loadedTranscript : verifiedTiming?.original_transcript ?? ''
+    const original = (parseTranscriptTurns(transcript) ?? [{ text: transcript }]).map(turn => turn.text).join('\u0000')
     const matches = new Map<string, boolean>()
     return (quote: string) => {
       if (!matches.has(quote)) matches.set(quote, quote.trim().length >= 12 && findTranscriptRanges(original, [quote]).length > 0)
-      return matches.get(quote)
+      return matches.get(quote) === true
     }
-  }, [verifiedTiming])
+  }, [transcriptCall?.qa?.original_transcript, verifiedTiming])
   const renderAudioLink = (quote: string, speaker?: string, allowFind = false) => {
     const range = matchAudioQuote?.(quote)
+    const canFind = allowFind && hasTranscriptQuote(quote)
     const buttonClass = 'pennie-focus-ring inline-flex min-h-[44px] items-center rounded-full px-2 text-xs font-semibold text-pennie-blue-deeper hover:underline'
-    if (!range) return allowFind && hasTranscriptQuote(quote)
-      ? <button type="button" className={buttonClass} onClick={() => { openTranscript(); setTranscriptQuote(quote) }}
-        aria-label={`Find in transcript${speaker ? ` — ${speaker}` : ''}`}>Find in transcript</button> : null
+    const findButton = canFind ? <button type="button" className={buttonClass} onClick={() => { openTranscript(); setTranscriptQuote(quote) }}
+      aria-label={`Find in transcript${speaker ? ` — ${speaker}` : ''}`}>Find in transcript</button> : null
+    if (!range) return findButton
     const label = `${Math.floor(range.start / 60)}:${Math.floor(range.start % 60).toString().padStart(2, '0')}`
-    return <button type="button" className={buttonClass}
-      aria-label={`Play from here at ${label}${speaker ? ` — ${speaker}` : ''}`}
-      onClick={() => player.current?.playFrom(range.start, verifiedTiming.duration)}>
-      Play from here <span className="ml-1 tabular-nums">· {label}</span>
-    </button>
+    return <span className="flex flex-wrap items-center gap-1">
+      <button type="button" className={buttonClass}
+        aria-label={`Play from here at ${label}${speaker ? ` — ${speaker}` : ''}`}
+        onClick={() => player.current?.playFrom(range.start, verifiedTiming.duration)}>
+        Play from here <span className="ml-1 tabular-nums">· {label}</span>
+      </button>
+      {findButton}
+    </span>
   }
   const [accurate, setAccurate] = useState<boolean | null>(null)
   const [action, setAction] = useState<AlertActionTaken | null>(null)
@@ -196,13 +203,13 @@ export function AlertReviewDrawer({
   const [changeInstructions, setChangeInstructions] = useState('')
   const [showRaw, setShowRaw] = useState(false)
   const [showTranscript, setShowTranscript] = useState(false)
-  const transcriptDetails = useRef<HTMLDetailsElement>(null)
+  const [fullQaView, setFullQaView] = useState<'transcript' | 'review'>('transcript')
   const [transcriptFocusRequest, setTranscriptFocusRequest] = useState(0)
   const [transcriptQuote, setTranscriptQuote] = useState('')
   const openTranscript = () => {
     setTranscriptQuote('')
-    if (transcriptDetails.current) transcriptDetails.current.open = true
-    setShowTranscript(true)
+    if (isFullQa) setFullQaView('transcript')
+    else setShowTranscript(true)
     setTranscriptFocusRequest(request => request + 1)
   }
   const submissionPending = useRef(false)
@@ -253,9 +260,9 @@ export function AlertReviewDrawer({
     setChangeInstructions('')
     setShowRaw(false)
     setShowTranscript(false)
+    setFullQaView('transcript')
     setTranscriptFocusRequest(0)
     setTranscriptQuote('')
-    if (transcriptDetails.current) transcriptDetails.current.open = false
     setOverrideMode(false)
     setDraftBody('')
     setReplyTo(null)
@@ -714,7 +721,7 @@ export function AlertReviewDrawer({
           event.preventDefault()
           target.focus()
         }}
-        className="flex flex-col gap-0 overflow-hidden bg-pennie-white p-0 shadow-xl [--border:225_12%_72%] [&_textarea]:border-pennie-navy/60 [&_select]:border-pennie-navy/60"
+        className={`flex flex-col gap-0 overflow-hidden bg-pennie-white p-0 shadow-xl [--border:225_12%_72%] [&_textarea]:border-pennie-navy/60 [&_select]:border-pennie-navy/60 ${isFullQa ? 'sm:inset-x-2 sm:inset-y-[2dvh] sm:h-[96dvh] sm:w-[calc(100%-1rem)] sm:max-w-none xl:max-w-[1600px]' : ''}`}
       >
         <SheetDescription className="sr-only">Review the call evidence, record a decision and follow-up, or approve the manager’s saved review.</SheetDescription>
         {/* Header */}
@@ -833,8 +840,26 @@ export function AlertReviewDrawer({
             onToggle={handleToggleAck}
           />
         )}
-        {/* One scrolling review flow: evidence, required inputs, and secondary details. */}
-        <div className="relative min-h-0 flex-1 space-y-6 overflow-y-auto px-4 py-4 sm:space-y-7 sm:px-8 sm:py-6 lg:px-10">
+        {/* Full QA keeps transcript and review mounted together; other modules retain the original single flow. */}
+        <div className={isFullQa ? 'flex min-h-0 flex-1 flex-col' : 'relative min-h-0 flex-1 space-y-6 overflow-y-auto px-4 py-4 sm:space-y-7 sm:px-8 sm:py-6 lg:px-10'}>
+          {isFullQa && <div role="group" aria-label="Full QA workspace view" className="grid shrink-0 grid-cols-2 border-b border-border bg-pennie-white p-2 lg:hidden">
+            <button type="button" aria-pressed={fullQaView === 'transcript'} aria-controls="full-qa-transcript-panel" onClick={() => setFullQaView('transcript')} className={`pennie-focus-ring min-h-[44px] rounded-full text-sm font-semibold ${fullQaView === 'transcript' ? 'bg-pennie-navy text-pennie-white' : 'text-pennie-blue-deeper'}`}>Transcript</button>
+            <button type="button" aria-pressed={fullQaView === 'review'} aria-controls="full-qa-review-panel" onClick={() => setFullQaView('review')} className={`pennie-focus-ring min-h-[44px] rounded-full text-sm font-semibold ${fullQaView === 'review' ? 'bg-pennie-navy text-pennie-white' : 'text-pennie-blue-deeper'}`}>Review</button>
+          </div>}
+          <div className={isFullQa ? 'grid min-h-0 flex-1 lg:grid-cols-[minmax(0,3fr)_minmax(360px,2fr)]' : 'contents'}>
+            {isFullQa && <section id="full-qa-transcript-panel" aria-label="Transcript workspace" onFocusCapture={() => setFullQaView('transcript')} className={`${fullQaView === 'transcript' ? 'flex' : 'hidden lg:flex'} min-h-0 flex-col gap-5 overflow-y-auto overscroll-contain px-4 py-5 sm:px-6 lg:px-8`}>
+              <header>
+                <p className="pennie-label text-pennie-blue-deeper">Call context</p>
+                <h2 className="mt-1 text-xl font-semibold text-pennie-navy">Transcript</h2>
+                <p className="mt-1 text-sm text-pennie-graphite/70">Search the call or jump here from Eavesly’s evidence. Playback never moves the transcript for you.</p>
+              </header>
+              <AlertTranscript key={alert.call_id} callId={alert.call_id} scope={scope} agentEmail={alert.agent_email} focusRequest={transcriptFocusRequest} searchQuote={transcriptQuote} audioElement={audioElement} recordingTiming={verifiedTiming} renderAudioLink={renderAudioLink} evidence={extractEvidenceQuotes(alert.violation_type, reviewSource)} />
+              {(alert.call_summary || alert.sfdc_lead_id) && <aside className="border-t border-border pt-4">
+                {alert.call_summary && <CallSummary summary={alert.call_summary} />}
+                {alert.sfdc_lead_id && <a href={`https://trypennie.lightning.force.com/lightning/r/Lead/${alert.sfdc_lead_id}/view`} target="_blank" rel="noopener noreferrer" className="mt-3 inline-flex min-h-[44px] items-center gap-1 text-sm font-semibold text-pennie-blue-deeper hover:underline">SFDC: {alert.sfdc_lead_id} <ExternalLink className="h-3 w-3" aria-hidden="true" /></a>}
+              </aside>}
+            </section>}
+            <div id={isFullQa ? 'full-qa-review-panel' : undefined} role={isFullQa ? 'region' : undefined} aria-label={isFullQa ? 'Review workspace' : undefined} onFocusCapture={isFullQa ? () => setFullQaView('review') : undefined} className={isFullQa ? `${fullQaView === 'review' ? 'block' : 'hidden lg:block'} min-h-0 space-y-6 overflow-y-auto overscroll-contain border-border px-4 py-5 sm:px-6 lg:border-l lg:px-7` : 'contents'}>
           {returnedToCurrentManager && alert.current_decision_instructions && (
             <div className="rounded-2xl bg-pennie-peach-light/60 px-4 py-3">
               <p className="pennie-label mb-1">Changes requested by {alert.current_decision_by ? emailLabel(alert.current_decision_by) : 'Kris'}</p>
@@ -887,7 +912,7 @@ export function AlertReviewDrawer({
                 {alert.sfdc_lead_id && <a href={`https://trypennie.lightning.force.com/lightning/r/Lead/${alert.sfdc_lead_id}/view`} target="_blank" rel="noopener noreferrer" className="inline-flex min-h-[44px] items-center gap-1 font-semibold text-pennie-blue-deeper hover:underline">SFDC: {alert.sfdc_lead_id} <ExternalLink className="h-3 w-3" aria-hidden="true" /></a>}
               </div>
               <button type="button" onClick={() => setShowTranscript(value => !value)} aria-expanded={showTranscript} className="pennie-focus-ring min-h-[44px] rounded-full border border-border bg-white px-4 py-2 text-sm font-semibold text-pennie-blue-deeper">{showTranscript ? 'Hide transcript context' : 'Inspect transcript context'}</button>
-              {showTranscript && <AlertTranscript key={alert.call_id} callId={alert.call_id} focusRequest={transcriptFocusRequest} searchQuote={transcriptQuote} audioElement={audioElement} recordingTiming={verifiedTiming} renderAudioLink={renderAudioLink} evidence={extractEvidenceQuotes(alert.violation_type, reviewSource)} />}
+              {showTranscript && <AlertTranscript key={alert.call_id} callId={alert.call_id} scope={scope} agentEmail={alert.agent_email} focusRequest={transcriptFocusRequest} searchQuote={transcriptQuote} audioElement={audioElement} recordingTiming={verifiedTiming} renderAudioLink={renderAudioLink} evidence={extractEvidenceQuotes(alert.violation_type, reviewSource)} />}
             </section>
             <section id={standaloneResponseId} tabIndex={-1} aria-label={`${violationLabel}: ${showStructuredForm ? 'Your response' : 'Manager’s response'}`} className="pennie-focus-ring min-w-0 space-y-4 border-t border-border p-4 sm:p-5 md:border-l md:border-t-0">
               <div><p className="mb-1 text-xs font-bold text-pennie-blue-deeper">{showStructuredForm ? 'Your response' : 'Manager’s response'}</p><h2 className="text-base font-semibold text-pennie-navy">{showStructuredForm ? 'Review and follow up' : 'Saved review'}</h2></div>
@@ -929,43 +954,6 @@ export function AlertReviewDrawer({
               onSaveStateChange={setFullQaSave}
               onSubmitted={onSubmitted}
             />
-          )}
-
-          {isFullQa && (
-            <details ref={transcriptDetails} className="group rounded-2xl border border-border px-4 py-3">
-              <summary className="pennie-focus-ring cursor-pointer list-none flex items-center justify-between gap-2 rounded-full text-sm font-semibold text-pennie-blue-deeper">
-                Transcript and call summary
-                <ChevronDown className="w-4 h-4 transition-transform group-open:rotate-180" aria-hidden="true" />
-              </summary>
-              <div className="mt-4 space-y-4">
-                <div className="flex flex-wrap gap-4 text-sm">
-                  {alert.sfdc_lead_id && (
-                    <a href={`https://trypennie.lightning.force.com/lightning/r/Lead/${alert.sfdc_lead_id}/view`} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-pennie-blue-deeper font-semibold hover:underline underline-offset-4">
-                      SFDC: {alert.sfdc_lead_id} <ExternalLink className="w-3 h-3" aria-hidden="true" />
-                    </a>
-                  )}
-                </div>
-                {alert.call_summary && <CallSummary summary={alert.call_summary} />}
-                <div>
-                  <button
-                    type="button"
-                    onClick={() => setShowTranscript(value => !value)}
-                    aria-expanded={showTranscript}
-                    className="pennie-focus-ring min-h-[44px] px-4 py-2 rounded-full border border-border text-sm font-semibold text-pennie-blue-deeper"
-                  >
-                    {showTranscript ? 'Hide transcript context' : 'Inspect transcript context'}
-                  </button>
-                  {showTranscript && <div className="mt-4"><AlertTranscript
-                    key={alert.call_id}
-                    focusRequest={transcriptFocusRequest} searchQuote={transcriptQuote}
-                    callId={alert.call_id}
-                    audioElement={audioElement} recordingTiming={verifiedTiming}
-                    renderAudioLink={renderAudioLink}
-                    evidence={extractEvidenceQuotes(alert.violation_type, reviewSource)}
-                  /></div>}
-                </div>
-              </div>
-            </details>
           )}
 
           {!isFullQa && showInternalDecisionBar && (
@@ -1034,7 +1022,8 @@ export function AlertReviewDrawer({
               />
             </div>
           </details>
-
+            </div>
+          </div>
         </div>
 
         {(showStructuredForm || (showInternalDecisionBar && scope.isGodMode && alert.current_decision === null)) && (
@@ -1066,9 +1055,12 @@ export function AlertReviewDrawer({
               )}
               {showStructuredForm && isFullQa && fullQaSave.nextSectionId && (
                 <button type="button" aria-controls={fullQaSave.nextSectionId} disabled={decisionPending} onClick={() => {
-                  const section = document.getElementById(fullQaSave.nextSectionId ?? '')
-                  section?.focus({ preventScroll: true })
-                  section?.scrollIntoView({ block: section instanceof HTMLTextAreaElement ? 'center' : 'start', behavior: 'instant' })
+                  setFullQaView('review')
+                  requestAnimationFrame(() => {
+                    const section = document.getElementById(fullQaSave.nextSectionId ?? '')
+                    section?.focus({ preventScroll: true })
+                    section?.scrollIntoView({ block: section instanceof HTMLTextAreaElement ? 'center' : 'start', behavior: 'instant' })
+                  })
                 }} className="pennie-focus-ring mr-auto min-h-[44px] text-sm font-semibold text-pennie-blue-deeper underline-offset-4 hover:underline disabled:opacity-40">
                   Continue review
                 </button>

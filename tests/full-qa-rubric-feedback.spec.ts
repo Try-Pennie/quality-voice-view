@@ -13,10 +13,10 @@ async function expectCenteredDesktopDialog(page: Page) {
   await expect.poll(async () => {
     const box = await dialog.boundingBox()
     return box && {
-      width: box.width >= 1040 && box.width <= 1080,
+      width: box.width >= 1400 && box.width <= 1424,
       centered: Math.abs(box.x - (1440 - box.width) / 2) <= 1,
-      height: box.height === 810,
-      y: box.y === 45,
+      height: box.height >= 860 && box.height <= 864,
+      y: box.y >= 18 && box.y <= 20,
     }
   }).toEqual({ width: true, centered: true, height: true, y: true })
 }
@@ -115,13 +115,16 @@ test('Full QA saves string-scale corrections and optional coaching for a warrant
   const [evidenceBox, responseBox] = await Promise.all([evidenceColumn.boundingBox(), responseColumn.boundingBox()])
   expect(evidenceBox).not.toBeNull()
   expect(responseBox).not.toBeNull()
-  expect(Math.abs((evidenceBox?.y ?? 0) - (responseBox?.y ?? 0))).toBeLessThanOrEqual(1)
-  expect(responseBox?.x).toBeGreaterThanOrEqual((evidenceBox?.x ?? 0) + (evidenceBox?.width ?? 0))
+  expect(Math.abs((evidenceBox?.x ?? 0) - (responseBox?.x ?? 0))).toBeLessThanOrEqual(1)
+  expect(responseBox?.y).toBeGreaterThanOrEqual((evidenceBox?.y ?? 0) + (evidenceBox?.height ?? 0))
   await page.screenshot({ path: testInfo.outputPath('full-qa-floating-initial-desktop.png'), animations: 'disabled' })
   await expect(saveButton(page)).toBeInViewport()
   await expect(page.getByRole('region', { name: 'Call recording', exact: true }).getByText('Recording not available', { exact: true })).toBeVisible()
   await expectFullscreenMobileDialog(page)
+  await expect(page.getByRole('region', { name: 'Transcript workspace' })).toBeVisible()
+  await expect(evidenceColumn).toBeHidden()
   await page.screenshot({ path: testInfo.outputPath('full-qa-floating-initial-mobile.png'), animations: 'disabled' })
+  await page.getByRole('button', { name: 'Review', exact: true }).click()
   await expect(evidenceColumn).toBeVisible()
   await expect(responseColumn).toBeVisible()
   await page.setViewportSize({ width: 1280, height: 720 })
@@ -159,9 +162,10 @@ test('Full QA saves string-scale corrections and optional coaching for a warrant
   await expect(page.getByRole('combobox', { name: 'professional tone corrected value' })).toHaveValue('poor')
   await expect(response(page, 'Social security verification')).toBeHidden()
   await expect(saveButton(page)).toBeDisabled()
-  await expect(page.getByRole('status')).toContainText('Choose whether this alert was warranted.')
+  await expect(page.getByRole('contentinfo').getByRole('status')).toContainText('Choose whether this alert was warranted.')
   await page.getByRole('radio', { name: 'Yes, the alert was warranted', exact: true }).check()
   await page.setViewportSize({ width: 390, height: 844 })
+  await page.getByRole('button', { name: 'Review', exact: true }).click()
   for (const target of [consent.getByText('Rule and saved evidence', { exact: true }), consent.getByRole('button', { name: 'Add as coaching issue' })]) {
     const box = await target.boundingBox()
     expect(box?.height).toBeGreaterThanOrEqual(44)
@@ -240,6 +244,7 @@ test('Full QA saves string-scale corrections and optional coaching for a warrant
   const outcome = adminPage.getByRole('region', { name: 'Manager’s review', exact: true })
   for (const viewport of [{ width: 1440, height: 900 }, { width: 375, height: 812 }]) {
     await adminPage.setViewportSize(viewport)
+    if (viewport.width < 1024) await adminPage.getByRole('button', { name: 'Review', exact: true }).click()
     await expect(outcome).toBeInViewport()
     await expect(adminPage.getByRole('button', { name: 'Approve review' })).toBeInViewport()
     if (viewport.width === 375) expect((await outcome.getByText('Manager’s evidence', { exact: true }).boundingBox())?.height).toBeGreaterThanOrEqual(44)
@@ -403,7 +408,7 @@ test('score answers and an explicit verdict save without manufacturing any coach
   await page.getByRole('textbox', { name: 'Explain your decision' }).fill(escalationReason)
   await expect(saveButton(page)).toBeEnabled()
   await page.getByRole('radiogroup', { name: 'Why was the alert unnecessary?' }).getByRole('radio', { name: 'Evidence misquoted', exact: true }).check()
-  await expect(page.getByRole('status')).toHaveCount(0)
+  await expect(page.getByRole('contentinfo').getByRole('status')).toHaveCount(0)
   // The footer button and the keyboard shortcut submit the same form once.
   await page.keyboard.press('ControlOrMeta+Enter')
   await expect(page.getByText('Full QA review saved')).toBeVisible()
@@ -448,7 +453,7 @@ test('a warranted alert with two distinct issues records shared and repeated cri
   await page.getByRole('textbox', { name: 'Coaching or next steps' }).fill('Coached the agent on consent and on outcome language the same day.')
   await page.getByRole('radio', { name: 'Yes, the alert was warranted', exact: true }).check()
   await expect(page.getByRole('textbox', { name: 'What happened?', exact: true })).toHaveCount(0)
-  await expect(page.getByRole('status')).toHaveCount(0)
+  await expect(page.getByRole('contentinfo').getByRole('status')).toHaveCount(0)
 
   let release = () => {}
   state.fullQaSubmitGate = new Promise<void>(resolve => { release = resolve })
@@ -484,12 +489,12 @@ test('generated IDs cannot make duplicate normalized findings distinct', async (
   await page.getByRole('group', { name: 'Finding 2 related criteria' }).getByRole('checkbox', { name: 'Credit pull consent' }).check()
   await page.getByRole('textbox', { name: 'Finding 2 summary' }).fill('  THE agent ignored  the customer consent refusal. ')
   await page.getByRole('textbox', { name: 'Finding 2 evidence' }).fill('The refusal and subsequent credit pull are both recorded.')
-  await expect(page.getByRole('status')).toContainText('Each coaching issue must describe a distinct finding.')
+  await expect(page.getByRole('contentinfo').getByRole('status')).toContainText('Each coaching issue must describe a distinct finding.')
   await expect(saveButton(page)).toBeDisabled()
   expect(state.writes).toEqual([])
 
   await page.getByRole('textbox', { name: 'Finding 2 evidence' }).fill('A second, separate consent request was skipped later in the call.')
-  await expect(page.getByRole('status')).toHaveCount(0)
+  await expect(page.getByRole('contentinfo').getByRole('status')).toHaveCount(0)
   await expect(saveButton(page)).toBeEnabled()
   await saveButton(page).click()
   await expect(page.getByText('Full QA review saved')).toBeVisible()
@@ -525,6 +530,7 @@ test('a realistic supported seed keeps the reason, first evidence, and first dec
   await expect(summary.getByRole('button', { name: 'Full reason' })).toHaveCount(0)
   await expect(consent.locator('blockquote').first()).toBeVisible()
   await expectFullscreenMobileDialog(page)
+  await page.getByRole('button', { name: 'Review', exact: true }).click()
   await expect(summary.getByText(reason, { exact: true })).toBeVisible()
   await expect(saveButton(page)).toBeInViewport()
   await expect(consent.locator('blockquote')).toHaveText(['No, do not pull my credit. I want to understand the options first.', 'I have pulled your credit report anyway so we can continue.'])
@@ -532,7 +538,7 @@ test('a realistic supported seed keeps the reason, first evidence, and first dec
   await expect(page.getByRole('article', { name: 'Accurate representations', exact: true }).getByText('You will be debt-free in 48 months, guaranteed.', { exact: true })).toBeVisible()
   // The base fixture retains four program gaps, one CX concern and one process gap alongside two compliance concerns.
   await expect(page.getByText('8 items to check', { exact: true })).toBeVisible()
-  await expect(page.getByText('Transcript and call summary', { exact: true })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Transcript', exact: true })).toBeVisible()
   await expect(page.getByRole('link', { name: /Open recording/ })).toBeInViewport()
 })
 
@@ -599,6 +605,7 @@ test('focused scorecard respects categorical concerns and enrollment gating, whi
   await expect(page.getByRole('textbox', { name: 'phase recovery covered correction reason' })).toHaveValue(correctionReason)
   for (const width of [320, 375, 414, 768]) {
     await page.setViewportSize({ width, height: 844 })
+    if (width === 320) await page.getByRole('button', { name: 'Review', exact: true }).click()
     await expand.scrollIntoViewIfNeeded()
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
     await expect(expand).toBeVisible()
@@ -690,7 +697,7 @@ test('empty focus is not a cleared alert and correcting an unavailable score is 
   await page.getByRole('textbox', { name: 'Explain your decision' }).fill(escalationReason)
   await page.getByRole('radiogroup', { name: 'Why was the alert unnecessary?' }).getByRole('radio', { name: 'Other', exact: true }).check()
   await expect(saveButton(page)).toBeEnabled()
-  await expect(page.getByRole('status')).toHaveCount(0)
+  await expect(page.getByRole('contentinfo').getByRole('status')).toHaveCount(0)
   await assessment.getByRole('radio', { name: 'Incorrect', exact: true }).check()
   const result = page.getByRole('combobox', { name: 'Social security verification corrected value' })
   await expect(result).toHaveValue('')
@@ -716,7 +723,7 @@ test('a stale Full QA source keeps the draft but cannot silently pair it with a 
   await expect(reason).toHaveValue('No escalation is justified after reviewing this synthetic call.')
   await expect(page.getByText('Saved source or revision changed')).toBeVisible()
   await expect(page.getByRole('button', { name: 'Continue review', exact: true })).toHaveCount(0)
-  await expect(page.getByRole('status')).toHaveText('This review changed. Reload it before continuing.')
+  await expect(page.getByRole('contentinfo').getByRole('status')).toHaveText('This review changed. Reload it before continuing.')
   await expect(page.getByRole('button', { name: 'Save review', exact: true })).toBeDisabled()
   await page.getByRole('button', { name: 'Reload review and discard draft' }).click()
   await expect(reason).toHaveCount(0)
@@ -923,14 +930,11 @@ test('Full QA summary, raw source and transcript highlights all use the pinned r
   state.fullQaSources.set('pinned-source', structuredClone(FULL_QA_RESULT))
   await page.goto('/dashboard/alerts/pinned-source/full_qa')
   await expect(page.getByRole('region', { name: 'Why Eavesly requested review', exact: true })).toContainText('Review both quoted passages in context.')
-  await expect(page.getByRole('dialog').getByText('Synthetic call for manager review checks.', { exact: true })).toBeHidden()
-  await page.getByText('Transcript and call summary', { exact: true }).click()
-  await expect(page.getByRole('dialog').getByText('Synthetic call for manager review checks.', { exact: true })).toBeVisible()
+  await expect(page.getByRole('region', { name: 'Transcript workspace' }).getByText('Synthetic call for manager review checks.', { exact: true })).toBeVisible()
   await page.getByText('Technical details', { exact: true }).click()
   await page.getByRole('button', { name: 'Show raw evaluation JSON', exact: true }).click()
   await expect(page.locator('pre:visible')).toContainText('Review both quoted passages in context.')
   await expect(page.locator('pre:visible')).not.toContainText('LIVE SOURCE MUST NOT APPEAR')
-  await page.getByRole('button', { name: 'Inspect transcript context', exact: true }).click()
-  await expect(page.locator('mark').first()).toBeVisible()
+  await expect(page.getByRole('region', { name: 'Transcript workspace' }).locator('mark').first()).toBeVisible()
   await expect(page.getByRole('dialog')).not.toContainText('LIVE QUOTE MUST NOT APPEAR')
 })

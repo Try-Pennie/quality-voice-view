@@ -36,7 +36,7 @@ test('Full QA explains text limits at the field and preserves the existing valid
   await reason.fill('a'.repeat(11))
   await expect(reason).toHaveAccessibleDescription(/12.*4,000.*11/)
   await expect(page.getByRole('button', { name: 'Save review', exact: true })).toBeDisabled()
-  await expect(page.getByRole('status')).toContainText('Explain your decision using 12–4,000 characters.')
+  await expect(page.getByRole('contentinfo').getByRole('status')).toContainText('Explain your decision using 12–4,000 characters.')
   await page.screenshot({ path: testInfo.outputPath('manager-text-guidance.png') })
   await reason.fill('a'.repeat(12))
   await expect(page.getByRole('button', { name: 'Save review', exact: true })).toBeEnabled()
@@ -92,6 +92,7 @@ test('Kris can read the full manager reason in a stacked mobile summary', async 
   const explanation = summary.getByText(reason, { exact: true })
   for (const width of [320, 375, 414, 768, 1440]) {
     await page.setViewportSize({ width, height: width < 768 ? 812 : 900 })
+    if (width === 320) await page.getByRole('button', { name: 'Review', exact: true }).click()
     await expect(explanation).toHaveText(reason)
     const label = summary.locator('dt', { hasText: 'Manager’s reason' })
     const labelBox = await label.boundingBox(), reasonBox = await explanation.boundingBox(), listBox = await summary.locator('dl').boundingBox()
@@ -138,7 +139,7 @@ test('View transcript opens the existing search directly and keeps the draft on 
   await page.goto('/dashboard/alerts/direct-transcript/full_qa')
   await page.getByRole('button', { name: 'Continue review', exact: true }).click()
   await page.getByRole('radio', { name: 'No, the alert was unnecessary', exact: true }).check()
-  const reason = page.getByRole('textbox', { name: 'Explain your decision', exact: true })
+  const reason = page.getByRole('textbox', { name: 'Explain your decision', exact: true, includeHidden: true })
   await reason.fill('Keep my decision while checking the transcript.')
   for (const width of [320, 375, 414, 768, 1440]) {
     await page.setViewportSize({ width, height: width < 768 ? 812 : 900 })

@@ -61,7 +61,7 @@ export function genericAlertRow(id: string, overrides: Partial<AlertWithFeedback
  * It exercises real hooks, queries, pagination requests and mutations, not patched modules.
  * This proves client behavior, not production RLS/SQL execution.
  */
-export async function reviewFixture(page: Page, rows: AlertWithFeedback[], options: { god?: boolean; noAgents?: boolean; managedAgents?: string[]; managerNames?: Record<string, string>; managerMapping?: { agent_email: string; manager_email: string }[]; dailyMetrics?: unknown[]; email?: string; messages?: AlertMessage[]; fullQaOccurrences?: unknown[]; fullQaCriteria?: typeof FULL_QA_CRITERIA; fullQaReviews?: ReadonlyMap<string, Record<string, unknown>>; fullQaProposals?: ReadonlyMap<string, Record<string, unknown>[]> } = {}) {
+export async function reviewFixture(page: Page, rows: AlertWithFeedback[], options: { god?: boolean; noAgents?: boolean; managedAgents?: string[]; managerNames?: Record<string, string>; managerMapping?: { agent_email: string; manager_email: string }[]; dailyMetrics?: unknown[]; email?: string; messages?: AlertMessage[]; fullQaOccurrences?: unknown[]; fullQaCriteria?: typeof FULL_QA_CRITERIA; fullQaReviews?: ReadonlyMap<string, Record<string, unknown>>; fullQaProposals?: ReadonlyMap<string, Record<string, unknown>[]>; transcriptionQaRows?: Record<string, unknown>[] } = {}) {
   const fixtureEmail = options.email ?? EMAIL
   const state = {
     rows, writes: [] as unknown[], requests: [] as URL[], transcript: TRANSCRIPT as string | null,
@@ -356,7 +356,20 @@ export async function reviewFixture(page: Page, rows: AlertWithFeedback[], optio
       if (state.failTranscript) return respond({ message: 'Synthetic transcript failure' }, 500)
       return respond({ call_id: url.searchParams.get('call_id')?.slice(3), agent_email: 'agent@example.test', started_at: NOW.toISOString(), ended_at: NOW.toISOString(), direction: 'inbound', conversation_happened: true })
     }
-    if (table === 'eavesly_transcription_qa') return respond({ original_transcript: state.transcript, recording_link: null })
+    if (table === 'eavesly_transcription_qa') {
+      const callId = url.searchParams.get('call_id')?.replace(/^eq\./, '')
+      const candidates = (options.transcriptionQaRows ?? [{ original_transcript: state.transcript, recording_link: null }])
+        .filter(row => !callId || !('call_id' in row) || row.call_id === callId)
+      const order = url.searchParams.get('order')
+      if (candidates.length > 1 && order !== 'created_at.desc.nullslast,id.desc') return respond({ message: 'Multiple QA rows require deterministic ordering' }, 406)
+      candidates.sort((left, right) => {
+        const leftCreated = typeof left.created_at === 'string' ? left.created_at : ''
+        const rightCreated = typeof right.created_at === 'string' ? right.created_at : ''
+        return rightCreated.localeCompare(leftCreated) || Number(right.id ?? 0) - Number(left.id ?? 0)
+      })
+      const limit = Number(url.searchParams.get('limit') ?? candidates.length)
+      return respond(candidates.slice(0, limit)[0] ?? null)
+    }
     if (request.method() !== 'GET' && !url.pathname.includes('/rpc/')) {
       throw new Error(`Unexpected mutation in browser fixture: ${url.pathname}`)
     }

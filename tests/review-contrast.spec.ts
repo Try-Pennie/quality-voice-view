@@ -37,11 +37,12 @@ test('recording, evidence and review controls have distinct surfaces and stronge
   expect(await contrast(recording.getByRole('combobox', { name: 'Playback speed' }), 'borderTopColor', 'parent')).toBeGreaterThanOrEqual(3)
   for (const width of [1440, 375]) {
     await page.setViewportSize({ width, height: width < 768 ? 812 : 900 })
+    if (width === 375) await page.getByRole('button', { name: 'Review', exact: true }).click()
     await source.scrollIntoViewIfNeeded()
     await page.screenshot({ path: testInfo.outputPath(`review-contrast-${width}.png`) })
     expect(await contrast(recording, 'color', 'white')).toBeGreaterThan(1.12)
     expect(await contrast(source, 'color', 'white')).toBeGreaterThan(1.06)
-    expect(await contrast(response, width < 768 ? 'borderTopColor' : 'borderLeftColor')).toBeGreaterThan(2)
+    expect(await contrast(response, 'borderTopColor')).toBeGreaterThan(2)
     expect(await contrast(recording.getByText('Ready to play', { exact: true }), 'color')).toBeGreaterThanOrEqual(4.5)
     expect(await recording.evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true)
   }

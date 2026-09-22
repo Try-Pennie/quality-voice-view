@@ -20,6 +20,7 @@ test('partly correct saves explicit mixed feedback, survives failure, and reopen
   await expect(save).toBeEnabled()
   for (const width of [1280, 375]) {
     await page.setViewportSize({ width, height: 900 })
+    if (width === 375) await page.getByRole('button', { name: 'Review', exact: true }).click()
     await note.scrollIntoViewIfNeeded()
     await expect(item.getByRole('radio', { name: 'Partly correct', exact: true })).toBeInViewport()
     await expect(save).toBeInViewport()
@@ -36,6 +37,7 @@ test('partly correct saves explicit mixed feedback, survives failure, and reopen
   const correction = { criterion_key: 'credit_pull_consent', disposition: 'partially_correct', corrected_value: null, reason: explanation }
   expect(state.writes).toContainEqual(expect.objectContaining({ p_corrections: [correction], p_findings: [], p_action: null, p_escalation_justified: true }))
   await page.goto('/dashboard/alerts/partly-correct/full_qa')
+  await page.getByRole('button', { name: 'Review', exact: true }).click()
   await expect(page.getByRole('button', { name: 'Update review', exact: true })).toBeDisabled()
   await expect(item.getByRole('radio', { name: 'Partly correct', exact: true })).toBeChecked()
   await expect(note).toHaveValue(explanation)

@@ -34,6 +34,7 @@ test('coaching belongs to Yes; hidden drafts never block No and survive toggles 
   await expect(save).toBeEnabled()
   for (const width of [1280, 375]) {
     await page.setViewportSize({ width, height: 900 })
+    if (width === 375) await page.getByRole('button', { name: 'Review', exact: true }).click()
     await decision.getByText('Was this alert warranted?', { exact: true }).evaluate(element => element.scrollIntoView({ block: 'start' }))
     await expect(coaching.getByRole('heading', { name: 'Coaching issues (optional)', exact: true })).toBeInViewport()
     await page.screenshot({ path: testInfo.outputPath(`coaching-yes-${width}.png`), animations: 'disabled' })
@@ -58,6 +59,7 @@ test('coaching belongs to Yes; hidden drafts never block No and survive toggles 
   await expect(page.getByText('Full QA review saved', { exact: true })).toBeVisible()
   expect(state.fullQaReviews.get('conditional-coaching')).toMatchObject({ escalation_justified: false, findings: [], corrections: [], action_taken: null })
   await page.goto('/dashboard/alerts/conditional-coaching/full_qa')
+  await page.getByRole('button', { name: 'Review', exact: true }).click()
   await expect(page.getByRole('button', { name: 'Update review', exact: true })).toBeDisabled()
   await expect(coaching).toHaveCount(0)
   await yes.check()
