@@ -31,6 +31,12 @@ create table cron.job (
   username text not null default current_user,
   active boolean not null default true
 );
+create table cron.job_run_details (
+  runid bigint generated always as identity primary key,
+  jobid bigint not null,
+  status text not null,
+  end_time timestamptz
+);
 create function cron.schedule(text, text, text) returns bigint language plpgsql as $$
 declare new_id bigint;
 begin
@@ -85,6 +91,7 @@ insert into cron.job(jobname, schedule, command) values (
 );
 SQL
   cat "$migration"
+  cat "$repo_root/supabase/migrations/20260922001000_achieve_cron_health.sql"
   cat <<'SQL'
 
 do $$
@@ -183,6 +190,36 @@ begin
 end
 $$;
 
+do $$
+begin
+  if public.achieve_report_cron_healthy() then raise exception 'missing heartbeat accepted'; end if;
+  insert into cron.job_run_details(jobid, status, end_time)
+  select jobid, 'succeeded', now() - interval '15 minutes' from cron.job;
+  if not public.achieve_report_cron_healthy() then raise exception 'healthy cron rejected'; end if;
+  update cron.job set active = false;
+  if public.achieve_report_cron_healthy() then raise exception 'disabled cron accepted'; end if;
+  update cron.job set active = true, schedule = '0 9 * * 1';
+  if public.achieve_report_cron_healthy() then raise exception 'wrong schedule accepted'; end if;
+  update cron.job set schedule = '*/15 * * * *';
+  update cron.job_run_details set end_time = now() - interval '31 minutes';
+  if public.achieve_report_cron_healthy() then raise exception 'stale heartbeat accepted'; end if;
+  update cron.job_run_details set end_time = now() + interval '1 minute';
+  if public.achieve_report_cron_healthy() then raise exception 'future heartbeat accepted'; end if;
+  update cron.job_run_details set end_time = now();
+  insert into cron.job_run_details(jobid, status, end_time)
+  select jobid, 'failed', now() from cron.job;
+  if public.achieve_report_cron_healthy() then raise exception 'latest failure hidden by older success'; end if;
+  update cron.job_run_details set status = 'running', end_time = null;
+  if public.achieve_report_cron_healthy() then raise exception 'unfinished heartbeat accepted'; end if;
+  delete from cron.job;
+  if public.achieve_report_cron_healthy() then raise exception 'missing cron accepted'; end if;
+  if has_function_privilege('anon', 'public.achieve_report_cron_healthy()', 'execute')
+    or has_function_privilege('authenticated', 'public.achieve_report_cron_healthy()', 'execute')
+    or not has_function_privilege('service_role', 'public.achieve_report_cron_healthy()', 'execute') then
+    raise exception 'cron health privileges are unsafe';
+  end if;
+end
+$$;
 select 'achieve-report-reliability.integration.check.sh: all assertions passed' as result;
 SQL
 } | docker exec -i "$container" psql -X -v ON_ERROR_STOP=1 -U postgres -d postgres

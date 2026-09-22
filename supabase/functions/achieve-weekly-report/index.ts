@@ -16,11 +16,12 @@
 //   SNOWFLAKE_*                   — the eight shared key-pair SQL API secrets
 //   DEPLOYMENT_ENVIRONMENT        — production or staging (staging is inert)
 //   ACHIEVE_EXTERNAL_IO_ENABLED   — exact "true" only after production approval
-// Optional production monitoring (both required to post):
-//   ACHIEVE_SLACK_ALERTS_ENABLED, ACHIEVE_SLACK_ALERT_WEBHOOK_URL
+// Optional production monitoring (all required to post):
+//   ACHIEVE_SLACK_ALERTS_ENABLED, ACHIEVE_SLACK_BOT_TOKEN, ACHIEVE_SLACK_CHANNEL_ID
 import 'jsr:@supabase/functions-js/edge-runtime.d.ts'
 import { createClient } from 'jsr:@supabase/supabase-js@2'
 import { isAchieveExternalIoAllowed } from '../_shared/achieve-deployment-safety.ts'
+import { parseAchieveSlackConfig, postAchieveSlackAlert } from '../_shared/achieve-slack.ts'
 import {
   achieveFirstPayEnrollmentCsv,
   parseFirstPayQaRollups,
@@ -116,22 +117,6 @@ function parseRuntimeConfig(): RuntimeConfig | null {
   }
 }
 
-function parseSlackWebhookUrl(): string | null {
-  if (Deno.env.get('ACHIEVE_SLACK_ALERTS_ENABLED') !== 'true') return null
-  try {
-    const candidate = new URL(Deno.env.get('ACHIEVE_SLACK_ALERT_WEBHOOK_URL') ?? '')
-    if (
-      candidate.protocol === 'https:'
-      && (candidate.hostname === 'hooks.slack.com' || candidate.hostname === 'hooks.slack-gov.com')
-      && /^\/services\/[^/]+\/[^/]+\/[^/]+$/.test(candidate.pathname)
-      && candidate.username === '' && candidate.password === '' && candidate.search === '' && candidate.hash === ''
-    ) return candidate.toString()
-  } catch {
-    return null
-  }
-  return null
-}
-
 function parseExternalConfig(): Config | null {
   const gmailSender = parseEmail(Deno.env.get('GMAIL_SENDER') ?? '')
   const serviceAccountEmail = parseEmail(Deno.env.get('GOOGLE_SA_EMAIL') ?? '')
@@ -225,16 +210,19 @@ Deno.serve(async (request: Request) => {
   const now = new Date()
   const admin = createClient(runtime.supabaseUrl, runtime.serviceRoleKey)
 
-  let monitorError: 'monitor_not_configured' | 'monitor_failed' | null = null
+  let monitorError: 'monitor_not_configured' | 'monitor_failed' | 'monitor_cron_unavailable' | null = null
   if (command.action === 'scheduled' || command.action === 'monitor') {
-    const webhookUrl = parseSlackWebhookUrl()
-    if (webhookUrl === null) {
+    const slack = parseAchieveSlackConfig(name => Deno.env.get(name))
+    if (slack === null) {
       monitorError = 'monitor_not_configured'
     } else {
       try {
-        const snapshotResult = await admin.rpc('achieve_report_reliability_snapshot', { p_now: now.toISOString() })
-          .abortSignal(signal)
-        if (snapshotResult.error) throw new Error('monitor_snapshot_failed')
+        const [snapshotResult, cronResult] = await Promise.all([
+          admin.rpc('achieve_report_reliability_snapshot', { p_now: now.toISOString() }).abortSignal(signal),
+          admin.rpc('achieve_report_cron_healthy').abortSignal(signal),
+        ])
+        if (snapshotResult.error || cronResult.error) throw new Error('monitor_snapshot_failed')
+        if (cronResult.data !== true) monitorError = 'monitor_cron_unavailable'
         const snapshot = parseAchieveReliabilitySnapshot(snapshotResult.data)
         if (snapshot === null) throw new Error('monitor_snapshot_invalid')
         const alertOperations: AchieveReliabilityAlertOperations = {
@@ -249,13 +237,8 @@ Deno.serve(async (request: Request) => {
           },
           send: async (payload, options) => {
             const slackSignal = AbortSignal.any([options.signal, AbortSignal.timeout(10_000)])
-            const response = await fetch(webhookUrl, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify(payload),
-              signal: slackSignal,
-            })
-            if (!response.ok) throw new Error('monitor_delivery_failed')
+            const delivered = await postAchieveSlackAlert(slack, payload.text, { signal: slackSignal })
+            if (delivered !== 'sent') throw new Error('monitor_delivery_failed')
           },
         }
         const monitor = await runAchieveReliabilityAlert(snapshot, now, signal, alertOperations)

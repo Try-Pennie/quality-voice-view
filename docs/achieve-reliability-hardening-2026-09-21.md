@@ -2,7 +2,7 @@
 
 ## Scope and outcome
 
-This isolated branch hardens the existing Achieve sync/report path without deploying, pushing, sending email, contacting Snowflake, posting Slack, or changing any remote.
+This branch hardens the existing Achieve sync/report path. The original checks were local-only; production activation is separately authorized and documented in PR #128 rollout receipts. No verification step sends customer email.
 
 - Weekly report loading now requires coherent outcome and termination snapshots for an accepted Snowflake UTC source date. Before the daily sync deadline at 12:15 UTC, coherent prior-day or current-day snapshots are accepted (so an early successful sync is not rejected); at and after the deadline, the current date is required. Missing, future, stale, mixed-date, malformed, and incomplete data fail before MIME preparation, claim creation, or Gmail.
 - Termination monitoring now returns snapshot metadata even when the current 30-day row set is empty.
@@ -21,20 +21,21 @@ This isolated branch hardens the existing Achieve sync/report path without deplo
 
 The existing authorized weekly endpoint is reused for the monitor pass. On production only, its existing cron row is changed to every 15 minutes; the handler still builds/sends reports only during Monday's 9 AM Eastern hour. The migration does not create a cron row or contain a project URL, so the confirmed staging project (`xuvveqaizlletsqvwpgx`) remains without HTTP cron.
 
-Slack remains **disabled** until the dedicated operations-channel webhook destination is verified. Production activation requires all of:
+Slack remains **disabled** until the dedicated bot and channel destination are verified. Production activation requires all of:
 
 ```text
 DEPLOYMENT_ENVIRONMENT=production
 ACHIEVE_EXTERNAL_IO_ENABLED=true
 ACHIEVE_SLACK_ALERTS_ENABLED=true
-ACHIEVE_SLACK_ALERT_WEBHOOK_URL=https://hooks.slack.com/services/...
+ACHIEVE_SLACK_BOT_TOKEN=<dedicated chat:write-only bot token>
+ACHIEVE_SLACK_CHANNEL_ID=C08CPGTHY9J
 ```
 
-The webhook parser accepts only HTTPS `hooks.slack.com` or `hooks.slack-gov.com` `/services/` URLs. Payloads contain no secrets, customer data, recipients, Gmail IDs, or enrollment rows. Delivery is bounded to 10 seconds. A database claim limits an unchanged incident fingerprint to one Slack attempt per UTC hour; a Slack failure is retried in the next hour, not in a tight loop. Changed issue/date state gets a new fingerprint. Hourly alerting is intentionally retained for now. No monitor path resends a report or deletes a sync/delivery claim.
+The adapter uses only `https://slack.com/api/chat.postMessage`, rejects redirects, accepts only bot tokens, and requires Slack `ok:true` with the configured channel even on HTTP 200. The **Eavesly Operations** app is installed in the approved private **#regal-alerts** channel; it has `chat:write` only, no history/member-read scopes. Payloads contain no secrets, customer data, recipients, Gmail IDs, or enrollment rows. Delivery is bounded to 10 seconds. A database claim limits an unchanged incident fingerprint to one Slack attempt per UTC hour; a Slack failure is retried in the next hour, not in a tight loop. Changed issue/date state gets a new fingerprint. Hourly alerting is intentionally retained for now. No monitor path resends a report or deletes a sync/delivery claim.
 
-This monitor shares the weekly cron, endpoint, secret, project gate, and Edge Function availability with the report. It cannot detect failure of that entire path. The parent release runbook must require an independent external check of cron/function availability plus authenticated `{"action":"monitor"}` and `{"action":"preview_test"}` probes after production deployment and before the first Monday. Until the dedicated Slack webhook is verified and enabled, there is no automated delivery alert.
+The independent [Cloudflare watchdog](../operations/achieve-watchdog/README.md) probes authenticated `{"action":"monitor"}` every 15 minutes, outside Supabase's scheduler/runtime, and alerts this channel on non-200, timeout, or malformed responses. Migration `20260922001000` adds a service-only boolean RPC checking the weekly cron is active, has the expected schedule, and its latest enqueue succeeded within 30 minutes. A failed cron probe makes `monitor` return 503. This does not treat a successful enqueue as email delivery: snapshot/ledger monitoring and the independent HTTP probe remain separate checks. Verify `monitor` and non-sending `preview_test` after production deployment and before the first Monday.
 
-For staging/auth-only checks, set `DEPLOYMENT_ENVIRONMENT=staging` and leave `ACHIEVE_EXTERNAL_IO_ENABLED` and both Slack settings unset. External I/O additionally requires `SUPABASE_URL` to equal the reserved production project URL (`https://miikotqnovnixpeqtqnd.supabase.co`), so a copied/mistyped production flag remains inert on staging (`xuvveqaizlletsqvwpgx`). Authenticated report, monitor, and sync commands then return `503 external_io_disabled` before Supabase client construction, Snowflake, Google, Gmail, Slack, claims, or snapshot writes. Do not copy the production Vault URL/job or configure a synthetic Slack recipient.
+For staging/auth-only checks, set `DEPLOYMENT_ENVIRONMENT=staging` and leave `ACHIEVE_EXTERNAL_IO_ENABLED` and all Slack settings unset. External I/O additionally requires `SUPABASE_URL` to equal the reserved production project URL (`https://miikotqnovnixpeqtqnd.supabase.co`), so a copied/mistyped production flag remains inert on staging (`xuvveqaizlletsqvwpgx`). Authenticated report, monitor, and sync commands then return `503 external_io_disabled` before Supabase client construction, Snowflake, Google, Gmail, Slack, claims, or snapshot writes. Do not copy the production Vault URL/job or configure a synthetic Slack recipient.
 
 ## Safe manual recovery
 
@@ -47,9 +48,11 @@ Nothing automatically deletes claims, changes ambiguous delivery status, refresh
 
 ## Verification
 
-Focused checks only; the frontend suite was intentionally not run.
+Focused monitoring checks are part of `npm run test:achieve:ci`; the full browser, SQL, build, lint, and typecheck gates also run in PR CI.
 
 ```bash
+node --experimental-transform-types supabase/functions/_shared/achieve-slack.check.ts
+node --experimental-transform-types operations/achieve-watchdog/watchdog.check.ts
 npx tsx supabase/functions/_shared/achieve-deployment-safety.check.ts
 npx tsx supabase/functions/_shared/achieve-management-report.check.ts
 npx tsx supabase/functions/_shared/achieve-first-pay-outcomes.check.ts
@@ -62,4 +65,4 @@ The tests exercise the exported report loader, exported send orchestration, reco
 
 ## Limits and release boundary
 
-No hosted Edge Function, production/staging database, Slack webhook, Snowflake query, Gmail API, or mailbox was exercised here. Production migration/function deployment and Slack destination activation remain approval-only. An accepted Gmail request followed by a lost response remains intentionally ambiguous and requires mailbox/ledger investigation; monitoring reports the stuck claim but does not decide delivery or recover it automatically.
+The original local-only hardening did not exercise hosted services. Subsequent live activation receipts belong to PR #128 and explicitly separate Slack delivery, scheduler/runtime verification, non-sending report preview, and unchanged delivery ledgers. Production changes remain approval-only. An accepted Gmail request followed by a lost response remains intentionally ambiguous and requires mailbox/ledger investigation; monitoring reports the stuck claim but does not decide delivery or recover it automatically.

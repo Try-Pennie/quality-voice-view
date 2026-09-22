@@ -68,7 +68,8 @@ DEPLOYMENT_ENVIRONMENT=production
 ACHIEVE_EXTERNAL_IO_ENABLED=true
 # Add only after the dedicated operations-channel destination is verified:
 # ACHIEVE_SLACK_ALERTS_ENABLED=true
-# ACHIEVE_SLACK_ALERT_WEBHOOK_URL=https://hooks.slack.com/services/...
+# ACHIEVE_SLACK_BOT_TOKEN=<dedicated chat:write-only bot token>
+# ACHIEVE_SLACK_CHANNEL_ID=C08CPGTHY9J
 EOF
 chmod 600 /tmp/achieve-weekly-email.env
 

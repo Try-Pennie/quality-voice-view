@@ -1,0 +1,11 @@
+{
+  "name": "eavesly-achieve-watchdog",
+  "account_id": "3e7f907a9c19e51417873e2cce4fbc5c",
+  "main": "index.ts",
+  "compatibility_date": "2026-05-14",
+  "workers_dev": true,
+  "preview_urls": false,
+  "triggers": { "crons": ["7,22,37,52 * * * *"] },
+  "observability": { "enabled": true },
+  "vars": { "ACHIEVE_SLACK_ALERTS_ENABLED": "true", "ACHIEVE_SLACK_CHANNEL_ID": "C08CPGTHY9J" }
+}

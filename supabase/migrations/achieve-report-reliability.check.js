@@ -36,11 +36,11 @@ for (const source of [weekly, sync]) {
   }
   assert.ok(source.includes('AbortSignal.timeout(HANDLER_DEADLINE_MS)'))
 }
-assert.ok(weekly.includes("Deno.env.get('ACHIEVE_SLACK_ALERTS_ENABLED') !== 'true'"))
+assert.ok(weekly.includes('parseAchieveSlackConfig(name => Deno.env.get(name))'))
 assert.ok(weekly.includes("import { isAchieveExternalIoAllowed }"))
 assert.ok(sync.includes("import { isAchieveExternalIoAllowed }"))
-assert.ok(weekly.includes("Deno.env.get('ACHIEVE_SLACK_ALERT_WEBHOOK_URL')"))
-assert.ok(weekly.includes("candidate.hostname === 'hooks.slack.com'"))
+assert.ok(weekly.includes('postAchieveSlackAlert(slack, payload.text'))
+assert.ok(weekly.includes("admin.rpc('achieve_report_cron_healthy')"))
 assert.ok(!weekly.includes(".from('achieve_weekly_report_sends')\n        .delete()"), 'Ambiguous delivery claims must be retained')
 assert.ok(orchestration.includes('markSent(weekEnding, messageId, { signal: AbortSignal.timeout(5_000) })'),
   'Confirmed Gmail delivery must get a fresh bounded five-second ledger write')
