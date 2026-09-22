@@ -59,6 +59,12 @@ Done when mixed feedback round-trips, invalid payloads fail at the server/parser
 
 The additional migration is `20260922140000_full_qa_partially_correct_feedback.sql`, after the decision-first migration. It replaces only the private validator; public RPCs and grants stay unchanged.
 
+Implementation: `d661422`, followed by review fixes in `688cdaa`. Fresh focused checks: 5 browser tests passed (save/failure/reopen/approval, switching/clearing, Unicode boundaries and malformed saved data); real PostgreSQL 17 integration assertions passed, including round-trip of 4,000 Unicode code points and rejection of invalid mixed-feedback payloads. Full CI-equivalent checks are tracked in the PR receipt.
+
+Synthetic screenshots pinned to `688cdaa`: [desktop](qa-evidence/alert-decision-first/688cdaa/partly-correct-1280.png), [mobile](qa-evidence/alert-decision-first/688cdaa/partly-correct-375.png).
+
+Independent same-family Pi/Sol review identified inconsistent rollout instructions and a UTF-16/PostgreSQL character-count mismatch. Both were addressed with explicit migration sequencing and shared code-point counts plus regression coverage. Pi/Claude could not start because extra usage was exhausted; no account switch or Claude Code fallback was used. Cross-family review remains outstanding.
+
 ### Independent review
 
 A separate-context Pi/Sol reviewer traced the client, private validator, existing public RPC, approvals and recurrence. Findings addressed:
