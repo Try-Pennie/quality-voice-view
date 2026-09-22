@@ -34,7 +34,8 @@ test('coaching belongs to Yes; hidden drafts never block No and survive toggles 
   await expect(save).toBeEnabled()
   for (const width of [1280, 375]) {
     await page.setViewportSize({ width, height: 900 })
-    await decision.getByText('Was this alert warranted?', { exact: true }).scrollIntoViewIfNeeded()
+    await decision.getByText('Was this alert warranted?', { exact: true }).evaluate(element => element.scrollIntoView({ block: 'start' }))
+    await expect(coaching.getByRole('heading', { name: 'Coaching issues (optional)', exact: true })).toBeInViewport()
     await page.screenshot({ path: testInfo.outputPath(`coaching-yes-${width}.png`), animations: 'disabled' })
     await no.check()
     await expect(coaching).toHaveCount(0)
