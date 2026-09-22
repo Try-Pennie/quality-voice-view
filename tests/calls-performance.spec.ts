@@ -274,14 +274,45 @@ test('failed Next prefetch is silent and does not poison later navigation', asyn
   expect(state.requests.filter(r => r.name === 'eavesly_calls_page').map(r => r.args.p_offset)).toEqual([0, 25, 25])
 })
 
-test('saving threshold settings deliberately resets Calls to page one', async ({ page }) => {
-  await fixture(page)
+test('saved threshold settings reset pagination and drive the Below threshold RPCs', async ({ page }) => {
+  const { state } = await fixture(page)
   await page.goto(`${url}&page=2`)
   await expect(page.getByText('Showing 26–50 of 65')).toBeVisible()
   await page.getByRole('button', { name: 'Thresholds', exact: true }).click()
+  await page.getByLabel('Overall score at or below').selectOption('excellent')
+  await page.getByRole('button', { name: 'Reset to defaults', exact: true }).click()
+  await expect(page.getByLabel('Overall score at or below')).toHaveValue('needs_improvement')
+  await page.getByLabel('Overall score at or below').selectOption('good')
+  await page.getByLabel('Customer satisfaction at or below').selectOption('medium')
   await page.getByRole('button', { name: 'Save settings', exact: true }).click()
   await expect(page.getByText('Showing 1–25 of 65')).toBeVisible()
   expect(new URL(page.url()).searchParams.get('page')).toBeNull()
+  expect(await page.evaluate(() => JSON.parse(localStorage.getItem('thresholdSettings') ?? 'null'))).toEqual({
+    overallScore: 'good', compliance: 'fail', customerSat: 'medium',
+  })
+
+  await page.getByRole('button', { name: 'Below threshold', exact: true }).click()
+  await expect(visibleRows(page)).toHaveCount(1)
+  const expected = { p_quick_filter: 'threshold', p_thresholds: { overallScore: 'good', compliance: 'fail', customerSat: 'medium' } }
+  expect(state.requests.filter(request => request.name === 'eavesly_calls_page').at(-1)?.args).toMatchObject(expected)
+  expect(state.requests.filter(request => request.name === 'eavesly_calls_summary').at(-1)?.args).toMatchObject(expected)
+})
+
+test('malformed stringifiable threshold settings fail closed to defaults', async ({ page }) => {
+  const { state } = await fixture(page)
+  await page.addInitScript(() => localStorage.setItem('thresholdSettings', JSON.stringify({
+    overallScore: ['good'], compliance: ['pass'], customerSat: ['medium'],
+  })))
+  await page.goto(`${url}&qf=threshold`)
+  await expect(visibleRows(page)).toHaveCount(1)
+  const defaults = { overallScore: 'needs_improvement', compliance: 'fail', customerSat: 'low' }
+  expect(state.requests.filter(request => request.name === 'eavesly_calls_page').at(-1)?.args.p_thresholds).toEqual(defaults)
+  expect(state.requests.filter(request => request.name === 'eavesly_calls_summary').at(-1)?.args.p_thresholds).toEqual(defaults)
+
+  await page.getByRole('button', { name: 'Thresholds', exact: true }).click()
+  await expect(page.getByLabel('Overall score at or below')).toHaveValue('needs_improvement')
+  await expect(page.getByLabel('Compliance rating', { exact: true })).toHaveValue('fail')
+  await expect(page.getByLabel('Customer satisfaction at or below')).toHaveValue('low')
 })
 
 test('summary and agent failures are recoverable without hiding loaded rows', async ({ page }) => {
@@ -361,7 +392,7 @@ test('Team pitch counts use one aggregate request, never pitch call pagination',
 
 test('agent/disposition URL filters and local quick thresholds reach both RPCs', async ({ page }) => {
   const { state } = await fixture(page)
-  await page.addInitScript(() => localStorage.setItem('dashboardThresholds', JSON.stringify({ overallScore: 'good', compliance: 'fail', customerSat: 'medium' })))
+  await page.addInitScript(() => localStorage.setItem('thresholdSettings', JSON.stringify({ overallScore: 'good', compliance: 'fail', customerSat: 'medium' })))
   await page.goto(`${url}&agents=agent%40example.test&dispo=Cal.com%20Meeting&qf=threshold`)
   await expect(visibleRows(page)).toHaveCount(1)
   const expected = { p_agents: ['agent@example.test'], p_dispositions: ['Cal.com Meeting'], p_quick_filter: 'threshold',

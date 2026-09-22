@@ -1,5 +1,7 @@
 # Achieve weekly email setup (Google Workspace)
 
+> Production status (September 21, 2026): the 30-day termination-enrollment feature is now activated, populated, and deployed consistently across sync, weekly email, and portal. See [the corrected-report follow-up](./achieve-report-recovery-2026-09-21.md#follow-up-termination-correction-and-internal-only-send) for verification. Keep these three function deployments coordinated with their migration.
+
 The report sends every Monday at 9:00 AM Eastern from a real Google Workspace mailbox through the Gmail API. The existing Google service account used by `achieve-feedback-sync` is reused with domain-wide delegation and the narrow `gmail.send` scope. The weekly function also uses the shared Snowflake key-pair identity to build Geoff's enrollment-level follow-through attachment in memory; it never stores that export in Supabase.
 
 ## 1. Choose the sender mailbox
@@ -62,6 +64,12 @@ ACHIEVE_REPORT_CC=observer.one@trypennie.com,observer.two@trypennie.com
 ACHIEVE_REPORT_TEST_RECIPIENT=internal.tester@trypennie.com
 ACHIEVE_PORTAL_URL=https://YOUR-EAVESLY-HOST/achieve
 GMAIL_SENDER=eavesly-reports@trypennie.com
+DEPLOYMENT_ENVIRONMENT=production
+ACHIEVE_EXTERNAL_IO_ENABLED=true
+# Add only after the dedicated operations-channel destination is verified:
+# ACHIEVE_SLACK_ALERTS_ENABLED=true
+# ACHIEVE_SLACK_BOT_TOKEN=<dedicated chat:write-only bot token>
+# ACHIEVE_SLACK_CHANNEL_ID=C08CPGTHY9J
 EOF
 chmod 600 /tmp/achieve-weekly-email.env
 
@@ -103,8 +111,9 @@ npx supabase functions deploy achieve-first-pay-sync \
   --project-ref miikotqnovnixpeqtqnd \
   --no-verify-jwt
 
-# After the direct-sync test and Pipedream first-pay cutover:
-npx supabase db push --project-ref miikotqnovnixpeqtqnd
+# STOP: production history has known drift. Do not run a blanket db push.
+# After explicit approval, apply only reviewed, hash-pinned SQL artifacts.
+# See docs/audit-release-runbook.md for read-only preflight and rollout order.
 
 npx supabase functions deploy achieve-portal \
   --project-ref miikotqnovnixpeqtqnd
@@ -121,11 +130,11 @@ npx supabase functions deploy achieve-feedback-sync \
 
 Deploy the frontend through the repository's normal release process so `/achieve` can call the new `get_management_report` action.
 
-The direct Snowflake sync runs daily at 12:00 UTC, before the Monday report window. The weekly-report migration separately invokes the email function every 15 minutes during both UTC hours that can contain 9 AM Eastern; the email function sends once and handles daylight-saving changes.
+The direct Snowflake sync runs daily at 12:00 UTC. After reliability migration `20260921211000`, the existing production weekly endpoint is invoked every 15 minutes for PII-free health checks; it still builds/sends email only during Monday's 9 AM Eastern hour. The migration rewrites only an existing, recognized production cron template and creates no HTTP job when that row is absent. See [`achieve-reliability-hardening-2026-09-21.md`](./achieve-reliability-hardening-2026-09-21.md) for the staging gate and Slack activation boundary.
 
 ## 7. Send a real test
 
-A test action sends the current completed-week report to the configured recipients without consuming the Monday delivery record:
+A test action sends the current completed-week report only to `ACHIEVE_REPORT_TEST_RECIPIENT`, without consuming the Monday delivery record:
 
 ```sh
 read -rsp 'Weekly report secret: ' REPORT_SECRET && echo
@@ -173,7 +182,7 @@ from cron.job
 where jobname = 'achieve_weekly_management_report';
 ```
 
-Expected schedule: `*/15 13,14 * * 1`.
+Expected schedule after reliability migration `20260921211000`: `*/15 * * * *`. The handler performs monitoring on every invocation and report delivery only during Monday's 9 AM Eastern hour. Expected HTTP timeout: `120000` ms; the handler's internal deadline is 110 seconds.
 
 After Monday delivery, check the idempotency ledger:
 
@@ -186,6 +195,20 @@ limit 10;
 
 A successful run has `status = 'sent'`. Gmail message IDs are retained for delivery troubleshooting but should not be copied into public logs.
 
+## Recover a missed delivery safely
+
+The same `x-report-secret` authentication protects all actions. Recipients cannot be overridden in a request.
+
+1. If either snapshot is stale/mixed or the daily sync failed, invoke authenticated `{"action":"refresh"}` on `achieve-first-pay-sync` first. Require a successful response and matching current source dates in both snapshot tables; the portal and email intentionally fail closed rather than show stale values.
+2. POST `{"action":"preview"}` to build the current completed-week report and all three attachments **without calling Gmail or claiming the week**. The response contains `week_ending` and base64url `raw` MIME with `Cache-Control: no-store`. This contains sensitive enrollment data: inspect only in a restricted local directory; never paste the payload in logs, tickets, or source control.
+3. Check source freshness, completed-week boundaries, recipient headers, rendered HTML/plain text, and all three parsed CSVs. Run the non-delivering HTTP check with `REPORT_URL`, `REPORT_SECRET`, and the expected `REPORT_TEST_RECIPIENT` in the process environment: `npx tsx supabase/functions/achieve-weekly-report/live.check.ts`.
+4. After approval and validation, POST `{"action":"send","week_ending":"YYYY-MM-DD"}` using the preview's week. This bypasses only the delivery-hour gate, not validation, recipients, or the send ledger. A different week returns `409 week_ending_mismatch`; an existing claim returns `already_sent_or_sending`. It cannot backdate a report.
+5. Verify `status = 'sent'` in the ledger. For a stuck `sending` claim, inspect the sender's Sent mailbox for the exact week, subject, recipients, and attempt time before any status change or resend. Record `sent` only with the confirmed Gmail message ID; only when Gmail definitively shows no accepted message and manual approval is recorded may that exact unchanged claim be deleted, followed by a fresh preview and one send. If ambiguous, leave it untouched and escalate. No handler or monitor deletes or retries claims automatically. See the exact sequence in [`achieve-reliability-hardening-2026-09-21.md`](./achieve-reliability-hardening-2026-09-21.md).
+
+For a correction requested by one internal recipient, configure `ACHIEVE_REPORT_TEST_RECIPIENT` to that explicitly approved address, inspect `{"action":"preview_test"}`, and confirm the exact To header with no Cc/Bcc before invoking `{"action":"test"}`. The internal preview and test use the same envelope and all three attachments; neither changes the production send ledger. Do not invoke `send` or alter production To/Cc lists for an internal-only correction.
+
+The ordinary-QA covering index embeds `private.achieve_is_ordinary_graded_qa`. Any migration changing that immutable function must rebuild `eavesly_module_results_achieve_ordinary_created_idx` so index membership remains correct.
+
 ## Troubleshooting
 
 - `unauthorized_client`: domain-wide delegation is missing, the numeric client ID is wrong, or the `gmail.send` scope was not authorized.
@@ -194,3 +217,4 @@ A successful run has `status = 'sent'`. Gmail message IDs are retained for deliv
 - Gmail `403`: confirm the sender is an active Workspace user and the service account is authorized for `gmail.send`.
 - No Monday request: confirm the Vault secret exists and inspect `cron.job_run_details` and `net._http_response` for the scheduled request.
 - `weekly_report_failed` before Gmail: inspect the safe Edge Function error category and Snowflake source controls. The report intentionally sends nothing unless all three attachments are complete; a blank WC agent email, blank/duplicate AFF Number, incomplete partition, stale source date, or invalid QA rollup must be corrected and retried during the delivery hour rather than filtered or guessed.
+- Portal `snapshot_freshness_failed`: this outage is intentional fail-closed behavior; run the authenticated sync refresh and verify both current source dates instead of serving stale figures.

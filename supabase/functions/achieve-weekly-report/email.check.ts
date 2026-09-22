@@ -1,8 +1,8 @@
 // Behavior check for the email-safe Gmail MIME projection.
 // Run: npx tsx supabase/functions/achieve-weekly-report/email.check.ts
 import assert from 'node:assert/strict'
-import type { AchieveManagementReport, AchieveManagementRepresentative } from '../_shared/achieve-management-report'
-import { achieveWeeklyEmailEnvelope, buildAchieveWeeklyEmail } from './email'
+import type { AchieveManagementReport, AchieveManagementRepresentative } from '../_shared/achieve-management-report.ts'
+import { achieveWeeklyEmailEnvelope, buildAchieveWeeklyEmail } from './email.ts'
 
 function representative(
   agentName: string,

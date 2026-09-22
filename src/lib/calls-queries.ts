@@ -1,5 +1,6 @@
 import { supabase } from '@/integrations/supabase/client'
 import type { Call, TranscriptionQA } from '../types/database'
+import { DEFAULT_THRESHOLDS, type ThresholdSettings } from '../types/settings'
 import { startOfBusinessDay, endOfBusinessDay } from './time-zone'
 
 /** Compact, parsed Calls row; no transcript or full QA payload on list reads. */
@@ -13,7 +14,7 @@ export type CallsFilters = {
   agents: string[]
   dispositions: string[]
   quickFilter: 'all' | 'escalations' | 'compliance' | 'threshold' | 'rushed'
-  thresholds: { overallScore: string | null; compliance: string | null; customerSat: string | null }
+  thresholds: ThresholdSettings
 }
 /** Every server sort has deterministic timestamp/ID tie-breaking. */
 export type CallsSort = { key: 'time' | 'agent' | 'talk' | 'score' | 'compliance' | 'csat'; desc: boolean }
@@ -44,21 +45,26 @@ const nullableNumber = (value: unknown): value is number | null => value === nul
 const count = (value: unknown): value is number => typeof value === 'number' && Number.isSafeInteger(value) && value >= 0
 const strings = (value: unknown): value is string[] => Array.isArray(value) && value.every(item => typeof item === 'string')
 
-/** Parse legacy quick-filter settings without changing the unrelated Thresholds sheet. */
-export function readCallsThresholds(stored: string | null): CallsFilters['thresholds'] {
-  const defaults = { overallScore: 'needs_improvement', compliance: 'fail', customerSat: 'low' }
-  if (!stored) return defaults
+/** Parse the single persisted threshold model used by the settings UI and Calls RPCs. */
+export function readCallsThresholds(stored: string | null): ThresholdSettings {
+  if (!stored) return DEFAULT_THRESHOLDS
   try {
     const value = record(JSON.parse(stored))
-    if (!value) return defaults
-    // Missing/unknown thresholds matched all known ranks in the legacy filter.
+    if (!value
+      || typeof value.overallScore !== 'string'
+      || !['excellent', 'good', 'needs_improvement', 'poor'].includes(value.overallScore)
+      || typeof value.compliance !== 'string'
+      || !['pass', 'fail'].includes(value.compliance)
+      || typeof value.customerSat !== 'string'
+      || !['high', 'medium', 'low'].includes(value.customerSat)) return DEFAULT_THRESHOLDS
+    // SAFETY: each property passed the matching finite string-union membership check above.
     return {
-      overallScore: typeof value.overallScore === 'string' ? value.overallScore : null,
-      compliance: typeof value.compliance === 'string' ? value.compliance : null,
-      customerSat: typeof value.customerSat === 'string' ? value.customerSat : null,
+      overallScore: value.overallScore as ThresholdSettings['overallScore'],
+      compliance: value.compliance as ThresholdSettings['compliance'],
+      customerSat: value.customerSat as ThresholdSettings['customerSat'],
     }
   } catch {
-    return defaults
+    return DEFAULT_THRESHOLDS
   }
 }
 

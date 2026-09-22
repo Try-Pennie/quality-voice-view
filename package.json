@@ -7,8 +7,16 @@
     "dev": "vite",
     "build": "vite build",
     "build:dev": "vite build --mode development",
+    "build:staging": "VITE_RECORDING_TIMESTAMPS=true vite build --mode staging && node scripts/verify-staging-artifact.mjs",
+    "deploy:staging": "node scripts/deploy-staging.mjs",
+    "typecheck": "tsc --noEmit -p tsconfig.app.json",
     "lint": "eslint .",
+    "check:release-preflight": "node scripts/release-preflight.check.mjs && node scripts/deploy-staging.check.mjs",
+    "check:staging-build": "node scripts/check-staging-build.mjs",
     "test": "playwright test",
+    "test:browser:ci": "playwright test --workers=1",
+    "test:postgres:ci": "bash supabase/migrations/protect-manager-role.integration.check.sh && bash supabase/migrations/full-qa-rubric-feedback.integration.check.sh && bash supabase/migrations/reviewable-call-metrics.integration.check.sh && bash supabase/migrations/structured-manager-review.integration.check.sh && bash supabase/migrations/achieve-report-qa-scan.integration.check.sh && bash supabase/migrations/achieve-report-reliability.integration.check.sh",
+    "test:achieve:ci": "node --experimental-transform-types supabase/functions/_shared/achieve-slack.check.ts && node --experimental-transform-types operations/achieve-watchdog/watchdog.check.ts && node --experimental-transform-types supabase/functions/_shared/achieve-deployment-safety.check.ts && node --experimental-transform-types supabase/functions/_shared/achieve-management-report.check.ts && node --experimental-transform-types supabase/functions/_shared/achieve-first-pay-outcomes.check.ts && node --experimental-transform-types supabase/functions/achieve-weekly-report/monitoring.check.ts && node --experimental-transform-types supabase/functions/achieve-weekly-report/email.check.ts && node --experimental-transform-types supabase/functions/_shared/achieve-first-pay-enrollment-export.check.ts && node --experimental-transform-types supabase/functions/achieve-portal/portal-logic.check.ts && node supabase/migrations/achieve-report-reliability.check.js",
     "preview": "vite preview"
   },
   "dependencies": {

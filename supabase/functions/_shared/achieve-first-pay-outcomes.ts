@@ -214,10 +214,11 @@ export type OutcomeSyncFailureCode =
   | 'snowflake_result_stale'
   | 'snowflake_result_duplicate'
   | 'snowflake_result_unreconciled'
+  | 'request_cancelled'
 
 /** Expected Snowflake boundary failure without credentials or source rows. */
 export class OutcomeSyncFailure extends Error {
-  readonly name = 'OutcomeSyncFailure'
+  override readonly name = 'OutcomeSyncFailure'
 
   constructor(
     readonly code: OutcomeSyncFailureCode,
@@ -343,6 +344,7 @@ export type TerminationEnrollmentPlan = {
 type SnowflakeRequestOptions = {
   readonly fetcher?: typeof fetch
   readonly sleep?: (milliseconds: number) => Promise<void>
+  readonly signal?: AbortSignal
 }
 
 type SnowflakeResultMetadata = {
@@ -371,14 +373,17 @@ function base64url(bytes: Uint8Array): string {
   return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
 }
 
-function pemBytes(pem: string): Uint8Array {
+function pemBytes(pem: string): Uint8Array<ArrayBuffer> {
   const normalized = pem.replace(/\\n/g, '\n')
   const body = normalized
     .replace('-----BEGIN PRIVATE KEY-----', '')
     .replace('-----END PRIVATE KEY-----', '')
     .replace(/\s+/g, '')
   try {
-    return Uint8Array.from(atob(body), character => character.charCodeAt(0))
+    const decoded = atob(body)
+    const bytes = new Uint8Array(new ArrayBuffer(decoded.length))
+    for (let index = 0; index < decoded.length; index++) bytes[index] = decoded.charCodeAt(index)
+    return bytes
   } catch {
     return failure('snowflake_auth_failed')
   }
@@ -450,12 +455,16 @@ async function requestJson(
   url: string,
   init: RequestInit,
   fetcher: typeof fetch,
+  signal?: AbortSignal,
 ): Promise<{ readonly status: number; readonly body: unknown }> {
   let response: Response
   try {
-    response = await fetcher(url, { ...init, signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) })
+    const requestSignal = signal
+      ? AbortSignal.any([signal, AbortSignal.timeout(REQUEST_TIMEOUT_MS)])
+      : AbortSignal.timeout(REQUEST_TIMEOUT_MS)
+    response = await fetcher(url, { ...init, signal: requestSignal })
   } catch {
-    return failure('snowflake_network_failed')
+    return failure(signal?.aborted ? 'request_cancelled' : 'snowflake_network_failed')
   }
 
   let body: unknown
@@ -538,16 +547,20 @@ async function completedResponse(
   initial: { readonly status: number; readonly body: unknown },
   fetcher: typeof fetch,
   sleep: (milliseconds: number) => Promise<void>,
+  signal?: AbortSignal,
 ): Promise<unknown> {
   let response = initial
   const handle = statementHandle(response.body)
   for (let attempt = 0; response.status === 202 && attempt < POLL_ATTEMPTS; attempt++) {
+    signal?.throwIfAborted()
     await sleep(1_000)
+    signal?.throwIfAborted()
     const query = new URLSearchParams({ requestId: crypto.randomUUID() })
     response = await requestJson(
       `${accountUrl}/api/v2/statements/${encodeURIComponent(handle)}?${query}`,
       { method: 'GET', headers: snowflakeHeaders(jwt) },
       fetcher,
+      signal,
     )
     if (statementHandle(response.body) !== handle) return failure('snowflake_response_invalid')
   }
@@ -563,16 +576,20 @@ async function completedPartition(
   initial: { readonly status: number; readonly body: unknown },
   fetcher: typeof fetch,
   sleep: (milliseconds: number) => Promise<void>,
+  signal?: AbortSignal,
 ): Promise<unknown> {
   let response = initial
   for (let attempt = 0; response.status === 202 && attempt < POLL_ATTEMPTS; attempt++) {
     if (statementHandle(response.body) !== handle) return failure('snowflake_response_invalid')
+    signal?.throwIfAborted()
     await sleep(1_000)
+    signal?.throwIfAborted()
     const query = new URLSearchParams({ partition: String(partition), requestId: crypto.randomUUID() })
     response = await requestJson(
       `${accountUrl}/api/v2/statements/${encodeURIComponent(handle)}?${query}`,
       { method: 'GET', headers: snowflakeHeaders(jwt) },
       fetcher,
+      signal,
     )
   }
   if (response.status !== 200) return failure('snowflake_poll_timeout')
@@ -614,8 +631,9 @@ async function snowflakeRows(
       }),
     },
     fetcher,
+    options.signal,
   )
-  const first = await completedResponse(config.accountUrl, jwt, submitted, fetcher, sleep)
+  const first = await completedResponse(config.accountUrl, jwt, submitted, fetcher, sleep, options.signal)
   const handle = statementHandle(first)
   const metadata = resultMetadata(first)
   const rows: Array<ReadonlyArray<unknown>> = [...partitionRows(first, metadata, 0)]
@@ -626,8 +644,9 @@ async function snowflakeRows(
       `${config.accountUrl}/api/v2/statements/${encodeURIComponent(handle)}?${query}`,
       { method: 'GET', headers: snowflakeHeaders(jwt) },
       fetcher,
+      options.signal,
     )
-    const page = await completedPartition(config.accountUrl, jwt, handle, partition, requested, fetcher, sleep)
+    const page = await completedPartition(config.accountUrl, jwt, handle, partition, requested, fetcher, sleep, options.signal)
     rows.push(...partitionRows(page, metadata, partition))
   }
   if (rows.length !== metadata.numRows) return failure('snowflake_result_incomplete')

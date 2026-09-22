@@ -1,0 +1,78 @@
+name: Quality gates
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: quality-gates-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  quality-gates:
+    name: Quality gates
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    env:
+      CI: true
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Build production bundle
+        run: npm run build
+
+      - name: Check release preflight
+        run: npm run check:release-preflight
+
+      - name: Check isolated staging build
+        run: npm run check:staging-build
+
+      - name: Check Achieve report contracts
+        run: npm run test:achieve:ci
+
+      - name: Typecheck deployed Achieve functions
+        run: npx --yes deno@2.9.6 check --node-modules-dir=none --frozen supabase/functions/achieve-weekly-report/index.ts supabase/functions/achieve-first-pay-sync/index.ts supabase/functions/achieve-portal/index.ts operations/achieve-watchdog/index.ts
+
+      - name: Check independent watchdog in Workers runtime
+        run: npm exec --yes --package=wrangler@4.90.0 --call 'node operations/achieve-watchdog/runtime.check.mjs'
+
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: Run full browser suite
+        run: npm run test:browser:ci
+
+      - name: Run representative PostgreSQL checks
+        run: npm run test:postgres:ci
+
+      - name: Preserve synthetic browser screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: synthetic-browser-screenshots
+          path: test-results/**/*.png
+          if-no-files-found: ignore
+          retention-days: 14

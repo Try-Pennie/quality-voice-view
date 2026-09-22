@@ -797,7 +797,7 @@ export function AlertReviewDrawer({
           <div className="flex flex-wrap items-center justify-between gap-x-3">
             {alert.recording_link ? <h2 className="pennie-label hidden sm:inline-flex items-center gap-1.5">
               <Headphones className="w-3.5 h-3.5" aria-hidden="true" />Recording
-            </h2> : !detailsLoading && !detailsError && alert.recording_link === null && <p className="text-xs text-pennie-graphite/70">Recording not available</p>}
+            </h2> : !detailsLoading && !detailsError && !alert.recording_error && alert.recording_link === null && <p className="text-xs text-pennie-graphite/70">Recording not available</p>}
             {alert.transcript_url && (
               <a href={alert.transcript_url} target="_blank" rel="noopener noreferrer"
                 className="pennie-focus-ring inline-flex min-h-[44px] items-center gap-2 rounded-full border border-border bg-pennie-white px-4 py-2 text-sm font-semibold text-pennie-blue-deeper transition-colors hover:bg-pennie-beige motion-safe:active:scale-[0.96]">
@@ -813,6 +813,9 @@ export function AlertReviewDrawer({
           </div>
           {detailsError ? <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
             <p role="alert">Couldn't load the recording and call details. Your review stays here.</p>
+            <button type="button" onClick={onRetryDetails} className="pennie-focus-ring min-h-[44px] rounded-full border border-border px-3 font-semibold text-pennie-blue-deeper">Retry recording</button>
+          </div> : alert.recording_error ? <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
+            <p role="alert">Recording unavailable. Call details and review evidence are still available.</p>
             <button type="button" onClick={onRetryDetails} className="pennie-focus-ring min-h-[44px] rounded-full border border-border px-3 font-semibold text-pennie-blue-deeper">Retry recording</button>
           </div> : detailsLoading || alert.recording_link === undefined
             ? <p role="status" aria-busy="true" className="min-h-[112px] sm:min-h-[68px] text-xs text-pennie-graphite/70">Loading recording…</p>
@@ -1065,7 +1068,7 @@ export function AlertReviewDrawer({
                 <button type="button" aria-controls={fullQaSave.nextSectionId} disabled={decisionPending} onClick={() => {
                   const section = document.getElementById(fullQaSave.nextSectionId ?? '')
                   section?.focus({ preventScroll: true })
-                  section?.scrollIntoView({ block: 'start', behavior: 'instant' })
+                  section?.scrollIntoView({ block: section instanceof HTMLTextAreaElement ? 'center' : 'start', behavior: 'instant' })
                 }} className="pennie-focus-ring mr-auto min-h-[44px] text-sm font-semibold text-pennie-blue-deeper underline-offset-4 hover:underline disabled:opacity-40">
                   Continue review
                 </button>

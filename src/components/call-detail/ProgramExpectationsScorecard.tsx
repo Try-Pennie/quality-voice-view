@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import type { QAJson } from '../../types/database'
 import {
   AlertTriangle,
   CheckCircle2,
@@ -25,7 +26,7 @@ const DISCLOSURES = [
   { key: 'legal_action_point', label: 'Legal Action Risk Disclosed' },
 ]
 
-export function ProgramExpectationsScorecard({ data }: { data: any }) {
+export function ProgramExpectationsScorecard({ data }: { data: NonNullable<QAJson['program_expectations_scorecard']> }) {
   const [isExpanded, setIsExpanded] = useState(false)
 
   const status = data.section_status as string | undefined

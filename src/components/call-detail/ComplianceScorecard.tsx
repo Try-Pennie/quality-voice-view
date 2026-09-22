@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import type { QAJson } from '../../types/database'
 import {
   AlertTriangle,
   CheckCircle2,
@@ -10,7 +11,7 @@ import {
 } from 'lucide-react'
 import { getScoreBadgeColor } from '../../lib/utils'
 
-export function ComplianceScorecard({ data }: { data: any }) {
+export function ComplianceScorecard({ data }: { data: NonNullable<QAJson['compliance_scorecard']> }) {
   const [isExpanded, setIsExpanded] = useState(data.overall_compliance_score === 'fail')
 
   const checks = [

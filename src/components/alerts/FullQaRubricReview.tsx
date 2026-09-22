@@ -54,7 +54,9 @@ interface Props {
 
 type LocalDraft = Omit<FullQaReviewDraft, 'escalationJustified'> & { readonly escalationJustified: boolean | null }
 
-function ReviewText({ label, value, onChange, disabled, placeholder }: {
+function ReviewText({ id, label, value, onChange, disabled, placeholder, showEmptyHint = false }: {
+  readonly id?: string
+  readonly showEmptyHint?: boolean
   readonly label: string
   readonly value: string
   readonly onChange: (value: string) => void
@@ -65,15 +67,16 @@ function ReviewText({ label, value, onChange, disabled, placeholder }: {
   const length = value.trim().length
   const { min, max } = INTERNAL_REVIEW_TEXT_LIMITS
   return <>
-    <textarea aria-label={label} aria-required="true" aria-describedby={hintId} aria-invalid={length > 0 && (length < min || length > max)}
+    <textarea id={id} aria-label={label} aria-required="true" aria-describedby={hintId} aria-invalid={(showEmptyHint || length > 0) && (length < min || length > max)}
       disabled={disabled} value={value} placeholder={placeholder} onChange={event => onChange(event.target.value)}
       className="pennie-focus-ring mt-1 min-h-20 w-full rounded-lg border border-border bg-white p-2 text-base font-normal sm:text-sm" />
-    <span id={hintId} className={length > 0 && (length < min || length >= max - 200) ? 'mt-1 block text-xs font-normal text-pennie-graphite/70' : 'sr-only'}>{min}–{max.toLocaleString('en-US')} characters · {length.toLocaleString('en-US')} entered</span>
+    <span id={hintId} className={(showEmptyHint && length === 0) || (length > 0 && (length < min || length >= max - 200)) ? 'mt-1 block text-xs font-normal text-pennie-graphite/70' : 'sr-only'}>{min}–{max.toLocaleString('en-US')} characters · {length.toLocaleString('en-US')} entered</span>
   </>
 }
 
-function serializeDraft(value: unknown): string {
-  return JSON.stringify(value)
+function serializeDraft(value: LocalDraft): string {
+  // Warranted reviews derive their overview from findings, not a second manager answer.
+  return JSON.stringify({ ...value, escalationReason: value.escalationJustified === true ? null : value.escalationReason })
 }
 
 function scoreLabel(value: unknown): string {
@@ -210,7 +213,7 @@ function ManagerReviewOutcome({ context }: { readonly context: FullQaReviewConte
     <dl className="grid grid-cols-1 gap-x-3 gap-y-1 text-sm text-pennie-graphite [&>dd]:mb-2 sm:grid-cols-[auto_1fr] sm:[&>dd]:mb-0">
       <dt className="font-semibold text-pennie-navy">Alert warranted</dt>
       <dd className="font-semibold">{review.escalationJustified ? 'Yes' : 'No'}{review.inaccuracyReason ? ` · ${INACCURACY_REASON_LABELS[review.inaccuracyReason]}` : ''}</dd>
-      <dt className="font-semibold text-pennie-navy">{review.escalationJustified ? 'What happened?' : 'Manager’s reason'}</dt>
+      <dt className="font-semibold text-pennie-navy">{review.escalationJustified ? 'Review summary' : 'Manager’s reason'}</dt>
       <dd className="whitespace-pre-wrap break-words">{review.escalationReason}</dd>
     </dl>
     <div className="text-sm text-pennie-graphite">
@@ -264,7 +267,8 @@ export function FullQaRubricReview({ alert, scope, editable, canReloadReview, re
 
   const loadContext = useCallback((nextContext: FullQaReviewContext) => {
     const next: LocalDraft = { corrections: initialFullQaCorrections(nextContext), findings: nextContext.review?.findings ?? [],
-      escalationJustified: nextContext.review?.escalationJustified ?? null, escalationReason: nextContext.review?.escalationReason ?? '',
+      escalationJustified: nextContext.review?.escalationJustified ?? null,
+      escalationReason: nextContext.review?.escalationJustified === false ? nextContext.review.escalationReason : '',
       inaccuracyReason: nextContext.review?.inaccuracyReason ?? null,
       actionTaken: nextContext.review?.findings.length ? nextContext.review.actionTaken : null,
       actionDetails: nextContext.review?.findings.length ? nextContext.review.actionDetails ?? '' : '' }
@@ -311,7 +315,7 @@ export function FullQaRubricReview({ alert, scope, editable, canReloadReview, re
           : context.review && !reviewDirty ? 'No unsaved review changes.'
             : parsed.ok === false ? reviewDirty ? parsed.message : 'Check the scores and add any coaching issues, then finish your decision.' : null
   const nextSectionId = context && initializedFor.current === alert.call_id && !query.isError && !contextChanged && !busy && parsed.ok === false
-    ? `${scorecardId}-${parsed.section}` : null
+    ? parsed.finding ? `${scorecardId}-finding-${parsed.finding.id}-${parsed.finding.field}` : `${scorecardId}-${parsed.section}` : null
   useEffect(() => { onDirtyChange(dirty) }, [dirty, onDirtyChange])
   useEffect(() => { onBusyChange(busy) }, [busy, onBusyChange])
   useEffect(() => { onSaveStateChange({ disabled: saveDisabled, label: saveLabel, message: saveMessage, nextSectionId }) }, [saveDisabled, saveLabel, saveMessage, nextSectionId, onSaveStateChange])
@@ -539,8 +543,8 @@ export function FullQaRubricReview({ alert, scope, editable, canReloadReview, re
           <summary className="pennie-focus-ring min-h-[44px] cursor-pointer font-semibold">Related criteria ({finding.relatedCriteria.length} selected{finding.relatedCriteria.length ? `: ${finding.relatedCriteria.map(key => context.criteria.find(item => item.key === key)?.label ?? key).join(', ')}` : ''})</summary>
           <div role="group" aria-label={`Finding ${index + 1} related criteria`} className="mt-2 grid gap-1 sm:grid-cols-2">{context.criteria.map(item => <label key={item.key} className="flex min-h-[32px] items-center gap-2 font-normal"><input type="checkbox" checked={finding.relatedCriteria.includes(item.key)} onChange={event => updateFinding(finding.findingId, { relatedCriteria: event.target.checked ? [...finding.relatedCriteria, item.key] : finding.relatedCriteria.filter(key => key !== item.key) })} className="pennie-focus-ring h-4 w-4 accent-pennie-blue-deeper" />{item.label}</label>)}</div>
         </details>
-        <label className="block text-xs font-semibold">What was the issue?<ReviewText label={`What was the issue? Finding ${index + 1} summary`} value={finding.summary} placeholder="Describe the issue in your own words." onChange={summary => updateFinding(finding.findingId, { summary })} /></label>
-        <label className="block text-xs font-semibold">Evidence<ReviewText label={`Finding ${index + 1} evidence`} value={finding.evidence} onChange={evidence => updateFinding(finding.findingId, { evidence })} /></label>
+        <label className="block text-xs font-semibold">What was the issue?<ReviewText id={`${findingElementId(finding.findingId)}-summary`} showEmptyHint label={`What was the issue? Finding ${index + 1} summary`} value={finding.summary} placeholder="Describe the issue in your own words." onChange={summary => updateFinding(finding.findingId, { summary })} /></label>
+        <label className="block text-xs font-semibold">Evidence<ReviewText id={`${findingElementId(finding.findingId)}-evidence`} showEmptyHint label={`Finding ${index + 1} evidence`} value={finding.evidence} onChange={evidence => updateFinding(finding.findingId, { evidence })} /></label>
         <button type="button" onClick={() => setFindings(items => items.filter(item => item.findingId !== finding.findingId))} className="min-h-[36px] text-xs font-semibold text-pennie-peach-deeper"><Trash2 className="mr-1 inline h-3.5 w-3.5" aria-hidden="true" />Remove issue</button>
       </fieldset>)}
       {findings.length === 0 && <p className="text-sm text-pennie-graphite/70">No coaching issues added.</p>}
@@ -558,7 +562,7 @@ export function FullQaRubricReview({ alert, scope, editable, canReloadReview, re
             {ACTIONS.map(value => <ReviewChoice key={value} name={`${scorecardId}-action`} checked={actionTaken === value} onChange={() => setActionTaken(value)} label={ACTION_TAKEN_LABELS[value]} />)}
           </div>
         </div>
-        <label className="block"><span className="pennie-label">What happened?<span className="ml-1 text-pennie-peach-deeper" aria-hidden="true">*</span></span><ReviewText label="What happened?" value={escalationReason} placeholder="Describe the specific behavior or missed requirement." onChange={setEscalationReason} /></label>
+        <p className="text-xs text-pennie-graphite/70">Your coaching issues above describe what happened. No need to repeat them here.</p>
         <label className="block"><span className="pennie-label">What action did you take?<span className="ml-1 text-pennie-peach-deeper" aria-hidden="true">*</span></span><ReviewText label="What action did you take?" value={actionDetails} placeholder="Describe the coaching, escalation, or planned follow-up." onChange={setActionDetails} /></label>
       </section> : escalationJustified === false && <>
         <fieldset><legend className="mb-2 text-xs font-semibold">Why was the alert unnecessary?</legend><div className="flex flex-wrap gap-2" role="radiogroup" aria-label="Why was the alert unnecessary?">{REASONS.map(value => <ReviewChoice key={value} name={`${scorecardId}-reason`} checked={inaccuracyReason === value} onChange={() => setInaccuracyReason(value)} label={INACCURACY_REASON_LABELS[value]} />)}</div></fieldset>

@@ -8,7 +8,7 @@ export async function fetchAllPaginated<T>(
   build: (
     from: number,
     to: number,
-  ) => PromiseLike<{ data: T[] | null; error: any }>,
+  ) => PromiseLike<{ data: T[] | null; error: unknown }>,
   pageSize = 1000,
   hardCap = 100_000, // safety net so a misuse can't loop forever
 ): Promise<T[]> {

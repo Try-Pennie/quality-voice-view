@@ -253,7 +253,7 @@ const ENTRIES = {
     category: 'Filters',
     title: 'Below threshold',
     body:
-      'Calls falling outside the talk-time, handle-time, or compliance bands you set in Threshold settings. Used by the "need attention" headline.',
+      'Calls at or below the overall-score, compliance, or customer-satisfaction ratings saved in Threshold settings.',
   },
 
   // -------- Filters (Team) --------

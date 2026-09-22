@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import type { QAJson } from '../../types/database'
 import {
   AlertTriangle,
   BookOpen,
@@ -9,7 +10,7 @@ import {
   Target,
 } from 'lucide-react'
 
-export function CoachingRecommendations({ data }: { data: any }) {
+export function CoachingRecommendations({ data }: { data: NonNullable<QAJson['coaching_recommendations']> }) {
   const [isExpanded, setIsExpanded] = useState(true)
 
   return (

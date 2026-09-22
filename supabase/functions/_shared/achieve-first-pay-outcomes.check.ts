@@ -328,4 +328,17 @@ await expectTerminationFailure([
   [...terminationRows[0].slice(0, 3), '2', '1', '3', '4', '3'],
 ], 'snowflake_result_unreconciled')
 
+const cancelled = new AbortController()
+cancelled.abort()
+await assert.rejects(
+  fetchSnowflakeOutcomeSnapshot(config, new Date('2026-09-01T12:00:00Z'), {
+    signal: cancelled.signal,
+    fetcher: async (_input, init) => {
+      assert.strictEqual(init?.signal?.aborted, true)
+      throw init?.signal?.reason
+    },
+  }),
+  error => error instanceof OutcomeSyncFailure && error.code === 'request_cancelled',
+)
+
 console.log('achieve-first-pay-outcomes.check.ts: all assertions passed')

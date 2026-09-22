@@ -35,7 +35,7 @@ import {
   SheetTitle,
 } from '../components/ui/sheet'
 import { ThresholdSettingsSheet } from '../components/settings/ThresholdSettings'
-import { ThresholdSettings, DEFAULT_THRESHOLDS } from '../types/settings'
+import type { ThresholdSettings } from '../types/settings'
 import {
   ArrowDown,
   ArrowUp,
@@ -141,7 +141,9 @@ export default function DashboardPage() {
 
   const [showSettings, setShowSettings] = useState(false)
   const [showMobileFilters, setShowMobileFilters] = useState(false)
-  const [, setThresholds] = useState<ThresholdSettings>(DEFAULT_THRESHOLDS)
+  const [thresholds, setThresholds] = useState<ThresholdSettings>(() =>
+    readCallsThresholds(localStorage.getItem('thresholdSettings')),
+  )
 
   const [sortKey, setSortKey] = useState<CallSortKey>(() =>
     parseSortParams(searchParams.get('sort'), searchParams.get('dir')).key,
@@ -176,7 +178,7 @@ export default function DashboardPage() {
   }
 
   const filters: CallsFilters = { startDate, endDate, agents: selectedAgents, dispositions: selectedDispositions,
-    quickFilter, thresholds: readCallsThresholds(localStorage.getItem('dashboardThresholds')) }
+    quickFilter, thresholds }
   const sort: CallsSort = { key: sortKey, desc: sortDesc }
   const pageQuery = useCallsPage(filters, sort, currentPage)
   const summaryQuery = useCallsSummary(filters)
@@ -250,17 +252,6 @@ export default function DashboardPage() {
   const exportController = useRef<AbortController | null>(null)
   useEffect(() => () => exportController.current?.abort(), [])
 
-  useEffect(() => {
-    const saved = localStorage.getItem('thresholdSettings')
-    if (saved) {
-      try {
-        setThresholds(JSON.parse(saved))
-      } catch (e) {
-        console.error('Failed to parse threshold settings', e)
-      }
-    }
-  }, [])
-
   const callsSearchParams = new URLSearchParams()
   callsSearchParams.set('start', formatDateParam(startDate))
   callsSearchParams.set('end', formatDateParam(endDate))
@@ -291,6 +282,7 @@ export default function DashboardPage() {
   }
 
   const handleSaveThresholds = (newThresholds: ThresholdSettings) => {
+    localStorage.setItem('thresholdSettings', JSON.stringify(newThresholds))
     setCurrentPage(1)
     setThresholds(newThresholds)
   }
@@ -930,6 +922,7 @@ export default function DashboardPage() {
 
       <ThresholdSettingsSheet
         isOpen={showSettings}
+        thresholds={thresholds}
         onClose={() => setShowSettings(false)}
         onSave={handleSaveThresholds}
       />

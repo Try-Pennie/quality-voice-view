@@ -46,11 +46,11 @@ test('adding an issue keeps evidence in view and verdict fields reveal without l
   const description = page.locator(`[id="${await reason.getAttribute('aria-describedby')}"]`)
   expect(await description.evaluate(el => getComputedStyle(el).position)).toBe('absolute')
   await page.getByRole('radio', { name: 'Yes, the alert was warranted', exact: true }).check()
-  await expect(page.getByRole('textbox', { name: 'What happened?', exact: true })).toHaveValue('The original evidence does not support this escalation.')
+  await expect(page.getByRole('textbox', { name: 'What happened?', exact: true })).toHaveCount(0)
   await page.getByRole('textbox', { name: 'What action did you take?', exact: true }).fill('Discussed the specific issue with the representative.')
   for (const width of [320, 375, 414, 768, 1440]) {
     await page.setViewportSize({ width, height: width < 768 ? 812 : 900 })
-    await page.getByRole('textbox', { name: 'What happened?', exact: true }).scrollIntoViewIfNeeded()
+    await page.getByRole('textbox', { name: 'What action did you take?', exact: true }).scrollIntoViewIfNeeded()
     expect(await page.getByRole('dialog').evaluate(element => element.scrollTop)).toBe(0)
     expect(await page.getByRole('dialog').evaluate(element => element.scrollHeight <= element.clientHeight)).toBe(true)
     await expect(page.getByRole('button', { name: width < 640 ? 'Back to alerts' : 'Close (Esc)', exact: true })).toBeInViewport()

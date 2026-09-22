@@ -17,7 +17,7 @@
 // Keep verify/list until a separately approved cleanup after the new frontend
 // is deployed; the function must remain a superset during rollout.
 import "jsr:@supabase/functions-js/edge-runtime.d.ts"
-import { createClient } from "jsr:@supabase/supabase-js@2"
+import { createClient, type SupabaseClient } from "jsr:@supabase/supabase-js@2"
 import {
   ACHIEVE_REPORT_REPRESENTATIVE_LIMIT,
   loadAchieveManagementReport,
@@ -72,7 +72,63 @@ const AGENT_FEEDBACK_COLUMNS =
   "id, lead_phone_raw, achieve_agent_name, accent, background_noise, connection_issues, call_quality, notes, submitted_by, submitted_at, matched_call_id, matched_eavesly_call_id, call_match_status, call_match_confidence, call_match_reason, call_match_provenance, call_match_method, call_match_evidence"
 
 type BoundaryRow = Record<string, unknown>
-type AdminClient = ReturnType<typeof createClient>
+type PortalTable<Row> = {
+  Row: Row
+  Insert: BoundaryRow
+  Update: BoundaryRow
+  Relationships: []
+}
+type PortalDatabase = {
+  public: {
+    Tables: {
+      achieve_agent_feedback: PortalTable<AgentFeedbackRow>
+      eavesly_alert_feedback: PortalTable<FeedbackRow>
+      eavesly_module_results: PortalTable<BoundaryRow>
+      eavesly_transcription_qa: PortalTable<BoundaryRow>
+    }
+    Views: Record<string, never>
+    Functions: {
+      get_achieve_welcome_agents_for_leads: {
+        Args: { p_sfdc_lead_ids: string[] }
+        Returns: BoundaryRow[]
+      }
+      get_achieve_agent_feedback_overview: {
+        Args: { p_start_at?: string | null; p_end_at?: string | null }
+        Returns: unknown
+      }
+      list_achieve_agent_feedback_by_rep: {
+        Args: { p_start_at?: string | null; p_end_at?: string | null; p_limit?: number; p_offset?: number }
+        Returns: unknown
+      }
+      list_achieve_agent_feedback_for_rep: {
+        Args: { p_agent_email: string; p_limit?: number; p_offset?: number }
+        Returns: unknown
+      }
+      get_achieve_feedback_match_totals: { Args: never; Returns: unknown }
+      list_achieve_feedback_exceptions: {
+        Args: { p_category: string; p_limit?: number }
+        Returns: AgentFeedbackRow[]
+      }
+      get_achieve_agent_feedback_dashboard: {
+        Args: {
+          p_start_at?: string | null
+          p_end_at?: string | null
+          p_representative_limit?: number
+          p_representative_offset?: number
+        }
+        Returns: unknown
+      }
+      get_achieve_first_pay_outcomes: { Args: never; Returns: unknown }
+      get_achieve_termination_monitoring_report: {
+        Args: { p_end_at?: string | null }
+        Returns: unknown
+      }
+    }
+    Enums: Record<string, never>
+    CompositeTypes: Record<string, never>
+  }
+}
+type AdminClient = SupabaseClient<PortalDatabase>
 
 function json(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), {
@@ -593,7 +649,7 @@ Deno.serve(async (req: Request) => {
   // Legacy password-only action remains unchanged for backend-first rollout.
   if (body.action === "verify") return json({ ok: true })
 
-  const admin = createClient(
+  const admin = createClient<PortalDatabase>(
     Deno.env.get("SUPABASE_URL")!,
     Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
   )
@@ -614,7 +670,7 @@ Deno.serve(async (req: Request) => {
           p_representative_offset: 0,
         }),
         async () => admin.rpc("get_achieve_first_pay_outcomes"),
-        async endAt => admin.rpc("list_achieve_agent_termination_monitoring", { p_end_at: endAt }),
+        async endAt => admin.rpc("get_achieve_termination_monitoring_report", { p_end_at: endAt }),
         new Date(),
       )
       if (!result.ok) {

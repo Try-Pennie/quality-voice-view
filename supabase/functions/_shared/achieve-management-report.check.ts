@@ -1,15 +1,18 @@
 // Behavior check for canonical Achieve report selection, comparisons, and CSV.
 // Run: npx tsx supabase/functions/_shared/achieve-management-report.check.ts
 import assert from 'node:assert/strict'
+import { runAchieveWeeklyReport, type AchieveWeeklyReportOperations } from '../achieve-weekly-report/orchestration.ts'
 import {
   achieveFirstPayOutcomesCsv,
   achieveManagementReportCsv,
   achieveReportWeekEnding,
   completedAchieveReportRanges,
+  expectedAchieveSourceDate,
+  isAcceptableAchieveSourceDate,
   isAchieveReportDeliveryHour,
   loadAchieveManagementReport,
   type AchieveDashboardRange,
-} from './achieve-management-report'
+} from './achieve-management-report.ts'
 
 assert.deepStrictEqual(completedAchieveReportRanges(new Date('2026-08-19T12:00:00Z')), [
   { weeks: 2, startAt: '2026-08-03T04:00:00.000Z', endAt: '2026-08-17T04:00:00.000Z' },
@@ -24,6 +27,12 @@ assert.deepStrictEqual(completedAchieveReportRanges(new Date('2026-11-04T12:00:0
 assert.strictEqual(isAchieveReportDeliveryHour(new Date('2026-08-17T13:05:00Z')), true)
 assert.strictEqual(isAchieveReportDeliveryHour(new Date('2026-12-07T14:05:00Z')), true)
 assert.strictEqual(isAchieveReportDeliveryHour(new Date('2026-12-07T13:05:00Z')), false)
+assert.strictEqual(expectedAchieveSourceDate(new Date('2026-08-19T12:14:59Z')), '2026-08-18')
+assert.strictEqual(expectedAchieveSourceDate(new Date('2026-08-19T12:15:00Z')), '2026-08-19')
+assert.strictEqual(isAcceptableAchieveSourceDate('2026-08-19', new Date('2026-08-19T11:00:00Z')), true)
+assert.strictEqual(isAcceptableAchieveSourceDate('2026-08-18', new Date('2026-08-19T11:00:00Z')), true)
+assert.strictEqual(isAcceptableAchieveSourceDate('2026-08-18', new Date('2026-08-19T12:15:00Z')), false)
+assert.strictEqual(isAcceptableAchieveSourceDate('2026-08-20', new Date('2026-08-19T11:00:00Z')), false)
 
 type RowOverrides = Partial<{
   total: number
@@ -144,7 +153,7 @@ const rawOutcomes = {
   }),
 }
 
-const rawTerminations = [{
+const rawTerminationRows = [{
   agent_name: 'terminated',
   agent_email: 'terminated@example.test',
   terminated_at: '2026-08-10T04:00:00Z',
@@ -152,6 +161,29 @@ const rawTerminations = [{
   latest_post_term_enrollment_on: null,
   enrollments_post_termination: 0,
 }]
+const rawTerminations = { source_as_of: '2026-08-19', rows: rawTerminationRows }
+const shiftIsoDate = (value: string | null, days: number) => {
+  if (value === null) return null
+  const shifted = new Date(`${value}T00:00:00Z`)
+  shifted.setUTCDate(shifted.getUTCDate() + days)
+  return shifted.toISOString().slice(0, 10)
+}
+const previousOutcomes = {
+  ...rawOutcomes,
+  source_as_of: '2026-08-18',
+  maturity_cutoff: '2026-08-08',
+  periods: rawOutcomes.periods.map(period => ({
+    ...period,
+    start_date: shiftIsoDate(period.start_date, -1),
+    end_date: shiftIsoDate(period.end_date, -1),
+    previous_start_date: shiftIsoDate(period.previous_start_date, -1),
+    previous_end_date: shiftIsoDate(period.previous_end_date, -1),
+  })),
+}
+const previousTerminations = {
+  source_as_of: '2026-08-18',
+  rows: rawTerminationRows.map(item => ({ ...item, activity_source_as_of: '2026-08-18' })),
+}
 
 let activeDashboardLoads = 0
 let maxDashboardLoads = 0
@@ -165,7 +197,7 @@ const loaded = await loadAchieveManagementReport(
   },
   async () => ({ data: rawOutcomes, error: null }),
   async () => ({ data: rawTerminations, error: null }),
-  new Date('2026-08-19T12:00:00Z'),
+  new Date('2026-08-19T12:30:00Z'),
 )
 assert.strictEqual(loaded.ok, true)
 assert.strictEqual(maxDashboardLoads, 1)
@@ -202,10 +234,13 @@ assert.deepStrictEqual(
     async range => ({ data: dashboard(range), error: null }),
     async () => ({ data: rawOutcomes, error: null }),
     async () => ({
-      data: [{ ...rawTerminations[0], enrollments_post_termination: 1 }],
+      data: {
+        source_as_of: '2026-08-19',
+        rows: [{ ...rawTerminationRows[0], enrollments_post_termination: 1 }],
+      },
       error: null,
     }),
-    new Date('2026-08-19T12:00:00Z'),
+    new Date('2026-08-19T12:30:00Z'),
   ),
   { ok: false, reason: 'invalid_termination_response' },
 )
@@ -231,10 +266,168 @@ assert.deepStrictEqual(
   await loadAchieveManagementReport(
     async () => ({ data: null, error: { code: 'db' } }),
     async () => ({ data: rawOutcomes, error: null }),
-    async () => ({ data: [], error: null }),
+    async () => ({ data: rawTerminations, error: null }),
     new Date(),
   ),
   { ok: false, reason: 'dashboard_query_failed' },
 )
+
+for (const [label, outcomes, terminations] of [
+  ['early current', rawOutcomes, rawTerminations],
+  ['early yesterday', previousOutcomes, previousTerminations],
+] as const) {
+  const result = await loadAchieveManagementReport(
+    async range => ({ data: dashboard(range), error: null }),
+    async () => ({ data: outcomes, error: null }),
+    async () => ({ data: terminations, error: null }),
+    new Date('2026-08-19T11:00:00Z'),
+  )
+  assert.strictEqual(result.ok, true, `${label} snapshots must remain valid before the daily deadline`)
+}
+
+for (const [label, outcomes, terminations] of [
+  ['stale', previousOutcomes, previousTerminations],
+  ['future', { ...rawOutcomes, source_as_of: '2026-08-20', maturity_cutoff: '2026-08-10' }, { ...rawTerminations, source_as_of: '2026-08-20', rows: rawTerminationRows.map(item => ({ ...item, activity_source_as_of: '2026-08-20' })) }],
+  ['mixed', rawOutcomes, { ...rawTerminations, source_as_of: '2026-08-18', rows: rawTerminationRows.map(item => ({ ...item, activity_source_as_of: '2026-08-18' })) }],
+] as const) {
+  const result = await loadAchieveManagementReport(
+    async range => ({ data: dashboard(range), error: null }),
+    async () => ({ data: outcomes, error: null }),
+    async () => ({ data: terminations, error: null }),
+    new Date('2026-08-19T12:30:00Z'),
+  )
+  assert.deepStrictEqual(result, { ok: false, reason: 'snapshot_freshness_failed' }, `${label} snapshots must fail closed`)
+}
+
+const emptyTerminations = await loadAchieveManagementReport(
+  async range => ({ data: dashboard(range), error: null }),
+  async () => ({ data: rawOutcomes, error: null }),
+  async () => ({ data: { source_as_of: '2026-08-19', rows: [] }, error: null }),
+  new Date('2026-08-19T12:30:00Z'),
+)
+assert.ok(emptyTerminations.ok && emptyTerminations.report.terminations.length === 0,
+  'A fresh empty termination window remains a valid report')
+
+assert.deepStrictEqual(
+  await loadAchieveManagementReport(
+    async range => ({ data: dashboard(range), error: null }),
+    async () => ({ data: rawOutcomes, error: null }),
+    async () => ({ data: { rows: rawTerminationRows }, error: null }),
+    new Date('2026-08-19T12:30:00Z'),
+  ),
+  { ok: false, reason: 'invalid_termination_response' },
+  'Missing termination snapshot metadata must fail closed',
+)
+
+const orchestrationCalls: Array<string> = []
+const controller = new AbortController()
+const operations: AchieveWeeklyReportOperations = {
+  loadReport: async (_now, options) => {
+    assert.strictEqual(options.signal, controller.signal)
+    orchestrationCalls.push('load')
+    return loaded
+  },
+  prepareEmail: async (_report, internalOnly, options) => {
+    assert.strictEqual(options.signal, controller.signal)
+    orchestrationCalls.push(internalOnly ? 'prepare_internal' : 'prepare')
+    return { raw: 'mime' }
+  },
+  accessToken: async options => {
+    assert.strictEqual(options.signal, controller.signal)
+    orchestrationCalls.push('token')
+    return 'token'
+  },
+  claimDelivery: async (_week, options) => {
+    assert.strictEqual(options.signal, controller.signal)
+    orchestrationCalls.push('claim')
+    return 'claimed'
+  },
+  sendEmail: async (_raw, _token, options) => {
+    assert.strictEqual(options.signal, controller.signal)
+    orchestrationCalls.push('send')
+    throw new Error('ambiguous provider response')
+  },
+  markSent: async () => {
+    orchestrationCalls.push('mark')
+  },
+}
+const ambiguousSend = await runAchieveWeeklyReport(
+  { action: 'send', week_ending: '2026-08-16' },
+  new Date('2026-08-19T12:30:00Z'),
+  controller.signal,
+  operations,
+)
+assert.deepStrictEqual(ambiguousSend, {
+  ok: false,
+  status: 500,
+  error: 'weekly_report_failed',
+  stage: 'gmail_send',
+  claimRetained: true,
+})
+assert.deepStrictEqual(orchestrationCalls, ['load', 'prepare', 'token', 'claim', 'send'])
+
+const postGmailController = new AbortController()
+const postGmailCalls: Array<string> = []
+const postGmailResult = await runAchieveWeeklyReport(
+  { action: 'send', week_ending: '2026-08-16' },
+  new Date('2026-08-19T12:30:00Z'),
+  postGmailController.signal,
+  {
+    loadReport: async (_now, options) => {
+      assert.strictEqual(options.signal, postGmailController.signal)
+      postGmailCalls.push('load')
+      return loaded
+    },
+    prepareEmail: async (_report, _internalOnly, options) => {
+      assert.strictEqual(options.signal, postGmailController.signal)
+      postGmailCalls.push('prepare')
+      return { raw: 'mime' }
+    },
+    accessToken: async options => {
+      assert.strictEqual(options.signal, postGmailController.signal)
+      postGmailCalls.push('token')
+      return 'token'
+    },
+    claimDelivery: async (_week, options) => {
+      assert.strictEqual(options.signal, postGmailController.signal)
+      postGmailCalls.push('claim')
+      return 'claimed'
+    },
+    sendEmail: async (_raw, _token, options) => {
+      assert.strictEqual(options.signal, postGmailController.signal)
+      postGmailCalls.push('send')
+      postGmailController.abort()
+      return 'gmail-message-id'
+    },
+    markSent: async (_week, _messageId, options) => {
+      assert.notStrictEqual(options.signal, postGmailController.signal)
+      assert.strictEqual(options.signal.aborted, false)
+      postGmailCalls.push('mark')
+    },
+  },
+)
+assert.deepStrictEqual(postGmailResult, {
+  ok: true,
+  mode: 'send',
+  weekEnding: '2026-08-16',
+  messageId: 'gmail-message-id',
+})
+assert.deepStrictEqual(postGmailCalls, ['load', 'prepare', 'token', 'claim', 'send', 'mark'])
+
+orchestrationCalls.length = 0
+const rejectedBeforeDelivery = await runAchieveWeeklyReport(
+  { action: 'scheduled' },
+  new Date('2026-08-17T13:05:00Z'),
+  controller.signal,
+  { ...operations, loadReport: async () => ({ ok: false, reason: 'snapshot_freshness_failed' }) },
+)
+assert.deepStrictEqual(rejectedBeforeDelivery, {
+  ok: false,
+  status: 500,
+  error: 'snapshot_freshness_failed',
+  stage: 'report_load',
+  claimRetained: false,
+})
+assert.deepStrictEqual(orchestrationCalls, [], 'Freshness failure must precede preparation, claim, and Gmail')
 
 console.log('achieve-management-report: all checks passed')

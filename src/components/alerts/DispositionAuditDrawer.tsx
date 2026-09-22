@@ -48,6 +48,8 @@ export function DispositionAuditDrawer({ row, currentUserEmail, onClose, onSubmi
     setComment(row.feedback_comment ?? '')
     setShowTranscript(false)
     setTranscriptFocusRequest(0)
+    // Preserve an in-progress draft when this same call refetches.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [row?.call_id])
 
   const otherNoteRequired = accurate === false && reason === 'other'

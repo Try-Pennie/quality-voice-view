@@ -1,6 +1,7 @@
 import type { AlertActionTaken, AlertInaccuracyReason } from '../types/database'
 import { classifyInternalReviewMutationError, INTERNAL_REVIEW_TEXT_LIMITS, type InternalReviewMutationResult } from './internal-alert-review'
 import { supabase } from '../integrations/supabase/client'
+import { endOfBusinessDay, startOfBusinessDay } from './time-zone'
 
 type Rpc = (name: string, input: Readonly<Record<string, unknown>>) => PromiseLike<{ readonly data: unknown; readonly error: unknown }>
 // SAFETY: Supabase's generated Database type does not contain this proposed migration yet; every returned value is parsed below.
@@ -273,9 +274,27 @@ function bounded(text: string | null): boolean {
   return length >= TEXT_MIN && length <= TEXT_MAX
 }
 
-/** Validation names the incomplete section so the UI can guide without duplicating review rules. */
+function normalizedFinding(finding: FullQaFinding): string {
+  const normalizeText = (value: string) => value.trim().replace(/\s+/g, ' ').toLocaleLowerCase('en-US')
+  return JSON.stringify([
+    finding.category,
+    [...finding.relatedCriteria].sort(),
+    normalizeText(finding.summary),
+    normalizeText(finding.evidence),
+  ])
+}
+
+// The overview fits the existing review/queue field; full descriptions stay in findings.
+function findingOverview(findings: readonly FullQaFinding[]): string {
+  const text = Array.from(findings.map(finding => finding.summary.trim()).join('\n\n'))
+  const suffix = '… See coaching issues for full details.'
+  return text.length <= TEXT_MAX ? text.join('') : text.slice(0, TEXT_MAX - suffix.length).join('') + suffix
+}
+
+/** Validation identifies the incomplete section or issue field without duplicating review rules. */
 export type FullQaDraftResult = { readonly ok: true; readonly value: FullQaReviewDraft }
-  | { readonly ok: false; readonly message: string; readonly section: 'scores' | 'coaching' | 'decision' | 'followup' }
+  | { readonly ok: false; readonly message: string; readonly section: 'scores' | 'coaching' | 'decision' | 'followup';
+      readonly finding?: { readonly id: string; readonly field: 'summary' | 'evidence' } }
 
 /** Validate a Full QA draft before the mutation seam. Findings remain explicit and independent of score corrections. */
 export function parseFullQaReviewDraft(context: FullQaReviewContext, input: Omit<FullQaReviewDraft, 'escalationJustified'> & { readonly escalationJustified: boolean | null }): FullQaDraftResult {
@@ -289,24 +308,27 @@ export function parseFullQaReviewDraft(context: FullQaReviewContext, input: Omit
     if (correction.disposition === 'corrected' && !bounded(correction.reason)) return { ok: false, message: `${criterion.label}: explain the correction using ${TEXT_GUIDANCE}.`, section: 'scores' }
     if (correction.disposition === 'needs_context' && (correction.correctedValue !== null || !bounded(correction.reason))) return { ok: false, message: `${criterion.label} needs a context explanation.`, section: 'scores' }
   }
+  const normalizedFindings = input.findings.map(normalizedFinding)
   for (const [index, finding] of input.findings.entries()) {
     if (!category(finding.category) || new Set(finding.relatedCriteria).size !== finding.relatedCriteria.length || finding.relatedCriteria.length < 1
       || finding.relatedCriteria.some(key => !context.criteria.some(item => item.key === key))) {
       return { ok: false, message: `Issue ${index + 1}: choose a category and at least one related criterion.`, section: 'coaching' }
     }
-    if (!bounded(finding.summary)) return { ok: false, message: `Issue ${index + 1}: add a summary using ${TEXT_GUIDANCE}.`, section: 'coaching' }
-    if (!bounded(finding.evidence)) return { ok: false, message: `Issue ${index + 1}: add evidence using ${TEXT_GUIDANCE}.`, section: 'coaching' }
+    if (!bounded(finding.summary)) return { ok: false, message: `Issue ${index + 1}: complete “What was the issue?” using ${TEXT_GUIDANCE}.`, section: 'coaching', finding: { id: finding.findingId, field: 'summary' } }
+    if (!bounded(finding.evidence)) return { ok: false, message: `Issue ${index + 1}: complete “Evidence” using ${TEXT_GUIDANCE}.`, section: 'coaching', finding: { id: finding.findingId, field: 'evidence' } }
   }
+  if (new Set(normalizedFindings).size !== normalizedFindings.length) return { ok: false, message: 'Each coaching issue must describe a distinct finding.', section: 'coaching' }
   if (input.escalationJustified === null) return { ok: false, message: 'Choose whether this alert was warranted.', section: 'decision' }
-  const complianceCount = input.findings.filter(finding => finding.category === 'compliance').length
+  const complianceCount = new Set(input.findings.flatMap((finding, index) => finding.category === 'compliance' ? [normalizedFindings[index]] : [])).size
   const severe = input.findings.some(finding => finding.category === 'severe_customer_mistreatment')
   if (input.escalationJustified && complianceCount < 2 && !severe) return { ok: false, message: 'A warranted alert requires two distinct compliance issues or an explicit severe-customer-mistreatment issue.', section: 'coaching' }
-  if (!bounded(input.escalationReason)) return { ok: false, message: `${input.escalationJustified ? 'Describe what happened' : 'Explain your decision'} using ${TEXT_GUIDANCE}.`, section: 'decision' }
+  if (!input.escalationJustified && !bounded(input.escalationReason)) return { ok: false, message: `Explain your decision using ${TEXT_GUIDANCE}.`, section: 'decision' }
   if (input.escalationJustified ? input.inaccuracyReason !== null : !input.inaccuracyReason || !reason(input.inaccuracyReason)) return { ok: false, message: 'Choose why the alert was unnecessary.', section: 'decision' }
   if (input.findings.length === 0 && (input.actionTaken !== null || input.actionDetails?.trim())) return { ok: false, message: 'Actions apply only to retained findings.', section: 'followup' }
   if (input.findings.length > 0 && (!input.actionTaken || !action(input.actionTaken))) return { ok: false, message: 'Record the coaching or follow-up for retained findings.', section: 'followup' }
   if (input.findings.length > 0 && !bounded(input.actionDetails)) return { ok: false, message: `${input.escalationJustified ? 'Describe the action you took' : 'Describe the coaching or next steps'} using ${TEXT_GUIDANCE}.`, section: 'followup' }
-  return { ok: true, value: { ...input, escalationJustified: input.escalationJustified, escalationReason: input.escalationReason.trim(), actionDetails: input.actionDetails?.trim() ?? null,
+  return { ok: true, value: { ...input, escalationJustified: input.escalationJustified,
+    escalationReason: input.escalationJustified ? findingOverview(input.findings) : input.escalationReason.trim(), actionDetails: input.actionDetails?.trim() ?? null,
     corrections: input.corrections.map(item => ({ ...item, reason: item.reason?.trim() ?? null })),
     findings: input.findings.map(item => ({ ...item, summary: item.summary.trim(), evidence: item.evidence.trim() })) } }
 }
@@ -372,7 +394,11 @@ export async function decideFullQaRuleProposal(input: { readonly proposalId: num
 
 /** Fetch complete reconciliable finding, needs-context, and legacy occurrence rows for an agent/window. */
 export async function fetchFullQaOccurrences(agentEmail: string, start: Date, end: Date): Promise<readonly FullQaOccurrence[]> {
-  const { data, error } = await rpc('full_qa_finding_occurrences', { p_agent_email: agentEmail, p_start: start.toISOString(), p_end: end.toISOString() })
+  const { data, error } = await rpc('full_qa_finding_occurrences', {
+    p_agent_email: agentEmail,
+    p_start: startOfBusinessDay(start).toISOString(),
+    p_end: endOfBusinessDay(end).toISOString(),
+  })
   if (error) throw error
   if (!Array.isArray(data)) throw new Error('The Full QA occurrence service returned an invalid response.')
   return data.map((input: unknown): FullQaOccurrence => {

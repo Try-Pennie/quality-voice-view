@@ -558,15 +558,17 @@ export function validateFeedback(input: Json): { ok: true; payload: ValidatedFee
   let actionTaken: string | null = null
   let inaccuracyReason: string | null = null
   if (input.accurate) {
-    actionTaken = typeof input.action_taken === 'string' ? input.action_taken : 'no_action_needed'
-    if (!(ACTION_TAKEN_VALUES as readonly string[]).includes(actionTaken)) {
+    const selectedAction = typeof input.action_taken === 'string' ? input.action_taken : 'no_action_needed'
+    if (!(ACTION_TAKEN_VALUES as readonly string[]).includes(selectedAction)) {
       return { ok: false, error: 'invalid_action_taken' }
     }
+    actionTaken = selectedAction
   } else {
-    inaccuracyReason = typeof input.inaccuracy_reason === 'string' ? input.inaccuracy_reason : 'other'
-    if (!(INACCURACY_REASON_VALUES as readonly string[]).includes(inaccuracyReason)) {
+    const selectedReason = typeof input.inaccuracy_reason === 'string' ? input.inaccuracy_reason : 'other'
+    if (!(INACCURACY_REASON_VALUES as readonly string[]).includes(selectedReason)) {
       return { ok: false, error: 'invalid_inaccuracy_reason' }
     }
+    inaccuracyReason = selectedReason
   }
 
   const rawComment = typeof input?.comment === 'string' ? input.comment.trim() : ''

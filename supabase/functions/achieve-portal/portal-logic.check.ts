@@ -18,7 +18,7 @@ import {
   sanitizeResultJson,
   trimTranscript,
   validateFeedback,
-} from './portal-logic'
+} from './portal-logic.ts'
 
 // --- trimTranscript ----------------------------------------------------------
 
@@ -543,9 +543,18 @@ const okInaccurate = validateFeedback({ call_id: 'CA1', reviewer_email: 'a@b.co'
 assert.ok(okInaccurate.ok && okInaccurate.payload.action_taken === null)
 assert.ok(okInaccurate.ok && okInaccurate.payload.inaccuracy_reason === 'covered_not_verbatim')
 
-// Defaults when the choice is omitted (mirrors the form's fallbacks).
+// Defaults when the choice is omitted or null (mirrors the form's fallbacks).
 const defaulted = validateFeedback({ call_id: 'CA1', reviewer_email: 'a@b.co', accurate: true })
 assert.ok(defaulted.ok && defaulted.payload.action_taken === 'no_action_needed')
+const nullDefaults = validateFeedback({
+  call_id: 'CA1',
+  reviewer_email: 'a@b.co',
+  accurate: false,
+  action_taken: null,
+  inaccuracy_reason: null,
+})
+assert.ok(nullDefaults.ok && nullDefaults.payload.action_taken === null)
+assert.ok(nullDefaults.ok && nullDefaults.payload.inaccuracy_reason === 'other')
 
 // Rejections.
 assert.strictEqual(validateFeedback({ reviewer_email: 'a@b.co', accurate: true }).ok, false)

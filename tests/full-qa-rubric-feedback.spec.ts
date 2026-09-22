@@ -8,19 +8,24 @@ const saveButton = (page: Page) => page.getByRole('button', { name: /^(Save|Upda
 
 async function expectCenteredDesktopDialog(page: Page) {
   await page.setViewportSize({ width: 1440, height: 900 })
-  const box = await page.getByRole('dialog').boundingBox()
-  expect(box).not.toBeNull()
-  expect(box?.width).toBeGreaterThanOrEqual(1040)
-  expect(box?.width).toBeLessThanOrEqual(1080)
-  expect(Math.abs((box?.x ?? 0) - (1440 - (box?.width ?? 0)) / 2)).toBeLessThanOrEqual(1)
-  expect(box?.height).toBe(810)
-  expect(box?.y).toBe(45)
+  const dialog = page.getByRole('dialog')
+  await expect(dialog).toBeVisible()
+  await expect.poll(async () => {
+    const box = await dialog.boundingBox()
+    return box && {
+      width: box.width >= 1040 && box.width <= 1080,
+      centered: Math.abs(box.x - (1440 - box.width) / 2) <= 1,
+      height: box.height === 810,
+      y: box.y === 45,
+    }
+  }).toEqual({ width: true, centered: true, height: true, y: true })
 }
 
 async function expectFullscreenMobileDialog(page: Page) {
   await page.setViewportSize({ width: 375, height: 812 })
-  const box = await page.getByRole('dialog').boundingBox()
-  expect(box).toEqual({ x: 0, y: 0, width: 375, height: 812 })
+  const dialog = page.getByRole('dialog')
+  await expect(dialog).toBeVisible()
+  await expect.poll(() => dialog.boundingBox()).toEqual({ x: 0, y: 0, width: 375, height: 812 })
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
 }
 
@@ -57,7 +62,7 @@ test('neutral guidance links to the incomplete decision, score or coaching secti
   await consent.getByRole('textbox').fill(correctionReason)
   await consent.getByRole('button', { name: 'Add as coaching issue' }).click()
   await next.click()
-  await expect(page.getByRole('heading', { name: 'Coaching issues', exact: true })).toBeFocused()
+  await expect(page.getByRole('textbox', { name: 'Finding 1 summary' })).toBeFocused()
   await expect(page.getByRole('textbox', { name: 'Finding 1 summary' })).toHaveValue('')
   await page.getByRole('textbox', { name: 'Finding 1 summary' }).fill(findingSummary)
   await expect(status).toContainText('Record the coaching or follow-up for retained findings.')
@@ -182,7 +187,9 @@ test('Full QA saves string-scale corrections and a retained finding independentl
   await page.getByRole('button', { name: 'Save review', exact: true }).click()
   await expect(page.getByText('Full QA review saved')).toBeVisible()
 
-  const write = state.writes.find(value => value && typeof value === 'object' && 'p_corrections' in value)
+  const fullQaWrites = () => state.writes.filter(value => value && typeof value === 'object' && 'p_corrections' in value)
+  await expect.poll(() => fullQaWrites().length).toBe(1)
+  const write = fullQaWrites()[0]
   expect(write).toMatchObject({
     p_escalation_justified: false,
     p_inaccuracy_reason: 'wrong_context',
@@ -434,7 +441,7 @@ test('a warranted alert with two distinct issues records shared and repeated cri
   await page.getByRole('radiogroup', { name: 'What did you do about the issue?' }).getByRole('radio', { name: 'Coached the agent', exact: true }).check()
   await page.getByRole('textbox', { name: 'Coaching or next steps' }).fill('Coached the agent on consent and on outcome language the same day.')
   await page.getByRole('radio', { name: 'Yes, the alert was warranted', exact: true }).check()
-  await page.getByRole('textbox', { name: 'What happened?', exact: true }).fill('Two distinct compliance issues were confirmed on this call.')
+  await expect(page.getByRole('textbox', { name: 'What happened?', exact: true })).toHaveCount(0)
   await expect(page.getByRole('status')).toHaveCount(0)
 
   let release = () => {}
@@ -456,6 +463,39 @@ test('a warranted alert with two distinct issues records shared and repeated cri
     ['credit_pull_consent', 'no_misleading_claims'], ['accurate_representations'], ['accurate_representations'],
   ])
   expect(state.rows[0].accurate).toBe(true)
+})
+
+test('generated IDs cannot make duplicate normalized findings distinct', async ({ page }) => {
+  const state = await reviewFixture(page, [alertRow('duplicate-findings')])
+  await page.goto('/dashboard/alerts/duplicate-findings/full_qa')
+  await page.getByRole('article', { name: 'Credit pull consent', exact: true }).getByRole('button', { name: 'Add as coaching issue' }).click()
+  await page.getByRole('textbox', { name: 'Finding 1 summary' }).fill('The agent ignored the customer consent refusal.')
+  await page.getByRole('textbox', { name: 'Finding 1 evidence' }).fill('The refusal and subsequent credit pull are both recorded.')
+  await page.getByRole('radio', { name: 'No, the alert was unnecessary', exact: true }).check()
+  await page.getByRole('textbox', { name: 'Explain your decision', exact: true }).fill('The escalation itself was unnecessary despite retained coaching findings.')
+  await page.getByRole('radiogroup', { name: 'Why was the alert unnecessary?' }).getByRole('radio', { name: 'Wrong context', exact: true }).check()
+  await page.getByRole('radiogroup', { name: 'What did you do about the issue?' }).getByRole('radio', { name: 'Coached the agent', exact: true }).check()
+  await page.getByRole('textbox', { name: 'Coaching or next steps' }).fill('The manager coached the agent on the consent requirement.')
+  await page.getByRole('button', { name: 'Add another issue' }).click()
+  await page.getByRole('group', { name: 'Finding 2 related criteria' }).getByRole('checkbox', { name: 'Credit pull consent' }).check()
+  await page.getByRole('textbox', { name: 'Finding 2 summary' }).fill('  THE agent ignored  the customer consent refusal. ')
+  await page.getByRole('textbox', { name: 'Finding 2 evidence' }).fill('The refusal and subsequent credit pull are both recorded.')
+  await expect(page.getByRole('status')).toContainText('Each coaching issue must describe a distinct finding.')
+  await expect(saveButton(page)).toBeDisabled()
+  expect(state.writes).toEqual([])
+
+  await page.getByRole('textbox', { name: 'Finding 2 evidence' }).fill('A second, separate consent request was skipped later in the call.')
+  await expect(page.getByRole('status')).toHaveCount(0)
+  await expect(saveButton(page)).toBeEnabled()
+  await saveButton(page).click()
+  await expect(page.getByText('Full QA review saved')).toBeVisible()
+  const write = state.writes.find(value => value && typeof value === 'object' && 'p_findings' in value)
+  expect((write as { p_findings: { finding_id: string; related_criteria: string[] }[] }).p_findings).toEqual([
+    expect.objectContaining({ related_criteria: ['credit_pull_consent'] }),
+    expect.objectContaining({ related_criteria: ['credit_pull_consent'] }),
+  ])
+  const findings = (write as { p_findings: { finding_id: string }[] }).p_findings
+  expect(findings[0].finding_id).not.toBe(findings[1].finding_id)
 })
 
 test('a realistic supported seed keeps the reason, first evidence, and first decision on the first screen', async ({ page }) => {
@@ -703,6 +743,33 @@ test('Full QA provenance never presents an unknown stamped hash as current, whil
   await expect(consent.getByText('Exact synthetic rule for Credit pull consent.')).toBeHidden()
   await consent.getByText('Rule and saved evidence', { exact: true }).click()
   await expect(consent.getByText('Exact synthetic rule for Credit pull consent.')).toBeVisible()
+})
+
+test.describe('Pacific reviewer business-date boundaries', () => {
+  test.use({ timezoneId: 'America/Los_Angeles' })
+
+  test('recurrence sends exact ET bounds across both DST transitions', async ({ page }) => {
+    await reviewFixture(page, [])
+    const requests: Record<string, unknown>[] = []
+    await page.route('**/rest/v1/rpc/full_qa_finding_occurrences', async route => {
+      requests.push(route.request().postDataJSON())
+      await route.fallback()
+    })
+
+    await page.goto('/dashboard/team/agent%40example.test?start=2026-03-07&end=2026-03-09')
+    await expect.poll(() => requests.length).toBe(1)
+    expect(requests[0]).toMatchObject({
+      p_start: '2026-03-07T05:00:00.000Z',
+      p_end: '2026-03-10T03:59:59.999Z',
+    })
+
+    await page.goto('/dashboard/team/agent%40example.test?start=2026-10-31&end=2026-11-02')
+    await expect.poll(() => requests.length).toBe(2)
+    expect(requests[1]).toMatchObject({
+      p_start: '2026-10-31T04:00:00.000Z',
+      p_end: '2026-11-03T04:59:59.999Z',
+    })
+  })
 })
 
 test('an unmapped approved finding fails closed rather than disappearing from recurrence totals', async ({ page }) => {

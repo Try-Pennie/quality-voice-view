@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import type { QAJson } from '../../types/database'
 import {
   AlertTriangle,
   BarChart3,
@@ -10,7 +11,7 @@ import {
 } from 'lucide-react'
 import { getScoreBadgeColor } from '../../lib/utils'
 
-export function SalesProcessScorecard({ data }: { data: any }) {
+export function SalesProcessScorecard({ data }: { data: NonNullable<QAJson['sales_process_scorecard']> }) {
   const [isExpanded, setIsExpanded] = useState(false)
 
   const steps = [

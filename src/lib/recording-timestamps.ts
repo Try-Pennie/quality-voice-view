@@ -36,7 +36,7 @@ export async function fetchRecordingTiming(callId: string, moduleName: string): 
 }
 
 function tokens(text: string): string[] {
-  return text.normalize('NFKC').toLowerCase().replaceAll('’', "'").split(/\s+/)
+  return text.normalize('NFKC').toLowerCase().replace(/’/g, "'").split(/\s+/)
     .map(word => word.replace(/^[“”"(),.!?:;]+|[“”"(),.!?:;]+$/g, ''))
     .filter(word => word.length > 0)
 }
