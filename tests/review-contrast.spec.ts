@@ -17,7 +17,7 @@ async function contrast(locator: Locator, property: 'color' | 'borderTopColor' |
   }, { property, against })
 }
 
-test('recording, evidence and review controls have distinct surfaces and stronger boundaries', async ({ page }, testInfo) => {
+test('quiet recording and evidence surfaces retain accessible text and input boundaries', async ({ page }, testInfo) => {
   // One second of real PCM silence is enough to load the native recording controls.
   const audio = Buffer.alloc(44 + 8000 * 2)
   audio.write('RIFF', 0); audio.writeUInt32LE(audio.length - 8, 4); audio.write('WAVEfmt ', 8)
@@ -40,9 +40,12 @@ test('recording, evidence and review controls have distinct surfaces and stronge
     if (width === 375) await page.getByRole('button', { name: 'Review', exact: true }).click()
     await source.scrollIntoViewIfNeeded()
     await page.screenshot({ path: testInfo.outputPath(`review-contrast-${width}.png`) })
-    expect(await contrast(recording, 'color', 'white')).toBeGreaterThan(1.12)
-    expect(await contrast(source, 'color', 'white')).toBeGreaterThan(1.06)
-    expect(await contrast(response, 'borderTopColor')).toBeGreaterThan(2)
+    // Surfaces are intentionally quieter and the noninteractive card frame is removed.
+    // Keep actual text/control accessibility thresholds; don't require the former blue fill.
+    expect(await contrast(recording, 'color', 'white')).toBeGreaterThan(1)
+    expect(await contrast(source, 'color', 'white')).toBeGreaterThan(1)
+    expect(await contrast(source.getByRole('heading'), 'color')).toBeGreaterThanOrEqual(4.5)
+    expect(await contrast(response.getByText('Correct', { exact: true }), 'color')).toBeGreaterThanOrEqual(4.5)
     expect(await contrast(recording.getByText('Ready to play', { exact: true }), 'color')).toBeGreaterThanOrEqual(4.5)
     expect(await recording.evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true)
   }
