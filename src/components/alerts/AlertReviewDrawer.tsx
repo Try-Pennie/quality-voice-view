@@ -165,6 +165,9 @@ export function AlertReviewDrawer({
   const [audioElement, setAudioElement] = useState<HTMLAudioElement | null>(null)
   const verifiedTiming = alert?.recording_link && recordingTiming?.recording_reference === alert.recording_reference ? recordingTiming : null
   const matchAudioQuote = useMemo(() => verifiedTiming ? createAudioQuoteMatcher(verifiedTiming) : null, [verifiedTiming])
+  // The combined Listen action must navigate the same transcript revision as its audio match.
+  const matchFlagQuote = useMemo(() => verifiedTiming && transcriptCall?.qa?.original_transcript === verifiedTiming.original_transcript
+    ? createAudioQuoteMatcher(verifiedTiming, 'spoken-spelling') : null, [verifiedTiming, transcriptCall?.qa?.original_transcript])
   const hasTranscriptQuote = useMemo(() => {
     const loadedTranscript = transcriptCall?.qa?.original_transcript
     const transcript = typeof loadedTranscript === 'string' ? loadedTranscript : verifiedTiming?.original_transcript ?? ''
@@ -176,19 +179,26 @@ export function AlertReviewDrawer({
     }
   }, [transcriptCall?.qa?.original_transcript, verifiedTiming])
   const renderAudioLink = (quote: string, speaker?: string, allowFind = false) => {
-    const range = matchAudioQuote?.(quote)
+    const isFlag = isFullQa && allowFind
+    const range = (isFlag ? matchFlagQuote : matchAudioQuote)?.(quote)
     const canFind = allowFind && hasTranscriptQuote(quote)
     const buttonClass = 'pennie-focus-ring inline-flex min-h-[44px] items-center rounded-full px-2 text-xs font-semibold text-pennie-blue-deeper hover:underline'
     const findButton = canFind ? <button type="button" className={buttonClass} onClick={() => { openTranscript(); setTranscriptQuote(quote) }}
       aria-label={`Find in transcript${speaker ? ` — ${speaker}` : ''}`}>Find in transcript</button> : null
-    if (!range) return findButton
+    if (!range) return isFlag ? <span className="flex flex-wrap items-center gap-x-2">
+      {findButton}<span className="text-xs text-pennie-graphite/70">No verified audio timestamp</span>
+    </span> : findButton
     const label = `${Math.floor(range.start / 60)}:${Math.floor(range.start % 60).toString().padStart(2, '0')}`
-    return <span className="flex flex-wrap items-center gap-1">
-      <button type="button" className={buttonClass}
-        aria-label={`Play from here at ${label}${speaker ? ` — ${speaker}` : ''}`}
-        onClick={() => player.current?.playFrom(range.start, verifiedTiming.duration)}>
-        Play from here <span className="ml-1 tabular-nums">· {label}</span>
+    return <span className="flex flex-wrap items-center gap-x-2">
+      <button type="button" className={isFlag ? `${buttonClass} gap-1 border border-pennie-blue-main bg-pennie-blue-light px-3` : buttonClass}
+        aria-label={`${isFlag ? 'Listen' : 'Play from here'} at ${label}${speaker ? ` — ${speaker}` : ''}`}
+        onClick={() => {
+          if (isFlag && canFind) { openTranscript(); setTranscriptQuote(quote) }
+          player.current?.playFrom(isFlag ? Math.max(0, range.start - 2) : range.start, verifiedTiming.duration)
+        }}>
+        {isFlag ? 'Listen' : 'Play from here'} <span className="tabular-nums">· {label}</span>
       </button>
+      {isFlag && <span className="text-xs text-pennie-graphite/70">Starts up to 2s earlier for context</span>}
       {findButton}
     </span>
   }

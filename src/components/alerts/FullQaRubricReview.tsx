@@ -433,6 +433,10 @@ export function FullQaRubricReview({ alert, scope, editable, canReloadReview, re
     toast.success(decision === 'accepted_for_evaluation' ? 'Approved for evaluation — not published' : 'Proposal rejected')
   }
 
+  // Call-level focus quotes are not necessarily present in any criterion's evidence.
+  // Keep them at call level rather than inventing a relationship to a score.
+  const focusExcerpts = excerptItems(valueAtPath(context.sourceResult, 'call_overview.manager_focus_areas'), [], renderAudioLink)
+
   const scorecard = <>
     <div className="flex flex-wrap items-baseline justify-between gap-2 border-b border-border pb-3">
       <h2 id={`${scorecardId}-scores`} tabIndex={-1} className="pennie-focus-ring text-base font-semibold text-pennie-navy">{showFullScorecard ? 'Full scorecard' : 'Scores to review'}</h2>
@@ -542,6 +546,11 @@ export function FullQaRubricReview({ alert, scope, editable, canReloadReview, re
     {context.sourceReferenceKind !== 'known' && <p className={context.sourceReferenceKind === 'legacy_current_reference' ? 'text-xs text-pennie-graphite/70' : 'rounded-xl border border-pennie-peach-dark bg-pennie-peach-light/30 p-3 text-xs text-pennie-graphite'}>{context.sourceReferenceKind === 'legacy_current_reference' ? 'Original rubric unknown; current reference only.' : 'Original rubric unavailable for this stamped hash; current field map only.'}</p>}
     {editable && context.review && <p className="text-xs text-pennie-graphite/70">Saved revision {context.review.feedbackRevision} · {formatDateTime(context.review.savedAt)} by {context.review.savedBy}</p>}
 
+    {focusExcerpts.length > 0 && <section aria-label="Flagged passages" className="space-y-3">
+      <h2 className="text-base font-semibold text-pennie-navy">Flagged passages</h2>
+      <p className="text-xs text-pennie-graphite/80">Saved call-level excerpts from Eavesly. Listen in context before deciding; a timestamp locates the words, not proof of a violation.</p>
+      {focusExcerpts.map(excerpt => <div key={excerpt.key} className="space-y-2 rounded-2xl border border-border bg-pennie-beige p-4">{excerpt.lead}<ContextLine excerpt={excerpt} /></div>)}
+    </section>}
     {editable && <p className="text-sm text-pennie-graphite/70">Optional score feedback below helps improve Eavesly. Only answers you select are recorded; you do not need to review every score.</p>}
     {editable ? scorecard : <details className="border-y border-border py-3">
       <summary className="pennie-focus-ring min-h-[36px] cursor-pointer text-sm font-semibold text-pennie-blue-deeper">Eavesly’s evidence and scores · {attentionKeys.size} {attentionKeys.size === 1 ? 'item' : 'items'}</summary>

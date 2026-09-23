@@ -1,5 +1,5 @@
 import { supabase } from '@/integrations/supabase/client'
-import { parseTranscriptTurns } from './transcript-evidence'
+import { findTranscriptRanges, parseTranscriptTurns } from './transcript-evidence'
 
 /** Audio-only timing cache; the original transcript and QA remain authoritative. */
 export type RecordingTiming = {
@@ -43,12 +43,18 @@ function tokens(text: string): string[] {
 
 /** Pre-index once per recording and memoize each quote, including misses. Only a
  * unique literal sequence in BOTH the original transcript and STT receives a time.
- * No fillers removed, semantic/fuzzy alignment, or guessed times.
+ * Evidence-only spoken-spelling mode accepts gonna/going-to spelling, but also
+ * requires the full saved quote to match literally once in the original.
+ * No fillers removed, semantic/fuzzy alignment, partial quotes, or guessed times.
  */
-export function createAudioQuoteMatcher(timing: RecordingTiming): (quote: string) => { readonly start: number; readonly end: number } | null {
+export function createAudioQuoteMatcher(timing: RecordingTiming, mode: 'literal' | 'spoken-spelling' = 'literal'): (quote: string) => { readonly start: number; readonly end: number } | null {
+  // Expand both sides, never removing words, negation, signs or amounts.
+  const matchTokens = (text: string) => tokens(text).flatMap(word => mode === 'spoken-spelling' && word === 'gonna' ? ['going', 'to'] : [word])
   // A sentinel prevents a quote from crossing speaker turns after labels are removed.
-  const original = (parseTranscriptTurns(timing.original_transcript) ?? [{ text: timing.original_transcript }]).flatMap(turn => [...tokens(turn.text), '\u0000'])
-  const words = timing.words.flatMap(word => tokens(word.text).map(token => ({ token, start: word.start, end: word.end })))
+  const turns = parseTranscriptTurns(timing.original_transcript) ?? [{ text: timing.original_transcript }]
+  const rawOriginal = turns.map(turn => turn.text).join('\u0000')
+  const original = turns.flatMap(turn => [...matchTokens(turn.text), '\u0000'])
+  const words = timing.words.flatMap(word => matchTokens(word.text).map(token => ({ token, start: word.start, end: word.end })))
   const cache = new Map<string, { readonly start: number; readonly end: number } | null>()
   const positionsFor = (haystack: readonly string[]) => {
     const positions = new Map<string, number[]>()
@@ -73,9 +79,13 @@ export function createAudioQuoteMatcher(timing: RecordingTiming): (quote: string
   const audioPositions = positionsFor(audioTokens)
   return quote => {
     if (cache.has(quote)) return cache.get(quote) ?? null
-    const needle = tokens(quote)
+    if (mode === 'spoken-spelling' && findTranscriptRanges(rawOriginal, [quote]).length !== 1) {
+      cache.set(quote, null)
+      return null
+    }
+    const needle = matchTokens(quote)
     const originalIndex = uniqueIndex(original, originalPositions, needle)
-    const index = needle.length >= 4 && quote.trim().length >= 12 && originalIndex >= 0 ? uniqueIndex(audioTokens, audioPositions, needle) : -1
+    const index = quote.trim().split(/\s+/).length >= 4 && needle.length >= 4 && quote.trim().length >= 12 && originalIndex >= 0 ? uniqueIndex(audioTokens, audioPositions, needle) : -1
     const range = index < 0 ? [] : words.slice(index, index + needle.length)
     const time = range.length && !range.some((word, offset) => offset > 0 && (word.start < range[offset - 1].start || word.end < range[offset - 1].end))
       ? { start: range[0].start, end: range[range.length - 1].end } : null
