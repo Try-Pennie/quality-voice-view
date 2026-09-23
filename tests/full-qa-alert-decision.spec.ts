@@ -6,8 +6,8 @@ test('agree alone saves without fabricated score confirmations or coaching, and 
   await page.goto('/dashboard/alerts/decision-only/full_qa')
   const save = page.getByRole('button', { name: 'Save review', exact: true })
   await expect(save).toBeDisabled()
-  const reviewSections = page.locator('h2, legend').filter({ hasText: /^(Scores to review|Was this alert warranted\?|Coaching issues \(optional\))$/ })
-  const expectedOrder = ['Scores to review', 'Was this alert warranted?', 'Coaching issues (optional)']
+  const reviewSections = page.locator('h2, legend').filter({ hasText: /^(What Eavesly flagged|Was this alert warranted\?|Coaching issues \(optional\))$/ })
+  const expectedOrder = ['What Eavesly flagged', 'Was this alert warranted?', 'Coaching issues (optional)']
   await expect(reviewSections).toHaveText(expectedOrder.slice(0, 2))
   await expect(page.getByRole('region', { name: 'Coaching issues', exact: true })).toHaveCount(0)
   await page.getByRole('radio', { name: 'Yes, the alert was warranted', exact: true }).check()

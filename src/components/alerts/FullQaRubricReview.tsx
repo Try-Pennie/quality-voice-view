@@ -133,6 +133,13 @@ function evidenceEntries(evidence: unknown): readonly unknown[] {
   return Array.isArray(evidence) ? evidence : evidence == null ? [] : [evidence]
 }
 
+// Only the same complete quote, speaker and process step share a display location.
+// All distinct saved contexts are retained by excerptItems; no fuzzy rule association.
+function excerptIdentity(entry: unknown): string | null {
+  const quote = savedText(valueAtPath(entry, 'quote'))
+  return quote ? JSON.stringify([quote, ...['speaker', 'process_step'].map(key => savedText(valueAtPath(entry, key)))]) : null
+}
+
 // Text seeded into a coaching issue: only saved notes and attributed quotes, never a derived conclusion.
 function seededEvidence(evidence: unknown, notes: readonly string[]): string {
   const lines = evidenceEntries(evidence).flatMap(entry => {
@@ -148,18 +155,28 @@ function seededEvidence(evidence: unknown, notes: readonly string[]): string {
 
 // Stored evidence can be a note, a list of notes, or structured speaker/quote/context
 // entries. Only explicit quote fields are presented as quotations; notes stay notes.
-type Excerpt = { readonly key: number; readonly lead: JSX.Element; readonly context: string | null; readonly attribution: string | null }
+type Excerpt = { readonly key: number; readonly lead: JSX.Element; readonly contexts: readonly { readonly label: string; readonly text: string }[]; readonly attribution: string | null }
+type RelatedEvidence = { readonly entry: unknown; readonly source: string; readonly flag?: string }
 
-function excerptItems(evidence: unknown, displayedNotes: readonly string[], renderAudioLink?: (quote: string, speaker?: string) => ReactNode): readonly Excerpt[] {
-  return evidenceEntries(evidence).flatMap((entry, index): Excerpt[] => {
-    if (typeof entry === 'string' && entry.trim()) return displayedNotes.includes(entry.trim()) ? [] : [{ key: index, context: null, attribution: null,
+function excerptItems(evidence: unknown, displayedNotes: readonly string[], renderAudioLink?: (quote: string, speaker?: string) => ReactNode, relatedEvidence: readonly RelatedEvidence[] = [], contextLabel = 'Saved context'): readonly Excerpt[] {
+  const entries = evidenceEntries(evidence)
+  const displayed = new Set<string>()
+  return entries.flatMap((entry, index): Excerpt[] => {
+    if (typeof entry === 'string' && entry.trim()) return displayedNotes.includes(entry.trim()) ? [] : [{ key: index, contexts: [], attribution: null,
       lead: <p key={index} className="whitespace-pre-wrap break-words text-sm leading-relaxed">{entry}</p> }]
     const quote = valueAtPath(entry, 'quote')
     if (typeof quote !== 'string' || !quote.trim()) return []
+    const identity = excerptIdentity(entry)
+    if (identity === null || displayed.has(identity)) return []
+    displayed.add(identity)
     const attribution = [savedText(valueAtPath(entry, 'speaker')) ?? 'Speaker not saved', savedText(valueAtPath(entry, 'process_step'))].filter(value => value !== null).join(' · ')
-    const context = savedText(valueAtPath(entry, 'context'))
-    return [{ key: index, attribution, context: context && !displayedNotes.includes(context) ? context : null,
+    const related = relatedEvidence.filter(item => excerptIdentity(item.entry) === identity)
+    const contexts = [...entries.filter(item => excerptIdentity(item) === identity).map(item => ({ entry: item, source: contextLabel })), ...related]
+      .flatMap(item => { const text = savedText(valueAtPath(item.entry, 'context')); return text && !displayedNotes.includes(text) ? [{ label: item.source, text }] : [] })
+    const flags = [...new Set(related.flatMap(item => item.flag ? [item.flag] : []))]
+    return [{ key: index, attribution, contexts: [...new Map(contexts.map(item => [JSON.stringify(item), item])).values()],
       lead: <figure key={index} className="space-y-1">
+        {flags.map(flag => <p key={flag} className="text-xs font-semibold text-pennie-yellow-deeper">Flag: {flag}</p>)}
         <figcaption className="text-xs font-semibold text-pennie-graphite/70">{attribution}</figcaption>
         <blockquote className="whitespace-pre-wrap break-words border-l-2 border-pennie-yellow-dark pl-3 text-sm leading-relaxed">{quote}</blockquote>
         {renderAudioLink?.(quote, savedText(valueAtPath(entry, 'speaker')) ?? undefined)}
@@ -168,8 +185,7 @@ function excerptItems(evidence: unknown, displayedNotes: readonly string[], rend
 }
 
 function ContextLine({ excerpt, attributed = false }: { readonly excerpt: Excerpt; readonly attributed?: boolean }) {
-  if (!excerpt.context) return null
-  return <p className="whitespace-pre-wrap break-words text-xs text-pennie-graphite/80"><span className="font-semibold">Saved context{attributed && excerpt.attribution ? ` (${excerpt.attribution})` : ''}: </span>{excerpt.context}</p>
+  return <>{excerpt.contexts.map((context, index) => <p key={index} className="whitespace-pre-wrap break-words text-xs text-pennie-graphite/80"><span className="font-semibold">{context.label}{attributed && excerpt.attribution ? ` (${excerpt.attribution})` : ''}: </span>{context.text}</p>)}</>
 }
 
 function hasUnreadableEvidence(evidence: unknown): boolean {
@@ -433,16 +449,34 @@ export function FullQaRubricReview({ alert, scope, editable, canReloadReview, re
     toast.success(decision === 'accepted_for_evaluation' ? 'Approved for evaluation — not published' : 'Proposal rejected')
   }
 
-  // Call-level focus quotes are not necessarily present in any criterion's evidence.
-  // Keep them at call level rather than inventing a relationship to a score.
-  const focusExcerpts = excerptItems(valueAtPath(context.sourceResult, 'call_overview.manager_focus_areas'), [], renderAudioLink)
-  const visibleCriteriaCount = showFullScorecard ? context.criteria.length : attentionKeys.size
+  const visibleEvidence = new Set(context.criteria.filter(criterion => showFullScorecard || attentionKeys.has(criterion.key))
+    .flatMap(criterion => evidenceEntries(valueAtPath(context.sourceResult, criterion.evidencePath)))
+    .flatMap(entry => { const key = excerptIdentity(entry); return key ? [key] : [] }))
+  // Critical flags carry their own explicit failure → evidence association. Do not
+  // infer a criterion from the label, score, array position, or quote similarity.
+  const criticalFlags = evidenceEntries(valueAtPath(context.sourceResult, 'compliance_scorecard.critical_red_flag_hits')).flatMap(entry => {
+    const label = savedText(valueAtPath(entry, 'red_flag'))
+    return label ? [{ label, evidence: evidenceEntries(valueAtPath(entry, 'evidence')) }] : []
+  })
+  const focusEvidence = evidenceEntries(valueAtPath(context.sourceResult, 'call_overview.manager_focus_areas'))
+  const relatedEvidence: readonly RelatedEvidence[] = [
+    ...focusEvidence.map(entry => ({ entry, source: 'Call-level context' })),
+    ...criticalFlags.flatMap(flag => flag.evidence.map(entry => ({ entry, source: `Flag context (${flag.label})`, flag: flag.label }))),
+  ]
+  const representedEvidence = new Set([...visibleEvidence, ...criticalFlags.flatMap(flag => flag.evidence)
+    .flatMap(entry => { const key = excerptIdentity(entry); return key ? [key] : [] })])
+  const focusExcerpts = excerptItems(focusEvidence.filter(entry => !representedEvidence.has(excerptIdentity(entry))), [], renderAudioLink)
 
   const scorecard = <>
-    <div className="flex flex-wrap items-baseline justify-between gap-2 border-b border-border pb-3">
-      <h2 id={`${scorecardId}-scores`} tabIndex={-1} className="pennie-focus-ring text-base font-semibold text-pennie-navy">{showFullScorecard ? 'Full scorecard' : 'Scores to review'}</h2>
-      <p className="text-xs text-pennie-graphite/70">{visibleCriteriaCount} {visibleCriteriaCount === 1 ? 'criterion' : 'criteria'}</p>
-    </div>
+    {criticalFlags.map((flag, index) => {
+      const evidence = flag.evidence.filter(entry => !visibleEvidence.has(excerptIdentity(entry)))
+      if (flag.evidence.length > 0 && evidence.length === 0) return null
+      return <article key={index} aria-label={flag.label} className="space-y-3 border-b border-border py-5">
+        <div><p className="text-xs font-semibold text-pennie-yellow-deeper">Eavesly flagged</p><h3 className="text-base font-semibold text-pennie-navy">{flag.label}</h3></div>
+        <CriterionEvidence evidence={evidence} excerpts={excerptItems(evidence, [], renderAudioLink, relatedEvidence.filter(item => item.flag !== flag.label), `Flag context (${flag.label})`)} />
+        <details><summary className="pennie-focus-ring min-h-[44px] cursor-pointer py-3 text-xs font-semibold text-pennie-blue-deeper">Saved flag details</summary><pre className="whitespace-pre-wrap break-words text-xs">{JSON.stringify(flag.evidence, null, 2)}</pre></details>
+      </article>
+    })}
     {hasProgramConcerns && (programSummary || programGaps.length > 0) && <aside aria-label="Program expectations section notes" className="border-b border-border pb-4 text-sm text-pennie-graphite">
       <p className="font-semibold">Program expectations — saved section notes</p>
       <p className="mt-1 text-xs">These notes cover the whole section, not an individual score. Program-expectations gaps alone do not trigger this alert.</p>
@@ -464,16 +498,16 @@ export function FullQaRubricReview({ alert, scope, editable, canReloadReview, re
         : originalValue === undefined ? 'Eavesly score unavailable' : humanChanged ? 'Manager review item'
           : attentionKeys.has(criterion.key) ? 'Included in this review' : 'Other Eavesly score'
       const entries = evidenceEntries(evidence)
-      const excerpts = excerptItems(evidence, aiConcern ? notes : [], renderAudioLink)
+      const excerpts = excerptItems(evidence, aiConcern ? notes : [], renderAudioLink, relatedEvidence)
       const sourceHeading = aiConcern ? 'What Eavesly flagged' : 'Eavesly’s assessment'
       const responseHeading = editable ? 'Your review' : 'Manager’s response'
       return <article key={criterion.key} aria-label={criterion.label} hidden={!showFullScorecard && !attentionKeys.has(criterion.key)} className="border-b border-border py-5">
         <div className="min-w-0 space-y-4">
-          <section aria-label={`${criterion.label}: ${sourceHeading}`} className="min-w-0 space-y-3 rounded-2xl bg-pennie-beige/60 p-4">
+          <section aria-label={`${criterion.label}: ${sourceHeading}`} className="min-w-0 space-y-3">
             <div>
               <p className={`mb-0.5 inline-flex items-center gap-2 text-xs font-bold ${aiConcern ? 'text-pennie-yellow-deeper' : 'text-pennie-blue-deeper'}`}>{aiConcern ? <Flag className="h-4 w-4 shrink-0" aria-hidden="true" /> : <MessageSquare className="h-4 w-4 shrink-0" aria-hidden="true" />}{label}</p>
               <h3 className="min-w-0 break-words text-base font-semibold text-pennie-navy">{criterion.label}</h3>
-              <p className="mt-1 text-sm text-pennie-graphite">Result: <strong>{scoreLabel(originalValue)}</strong></p>
+              <p className="mt-1 text-sm text-pennie-graphite">Eavesly’s result: <strong>{scoreLabel(originalValue)}</strong></p>
             </div>
             {aiConcern && (notes.length > 0 ? <div className="space-y-1 text-sm text-pennie-graphite">
               <p className="text-xs font-semibold">Why this was flagged</p>
@@ -520,6 +554,11 @@ export function FullQaRubricReview({ alert, scope, editable, canReloadReview, re
         </div>
       </article>
     })}</div>
+    {focusExcerpts.map(excerpt => <article key={excerpt.key} aria-label="Additional flagged passage" className="space-y-3 border-b border-border py-5">
+      <h3 className="text-base font-semibold text-pennie-navy">Additional flagged passage</h3>
+      {excerpt.lead}<ContextLine excerpt={excerpt} />
+      <p className="text-xs text-pennie-graphite/70">Eavesly requested review of this passage without linking it to a specific failed rule.</p>
+    </article>)}
     <div className="flex flex-wrap items-center justify-end gap-x-3">
       <button type="button" aria-expanded={showFullScorecard} aria-controls={scorecardId} onClick={() => setShowFullScorecard(value => !value)} className="pennie-focus-ring min-h-[44px] rounded-lg py-2 text-sm font-semibold text-pennie-blue-deeper underline-offset-4 hover:underline active:bg-pennie-beige">
         {showFullScorecard ? 'Show only items to check' : `View full scorecard · ${context.criteria.length} criteria`}
@@ -547,21 +586,10 @@ export function FullQaRubricReview({ alert, scope, editable, canReloadReview, re
     {context.sourceReferenceKind !== 'known' && <p className={context.sourceReferenceKind === 'legacy_current_reference' ? 'text-xs text-pennie-graphite/70' : 'rounded-xl border border-pennie-peach-dark bg-pennie-peach-light/30 p-3 text-xs text-pennie-graphite'}>{context.sourceReferenceKind === 'legacy_current_reference' ? 'Original rubric unknown; current reference only.' : 'Original rubric unavailable for this stamped hash; current field map only.'}</p>}
     {editable && context.review && <p className="text-xs text-pennie-graphite/70">Saved revision {context.review.feedbackRevision} · {formatDateTime(context.review.savedAt)} by {context.review.savedBy}</p>}
 
-    {focusExcerpts.length > 0 && <section aria-label="Flagged passages">
-      <div className="flex items-baseline justify-between gap-3 border-b border-border pb-3">
-        <h2 className="text-sm font-semibold text-pennie-navy">Flagged passages</h2>
-        <span className="text-xs tabular-nums text-pennie-graphite/70">{focusExcerpts.length} saved</span>
-      </div>
-      <p className="sr-only">Saved call-level excerpts from Eavesly. Listen in context before deciding; a timestamp locates the words, not proof of a violation.</p>
-      <div className="divide-y divide-border">{focusExcerpts.map(excerpt => <div key={excerpt.key} className="space-y-2 py-4">{excerpt.lead}<ContextLine excerpt={excerpt} /></div>)}</div>
-    </section>}
-
-    <section aria-label="Score feedback" className="space-y-4 border-t border-border pt-5">
-      {editable && <p className="text-xs text-pennie-graphite/70">Review the assessments below. Score responses are optional.</p>}
-      {editable ? scorecard : <details>
-        <summary className="pennie-focus-ring min-h-[44px] cursor-pointer text-sm font-semibold text-pennie-blue-deeper">Eavesly’s evidence and scores · {attentionKeys.size} {attentionKeys.size === 1 ? 'item' : 'items'}</summary>
-        <div className="mt-3 space-y-5">{scorecard}</div>
-      </details>}
+    <section aria-label="What Eavesly flagged" className="border-t border-border pt-5">
+      <h2 id={`${scorecardId}-scores`} tabIndex={-1} className="pennie-focus-ring text-lg font-semibold text-pennie-navy">What Eavesly flagged</h2>
+      <p className="mt-1 text-xs text-pennie-graphite/70">Review each issue in context, then decide below. Score feedback is optional.</p>
+      {scorecard}
     </section>
 
     {editable && <fieldset disabled={locked} className="space-y-3 border-t border-border pt-5"><legend id={`${scorecardId}-decision`} tabIndex={-1} className="pennie-focus-ring pr-2 text-base font-semibold text-pennie-navy">Was this alert warranted?</legend>

@@ -50,7 +50,7 @@ test('partly correct saves explicit mixed feedback, survives failure, and reopen
   const outcome = approver.getByRole('region', { name: 'Manager’s review', exact: true })
   await expect(outcome).toContainText(`manager marked partly correct — ${explanation}`)
   await expect(outcome).toContainText('Coaching issues (0)')
-  await approver.getByText(/Eavesly’s evidence and scores · \d+ items/).click()
+  await expect(approver.getByRole('region', { name: 'What Eavesly flagged', exact: true })).toBeVisible()
   await expect(approver.getByRole('article', { name: 'Credit pull consent', exact: true }).getByText('Partly correct', { exact: true })).toBeVisible()
   await approver.getByRole('button', { name: 'Approve review', exact: true }).click()
   await expect(approver.getByText('Review approved', { exact: true })).toBeVisible()

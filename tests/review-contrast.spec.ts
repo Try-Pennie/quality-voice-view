@@ -43,7 +43,6 @@ test('quiet recording and evidence surfaces retain accessible text and input bou
     // Surfaces are intentionally quieter and the noninteractive card frame is removed.
     // Keep actual text/control accessibility thresholds; don't require the former blue fill.
     expect(await contrast(recording, 'color', 'white')).toBeGreaterThan(1)
-    expect(await contrast(source, 'color', 'white')).toBeGreaterThan(1)
     expect(await contrast(source.getByRole('heading'), 'color')).toBeGreaterThanOrEqual(4.5)
     expect(await contrast(response.getByText('Correct', { exact: true }), 'color')).toBeGreaterThanOrEqual(4.5)
     expect(await contrast(recording.getByText('Ready to play', { exact: true }), 'color')).toBeGreaterThanOrEqual(4.5)

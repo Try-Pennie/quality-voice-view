@@ -44,7 +44,7 @@ test('verified passages play in one click, highlight without scrolling and reset
   const link = page.getByRole('button', { name: /^Listen at 0:12/ }).first()
   await expect(link).toBeVisible()
   // Verified evidence has one primary action, not separate Listen and Find controls.
-  await expect(page.getByRole('region', { name: 'Flagged passages' }).getByRole('button', { name: 'Find in transcript', exact: true })).toHaveCount(0)
+  await expect(page.getByRole('region', { name: 'What Eavesly flagged' }).getByRole('article', { name: 'Credit pull consent', exact: true }).getByRole('button', { name: 'Find in transcript', exact: true })).toHaveCount(0)
   await link.focus(); await page.keyboard.press('Enter')
   await expect.poll(() => audio.evaluate(element => !element.paused && element.currentTime >= 10 && element.currentTime < 12)).toBe(true)
   await page.getByRole('button', { name: 'Pause', exact: true }).click()
@@ -284,7 +284,7 @@ test('call-level flags reveal and play the complete verified passage with contex
   await page.getByRole('radio', { name: 'No, the alert was unnecessary', exact: true }).check()
   const explanation = page.getByRole('textbox', { name: 'Explain your decision', exact: true })
   await explanation.fill('Keep this unsaved decision while I listen to the flagged passage.')
-  const flags = page.getByRole('region', { name: 'Flagged passages', exact: true })
+  const flags = page.getByRole('region', { name: 'What Eavesly flagged', exact: true })
   const listen = flags.getByRole('button', { name: 'Listen at 0:12 — handling agent', exact: true })
   await listen.scrollIntoViewIfNeeded()
   await page.screenshot({ path: testInfo.outputPath('flag-listen-mobile.png') })
@@ -317,7 +317,7 @@ test('flag Listen waits for the displayed transcript and rejects a different rev
     words: QUOTES[0].split(' ').map((text, index) => ({ text, start: 12 + index * 0.3, end: 12.2 + index * 0.3 })),
   } }))
   await page.goto('/dashboard/alerts/stale-transcript/full_qa')
-  const flags = page.getByRole('region', { name: 'Flagged passages', exact: true })
+  const flags = page.getByRole('region', { name: 'What Eavesly flagged', exact: true })
   // The timing response has arrived and can support text-only navigation, not combined playback.
   await expect(flags.getByRole('button', { name: 'Find in transcript', exact: true })).toHaveCount(1)
   await expect(flags.getByRole('button', { name: /^Listen at/ })).toHaveCount(0)
