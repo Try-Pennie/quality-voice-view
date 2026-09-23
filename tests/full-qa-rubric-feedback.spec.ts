@@ -39,7 +39,7 @@ const actionDetails = 'The manager retained the finding and scheduled specific c
 test('neutral guidance links to the incomplete decision, score or coaching section without changing the draft', async ({ page }) => {
   const state = await reviewFixture(page, [alertRow('guided-review')])
   await page.goto('/dashboard/alerts/guided-review/full_qa')
-  const next = page.getByRole('button', { name: 'Continue review', exact: true })
+  const next = page.getByRole('button', { name: /^(Your decision|Continue review)$/ })
   const status = page.getByRole('contentinfo').getByRole('status')
   await expect(status).toHaveText('Choose whether this alert was warranted. Score feedback and coaching are optional.')
   await expect(saveButton(page)).toBeDisabled()
@@ -130,7 +130,7 @@ test('Full QA saves string-scale corrections and optional coaching for a warrant
   await page.setViewportSize({ width: 1280, height: 720 })
 
   await expect(page.getByRole('form', { name: 'Full QA rubric review' })).toBeVisible()
-  await expect(page.getByText(/^\d+ items to check$/)).toBeVisible()
+  await expect(page.getByText(/^\d+ criteria$/)).toBeVisible()
   await expect(response(page, 'Call recording disclosure')).toBeHidden()
   await page.getByText('Scoring policy & source', { exact: true }).click()
   await expect(page.getByText(/Exact production rubric/)).toContainText('1396c17a6ae639b1172a1ff5d04ee21b22e4ab5ceb08c5915c090a34da291e37')
@@ -537,7 +537,7 @@ test('a realistic supported seed keeps the reason, first evidence, and first dec
   await expect(consent.locator('figcaption')).toHaveText(['contact · Step 2 Credit Review', 'handling agent · Step 2 Credit Review'])
   await expect(page.getByRole('article', { name: 'Accurate representations', exact: true }).getByText('You will be debt-free in 48 months, guaranteed.', { exact: true })).toBeVisible()
   // The base fixture retains four program gaps, one CX concern and one process gap alongside two compliance concerns.
-  await expect(page.getByText('8 items to check', { exact: true })).toBeVisible()
+  await expect(page.getByText('8 criteria', { exact: true })).toBeVisible()
   await expect(page.getByRole('button', { name: 'Transcript', exact: true })).toBeVisible()
   await expect(page.getByRole('link', { name: /Open recording/ })).toBeInViewport()
 })
@@ -836,7 +836,7 @@ test('saved alert reasons and criterion context explain concerns without turning
   await expect(summary.getByRole('listitem')).toHaveCount(0)
   await summary.getByText('Recorded compliance issues (2)', { exact: true }).click()
   await expect(summary.getByRole('listitem')).toHaveText(['Credit pulled despite refusal.', 'A guaranteed debt-free date.'])
-  await expect(page.getByText(/^\d+ items to check$/)).toBeVisible()
+  await expect(page.getByText(/^\d+ criteria$/)).toBeVisible()
   await expect(page.getByText('Why it fired', { exact: true })).toHaveCount(0)
   const consent = page.getByRole('article', { name: 'Credit pull consent', exact: true })
   await expect(consent.getByText('Eavesly flagged this', { exact: true })).toBeVisible()

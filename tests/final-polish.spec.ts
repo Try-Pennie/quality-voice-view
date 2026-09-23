@@ -4,7 +4,7 @@ import { alertRow, genericAlertRow, reviewFixture } from './review-fixture'
 test('dropdown typing never navigates and Full QA ignores generic verdict shortcuts', async ({ page }) => {
   const state = await reviewFixture(page, [alertRow('polish-first'), alertRow('polish-next')])
   await page.goto('/dashboard/alerts/polish-first/full_qa?status=awaiting_manager')
-  await page.getByRole('button', { name: 'Continue review', exact: true }).click()
+  await page.getByRole('button', { name: /^(Your decision|Continue review)$/ }).click()
   await page.keyboard.press('y')
   await page.keyboard.press('1')
   await expect(page.getByRole('radiogroup', { name: 'Alert verdict' }).getByRole('radio', { checked: true })).toHaveCount(0)

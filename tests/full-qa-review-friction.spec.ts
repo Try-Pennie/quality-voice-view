@@ -91,7 +91,7 @@ test('three logged issues guide directly to the missing summary and evidence, in
   await page.getByRole('radiogroup', { name: 'Action taken', exact: true }).getByRole('radio', { name: 'Coached the agent', exact: true }).check()
   await page.getByRole('textbox', { name: 'What action did you take?', exact: true }).fill(actionDetails)
   const status = page.getByRole('contentinfo').getByRole('status')
-  const next = page.getByRole('button', { name: 'Continue review', exact: true })
+  const next = page.getByRole('button', { name: /^(Your decision|Continue review)$/ })
   const firstSummary = page.getByRole('textbox', { name: 'Finding 1 summary' })
   await expect(status).toContainText('Issue 1: complete “What was the issue?” using 12–4,000 characters.')
   await next.click()

@@ -126,6 +126,78 @@ test('exact evidence jumps to selected transcript text without timing and keeps 
   await expect(explanation).toHaveValue('Keep this draft while checking the exact evidence in the transcript.')
 })
 
+test('refined workspace keeps evidence before the decision and search navigation compact', async ({ page }, testInfo) => {
+  const state = await reviewFixture(page, [alertRow('refined-workspace')])
+  const errors: string[] = []
+  page.on('pageerror', error => errors.push(error.name))
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await page.goto('/dashboard/alerts/refined-workspace/full_qa')
+  const flags = page.getByRole('region', { name: 'Flagged passages', exact: true })
+  const decision = page.getByText('Was this alert warranted?', { exact: true })
+  const scores = page.getByRole('region', { name: 'Score feedback', exact: true })
+  await expect(decision).toBeVisible()
+  expect((await decision.boundingBox())!.y).toBeGreaterThan((await flags.boundingBox())!.y)
+  expect((await scores.boundingBox())!.y).toBeLessThan((await decision.boundingBox())!.y)
+  await page.screenshot({ path: testInfo.outputPath('refined-workspace-desktop.png') })
+  const transcript = page.getByRole('region', { name: 'Transcript context', exact: true })
+  const search = transcript.getByRole('searchbox', { name: 'Search transcript' })
+  for (const width of [320, 375, 414, 768]) {
+    await page.setViewportSize({ width, height: 900 })
+    await search.fill('credit')
+    const next = transcript.getByRole('button', { name: 'Next match', exact: true })
+    const clear = transcript.getByRole('button', { name: 'Show evidence', exact: true })
+    for (const control of [search, next, clear]) {
+      const box = await control.boundingBox()
+      expect(box?.height).toBeGreaterThanOrEqual(44)
+      expect(Math.abs(box!.y - (await search.boundingBox())!.y)).toBeLessThan(2)
+    }
+    await expect(transcript.getByRole('status')).toContainText('1 of 2 search matches')
+    await search.press('Enter')
+    await expect(transcript.getByRole('status')).toContainText('2 of 2 search matches')
+    await expect(transcript.locator('mark[aria-current="true"]')).toBeInViewport()
+    await search.press('Shift+Enter')
+    await expect(transcript.getByRole('status')).toContainText('1 of 2 search matches')
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
+    if (width === 375) await page.screenshot({ path: testInfo.outputPath('refined-workspace-mobile.png') })
+    await clear.click()
+    await expect(search).toHaveValue('')
+  }
+  expect(errors).toEqual([])
+  expect(state.writes).toEqual([])
+})
+
+test('decision jump and saved-review footer finish the queue without bypassing failed or pending saves', async ({ page }) => {
+  const state = await reviewFixture(page, [alertRow('a-polished-save'), alertRow('z-polished-next')])
+  await page.goto('/dashboard/alerts/a-polished-save/full_qa?status=all')
+  const footer = page.getByRole('contentinfo')
+  const next = footer.getByRole('button', { name: 'Next alert', exact: true })
+  await expect(next).toHaveCount(0)
+  await footer.getByRole('button', { name: 'Your decision', exact: true }).click()
+  await expect(page.getByText('Was this alert warranted?', { exact: true })).toBeFocused()
+  await page.getByRole('radio', { name: 'Yes, the alert was warranted', exact: true }).check()
+  const save = footer.getByRole('button', { name: 'Save review', exact: true })
+  state.failFeedback = true
+  await save.click()
+  await expect(page.getByText(/Couldn't save Full QA review/)).toBeVisible()
+  await expect(next).toHaveCount(0)
+  await expect(page).toHaveURL(/polished-save/)
+  state.failFeedback = false
+  let release: () => void = () => {}
+  state.fullQaSubmitGate = new Promise(resolve => { release = resolve })
+  await save.click()
+  await expect(footer.getByRole('button', { name: 'Saving…', exact: true })).toBeDisabled()
+  await expect(next).toHaveCount(0)
+  release()
+  await expect(next).toBeVisible()
+  const feedback = page.getByRole('textbox', { name: 'Feedback on Eavesly (optional)', exact: true })
+  await feedback.fill('A new unsaved detail after the successful review.')
+  await expect(next).toHaveCount(0)
+  await feedback.fill('')
+  await expect(next).toBeVisible()
+  await next.focus(); await page.keyboard.press('Enter')
+  await expect(page).toHaveURL(/polished-next/)
+})
+
 test('off-team direct links do not read or display raw call transcripts', async ({ page }) => {
   const state = await reviewFixture(page, [alertRow('off-team-transcript')], { managedAgents: ['someone-else@example.test'] })
   await page.goto('/dashboard/alerts/off-team-transcript/full_qa')

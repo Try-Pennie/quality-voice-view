@@ -76,6 +76,7 @@ import {
   Copy,
   ExternalLink,
   Headphones,
+  Play,
   Info,
   Pencil,
   Send,
@@ -182,24 +183,27 @@ export function AlertReviewDrawer({
     const isFlag = isFullQa && allowFind
     const range = (isFlag ? matchFlagQuote : matchAudioQuote)?.(quote)
     const canFind = allowFind && hasTranscriptQuote(quote)
-    const buttonClass = 'pennie-focus-ring inline-flex min-h-[44px] items-center rounded-full px-2 text-xs font-semibold text-pennie-blue-deeper hover:underline'
+    const buttonClass = 'pennie-focus-ring inline-flex min-h-[44px] items-center gap-2 rounded-full px-3 text-xs font-semibold text-pennie-blue-deeper transition-colors duration-150 hover:bg-pennie-blue-light'
     const findButton = canFind ? <button type="button" className={buttonClass} onClick={() => { openTranscript(); setTranscriptQuote(quote) }}
-      aria-label={`Find in transcript${speaker ? ` — ${speaker}` : ''}`}>Find in transcript</button> : null
+      aria-current={isFlag && transcriptQuote === quote ? 'location' : undefined}
+      aria-label={`Find in transcript${speaker ? ` — ${speaker}` : ''}`}>Find in transcript <ChevronRight className="h-3.5 w-3.5" aria-hidden="true" /></button> : null
     if (!range) return isFlag ? <span className="flex flex-wrap items-center gap-x-2">
       {findButton}<span className="text-xs text-pennie-graphite/70">No verified audio timestamp</span>
     </span> : findButton
     const label = `${Math.floor(range.start / 60)}:${Math.floor(range.start % 60).toString().padStart(2, '0')}`
     return <span className="flex flex-wrap items-center gap-x-2">
-      <button type="button" className={isFlag ? `${buttonClass} gap-1 border border-pennie-blue-main bg-pennie-blue-light px-3` : buttonClass}
+      <button type="button" className={isFlag ? `${buttonClass} gap-2 ${transcriptQuote === quote ? 'bg-pennie-blue-light' : 'bg-pennie-white'}` : buttonClass}
         aria-label={`${isFlag ? 'Listen' : 'Play from here'} at ${label}${speaker ? ` — ${speaker}` : ''}`}
+        aria-current={isFlag && transcriptQuote === quote ? 'location' : undefined}
+        aria-description={isFlag ? 'Opens the full quote in the transcript and starts up to two seconds earlier for context.' : undefined}
         onClick={() => {
           if (isFlag && canFind) { openTranscript(); setTranscriptQuote(quote) }
           player.current?.playFrom(isFlag ? Math.max(0, range.start - 2) : range.start, verifiedTiming.duration)
         }}>
-        {isFlag ? 'Listen' : 'Play from here'} <span className="tabular-nums">· {label}</span>
+        <Play className="h-3.5 w-3.5" aria-hidden="true" />
+        {isFlag && 'Listen'} <span className="tabular-nums">{label}</span>
       </button>
-      {isFlag && <span className="text-xs text-pennie-graphite/70">Starts up to 2s earlier for context</span>}
-      {findButton}
+      {!isFlag && findButton}
     </span>
   }
   const [accurate, setAccurate] = useState<boolean | null>(null)
@@ -731,7 +735,7 @@ export function AlertReviewDrawer({
           event.preventDefault()
           target.focus()
         }}
-        className={`flex flex-col gap-0 overflow-hidden bg-pennie-white p-0 shadow-xl [--border:225_12%_72%] [&_textarea]:border-pennie-navy/60 [&_select]:border-pennie-navy/60 ${isFullQa ? 'sm:inset-x-2 sm:inset-y-[2dvh] sm:h-[96dvh] sm:w-[calc(100%-1rem)] sm:max-w-none xl:max-w-[1600px]' : ''}`}
+        className={`flex flex-col gap-0 overflow-hidden bg-pennie-white p-0 shadow-xl [&_textarea]:border-pennie-navy/60 [&_select]:border-pennie-navy/60 ${isFullQa ? '[--border:225_12%_88%] sm:inset-x-2 sm:inset-y-[2dvh] sm:h-[96dvh] sm:w-[calc(100%-1rem)] sm:max-w-none xl:max-w-[1600px]' : '[--border:225_12%_72%]'}`}
       >
         <SheetDescription className="sr-only">Review the call evidence, record a decision and follow-up, or approve the manager’s saved review.</SheetDescription>
         {/* Header */}
@@ -810,7 +814,7 @@ export function AlertReviewDrawer({
           </p>
         </SheetHeader>
 
-        <section aria-label="Call recording" className="shrink-0 border-b border-border bg-pennie-blue-main/30 px-4 py-2 sm:px-8 sm:py-3 lg:px-10">
+        <section aria-label="Call recording" className={`shrink-0 border-b border-border px-4 py-2 sm:px-8 sm:py-3 lg:px-10 ${isFullQa ? 'bg-pennie-beige/60' : 'bg-pennie-blue-main/30'}`}>
           <div className="flex flex-wrap items-center justify-between gap-x-3">
             {alert.recording_link ? <h2 className="pennie-label hidden sm:inline-flex items-center gap-1.5">
               <Headphones className="w-3.5 h-3.5" aria-hidden="true" />Recording
@@ -852,16 +856,15 @@ export function AlertReviewDrawer({
         )}
         {/* Full QA keeps transcript and review mounted together; other modules retain the original single flow. */}
         <div className={isFullQa ? 'flex min-h-0 flex-1 flex-col' : 'relative min-h-0 flex-1 space-y-6 overflow-y-auto px-4 py-4 sm:space-y-7 sm:px-8 sm:py-6 lg:px-10'}>
-          {isFullQa && <div role="group" aria-label="Full QA workspace view" className="grid shrink-0 grid-cols-2 border-b border-border bg-pennie-white p-2 lg:hidden">
-            <button type="button" aria-pressed={fullQaView === 'transcript'} aria-controls="full-qa-transcript-panel" onClick={() => setFullQaView('transcript')} className={`pennie-focus-ring min-h-[44px] rounded-full text-sm font-semibold ${fullQaView === 'transcript' ? 'bg-pennie-navy text-pennie-white' : 'text-pennie-blue-deeper'}`}>Transcript</button>
-            <button type="button" aria-pressed={fullQaView === 'review'} aria-controls="full-qa-review-panel" onClick={() => setFullQaView('review')} className={`pennie-focus-ring min-h-[44px] rounded-full text-sm font-semibold ${fullQaView === 'review' ? 'bg-pennie-navy text-pennie-white' : 'text-pennie-blue-deeper'}`}>Review</button>
+          {isFullQa && <div role="group" aria-label="Full QA workspace view" className="grid shrink-0 grid-cols-2 gap-1 border-b border-border bg-pennie-beige/60 p-2 lg:hidden">
+            <button type="button" aria-pressed={fullQaView === 'transcript'} aria-controls="full-qa-transcript-panel" onClick={() => setFullQaView('transcript')} className={`pennie-focus-ring min-h-[44px] rounded-full text-sm font-semibold ${fullQaView === 'transcript' ? 'bg-pennie-white text-pennie-navy shadow-[var(--shadow-resting)]' : 'text-pennie-graphite'}`}>Transcript</button>
+            <button type="button" aria-pressed={fullQaView === 'review'} aria-controls="full-qa-review-panel" onClick={() => setFullQaView('review')} className={`pennie-focus-ring min-h-[44px] rounded-full text-sm font-semibold ${fullQaView === 'review' ? 'bg-pennie-white text-pennie-navy shadow-[var(--shadow-resting)]' : 'text-pennie-graphite'}`}>Review</button>
           </div>}
           <div className={isFullQa ? 'grid min-h-0 flex-1 lg:grid-cols-[minmax(0,3fr)_minmax(360px,2fr)]' : 'contents'}>
             {isFullQa && <section id="full-qa-transcript-panel" aria-label="Transcript workspace" onFocusCapture={() => setFullQaView('transcript')} className={`${fullQaView === 'transcript' ? 'flex' : 'hidden lg:flex'} min-h-0 flex-col gap-5 overflow-y-auto overscroll-contain px-4 py-5 sm:px-6 lg:px-8`}>
-              <header className="hidden lg:block">
-                <p className="pennie-label text-pennie-blue-deeper">Call context</p>
-                <h2 className="mt-1 text-xl font-semibold text-pennie-navy">Transcript</h2>
-                <p className="mt-1 text-sm text-pennie-graphite/70">Search the call or jump here from Eavesly’s evidence. Playback never moves the transcript for you.</p>
+              <header className="hidden lg:flex items-baseline justify-between gap-3">
+                <h2 className="text-lg font-semibold text-pennie-navy">Transcript</h2>
+                <span className="text-xs text-pennie-graphite/70">Original conversation</span>
               </header>
               <AlertTranscript key={alert.call_id} callId={alert.call_id} scope={scope} agentEmail={alert.agent_email} focusRequest={transcriptFocusRequest} searchQuote={transcriptQuote} audioElement={audioElement} recordingTiming={verifiedTiming} renderAudioLink={renderAudioLink} evidence={extractEvidenceQuotes(alert.violation_type, reviewSource)} />
               {(alert.call_summary || alert.sfdc_lead_id) && <aside className="border-t border-border pt-4">
@@ -1071,8 +1074,8 @@ export function AlertReviewDrawer({
                     section?.focus({ preventScroll: true })
                     section?.scrollIntoView({ block: section instanceof HTMLTextAreaElement ? 'center' : 'start', behavior: 'instant' })
                   })
-                }} className="pennie-focus-ring mr-auto min-h-[44px] text-sm font-semibold text-pennie-blue-deeper underline-offset-4 hover:underline disabled:opacity-40">
-                  Continue review
+                }} className="pennie-focus-ring mr-auto inline-flex min-h-[44px] items-center gap-2 rounded-full bg-pennie-blue-light px-4 text-sm font-semibold text-pennie-blue-deeper hover:bg-pennie-blue-main/30 disabled:opacity-40">
+                  {fullQaSave.nextSectionId.endsWith('-decision') ? 'Your decision' : 'Continue review'} <ChevronRight className="h-4 w-4" aria-hidden="true" />
                 </button>
               )}
               {showStructuredForm && isFullQa && (
@@ -1083,6 +1086,11 @@ export function AlertReviewDrawer({
                   className="min-h-[44px] whitespace-nowrap px-4 rounded-full bg-pennie-navy text-pennie-white text-sm font-semibold hover:bg-pennie-navy/90 disabled:opacity-40 disabled:cursor-not-allowed"
                 >
                   {fullQaSave.label}
+                </button>
+              )}
+              {showStructuredForm && isFullQa && alert.is_reviewed && !dirty && hasNext && !fullQaBusy && !decisionPending && !posting && !ackPending && (
+                <button type="button" onClick={() => requestAdvance(1)} className="pennie-focus-ring inline-flex min-h-[44px] items-center gap-2 rounded-full bg-pennie-navy px-4 text-sm font-semibold text-pennie-white hover:bg-pennie-navy/90">
+                  Next alert <ChevronRight className="h-4 w-4" aria-hidden="true" />
                 </button>
               )}
               {showStructuredForm && !isFullQa && (

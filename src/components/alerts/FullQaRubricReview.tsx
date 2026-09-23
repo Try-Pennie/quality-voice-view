@@ -436,11 +436,12 @@ export function FullQaRubricReview({ alert, scope, editable, canReloadReview, re
   // Call-level focus quotes are not necessarily present in any criterion's evidence.
   // Keep them at call level rather than inventing a relationship to a score.
   const focusExcerpts = excerptItems(valueAtPath(context.sourceResult, 'call_overview.manager_focus_areas'), [], renderAudioLink)
+  const visibleCriteriaCount = showFullScorecard ? context.criteria.length : attentionKeys.size
 
   const scorecard = <>
     <div className="flex flex-wrap items-baseline justify-between gap-2 border-b border-border pb-3">
       <h2 id={`${scorecardId}-scores`} tabIndex={-1} className="pennie-focus-ring text-base font-semibold text-pennie-navy">{showFullScorecard ? 'Full scorecard' : 'Scores to review'}</h2>
-      <p className="text-xs text-pennie-graphite/80">{attentionKeys.size} {attentionKeys.size === 1 ? 'item' : 'items'} to check</p>
+      <p className="text-xs text-pennie-graphite/70">{visibleCriteriaCount} {visibleCriteriaCount === 1 ? 'criterion' : 'criteria'}</p>
     </div>
     {hasProgramConcerns && (programSummary || programGaps.length > 0) && <aside aria-label="Program expectations section notes" className="border-b border-border pb-4 text-sm text-pennie-graphite">
       <p className="font-semibold">Program expectations — saved section notes</p>
@@ -466,9 +467,9 @@ export function FullQaRubricReview({ alert, scope, editable, canReloadReview, re
       const excerpts = excerptItems(evidence, aiConcern ? notes : [], renderAudioLink)
       const sourceHeading = aiConcern ? 'What Eavesly flagged' : 'Eavesly’s assessment'
       const responseHeading = editable ? 'Your review' : 'Manager’s response'
-      return <article key={criterion.key} aria-label={criterion.label} hidden={!showFullScorecard && !attentionKeys.has(criterion.key)} className="border-b border-border py-4">
-        <div className="min-w-0 overflow-hidden rounded-2xl border border-border">
-          <section aria-label={`${criterion.label}: ${sourceHeading}`} className="min-w-0 space-y-3 bg-pennie-beige p-4">
+      return <article key={criterion.key} aria-label={criterion.label} hidden={!showFullScorecard && !attentionKeys.has(criterion.key)} className="border-b border-border py-5">
+        <div className="min-w-0 space-y-4">
+          <section aria-label={`${criterion.label}: ${sourceHeading}`} className="min-w-0 space-y-3 rounded-2xl bg-pennie-beige/60 p-4">
             <div>
               <p className={`mb-0.5 inline-flex items-center gap-2 text-xs font-bold ${aiConcern ? 'text-pennie-yellow-deeper' : 'text-pennie-blue-deeper'}`}>{aiConcern ? <Flag className="h-4 w-4 shrink-0" aria-hidden="true" /> : <MessageSquare className="h-4 w-4 shrink-0" aria-hidden="true" />}{label}</p>
               <h3 className="min-w-0 break-words text-base font-semibold text-pennie-navy">{criterion.label}</h3>
@@ -485,7 +486,7 @@ export function FullQaRubricReview({ alert, scope, editable, canReloadReview, re
               {entries.length > 0 && <pre className="mt-2 whitespace-pre-wrap break-words text-xs">{JSON.stringify(evidence, null, 2)}</pre>}
             </details>
           </section>
-          <section aria-label={`${criterion.label}: ${responseHeading}`} className="min-w-0 space-y-3 border-t border-border p-4">
+          <section aria-label={`${criterion.label}: ${responseHeading}`} className="min-w-0 space-y-3">
             {saved && <div className="border-b border-pennie-blue-main pb-3 text-sm">
               <p className="mb-1 text-xs font-bold text-pennie-blue-deeper">Manager’s saved response</p>
               <p className="font-semibold text-pennie-navy">{correctionLabels(saved).saved}</p>
@@ -538,27 +539,33 @@ export function FullQaRubricReview({ alert, scope, editable, canReloadReview, re
 
     {!editable && <ManagerReviewOutcome context={context} />}
 
-    <section aria-label="Why Eavesly requested review" className="border-y border-pennie-yellow-dark bg-pennie-yellow-light px-4 py-4">
-      <h2 className="pennie-label text-pennie-navy">Why Eavesly requested review</h2>
+    <section aria-label="Why Eavesly requested review" className="space-y-2">
+      <h2 className="text-lg font-semibold text-pennie-navy">Why Eavesly requested review</h2>
       <ReasonText text={reviewReason} violations={recordedViolations} />
       {requestedReview === false && <p className="mt-2 text-xs font-semibold text-pennie-peach-deeper">Eavesly’s saved assessment says manager review was not required, but this alert was sent.</p>}
     </section>
     {context.sourceReferenceKind !== 'known' && <p className={context.sourceReferenceKind === 'legacy_current_reference' ? 'text-xs text-pennie-graphite/70' : 'rounded-xl border border-pennie-peach-dark bg-pennie-peach-light/30 p-3 text-xs text-pennie-graphite'}>{context.sourceReferenceKind === 'legacy_current_reference' ? 'Original rubric unknown; current reference only.' : 'Original rubric unavailable for this stamped hash; current field map only.'}</p>}
     {editable && context.review && <p className="text-xs text-pennie-graphite/70">Saved revision {context.review.feedbackRevision} · {formatDateTime(context.review.savedAt)} by {context.review.savedBy}</p>}
 
-    {focusExcerpts.length > 0 && <section aria-label="Flagged passages" className="space-y-3">
-      <h2 className="text-base font-semibold text-pennie-navy">Flagged passages</h2>
-      <p className="text-xs text-pennie-graphite/80">Saved call-level excerpts from Eavesly. Listen in context before deciding; a timestamp locates the words, not proof of a violation.</p>
-      {focusExcerpts.map(excerpt => <div key={excerpt.key} className="space-y-2 rounded-2xl border border-border bg-pennie-beige p-4">{excerpt.lead}<ContextLine excerpt={excerpt} /></div>)}
+    {focusExcerpts.length > 0 && <section aria-label="Flagged passages">
+      <div className="flex items-baseline justify-between gap-3 border-b border-border pb-3">
+        <h2 className="text-sm font-semibold text-pennie-navy">Flagged passages</h2>
+        <span className="text-xs tabular-nums text-pennie-graphite/70">{focusExcerpts.length} saved</span>
+      </div>
+      <p className="sr-only">Saved call-level excerpts from Eavesly. Listen in context before deciding; a timestamp locates the words, not proof of a violation.</p>
+      <div className="divide-y divide-border">{focusExcerpts.map(excerpt => <div key={excerpt.key} className="space-y-2 py-4">{excerpt.lead}<ContextLine excerpt={excerpt} /></div>)}</div>
     </section>}
-    {editable && <p className="text-sm text-pennie-graphite/70">Optional score feedback below helps improve Eavesly. Only answers you select are recorded; you do not need to review every score.</p>}
-    {editable ? scorecard : <details className="border-y border-border py-3">
-      <summary className="pennie-focus-ring min-h-[36px] cursor-pointer text-sm font-semibold text-pennie-blue-deeper">Eavesly’s evidence and scores · {attentionKeys.size} {attentionKeys.size === 1 ? 'item' : 'items'}</summary>
-      <div className="mt-3 space-y-5">{scorecard}</div>
-    </details>}
+
+    <section aria-label="Score feedback" className="space-y-4 border-t border-border pt-5">
+      {editable && <p className="text-xs text-pennie-graphite/70">Review the assessments below. Score responses are optional.</p>}
+      {editable ? scorecard : <details>
+        <summary className="pennie-focus-ring min-h-[44px] cursor-pointer text-sm font-semibold text-pennie-blue-deeper">Eavesly’s evidence and scores · {attentionKeys.size} {attentionKeys.size === 1 ? 'item' : 'items'}</summary>
+        <div className="mt-3 space-y-5">{scorecard}</div>
+      </details>}
+    </section>
 
     {editable && <fieldset disabled={locked} className="space-y-3 border-t border-border pt-5"><legend id={`${scorecardId}-decision`} tabIndex={-1} className="pennie-focus-ring pr-2 text-base font-semibold text-pennie-navy">Was this alert warranted?</legend>
-      <p className="text-sm text-pennie-graphite">Choose your decision and save. Score feedback and coaching are optional.</p>
+      <p className="text-sm text-pennie-graphite/70">Your decision is enough. Add feedback only when useful.</p>
       <div role="radiogroup" aria-label="Alert verdict" className="flex flex-wrap gap-2">{([true, false] as const).map(value => <ReviewChoice key={String(value)} name={`${scorecardId}-escalation`} checked={escalationJustified === value} onChange={() => setEscalationJustified(value)} pill={false} label={value ? 'Yes, the alert was warranted' : 'No, the alert was unnecessary'} />)}</div>
       {escalationJustified === true && <label className="block text-sm font-semibold">Feedback on Eavesly (optional)<ReviewText required={false} label="Feedback on Eavesly (optional)" value={escalationReason} placeholder="Agree with the alert, but not every reason? Tell us which part was wrong. No coaching plan needed." onChange={setEscalationReason} /></label>}
       {escalationJustified === false && <>

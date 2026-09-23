@@ -6,7 +6,7 @@ for (const god of [false, true]) test(`Help shortcut preserves ${god ? 'Kris ins
     is_reviewed: true, feedback_id: 1, feedback_by: 'another.manager@example.test', review_revision: 1, accurate: false,
   } : {})], { god })
   await page.goto('/dashboard/alerts/help-draft/full_qa')
-  await page.getByRole('button', { name: god ? 'Request changes' : 'Continue review', exact: true }).click()
+  await page.getByRole('button', { name: god ? 'Request changes' : 'Your decision', exact: true }).click()
   if (!god) await page.getByRole('radio', { name: 'No, the alert was unnecessary', exact: true }).check()
   const draft = page.getByRole('textbox', { name: god ? /Request changes with instructions/ : 'Explain your decision' })
   await draft.fill('Keep this unsaved draft intact.')
@@ -29,7 +29,7 @@ for (const god of [false, true]) test(`Help shortcut preserves ${god ? 'Kris ins
 test('Full QA explains text limits at the field and preserves the existing validation boundary', async ({ page }, testInfo) => {
   const state = await reviewFixture(page, [alertRow('text-guidance')])
   await page.goto('/dashboard/alerts/text-guidance/full_qa')
-  await page.getByRole('button', { name: 'Continue review', exact: true }).click()
+  await page.getByRole('button', { name: 'Your decision', exact: true }).click()
   await page.getByRole('radio', { name: 'No, the alert was unnecessary', exact: true }).check()
   await page.getByRole('radiogroup', { name: 'Why was the alert unnecessary?' }).getByRole('radio', { name: 'Wrong context', exact: true }).check()
   const reason = page.getByRole('textbox', { name: 'Explain your decision', exact: true })
@@ -137,7 +137,7 @@ for (const missing of [false, true]) test(`View transcript reaches ${missing ? '
 test('View transcript opens the existing search directly and keeps the draft on mobile and desktop', async ({ page }, testInfo) => {
   const state = await reviewFixture(page, [alertRow('direct-transcript')])
   await page.goto('/dashboard/alerts/direct-transcript/full_qa')
-  await page.getByRole('button', { name: 'Continue review', exact: true }).click()
+  await page.getByRole('button', { name: 'Your decision', exact: true }).click()
   await page.getByRole('radio', { name: 'No, the alert was unnecessary', exact: true }).check()
   const reason = page.getByRole('textbox', { name: 'Explain your decision', exact: true, includeHidden: true })
   await reason.fill('Keep my decision while checking the transcript.')

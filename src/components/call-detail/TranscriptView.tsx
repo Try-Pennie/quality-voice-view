@@ -1,5 +1,5 @@
 import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from 'react'
-import { ChevronDown, ChevronLeft, ChevronRight } from 'lucide-react'
+import { ChevronDown, ChevronLeft, ChevronRight, Search, X } from 'lucide-react'
 import { findTranscriptRanges, parseTranscriptTurns } from '@/lib/transcript-evidence'
 import { createAudioQuoteMatcher, type RecordingTiming } from '@/lib/recording-timestamps'
 
@@ -86,13 +86,14 @@ export function TranscriptView({ transcript, evidence = [], constrainHeight = tr
     if (!count) return
     setActive(position < 0 ? (delta > 0 ? 0 : count - 1) : (position + delta + count) % count)
   }
-  const buttonClass = 'pennie-focus-ring min-h-[40px] min-w-[40px] px-3 rounded-full border border-border text-xs font-semibold text-pennie-blue-deeper disabled:opacity-40'
+  const buttonClass = 'pennie-focus-ring inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-pennie-graphite transition-colors duration-150 hover:bg-pennie-beige disabled:opacity-30 disabled:cursor-not-allowed'
 
   return (
     <div className="space-y-3">
-      <div className="flex flex-wrap items-end gap-2">
-        <div className="flex-1 min-w-[160px]">
-          <label htmlFor={searchId} className="pennie-label block mb-1">Search transcript</label>
+      <div className={`flex items-center gap-1 rounded-2xl border border-border bg-pennie-white p-1 focus-within:border-pennie-blue-deeper ${constrainHeight ? '' : 'sticky top-0 z-10'}`}>
+        <Search className="ml-2 hidden h-4 w-4 shrink-0 text-pennie-graphite/60 sm:block" aria-hidden="true" />
+        <div className="min-w-0 flex-1">
+          <label htmlFor={searchId} className="sr-only">Search transcript</label>
           <input
             id={searchId}
             ref={searchRef}
@@ -107,27 +108,27 @@ export function TranscriptView({ transcript, evidence = [], constrainHeight = tr
                 advance(event.shiftKey ? -1 : 1)
               }
             }}
-            placeholder="Find a word or exact phrase…"
-            className="w-full min-h-[40px] px-3 py-2 rounded-full border border-border bg-pennie-white text-base sm:text-sm focus:outline-none focus:ring-2 focus:ring-pennie-blue-deeper/40"
+            placeholder="Search transcript"
+            className="pennie-focus-ring w-full min-h-[44px] rounded-xl border-0 bg-transparent px-2 py-2 text-base sm:text-sm [&::-webkit-search-cancel-button]:appearance-none"
           />
         </div>
-        <button type="button" className={buttonClass} disabled={!count} onClick={() => advance(-1)} aria-label={searching ? 'Previous match' : 'Previous evidence'}>
+        <button type="button" className={buttonClass} disabled={!count} onClick={() => advance(-1)} aria-label={searching ? 'Previous match' : 'Previous evidence'} title={searching ? 'Previous match (Shift+Enter)' : 'Previous evidence'}>
           <ChevronLeft className="w-4 h-4" aria-hidden="true" />
         </button>
-        <button type="button" className={`${buttonClass} inline-flex items-center gap-1`} disabled={!count} onClick={() => advance(1)} aria-label={searching ? 'Next match' : 'Next evidence'}>
-          {searching ? 'Next match' : 'Next evidence'}<ChevronRight className="w-4 h-4" aria-hidden="true" />
+        <button type="button" className={buttonClass} disabled={!count} onClick={() => advance(1)} aria-label={searching ? 'Next match' : 'Next evidence'} title={searching ? 'Next match (Enter)' : 'Next evidence'}>
+          <ChevronRight className="w-4 h-4" aria-hidden="true" />
         </button>
-        {searching && <button type="button" className={buttonClass} onClick={() => { setSearch(''); setActive(-1) }}>Show evidence</button>}
+        {searching && <button type="button" className={buttonClass} aria-label="Show evidence" title="Clear search and show evidence" onClick={() => { setSearch(''); setActive(-1) }}><X className="h-4 w-4" aria-hidden="true" /></button>}
       </div>
       <p className="text-xs text-pennie-graphite/70" role="status">
         {count > 0
           ? `${position >= 0 ? `${position + 1} of ` : ''}${count} ${searching ? 'search matches' : 'evidence passages'}`
           : searching ? 'No search matches.' : evidence.length ? 'No literal evidence match in this transcript. Review the context; the quote may be paraphrased or from another call.' : 'No verbatim evidence quotes available. Search to inspect the call.'}
-        {searching && ' · Enter / Shift+Enter moves between matches.'}
+        {searching && <span className="sr-only"> · Enter / Shift+Enter moves between matches.</span>}
       </p>
-      {recordingTiming?.original_transcript === transcript && <p className="text-xs text-pennie-graphite/70">Timestamps appear only for verified audio matches. The current passage highlights while playing; scrolling stays in your control.</p>}
-      <div ref={contentRef} id={contentId} className={`bg-pennie-beige/60 rounded-2xl p-4 sm:p-5 ${constrainHeight ? `overflow-y-auto ${expanded ? 'max-h-[70vh]' : 'max-h-96'}` : ''}`}>
-        <ol className="space-y-4">
+      {recordingTiming?.original_transcript === transcript && <p className="sr-only">Timestamps appear only for verified audio matches. The current passage highlights while playing; scrolling stays in your control.</p>}
+      <div ref={contentRef} id={contentId} className={`py-2 ${constrainHeight ? `overflow-y-auto ${expanded ? 'max-h-[70vh]' : 'max-h-96'}` : ''}`}>
+        <ol className="space-y-5">
           {blocks.map((block, index) => {
             const parts: ReactNode[] = []
             let cursor = 0
@@ -138,17 +139,19 @@ export function TranscriptView({ transcript, evidence = [], constrainHeight = tr
                 key={matchIndex}
                 data-transcript-match={matchId}
                 aria-current={matchId === position ? 'true' : undefined}
-                className={`${searching ? 'bg-pennie-blue-light' : 'bg-pennie-yellow-light'} text-pennie-graphite rounded-sm ${matchId === position ? 'outline outline-2 outline-pennie-blue-deeper' : ''}`}
+                className={`${searching ? 'bg-pennie-blue-light' : 'bg-pennie-yellow-light'} text-pennie-graphite scroll-mt-24 scroll-mb-4 ${matchId === position ? 'underline decoration-pennie-blue-deeper decoration-2 underline-offset-4' : ''}`}
               >{block.text.slice(range.start, range.end)}</mark>)
               cursor = range.end
             })
             parts.push(block.text.slice(cursor))
             return <li key={index} aria-current={index === playingTurn ? 'true' : undefined}
-              className={`border-l-2 pl-3 py-1 rounded-r-lg ${index === playingTurn ? 'border-pennie-blue-deeper bg-pennie-blue-light' : 'border-transparent'}`}>
-              {block.speaker && <span className="block text-[11px] font-bold uppercase tracking-wider mb-1 text-pennie-navy">{block.speaker}</span>}
-              <p className="text-sm text-pennie-graphite leading-relaxed whitespace-pre-wrap">{parts}</p>
+              className={`border-l-2 px-3 py-2 rounded-r-xl ${index === playingTurn ? 'border-pennie-blue-deeper bg-pennie-blue-light' : 'border-transparent'}`}>
+              <div className="mb-1 flex flex-wrap items-center justify-between gap-x-3">
+                {block.speaker && <span className="text-xs font-semibold capitalize text-pennie-navy">{block.speaker}</span>}
+                {renderAudioLink?.(block.text, block.speaker)}
+              </div>
+              <p className="text-sm text-pennie-graphite leading-7 whitespace-pre-wrap">{parts}</p>
               {index === playingTurn && <span className="sr-only">Playing this passage</span>}
-              {renderAudioLink?.(block.text, block.speaker)}
             </li>
           })}
         </ol>
