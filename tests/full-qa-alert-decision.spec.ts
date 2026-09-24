@@ -60,6 +60,7 @@ test('agreement can retain mixed feedback without changing every score or writin
   const note = 'The credit guarantee is a concern, but the interest claim was qualified. See 04:20.'
   await page.getByRole('textbox', { name: 'Feedback on Eavesly (optional)', exact: true }).fill(note)
   const consent = page.getByRole('article', { name: 'Credit pull consent', exact: true })
+  await consent.locator('summary').filter({ hasText: 'Optional criterion score adjustment' }).click()
   await consent.getByRole('radio', { name: 'Correct', exact: true }).check()
   await page.getByRole('button', { name: 'Save review', exact: true }).click()
   await expect(page.getByText('Full QA review saved', { exact: true })).toBeVisible()
@@ -75,6 +76,7 @@ test('optional responses can be cleared and call-level coaching survives a faile
   await page.getByRole('radio', { name: 'Yes, the alert was warranted', exact: true }).check()
   const save = page.getByRole('button', { name: 'Save review', exact: true })
   const consent = page.getByRole('article', { name: 'Credit pull consent', exact: true })
+  await consent.locator('summary').filter({ hasText: 'Optional criterion score adjustment' }).click()
   await consent.getByRole('radio', { name: 'Incorrect', exact: true }).check()
   await expect(save).toBeDisabled()
   await consent.getByRole('button', { name: 'Clear score response', exact: true }).click()

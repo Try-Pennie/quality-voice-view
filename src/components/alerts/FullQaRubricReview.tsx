@@ -24,6 +24,7 @@ import type { UserScope } from '../../lib/alert-queries'
 import { formatDateTime } from '../../lib/utils'
 import { INTERNAL_REVIEW_TEXT_LIMITS } from '../../lib/internal-alert-review'
 import { ReviewChoice } from './ReviewChoice'
+import type { FullQaEvidenceFeedback, FullQaEvidenceReference } from '../../lib/full-qa-evidence'
 
 /** The review footer submits this form, so the primary action stays reachable while scrolling. */
 export const FULL_QA_FORM_ID = 'full-qa-review-form'
@@ -133,13 +134,6 @@ function evidenceEntries(evidence: unknown): readonly unknown[] {
   return Array.isArray(evidence) ? evidence : evidence == null ? [] : [evidence]
 }
 
-// Only the same complete quote, speaker and process step share a display location.
-// All distinct saved contexts are retained by excerptItems; no fuzzy rule association.
-function excerptIdentity(entry: unknown): string | null {
-  const quote = savedText(valueAtPath(entry, 'quote'))
-  return quote ? JSON.stringify([quote, ...['speaker', 'process_step'].map(key => savedText(valueAtPath(entry, key)))]) : null
-}
-
 // Text seeded into a coaching issue: only saved notes and attributed quotes, never a derived conclusion.
 function seededEvidence(evidence: unknown, notes: readonly string[]): string {
   const lines = evidenceEntries(evidence).flatMap(entry => {
@@ -153,52 +147,55 @@ function seededEvidence(evidence: unknown, notes: readonly string[]): string {
   return [...new Set([...notes, ...lines])].join('\n')
 }
 
-// Stored evidence can be a note, a list of notes, or structured speaker/quote/context
-// entries. Only explicit quote fields are presented as quotations; notes stay notes.
-type Excerpt = { readonly key: number; readonly lead: JSX.Element; readonly contexts: readonly { readonly label: string; readonly text: string }[]; readonly attribution: string | null }
-type RelatedEvidence = { readonly entry: unknown; readonly source: string; readonly flag?: string }
-
-function excerptItems(evidence: unknown, displayedNotes: readonly string[], renderAudioLink?: (quote: string, speaker?: string) => ReactNode, relatedEvidence: readonly RelatedEvidence[] = [], contextLabel = 'Saved context'): readonly Excerpt[] {
-  const entries = evidenceEntries(evidence)
-  const displayed = new Set<string>()
-  return entries.flatMap((entry, index): Excerpt[] => {
-    if (typeof entry === 'string' && entry.trim()) return displayedNotes.includes(entry.trim()) ? [] : [{ key: index, contexts: [], attribution: null,
-      lead: <p key={index} className="whitespace-pre-wrap break-words text-sm leading-relaxed">{entry}</p> }]
-    const quote = valueAtPath(entry, 'quote')
-    if (typeof quote !== 'string' || !quote.trim()) return []
-    const identity = excerptIdentity(entry)
-    if (identity === null || displayed.has(identity)) return []
-    displayed.add(identity)
-    const attribution = [savedText(valueAtPath(entry, 'speaker')) ?? 'Speaker not saved', savedText(valueAtPath(entry, 'process_step'))].filter(value => value !== null).join(' · ')
-    const related = relatedEvidence.filter(item => excerptIdentity(item.entry) === identity)
-    const contexts = [...entries.filter(item => excerptIdentity(item) === identity).map(item => ({ entry: item, source: contextLabel })), ...related]
-      .flatMap(item => { const text = savedText(valueAtPath(item.entry, 'context')); return text && !displayedNotes.includes(text) ? [{ label: item.source, text }] : [] })
-    const flags = [...new Set(related.flatMap(item => item.flag ? [item.flag] : []))]
-    return [{ key: index, attribution, contexts: [...new Map(contexts.map(item => [JSON.stringify(item), item])).values()],
-      lead: <figure key={index} className="space-y-1">
-        {flags.map(flag => <p key={flag} className="text-xs font-semibold text-pennie-yellow-deeper">Flag: {flag}</p>)}
-        <figcaption className="text-xs font-semibold text-pennie-graphite/70">{attribution}</figcaption>
-        <blockquote className="whitespace-pre-wrap break-words border-l-2 border-pennie-yellow-dark pl-3 text-sm leading-relaxed">{quote}</blockquote>
-        {renderAudioLink?.(quote, savedText(valueAtPath(entry, 'speaker')) ?? undefined)}
-      </figure> }]
-  })
-}
-
-function ContextLine({ excerpt, attributed = false }: { readonly excerpt: Excerpt; readonly attributed?: boolean }) {
-  return <>{excerpt.contexts.map((context, index) => <p key={index} className="whitespace-pre-wrap break-words text-xs text-pennie-graphite/80"><span className="font-semibold">{context.label}{attributed && excerpt.attribution ? ` (${excerpt.attribution})` : ''}: </span>{context.text}</p>)}</>
-}
-
-function hasUnreadableEvidence(evidence: unknown): boolean {
-  return evidenceEntries(evidence).some(entry => !savedText(entry) && !savedText(valueAtPath(entry, 'quote')) && !savedText(valueAtPath(entry, 'context')))
-}
-
-/** Read-only view: all excerpts and contexts in one block. */
-function CriterionEvidence({ evidence, excerpts }: { readonly evidence: unknown; readonly excerpts: readonly Excerpt[] }) {
-  const unreadable = hasUnreadableEvidence(evidence) && excerpts.length > 0
-  return <div className="space-y-2 text-pennie-graphite">
-    <p className="text-xs font-semibold">Evidence</p>
-    {excerpts.length ? excerpts.map(excerpt => <div key={excerpt.key} className="space-y-1">{excerpt.lead}<ContextLine excerpt={excerpt} attributed={excerpts.length > 1} /></div>) : <p className="text-sm">No readable excerpt was saved. Check the transcript before deciding.</p>}
-    {unreadable && <p className="text-xs">Some evidence is only available in the saved details below.</p>}
+function EvidenceFeedbackCard({ reference, index, feedback, editable, disabled, renderAudioLink, onChange }: {
+  readonly reference: FullQaEvidenceReference
+  readonly index: number
+  readonly feedback: FullQaEvidenceFeedback | undefined
+  readonly editable: boolean
+  readonly disabled: boolean
+  readonly renderAudioLink?: (quote: string, speaker?: string) => ReactNode
+  readonly onChange: (feedback: FullQaEvidenceFeedback | null) => void
+}) {
+  const question = reference.claimKind === 'general_focus'
+    ? reference.evidenceKind === 'note' ? 'Was Eavesly right to flag this saved note for review?' : 'Was Eavesly right to flag this passage for review?'
+    : reference.evidenceKind === 'note' ? 'Does this saved note support Eavesly’s claim?'
+      : 'Does this evidence support Eavesly’s claim?'
+  const guidance = reference.claimKind === 'general_focus'
+    ? 'Judge whether this passage belonged in manager review—not transcript spelling.'
+    : 'Judge whether the saved evidence supports the claim—not transcript spelling.'
+  const missingMessage = reference.claimKind === 'general_focus'
+    ? 'No readable passage or note was saved for this general review focus.'
+    : 'No readable evidence was saved for this claim. Check the transcript before judging it.'
+  const attribution = [reference.speaker ?? (reference.evidenceKind === 'quote' ? 'Speaker not saved' : null), reference.processStep].filter(Boolean).join(' · ')
+  return <div role="group" aria-label={`${reference.claimLabel} evidence ${index + 1}`} className="space-y-3 rounded-xl border border-border bg-white p-3">
+    {reference.evidenceKind === 'quote' ? <figure className="space-y-1">
+      {attribution && <figcaption className="text-xs font-semibold text-pennie-graphite/70">{attribution}</figcaption>}
+      <blockquote className="whitespace-pre-wrap break-words border-l-2 border-pennie-yellow-dark pl-3 text-sm leading-relaxed text-pennie-graphite">{reference.text}</blockquote>
+      {reference.context && <p className="whitespace-pre-wrap break-words text-xs text-pennie-graphite/80"><span className="font-semibold">Saved context: </span>{reference.context}</p>}
+      {reference.text && renderAudioLink?.(reference.text, reference.speaker ?? undefined)}
+    </figure> : reference.evidenceKind === 'note' ? <div>
+      <p className="text-xs font-semibold text-pennie-graphite/70">Saved note — not a transcript quote</p>
+      <p className="mt-1 whitespace-pre-wrap break-words text-sm leading-relaxed text-pennie-graphite">{reference.text}</p>
+    </div> : <p className="text-sm text-pennie-graphite">{missingMessage}</p>}
+    {editable && reference.evidenceKind !== 'missing' ? <div className="space-y-2 border-t border-border pt-3">
+      <fieldset disabled={disabled}>
+        <legend className="text-sm font-semibold text-pennie-navy">{question} <span className="font-normal">(optional)</span></legend>
+        <p className="mt-1 text-xs text-pennie-graphite/70">{guidance}</p>
+        <div className="mt-2 flex flex-wrap gap-2">{([{ disposition: 'correct', label: 'Correct' }, { disposition: 'incorrect', label: 'Incorrect' }, { disposition: 'partly_correct', label: 'Partly correct' }] as const).map(option => <label key={option.disposition} className={`flex min-h-[44px] cursor-pointer items-center gap-2 rounded-xl border px-3 py-2 text-sm has-[:disabled]:cursor-not-allowed has-[:disabled]:opacity-50 ${feedback?.disposition === option.disposition ? 'border-pennie-blue-deeper bg-pennie-blue-light text-pennie-navy' : 'border-border text-pennie-graphite hover:bg-pennie-blue-light/50'}`}>
+          <input type="radio" name={`evidence-${reference.referenceId}`} aria-label={`Evidence: ${option.label}`} checked={feedback?.disposition === option.disposition} onChange={() => onChange({ referenceId: reference.referenceId, disposition: option.disposition, comment: feedback?.comment ?? null })} className="pennie-focus-ring h-4 w-4 accent-pennie-blue-deeper" />
+          {option.label}
+        </label>)}</div>
+      </fieldset>
+      {feedback && <>
+        <label className="block text-sm font-semibold">Comment <span className="font-normal">(optional)</span><ReviewText required={false} label={`${reference.claimLabel} evidence comment`} disabled={disabled} value={feedback.comment ?? ''} placeholder={reference.claimKind === 'general_focus' ? 'Add context for why this passage was or was not worth flagging.' : 'Add context for this evidence and claim.'} onChange={comment => onChange({ ...feedback, comment: comment || null })} /></label>
+        <button type="button" disabled={disabled} onClick={() => onChange(null)} className="pennie-focus-ring min-h-[44px] text-xs font-semibold text-pennie-blue-deeper">Clear passage response</button>
+      </>}
+    </div> : feedback ? <div className="border-t border-border pt-3 text-sm text-pennie-graphite">
+      <p className="text-xs font-bold text-pennie-blue-deeper">Saved passage response</p>
+      <p className="mt-1 font-semibold text-pennie-navy">{feedback.disposition === 'partly_correct' ? 'Partly correct' : feedback.disposition === 'correct' ? 'Correct' : 'Incorrect'}</p>
+      {feedback.comment && <p className="mt-1 whitespace-pre-wrap break-words">{feedback.comment}</p>}
+    </div> : reference.evidenceKind === 'missing' ? <p className="border-t border-border pt-3 text-xs text-pennie-graphite/70">No passage response is available because no readable evidence was saved. {reference.claimKind === 'criterion' ? 'Use the optional criterion adjustment below if needed.' : 'The overall alert decision remains separate.'}</p>
+      : <p className="border-t border-border pt-3 text-xs text-pennie-graphite/70">No passage-level response was recorded.</p>}
   </div>
 }
 
@@ -230,6 +227,7 @@ function ManagerReviewOutcome({ context }: { readonly context: FullQaReviewConte
     return scoreLabel(criterion?.domain.find(value => value === original))
   }
   const changed = review.corrections.filter(item => item.disposition !== 'confirmed')
+  const evidenceLabel = (referenceId: string) => context.evidenceReferences.find(item => item.referenceId === referenceId)?.claimLabel ?? 'Unavailable saved claim'
   return <section aria-label="Manager’s review" className="space-y-3 rounded-2xl border border-pennie-blue-deeper bg-pennie-blue-light p-4 sm:p-5">
     <div>
       <h2 className="text-lg font-semibold text-pennie-navy">Manager’s review</h2>
@@ -251,8 +249,13 @@ function ManagerReviewOutcome({ context }: { readonly context: FullQaReviewConte
       <p className="mt-1 whitespace-pre-wrap break-words">{review.actionTaken ? ACTION_TAKEN_LABELS[review.actionTaken] : 'No follow-up recorded'}{review.actionDetails ? ` · ${review.actionDetails}` : ''}</p>
     </div>
     <div className="text-sm text-pennie-graphite">
-      <p className="font-semibold text-pennie-navy">Changed, partial, or unresolved scores ({changed.length})</p>
-      {changed.length ? <ul className="mt-1 list-disc space-y-1 pl-5">{changed.map(item => <li key={item.criterionKey} className="break-words"><span className="font-semibold">{label(item.criterionKey)}</span>: Eavesly said {originalLabel(item.criterionKey)} → {correctionLabels(item).summary}{item.reason ? ` — ${item.reason}` : ''}</li>)}</ul> : <p className="mt-1">No score corrections recorded. Unanswered scores are not manager-confirmed.</p>}
+      <p className="font-semibold text-pennie-navy">Passage-level responses ({review.evidenceFeedback.length})</p>
+      {review.evidenceFeedback.length ? <ul className="mt-1 list-disc space-y-1 pl-5">{review.evidenceFeedback.map(item => <li key={item.referenceId} className="break-words"><span className="font-semibold">{evidenceLabel(item.referenceId)}</span>: {item.disposition === 'partly_correct' ? 'Partly correct' : item.disposition === 'correct' ? 'Correct' : 'Incorrect'}{item.comment ? ` — ${item.comment}` : ''}</li>)}</ul> : <p className="mt-1">No passage-level responses recorded. Unanswered evidence remains unreviewed.</p>}
+    </div>
+    <div className="text-sm text-pennie-graphite">
+      <p className="font-semibold text-pennie-navy">Saved criterion-level opinions ({changed.length})</p>
+      <p className="mt-1 text-xs text-pennie-graphite/70">These score opinions are separate from passage-level responses.</p>
+      {changed.length ? <ul className="mt-1 list-disc space-y-1 pl-5">{changed.map(item => <li key={item.criterionKey} className="break-words"><span className="font-semibold">{label(item.criterionKey)}</span>: Eavesly said {originalLabel(item.criterionKey)} → {correctionLabels(item).summary}{item.reason ? ` — ${item.reason}` : ''}</li>)}</ul> : <p className="mt-1">No criterion-level score corrections recorded. Unanswered scores are not manager-confirmed.</p>}
     </div>
   </section>
 }
@@ -271,6 +274,7 @@ export function FullQaRubricReview({ alert, scope, editable, canReloadReview, re
   const [staleReview, setStaleReview] = useState(false)
   const baseline = useRef('')
   const [corrections, setCorrections] = useState<readonly FullQaCriterionCorrection[]>([])
+  const [evidenceFeedback, setEvidenceFeedback] = useState<readonly FullQaEvidenceFeedback[]>([])
   const [findings, setFindings] = useState<readonly FullQaFinding[]>([])
   // No verdict is preselected locally; the saved contract stays boolean.
   const [escalationJustified, setEscalationJustified] = useState<boolean | null>(null)
@@ -286,18 +290,18 @@ export function FullQaRubricReview({ alert, scope, editable, canReloadReview, re
   const [proposalDecisionPending, setProposalDecisionPending] = useState(false)
   const [decisionReason, setDecisionReason] = useState<Record<number, string>>({})
 
-  const draft = useMemo((): LocalDraft => ({ corrections, findings, escalationJustified, escalationReason,
+  const draft = useMemo((): LocalDraft => ({ corrections, evidenceFeedback, findings, escalationJustified, escalationReason,
     inaccuracyReason: escalationJustified === true ? null : inaccuracyReason, actionTaken,
-    actionDetails: actionDetails || null }), [corrections, findings, escalationJustified, escalationReason, inaccuracyReason, actionTaken, actionDetails])
+    actionDetails: actionDetails || null }), [corrections, evidenceFeedback, findings, escalationJustified, escalationReason, inaccuracyReason, actionTaken, actionDetails])
 
   const loadContext = useCallback((nextContext: FullQaReviewContext) => {
-    const next: LocalDraft = { corrections: initialFullQaCorrections(nextContext), findings: nextContext.review?.findings ?? [],
+    const next: LocalDraft = { corrections: initialFullQaCorrections(nextContext), evidenceFeedback: nextContext.review?.evidenceFeedback ?? [], findings: nextContext.review?.findings ?? [],
       escalationJustified: nextContext.review?.escalationJustified ?? null,
       escalationReason: nextContext.review?.escalationReason ?? '',
       inaccuracyReason: nextContext.review?.inaccuracyReason ?? null,
       actionTaken: nextContext.review?.actionTaken ?? null,
       actionDetails: nextContext.review?.actionDetails ?? null }
-    setCorrections(next.corrections); setFindings(next.findings); setEscalationJustified(next.escalationJustified)
+    setCorrections(next.corrections); setEvidenceFeedback(next.evidenceFeedback); setFindings(next.findings); setEscalationJustified(next.escalationJustified)
     setEscalationReason(next.escalationReason); setInaccuracyReason(next.inaccuracyReason); setActionTaken(next.actionTaken); setActionDetails(next.actionDetails ?? '')
     setProposalCriterion(nextContext.criteria[0]?.key ?? '')
     setShowFullScorecard(false)
@@ -360,9 +364,11 @@ export function FullQaRubricReview({ alert, scope, editable, canReloadReview, re
     }
     return original === 'fail' || original === 'poor' || original === 'fair' || original === 'partial' || original === 'missing'
   }).map(criterion => criterion.key))
+  const evidenceResponseIds = new Set([...evidenceFeedback, ...(context.review?.evidenceFeedback ?? [])].map(item => item.referenceId))
   const attentionKeys = new Set(context.criteria.filter(criterion => aiConcernKeys.has(criterion.key)
     || [corrections, context.review?.corrections ?? []].some(items => items.some(item => item.criterionKey === criterion.key && item.disposition !== 'confirmed'))
     || [...findings, ...(context.review?.findings ?? [])].some(item => item.relatedCriteria.includes(criterion.key))
+    || context.evidenceReferences.some(item => item.claimKind === 'criterion' && item.claimKey === criterion.key && evidenceResponseIds.has(item.referenceId))
     || !criterion.domain.some(value => value === valueAtPath(context.sourceResult, criterion.scorePath))).map(criterion => criterion.key))
   const reviewReason = savedText(valueAtPath(context.sourceResult, 'call_overview.manager_review_reason'))
   const recordedViolations = savedNotes(valueAtPath(context.sourceResult, 'compliance_scorecard.compliance_violations'))
@@ -376,6 +382,11 @@ export function FullQaRubricReview({ alert, scope, editable, canReloadReview, re
   const practiceSupported = import.meta.env.MODE === 'staging'
     && valueAtPath(context.sourceResult, '_synthetic_staging') === true && alert.call_id === 'DEMO-SUPPORTED-001'
   const locked = busy || contextChanged
+  const updateEvidenceFeedback = (referenceId: string, next: FullQaEvidenceFeedback | null) => setEvidenceFeedback(items => {
+    const current = items.find(item => item.referenceId === referenceId)
+    if (next === null) return items.filter(item => item.referenceId !== referenceId)
+    return current ? items.map(item => item.referenceId === referenceId ? next : item) : [...items, next]
+  })
   const updateCorrection = (key: string, patch: Partial<FullQaCriterionCorrection>) => setCorrections(items => {
     const current = items.find(item => item.criterionKey === key)
     const next: FullQaCriterionCorrection = { criterionKey: key, disposition: 'corrected', correctedValue: null, reason: null, ...current, ...patch }
@@ -411,6 +422,8 @@ export function FullQaRubricReview({ alert, scope, editable, canReloadReview, re
       }
       return
     }
+    // Replace locally edited values with the normalized payload that was persisted.
+    setEvidenceFeedback(parsed.value.evidenceFeedback)
     // Keep hidden coaching in the draft until the manager successfully saves No.
     setFindings(parsed.value.findings)
     baseline.current = serializeDraft(parsed.value)
@@ -449,32 +462,20 @@ export function FullQaRubricReview({ alert, scope, editable, canReloadReview, re
     toast.success(decision === 'accepted_for_evaluation' ? 'Approved for evaluation — not published' : 'Proposal rejected')
   }
 
-  const visibleEvidence = new Set(context.criteria.filter(criterion => showFullScorecard || attentionKeys.has(criterion.key))
-    .flatMap(criterion => evidenceEntries(valueAtPath(context.sourceResult, criterion.evidencePath)))
-    .flatMap(entry => { const key = excerptIdentity(entry); return key ? [key] : [] }))
-  // Critical flags carry their own explicit failure → evidence association. Do not
-  // infer a criterion from the label, score, array position, or quote similarity.
-  const criticalFlags = evidenceEntries(valueAtPath(context.sourceResult, 'compliance_scorecard.critical_red_flag_hits')).flatMap(entry => {
-    const label = savedText(valueAtPath(entry, 'red_flag'))
-    return label ? [{ label, evidence: evidenceEntries(valueAtPath(entry, 'evidence')) }] : []
-  })
-  const focusEvidence = evidenceEntries(valueAtPath(context.sourceResult, 'call_overview.manager_focus_areas'))
-  const relatedEvidence: readonly RelatedEvidence[] = [
-    ...focusEvidence.map(entry => ({ entry, source: 'Call-level context' })),
-    ...criticalFlags.flatMap(flag => flag.evidence.map(entry => ({ entry, source: `Flag context (${flag.label})`, flag: flag.label }))),
-  ]
-  const representedEvidence = new Set([...visibleEvidence, ...criticalFlags.flatMap(flag => flag.evidence)
-    .flatMap(entry => { const key = excerptIdentity(entry); return key ? [key] : [] })])
-  const focusExcerpts = excerptItems(focusEvidence.filter(entry => !representedEvidence.has(excerptIdentity(entry))), [], renderAudioLink)
+  const criticalClaimKeys = [...new Set(context.evidenceReferences.filter(item => item.claimKind === 'critical_flag').map(item => item.claimKey))]
+  const generalFocusReferences = context.evidenceReferences.filter(item => item.claimKind === 'general_focus')
+  const evidenceCard = (reference: FullQaEvidenceReference, index: number) => <EvidenceFeedbackCard key={reference.referenceId}
+    reference={reference} index={index} feedback={evidenceFeedback.find(item => item.referenceId === reference.referenceId)}
+    editable={editable} disabled={locked} renderAudioLink={renderAudioLink}
+    onChange={next => updateEvidenceFeedback(reference.referenceId, next)} />
 
   const scorecard = <>
-    {criticalFlags.map((flag, index) => {
-      const evidence = flag.evidence.filter(entry => !visibleEvidence.has(excerptIdentity(entry)))
-      if (flag.evidence.length > 0 && evidence.length === 0) return null
-      return <article key={index} aria-label={flag.label} className="space-y-3 border-b border-border py-5">
-        <div><p className="text-xs font-semibold text-pennie-yellow-deeper">Eavesly flagged</p><h3 className="text-base font-semibold text-pennie-navy">{flag.label}</h3></div>
-        <CriterionEvidence evidence={evidence} excerpts={excerptItems(evidence, [], renderAudioLink, relatedEvidence.filter(item => item.flag !== flag.label), `Flag context (${flag.label})`)} />
-        <details><summary className="pennie-focus-ring min-h-[44px] cursor-pointer py-3 text-xs font-semibold text-pennie-blue-deeper">Saved flag details</summary><pre className="whitespace-pre-wrap break-words text-xs">{JSON.stringify(flag.evidence, null, 2)}</pre></details>
+    {criticalClaimKeys.map(claimKey => {
+      const references = context.evidenceReferences.filter(item => item.claimKind === 'critical_flag' && item.claimKey === claimKey)
+      const label = references[0]?.claimLabel ?? 'Unlabeled critical flag'
+      return <article key={claimKey} aria-label={label} className="space-y-3 border-b border-border py-5">
+        <div><p className="text-xs font-semibold text-pennie-yellow-deeper">Eavesly flagged</p><h3 className="text-base font-semibold text-pennie-navy">{label}</h3></div>
+        <div className="space-y-3">{references.map(evidenceCard)}</div>
       </article>
     })}
     {hasProgramConcerns && (programSummary || programGaps.length > 0) && <aside aria-label="Program expectations section notes" className="border-b border-border pb-4 text-sm text-pennie-graphite">
@@ -498,7 +499,7 @@ export function FullQaRubricReview({ alert, scope, editable, canReloadReview, re
         : originalValue === undefined ? 'Eavesly score unavailable' : humanChanged ? 'Manager review item'
           : attentionKeys.has(criterion.key) ? 'Included in this review' : 'Other Eavesly score'
       const entries = evidenceEntries(evidence)
-      const excerpts = excerptItems(evidence, aiConcern ? notes : [], renderAudioLink, relatedEvidence)
+      const evidenceReferences = context.evidenceReferences.filter(item => item.claimKind === 'criterion' && item.claimKey === criterion.key)
       const sourceHeading = aiConcern ? 'What Eavesly flagged' : 'Eavesly’s assessment'
       const responseHeading = editable ? 'Your review' : 'Manager’s response'
       return <article key={criterion.key} aria-label={criterion.label} hidden={!showFullScorecard && !attentionKeys.has(criterion.key)} className="border-b border-border py-5">
@@ -513,7 +514,10 @@ export function FullQaRubricReview({ alert, scope, editable, canReloadReview, re
               <p className="text-xs font-semibold">Why this was flagged</p>
               {notes.map((note, index) => <p key={index} className="whitespace-pre-wrap break-words leading-relaxed">{note}</p>)}
             </div> : <p className="text-xs text-pennie-graphite/70">{criterion.findingCategory === 'program_expectations' && (programSummary || programGaps.length > 0) ? 'No separate reason saved for this score; see the saved section notes above.' : 'No reason saved for this score.'}</p>)}
-            <CriterionEvidence evidence={evidence} excerpts={excerpts} />
+            <div className="space-y-3">
+              <p className="text-xs font-semibold text-pennie-graphite">Evidence tied to this claim</p>
+              {evidenceReferences.map(evidenceCard)}
+            </div>
             <details>
               <summary className="pennie-focus-ring min-h-[44px] cursor-pointer py-3.5 text-xs font-semibold text-pennie-blue-deeper sm:min-h-0 sm:py-0">Rule and saved evidence</summary>
               {context.sourceReferenceKind !== 'unknown_hash' ? <p className="mt-2 text-sm leading-relaxed text-pennie-graphite">{criterion.rule}</p> : <p className="mt-2 text-xs text-pennie-peach-deeper">Original rule unavailable for this stamped hash.</p>}
@@ -522,13 +526,15 @@ export function FullQaRubricReview({ alert, scope, editable, canReloadReview, re
           </section>
           <section aria-label={`${criterion.label}: ${responseHeading}`} className="min-w-0 space-y-3">
             {saved && <div className="border-b border-pennie-blue-main pb-3 text-sm">
-              <p className="mb-1 text-xs font-bold text-pennie-blue-deeper">Manager’s saved response</p>
+              <p className="mb-1 text-xs font-bold text-pennie-blue-deeper">Saved criterion-level opinion</p>
               <p className="font-semibold text-pennie-navy">{correctionLabels(saved).saved}</p>
               {saved.reason && <p className="mt-1 whitespace-pre-wrap break-words text-pennie-graphite">{saved.reason}</p>}
             </div>}
-            {editable && <div className="space-y-3">
+            {editable && <details className="rounded-xl border border-border px-3 py-2">
+              <summary className="pennie-focus-ring min-h-[44px] cursor-pointer py-3 text-sm font-semibold text-pennie-blue-deeper">Optional criterion score adjustment</summary>
+              <div className="space-y-3 pb-2 pt-1">
               <fieldset disabled={locked} role="radiogroup" aria-label={`${criterion.label} disposition`}>
-                <legend className="mb-2 text-sm font-semibold text-pennie-navy">Is Eavesly’s assessment correct? <span className="font-normal">(optional)</span></legend>
+                <legend className="mb-2 text-sm font-semibold text-pennie-navy">Criterion-level opinion <span className="font-normal">(optional; separate from passage feedback)</span></legend>
                 <div className="flex flex-wrap gap-2">{([{ disposition: 'confirmed', label: 'Correct' }, { disposition: 'corrected', label: 'Incorrect' }, { disposition: 'partially_correct', label: 'Partly correct' }] as const).map(({ disposition, label }) => <label key={disposition} className={`flex min-h-[44px] cursor-pointer items-center gap-2 rounded-xl border px-3 py-2 text-sm has-[:disabled]:cursor-not-allowed has-[:disabled]:opacity-50 ${correction?.disposition === disposition ? 'border-pennie-blue-deeper bg-pennie-blue-light text-pennie-navy' : 'border-border text-pennie-graphite hover:bg-pennie-blue-light/50'}`}>
                   <input type="radio" name={`${scorecardId}-${criterion.key}`} checked={correction?.disposition === disposition} disabled={disposition === 'confirmed' && originalValue === undefined} className="pennie-focus-ring h-4 w-4 accent-pennie-blue-deeper" onChange={() => {
                     if (correction?.disposition === disposition) return
@@ -545,8 +551,9 @@ export function FullQaRubricReview({ alert, scope, editable, canReloadReview, re
               {correction && <button type="button" disabled={locked} onClick={() => setCorrections(items => items.filter(item => item.criterionKey !== criterion.key))} className="pennie-focus-ring min-h-[44px] text-xs font-semibold text-pennie-blue-deeper">Clear score response</button>}
               {correction?.disposition === 'corrected' && <label className="block text-sm font-semibold">Why is the assessment incorrect?<ReviewText label={`${criterion.label} correction reason`} disabled={locked} value={correction.reason ?? ''} onChange={reason => updateCorrection(criterion.key, { reason })} /></label>}
               {correction?.disposition === 'partially_correct' && <label className="block text-sm font-semibold">Which parts are right or wrong?<ReviewText label={`${criterion.label} partly correct explanation`} disabled={locked} value={correction.reason ?? ''} placeholder="A brief explanation is enough. No replacement score or coaching plan needed." onChange={reason => updateCorrection(criterion.key, { reason })} /></label>}
-            </div>}
-            {!editable && !saved && <p className="text-sm text-pennie-graphite/70">No structured response was recorded for this criterion.</p>}
+              </div>
+            </details>}
+            {!editable && !saved && <p className="text-sm text-pennie-graphite/70">No criterion-level opinion was recorded.</p>}
             {editable && escalationJustified === true && (linkedIndex >= 0
               ? <button type="button" disabled={locked} onClick={() => focusFinding(findings[linkedIndex].findingId)} className="pennie-focus-ring min-h-[44px] sm:min-h-[36px] text-xs font-semibold text-pennie-blue-deeper underline-offset-4 hover:underline">Edit coaching issue {linkedIndex + 1}</button>
               : <button type="button" disabled={locked} onClick={() => addIssueFromCriterion(criterion, evidence, notes)} className="pennie-focus-ring min-h-[44px] sm:min-h-[36px] rounded-full border border-border px-3 text-xs font-semibold text-pennie-blue-deeper disabled:opacity-40"><Plus className="mr-1 inline h-3.5 w-3.5" aria-hidden="true" />Add as coaching issue</button>)}
@@ -554,10 +561,9 @@ export function FullQaRubricReview({ alert, scope, editable, canReloadReview, re
         </div>
       </article>
     })}</div>
-    {focusExcerpts.map(excerpt => <article key={excerpt.key} aria-label="Additional flagged passage" className="space-y-3 border-b border-border py-5">
-      <h3 className="text-base font-semibold text-pennie-navy">Additional flagged passage</h3>
-      {excerpt.lead}<ContextLine excerpt={excerpt} />
-      <p className="text-xs text-pennie-graphite/70">Eavesly requested review of this passage without linking it to a specific failed rule.</p>
+    {generalFocusReferences.map((reference, index) => <article key={reference.referenceId} aria-label="General review focus" className="space-y-3 border-b border-border py-5">
+      <div><h3 className="text-base font-semibold text-pennie-navy">General review focus</h3><p className="text-xs text-pennie-graphite/70">This saved focus was not linked to a specific claim. It stays separate rather than being matched by quote text.</p></div>
+      {evidenceCard(reference, index)}
     </article>)}
     <div className="flex flex-wrap items-center justify-end gap-x-3">
       <button type="button" aria-expanded={showFullScorecard} aria-controls={scorecardId} onClick={() => setShowFullScorecard(value => !value)} className="pennie-focus-ring min-h-[44px] rounded-lg py-2 text-sm font-semibold text-pennie-blue-deeper underline-offset-4 hover:underline active:bg-pennie-beige">
@@ -588,7 +594,7 @@ export function FullQaRubricReview({ alert, scope, editable, canReloadReview, re
 
     <section aria-label="What Eavesly flagged" className="border-t border-border pt-5">
       <h2 id={`${scorecardId}-scores`} tabIndex={-1} className="pennie-focus-ring text-lg font-semibold text-pennie-navy">What Eavesly flagged</h2>
-      <p className="mt-1 text-xs text-pennie-graphite/70">Review each issue in context, then decide below. Score feedback is optional.</p>
+      <p className="mt-1 text-xs text-pennie-graphite/70">Passage feedback is optional; unanswered evidence stays unreviewed. Your overall alert decision is separate.</p>
       {scorecard}
     </section>
 

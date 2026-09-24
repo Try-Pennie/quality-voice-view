@@ -6,6 +6,7 @@ migration="$repo_root/supabase/migrations/20260918020000_full_qa_rubric_feedback
 duplicate_fix="$repo_root/supabase/migrations/20260921210000_reject_duplicate_normalized_full_qa_findings.sql"
 decision_first="$repo_root/supabase/migrations/20260922040000_full_qa_alert_decision_first.sql"
 partly_correct="$repo_root/supabase/migrations/20260922140000_full_qa_partially_correct_feedback.sql"
+evidence_feedback="$repo_root/supabase/migrations/20260923120000_evidence_level_manager_feedback.sql"
 container="full-qa-rubric-check-$RANDOM-$$"
 tmp="$(mktemp -d)"
 cleanup() { docker rm -f "$container" >/dev/null 2>&1 || true; rm -rf "$tmp"; }
@@ -75,7 +76,17 @@ from source_fixture cross join test_clock cross join (values
  ('CALL-COACHED','-2 days'::interval),('CALL-AFTER','2 days'),('CALL-PENDING','-3 days'),
  ('CALL-MISSING','4 days'),('CALL-UNKNOWN','5 days'),('CALL-LEGACY','6 days'),('CALL-DISTINCT','7 days'),('CALL-STREAMLINED','7 days'))v(x,delta);
 insert into public.eavesly_module_results(call_id,module_name,violation_type,agent_email,result_json)
-select call_id,'full_qa','manager_escalation','decision-agent@example.test',value #- '{compliance_scorecard,credit_pull_consent}' from source_fixture cross join (values ('CALL-DECISION'),('CALL-PARTLY'))calls(call_id);
+select call_id,'full_qa','manager_escalation','decision-agent@example.test',value #- '{compliance_scorecard,credit_pull_consent}' from source_fixture cross join (values ('CALL-DECISION'),('CALL-PARTLY'),('CALL-EVIDENCE'),('CALL-EVIDENCE-OTHER'))calls(call_id);
+update public.eavesly_module_results set result_json=jsonb_set(jsonb_set(jsonb_set(result_json,
+  '{compliance_scorecard,credit_pull_consent_evidence}',
+  '[{"quote":"The same saved words.","speaker":"handling agent","context":"Consent claim context."}]'::jsonb),
+  '{compliance_scorecard,accurate_representations_violations}',
+  '[{"quote":"The same saved words.","speaker":"handling agent","context":"Representation claim context."}]'::jsonb),
+  '{call_overview}',jsonb_build_object('manager_review_reason','Review exact evidence associations.','manager_focus_areas',
+    '[{"quote":"The same saved words.","speaker":"handling agent","context":"General focus without a saved claim."},{"quote":42,"context":{"not":"text"}}]'::jsonb))
+where call_id in ('CALL-EVIDENCE','CALL-EVIDENCE-OTHER');
+update public.eavesly_module_results set result_json=result_json||jsonb_build_object('other_source',true)
+where call_id='CALL-EVIDENCE-OTHER';
 update public.eavesly_module_results set result_json=jsonb_set(result_json,'{_evaluation_provenance,prompt_sha256}',to_jsonb(repeat('f',64))) where call_id='CALL-UNKNOWN';
 update public.eavesly_module_results set result_json=result_json-'_evaluation_provenance' where call_id='CALL-LEGACY';
 insert into public.eavesly_calls(call_id,agent_email,started_at)
@@ -91,6 +102,7 @@ printf 'begin;\n'
 cat "$duplicate_fix"
 cat "$decision_first"
 cat "$partly_correct"
+cat "$evidence_feedback"
 printf 'commit;\n'
 cat <<'SQL'
 -- Exact prompt bytes and immutable catalog contract.
@@ -432,6 +444,125 @@ do $$ declare rows jsonb; begin
  if exists(select 1 from jsonb_array_elements(rows)x where x->>'call_id'='CALL-PARTLY') then raise exception 'mixed feedback fabricated a recurrence or needs-context finding'; end if;
 end $$;
 reset role;
+-- SQL projection stays byte-for-byte compatible with the client for malformed and scalar source shapes.
+do $$ declare source jsonb; manifest jsonb; refs jsonb; item jsonb; begin
+  source:=jsonb_build_object(
+    'edge',jsonb_build_array(
+      jsonb_build_object('quote',E'\n\t Quote \r','speaker',E'\tAgent\n','context',E'\n Context\t'),
+      jsonb_build_object('quote',42,'context',jsonb_build_object('not','text')),true,jsonb_build_array(1),E' \t\n'),
+    'scalar','Scalar note','null_value',null,'empty_array','[]'::jsonb,'empty_string',E' \t\n',
+    'compliance_scorecard',jsonb_build_object('critical_red_flag_hits',jsonb_build_array(
+      jsonb_build_object('red_flag',E'\n Scalar flag\t','evidence',jsonb_build_object('quote',E'\tFlag quote\n')))),
+    'call_overview',jsonb_build_object('manager_focus_areas',null));
+  manifest:=jsonb_build_array(
+    jsonb_build_object('key','edge','label','Edge','evidence_path','edge'),
+    jsonb_build_object('key','scalar','label','Scalar','evidence_path','scalar'),
+    jsonb_build_object('key','null_value','label','Null','evidence_path','null_value'),
+    jsonb_build_object('key','empty_array','label','Empty array','evidence_path','empty_array'),
+    jsonb_build_object('key','empty_string','label','Empty string','evidence_path','empty_string'));
+  refs:=private.full_qa_evidence_references(source,manifest,repeat('a',64));
+  if jsonb_array_length(refs)<>10
+    or exists(select 1 from jsonb_array_elements(refs) x where x->>'claim_kind'='general_focus') then
+    raise exception 'JSON null manager focus emitted an evidence reference'; end if;
+  select value into item from jsonb_array_elements(refs) where value->>'claim_key'='edge' and value->>'source_path'='edge[0]';
+  if item->>'evidence_kind'<>'quote' or item->>'text'<>'Quote' or item->>'speaker'<>'Agent' or item->>'context'<>'Context' then
+    raise exception 'evidence whitespace normalization diverged'; end if;
+  if (select count(*) from jsonb_array_elements(refs) x where x->>'claim_key'='edge'
+      and x->>'source_path' in ('edge[1]','edge[2]','edge[3]','edge[4]') and x->>'evidence_kind'='missing')<>4 then
+    raise exception 'malformed array evidence lost its indexed provenance or was coerced to text'; end if;
+  if not exists(select 1 from jsonb_array_elements(refs) x where x->>'claim_key'='scalar'
+      and x->>'source_path'='scalar' and x->>'evidence_kind'='note' and x->>'text'='Scalar note')
+    or not exists(select 1 from jsonb_array_elements(refs) x where x->>'claim_key'='null_value'
+      and x->>'source_path'='null_value[missing]' and x->>'evidence_kind'='missing')
+    or not exists(select 1 from jsonb_array_elements(refs) x where x->>'claim_key'='empty_array'
+      and x->>'source_path'='empty_array[missing]' and x->>'evidence_kind'='missing')
+    or not exists(select 1 from jsonb_array_elements(refs) x where x->>'claim_key'='empty_string'
+      and x->>'source_path'='empty_string' and x->>'evidence_kind'='missing') then
+    raise exception 'scalar or placeholder source paths diverged'; end if;
+  if not exists(select 1 from jsonb_array_elements(refs) x where x->>'claim_kind'='critical_flag'
+      and x->>'source_path'='compliance_scorecard.critical_red_flag_hits[0].evidence'
+      and x->>'claim_label'='Scalar flag' and x->>'text'='Flag quote') then
+    raise exception 'scalar critical evidence used a nonexistent array path'; end if;
+end $$;
+-- Evidence judgments stay bound to an exact readable occurrence + claim and survive legacy callers.
+select set_config('request.jwt.claims','{"sub":"11111111-1111-1111-1111-111111111111","email":"manager@trypennie.com"}',false);
+set role authenticated;
+do $$ declare ctx jsonb; other_ctx jsonb; consent_ref jsonb; representation_ref jsonb; general_ref jsonb; missing_ref jsonb; malformed_ref jsonb;
+  feedback jsonb; normalized_feedback jsonb; saved jsonb; result jsonb; bad jsonb;
+begin
+  ctx:=public.get_full_qa_review_context('CALL-EVIDENCE');
+  other_ctx:=public.get_full_qa_review_context('CALL-EVIDENCE-OTHER');
+  select value into consent_ref from jsonb_array_elements(ctx->'evidence_references')
+    where value->>'claim_kind'='criterion' and value->>'claim_key'='credit_pull_consent' and value->>'evidence_kind'='quote';
+  select value into representation_ref from jsonb_array_elements(ctx->'evidence_references')
+    where value->>'claim_kind'='criterion' and value->>'claim_key'='accurate_representations' and value->>'evidence_kind'='quote';
+  select value into general_ref from jsonb_array_elements(ctx->'evidence_references')
+    where value->>'claim_kind'='general_focus' and value->>'evidence_kind'='quote';
+  select value into missing_ref from jsonb_array_elements(ctx->'evidence_references')
+    where value->>'evidence_kind'='missing' limit 1;
+  select value into malformed_ref from jsonb_array_elements(ctx->'evidence_references')
+    where value->>'claim_kind'='general_focus' and value->>'claim_key'='1';
+  if consent_ref->>'text'<>'The same saved words.' or representation_ref->>'text'<>'The same saved words.'
+    or general_ref->>'text'<>'The same saved words.'
+    or (select count(distinct value->>'reference_id') from jsonb_array_elements(jsonb_build_array(consent_ref,representation_ref,general_ref)))<>3
+    or general_ref->>'claim_label'<>'General review focus (no specific claim saved)'
+    or malformed_ref->>'evidence_kind'<>'missing' or malformed_ref->>'source_path'<>'call_overview.manager_focus_areas[1]' then
+    raise exception 'identical evidence was merged or falsely associated'; end if;
+  feedback:=jsonb_build_array(
+    jsonb_build_object('reference_id',consent_ref->>'reference_id','disposition','correct','comment',null),
+    jsonb_build_object('reference_id',representation_ref->>'reference_id','disposition','incorrect','comment','x'),
+    jsonb_build_object('reference_id',general_ref->>'reference_id','disposition','partly_correct','comment','   '));
+  normalized_feedback:=jsonb_build_array(feedback->0,feedback->1,
+    jsonb_build_object('reference_id',general_ref->>'reference_id','disposition','partly_correct','comment',null));
+  result:=public.submit_full_qa_review_with_evidence('CALL-EVIDENCE',0,null,ctx->>'source_fingerprint','[]',feedback,'[]',true,'',null,null,null);
+  saved:=public.get_full_qa_review_context('CALL-EVIDENCE')->'review';
+  if saved->'evidence_feedback' is distinct from normalized_feedback or saved->'corrections'<>'[]'::jsonb
+    or saved->'findings'<>'[]'::jsonb then raise exception 'evidence feedback round trip failed'; end if;
+  result:=public.submit_full_qa_review_with_evidence('CALL-EVIDENCE',0,null,ctx->>'source_fingerprint','[]',feedback,'[]',true,'',null,null,null);
+  if result->>'idempotent'<>'true' then raise exception 'evidence feedback retry was not idempotent'; end if;
+  begin perform public.submit_full_qa_review_with_evidence('CALL-EVIDENCE',1,null,ctx->>'source_fingerprint','[]',null,'[]',true,'',null,null,null); raise exception 'TEST_EXPECTED_FAILURE_MISSING';
+  exception when others then if sqlerrm='TEST_EXPECTED_FAILURE_MISSING' or sqlerrm<>'EAVESLY_INVALID_FULL_QA_EVIDENCE_FEEDBACK' then raise; end if; end;
+  for bad in select value from jsonb_array_elements(jsonb_build_array(
+    'null'::jsonb,'{}'::jsonb,'42'::jsonb,'[42]'::jsonb,
+    jsonb_build_array(jsonb_build_object('reference_id',consent_ref->>'reference_id','disposition','correct')),
+    jsonb_build_array(jsonb_build_object('reference_id',consent_ref->>'reference_id','disposition','correct','comment',null,'extra',true)),
+    jsonb_build_array(jsonb_build_object('reference_id','fqae1|'||repeat('0',64)||'|criterion|credit_pull_consent|0','disposition','correct','comment',null)),
+    jsonb_build_array(jsonb_build_object('reference_id',(select value->>'reference_id' from jsonb_array_elements(other_ctx->'evidence_references') where value->>'evidence_kind'<>'missing' limit 1),'disposition','correct','comment',null)),
+    jsonb_build_array(jsonb_build_object('reference_id',consent_ref->>'reference_id','disposition','correct','comment',null),jsonb_build_object('reference_id',consent_ref->>'reference_id','disposition','incorrect','comment',null)),
+    jsonb_build_array(jsonb_build_object('reference_id',consent_ref->>'reference_id','disposition','unknown','comment',null)),
+    jsonb_build_array(jsonb_build_object('reference_id',consent_ref->>'reference_id','disposition',null,'comment',null)),
+    jsonb_build_array(jsonb_build_object('reference_id',null,'disposition','correct','comment',null)),
+    jsonb_build_array(jsonb_build_object('reference_id',consent_ref->>'reference_id','disposition',42,'comment',null)),
+    jsonb_build_array(jsonb_build_object('reference_id',consent_ref->>'reference_id','disposition','correct','comment',repeat('x',4001))),
+    jsonb_build_array(jsonb_build_object('reference_id',consent_ref->>'reference_id','disposition','correct','comment',42)),
+    jsonb_build_array(jsonb_build_object('reference_id',missing_ref->>'reference_id','disposition','correct','comment',null)),
+    jsonb_build_array(jsonb_build_object('reference_id',malformed_ref->>'reference_id','disposition','incorrect','comment','Malformed placeholders are not evidence.'))
+  )) loop
+    begin perform public.submit_full_qa_review_with_evidence('CALL-EVIDENCE',1,null,ctx->>'source_fingerprint','[]',bad,'[]',true,'',null,null,null); raise exception 'TEST_EXPECTED_FAILURE_MISSING';
+    exception when others then if sqlerrm='TEST_EXPECTED_FAILURE_MISSING' or sqlerrm<>'EAVESLY_INVALID_FULL_QA_EVIDENCE_FEEDBACK' then raise; end if; end;
+  end loop;
+  begin perform public.submit_full_qa_review_with_evidence('CALL-EVIDENCE',1,null,other_ctx->>'source_fingerprint','[]',feedback,'[]',true,'',null,null,null); raise exception 'TEST_EXPECTED_FAILURE_MISSING';
+  exception when others then if sqlerrm='TEST_EXPECTED_FAILURE_MISSING' or sqlerrm<>'EAVESLY_STALE_FULL_QA_SOURCE' then raise; end if; end;
+  -- The old RPC cannot erase evidence feedback when a stale open client saves a later revision.
+  perform public.submit_full_qa_review('CALL-EVIDENCE',1,null,ctx->>'source_fingerprint','[]','[]',true,
+    'Legacy client changed only the overall review note.',null,null,null);
+  saved:=public.get_full_qa_review_context('CALL-EVIDENCE')->'review';
+  if saved->'evidence_feedback' is distinct from normalized_feedback or saved->>'feedback_revision'<>'2'
+    then raise exception 'legacy caller erased evidence feedback'; end if;
+end $$;
+reset role;
+select set_config('request.jwt.claims','{"sub":"22222222-2222-2222-2222-222222222222","email":"director@trypennie.com"}',false);
+set role authenticated;
+create temporary table evidence_approval as select public.decide_internal_alert_feedback('CALL-EVIDENCE','full_qa',2,'approved',null) result;
+reset role;
+select set_config('request.jwt.claims','{"sub":"11111111-1111-1111-1111-111111111111","email":"manager@trypennie.com"}',false);
+set role authenticated;
+do $$ declare ctx jsonb; begin
+  ctx:=public.get_full_qa_review_context('CALL-EVIDENCE');
+  begin perform public.submit_full_qa_review_with_evidence('CALL-EVIDENCE',2,null,ctx->>'source_fingerprint','[]',ctx->'review'->'evidence_feedback','[]',true,'',null,null,null); raise exception 'TEST_EXPECTED_FAILURE_MISSING';
+  exception when others then if sqlerrm='TEST_EXPECTED_FAILURE_MISSING' or sqlerrm<>'EAVESLY_STALE_REVIEW' then raise; end if; end;
+end $$;
+reset role;
 -- Out-of-scope actor cannot read recurrence or submit a decision-only review.
 select set_config('request.jwt.claims','{"sub":"44444444-4444-4444-4444-444444444444","email":"outsider@trypennie.com"}',false);
 set role authenticated;
@@ -439,6 +570,8 @@ do $$ declare anchor timestamptz:=clock_timestamp(); begin
  begin perform public.full_qa_finding_occurrences('agent@example.test',anchor-interval '30 days',anchor+interval '30 days'); raise exception 'TEST_EXPECTED_FAILURE_MISSING';
  exception when others then if sqlerrm='TEST_EXPECTED_FAILURE_MISSING' or sqlerrm<>'EAVESLY_FORBIDDEN' then raise; end if; end;
  begin perform public.submit_full_qa_review('CALL-DECISION',4,null,repeat('0',64),'[]','[]',true,'',null,null,null); raise exception 'TEST_EXPECTED_FAILURE_MISSING';
+ exception when others then if sqlerrm='TEST_EXPECTED_FAILURE_MISSING' or sqlerrm<>'EAVESLY_FORBIDDEN' then raise; end if; end;
+ begin perform public.submit_full_qa_review_with_evidence('CALL-EVIDENCE',2,null,repeat('0',64),'[]','[]','[]',true,'',null,null,null); raise exception 'TEST_EXPECTED_FAILURE_MISSING';
  exception when others then if sqlerrm='TEST_EXPECTED_FAILURE_MISSING' or sqlerrm<>'EAVESLY_FORBIDDEN' then raise; end if; end;
 end $$;
 reset role;

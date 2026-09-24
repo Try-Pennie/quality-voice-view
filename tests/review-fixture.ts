@@ -1,5 +1,6 @@
 import { expect, type Page } from '@playwright/test'
 import type { AlertMessage, AlertWithFeedback } from '../src/types/database'
+import { projectFullQaEvidence } from '../src/lib/full-qa-evidence'
 
 export const NOW = new Date('2026-09-07T16:00:00Z')
 export const EMAIL = 'manager@example.test'
@@ -20,6 +21,13 @@ export const FULL_QA_CRITERIA = [
   ...['step1_agenda_setting', 'step2_credit_review', 'step3_agent_inputs', 'step4_paydown_projections', 'step5_offers_review', 'step6_debt_resolution'].map(key => criterion(key, key.split('_').join(' '), 'Sales process', `sales_process_scorecard.${key}`, `sales_process_scorecard.${key.replace(/_(agenda_setting|credit_review|agent_inputs|paydown_projections|offers_review|debt_resolution)$/, '_location')}`, ['complete', 'partial', 'missing', 'not_applicable'], 'sales_process')),
   ...['phase_impact_covered', 'phase_stabilization_covered', 'phase_recovery_covered', 'phase_rebuild_covered', 'payments_point_covered', 'creditor_calls_point_covered', 'legal_action_point_covered'].map(key => criterion(key, key.split('_').join(' '), 'Program expectations', `program_expectations_scorecard.${key}`, `program_expectations_scorecard.${key.replace('_covered', '_evidence')}`, [true, false], 'program_expectations')),
 ]
+
+function fixtureEvidenceReferences(source: unknown, criteria = FULL_QA_CRITERIA, fingerprint = 'c'.repeat(64)) {
+  return projectFullQaEvidence(source, criteria.map(item => ({ key: item.key, label: item.label, evidencePath: item.evidence_path })), fingerprint)
+    .map(item => ({ reference_id: item.referenceId, claim_kind: item.claimKind, claim_key: item.claimKey,
+      claim_label: item.claimLabel, source_path: item.sourcePath, evidence_kind: item.evidenceKind,
+      text: item.text, speaker: item.speaker, context: item.context, process_step: item.processStep }))
+}
 
 export const FULL_QA_RESULT = {
   _evaluation_provenance: { version: 1, module_name: 'full_qa', prompt_sha256: FULL_QA_PROMPT_SHA, user_prompt_sha256: 'a'.repeat(64), transcript_sha256: 'b'.repeat(64) },
@@ -186,13 +194,17 @@ export async function reviewFixture(page: Page, rows: AlertWithFeedback[], optio
       const provenance = result._evaluation_provenance && typeof result._evaluation_provenance === 'object' ? result._evaluation_provenance as Record<string, unknown> : null
       const promptHash = provenance && typeof provenance.prompt_sha256 === 'string' ? provenance.prompt_sha256 : null
       const referenceKind = promptHash === FULL_QA_PROMPT_SHA ? 'known' : promptHash === null ? 'legacy_current_reference' : 'unknown_hash'
-      return respond({ source_fingerprint: state.fullQaSourceFingerprints.get(callId) ?? 'c'.repeat(64), source_result_json: result, source_prompt_sha256: promptHash,
+      const fingerprint = state.fullQaSourceFingerprints.get(callId) ?? 'c'.repeat(64)
+      const criteria = options.fullQaCriteria ?? FULL_QA_CRITERIA
+      const savedReview = state.fullQaReviews.get(callId)
+      return respond({ source_fingerprint: fingerprint, source_result_json: result, source_prompt_sha256: promptHash,
         reference_prompt_sha256: FULL_QA_PROMPT_SHA, source_reference_kind: referenceKind,
         criteria_reference_kind: referenceKind === 'known' ? 'exact_evaluation_rubric' : referenceKind === 'legacy_current_reference' ? 'current_reference_only' : 'current_field_map_only',
-        rubric_prompt_text: referenceKind === 'unknown_hash' ? null : 'Synthetic exact scoring policy. Two distinct compliance findings or explicit severe customer mistreatment justify escalation. Program expectations use enrollment gating, handling-agent delivery, and exclude ACDR/GOTA-only discussion points.', criteria_manifest: options.fullQaCriteria ?? FULL_QA_CRITERIA,
-        review: state.fullQaReviews.get(callId) ?? null, proposals: state.fullQaProposals.get(callId) ?? [] })
+        rubric_prompt_text: referenceKind === 'unknown_hash' ? null : 'Synthetic exact scoring policy. Two distinct compliance findings or explicit severe customer mistreatment justify escalation. Program expectations use enrollment gating, handling-agent delivery, and exclude ACDR/GOTA-only discussion points.', criteria_manifest: criteria,
+        evidence_references: fixtureEvidenceReferences(result, criteria, fingerprint),
+        review: savedReview ? { evidence_feedback: [], ...savedReview } : null, proposals: state.fullQaProposals.get(callId) ?? [] })
     }
-    if (table === 'submit_full_qa_review' && request.method() === 'POST') {
+    if (table === 'submit_full_qa_review_with_evidence' && request.method() === 'POST') {
       const input: unknown = request.postDataJSON()
       state.writes.push(input)
       await state.fullQaSubmitGate
@@ -201,6 +213,7 @@ export async function reviewFixture(page: Page, rows: AlertWithFeedback[], optio
         || !('p_expected_revision' in input) || typeof input.p_expected_revision !== 'number'
         || !('p_expected_source_fingerprint' in input) || typeof input.p_expected_source_fingerprint !== 'string'
         || !('p_corrections' in input) || !Array.isArray(input.p_corrections) || input.p_corrections.length > 23
+        || !('p_evidence_feedback' in input) || !Array.isArray(input.p_evidence_feedback)
         || !('p_findings' in input) || !Array.isArray(input.p_findings) || !('p_escalation_justified' in input) || typeof input.p_escalation_justified !== 'boolean') return respond({ message: 'EAVESLY_INVALID_FULL_QA_REVIEW' }, 400)
       const row = state.rows.find(candidate => candidate.call_id === input.p_call_id)
       if (row && input.p_expected_source_fingerprint !== state.fullQaSourceFingerprints.get(row.call_id)) return respond({ message: 'EAVESLY_STALE_FULL_QA_SOURCE' }, 400)
@@ -213,7 +226,7 @@ export async function reviewFixture(page: Page, rows: AlertWithFeedback[], optio
       row.violation_details = 'p_escalation_reason' in input && typeof input.p_escalation_reason === 'string' ? input.p_escalation_reason : null
       row.feedback_comment = input.p_escalation_justified ? null : row.violation_details
       row.reviewed_at = NOW.toISOString(); row.current_decision_id = null; row.current_decision = null; row.current_decision_by = null; row.current_decision_instructions = null; row.current_decided_at = null; row.current_decision_source = null
-      state.fullQaReviews.set(input.p_call_id, { feedback_revision: row.review_revision, corrections: input.p_corrections, findings: input.p_findings,
+      state.fullQaReviews.set(input.p_call_id, { feedback_revision: row.review_revision, corrections: input.p_corrections, evidence_feedback: input.p_evidence_feedback, findings: input.p_findings,
         escalation_justified: input.p_escalation_justified, escalation_reason: row.violation_details,
         escalation_inaccuracy_reason: row.inaccuracy_reason, action_taken: row.action_taken,
         action_details: row.action_details, saved_by: fixtureEmail, saved_at: row.reviewed_at })

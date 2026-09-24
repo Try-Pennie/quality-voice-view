@@ -318,8 +318,11 @@ test('flag Listen waits for the displayed transcript and rejects a different rev
   } }))
   await page.goto('/dashboard/alerts/stale-transcript/full_qa')
   const flags = page.getByRole('region', { name: 'What Eavesly flagged', exact: true })
-  // The timing response has arrived and can support text-only navigation, not combined playback.
-  await expect(flags.getByRole('button', { name: 'Find in transcript', exact: true })).toHaveCount(1)
+  const criterionOccurrence = flags.getByRole('group', { name: 'Credit pull consent evidence 1', exact: true })
+  const generalOccurrence = flags.getByRole('group', { name: 'General review focus (no specific claim saved) evidence 1', exact: true })
+  // The same quote is two independent saved occurrences; both support text-only navigation, not combined playback.
+  await expect(criterionOccurrence.getByRole('button', { name: 'Find in transcript', exact: true })).toHaveCount(1)
+  await expect(generalOccurrence.getByRole('button', { name: 'Find in transcript', exact: true })).toHaveCount(1)
   await expect(flags.getByRole('button', { name: /^Listen at/ })).toHaveCount(0)
   release()
   await expect(page.getByText(state.transcript, { exact: true })).toBeVisible()

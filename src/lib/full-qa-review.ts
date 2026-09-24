@@ -2,6 +2,14 @@ import type { AlertActionTaken, AlertInaccuracyReason } from '../types/database'
 import { classifyInternalReviewMutationError, INTERNAL_REVIEW_TEXT_LIMITS, type InternalReviewMutationResult } from './internal-alert-review'
 import { supabase } from '../integrations/supabase/client'
 import { endOfBusinessDay, startOfBusinessDay } from './time-zone'
+import {
+  parseFullQaEvidenceFeedback,
+  parseFullQaEvidenceFeedbackDraft,
+  parseFullQaEvidenceReferences,
+  projectFullQaEvidence,
+  type FullQaEvidenceFeedback,
+  type FullQaEvidenceReference,
+} from './full-qa-evidence'
 
 type Rpc = (name: string, input: Readonly<Record<string, unknown>>) => PromiseLike<{ readonly data: unknown; readonly error: unknown }>
 // SAFETY: Supabase's generated Database type does not contain this proposed migration yet; every returned value is parsed below.
@@ -53,6 +61,7 @@ export type FullQaFinding = {
 export type FullQaSavedReview = {
   readonly feedbackRevision: number
   readonly corrections: readonly FullQaCriterionCorrection[]
+  readonly evidenceFeedback: readonly FullQaEvidenceFeedback[]
   readonly findings: readonly FullQaFinding[]
   readonly escalationJustified: boolean
   readonly escalationReason: string
@@ -87,6 +96,7 @@ export type FullQaReviewContext = {
   readonly criteriaReferenceKind: 'exact_evaluation_rubric' | 'current_reference_only' | 'current_field_map_only'
   readonly rubricPromptText: string | null
   readonly criteria: readonly FullQaCriterion[]
+  readonly evidenceReferences: readonly FullQaEvidenceReference[]
   readonly review: FullQaSavedReview | null
   readonly proposals: readonly FullQaRuleProposal[]
 }
@@ -94,6 +104,7 @@ export type FullQaReviewContext = {
 /** Draft accepted by the Full QA review RPC. */
 export type FullQaReviewDraft = {
   readonly corrections: readonly FullQaCriterionCorrection[]
+  readonly evidenceFeedback: readonly FullQaEvidenceFeedback[]
   readonly findings: readonly FullQaFinding[]
   readonly escalationJustified: boolean
   readonly escalationReason: string
@@ -209,9 +220,11 @@ function parseReview(input: unknown): FullQaSavedReview | null | false {
   else if (action(actionTaken)) parsedAction = actionTaken
   else return false
   const corrections = input.corrections.map(parseCorrection)
+  const evidenceFeedback = parseFullQaEvidenceFeedback(input.evidence_feedback)
   const findings = input.findings.map(parseFinding)
-  if (corrections.some(value => value === null) || findings.some(value => value === null)) return false
+  if (corrections.some(value => value === null) || evidenceFeedback.ok === false || findings.some(value => value === null)) return false
   return { feedbackRevision: input.feedback_revision, corrections: corrections.filter((value): value is FullQaCriterionCorrection => value !== null),
+    evidenceFeedback: evidenceFeedback.value,
     findings: findings.filter((value): value is FullQaFinding => value !== null), escalationJustified: input.escalation_justified,
     escalationReason, inaccuracyReason: reason(inaccuracyReason) ? inaccuracyReason : null,
     actionTaken: parsedAction, actionDetails: input.action_details,
@@ -242,15 +255,22 @@ export function parseFullQaReviewContext(input: unknown): ParseResult<FullQaRevi
     || (input.criteria_reference_kind !== 'exact_evaluation_rubric' && input.criteria_reference_kind !== 'current_reference_only' && input.criteria_reference_kind !== 'current_field_map_only')
     || !nullableString(input.rubric_prompt_text) || !Array.isArray(input.criteria_manifest) || !Array.isArray(input.proposals)) return { ok: false, message: 'The Full QA review context is unavailable.' }
   const criteria = input.criteria_manifest.map(parseCriterion)
+  const evidenceReferences = parseFullQaEvidenceReferences(input.evidence_references)
   const proposals = input.proposals.map(parseProposal)
   const review = parseReview(input.review)
-  if (criteria.length !== 23 || criteria.some(value => value === null) || proposals.some(value => value === null) || review === false) {
+  if (criteria.length !== 23 || criteria.some(value => value === null) || evidenceReferences.ok === false || proposals.some(value => value === null) || review === false) {
     return { ok: false, message: 'The Full QA review context is invalid.' }
+  }
+  const parsedCriteria = criteria.filter((value): value is FullQaCriterion => value !== null)
+  const projectedEvidence = projectFullQaEvidence(input.source_result_json, parsedCriteria, input.source_fingerprint)
+  if (JSON.stringify(evidenceReferences.value) !== JSON.stringify(projectedEvidence)) {
+    return { ok: false, message: 'The Full QA evidence references are invalid.' }
   }
   return { ok: true, value: { sourceFingerprint: input.source_fingerprint, sourceResult: input.source_result_json,
     sourcePromptSha256: input.source_prompt_sha256, referencePromptSha256: input.reference_prompt_sha256,
     sourceReferenceKind: input.source_reference_kind, criteriaReferenceKind: input.criteria_reference_kind,
-    rubricPromptText: input.rubric_prompt_text, criteria: criteria.filter((value): value is FullQaCriterion => value !== null),
+    rubricPromptText: input.rubric_prompt_text, criteria: parsedCriteria,
+    evidenceReferences: evidenceReferences.value,
     review, proposals: proposals.filter((value): value is FullQaRuleProposal => value !== null) } }
 }
 
@@ -287,6 +307,8 @@ export type FullQaDraftResult = { readonly ok: true; readonly value: FullQaRevie
 
 /** Validate a Full QA draft before the mutation seam. Findings remain explicit and independent of score corrections. */
 export function parseFullQaReviewDraft(context: FullQaReviewContext, input: Omit<FullQaReviewDraft, 'escalationJustified'> & { readonly escalationJustified: boolean | null }): FullQaDraftResult {
+  const evidenceFeedback = parseFullQaEvidenceFeedbackDraft(context.evidenceReferences, input.evidenceFeedback)
+  if (evidenceFeedback.ok === false) return { ok: false, message: 'Passage feedback must use the evidence saved with this review.', section: 'scores' }
   if (new Set(input.corrections.map(item => item.criterionKey)).size !== input.corrections.length) return { ok: false, message: 'Each criterion can have only one response.', section: 'scores' }
   for (const correction of input.corrections) {
     const criterion = context.criteria.find(item => item.key === correction.criterionKey)
@@ -314,7 +336,7 @@ export function parseFullQaReviewDraft(context: FullQaReviewContext, input: Omit
   if (input.inaccuracyReason !== null && (input.escalationJustified || !reason(input.inaccuracyReason))) return { ok: false, message: 'Choose a valid reason for disagreeing.', section: 'decision' }
   if (input.actionTaken === null && input.actionDetails?.trim()) return { ok: false, message: 'Choose an action for the follow-up you entered, or clear the follow-up.', section: 'followup' }
   if (input.actionTaken !== null && (!action(input.actionTaken) || !bounded(input.actionDetails))) return { ok: false, message: `Describe the coaching or next steps using ${TEXT_GUIDANCE}, or clear the optional follow-up.`, section: 'followup' }
-  return { ok: true, value: { ...input, escalationJustified: input.escalationJustified,
+  return { ok: true, value: { ...input, evidenceFeedback: evidenceFeedback.value, escalationJustified: input.escalationJustified,
     escalationReason: input.escalationReason.trim(), actionDetails: input.actionDetails?.trim() || null,
     corrections: input.corrections.map(item => ({ ...item, reason: item.reason?.trim() ?? null })),
     findings: input.findings.map(item => ({ ...item, summary: item.summary.trim(), evidence: item.evidence.trim() })) } }
@@ -337,12 +359,17 @@ function findingsToRpc(findings: readonly FullQaFinding[]) {
   return findings.map(item => ({ finding_id: item.findingId, category: item.category, related_criteria: item.relatedCriteria, summary: item.summary, evidence: item.evidence }))
 }
 
+function evidenceFeedbackToRpc(feedback: readonly FullQaEvidenceFeedback[]) {
+  return feedback.map(item => ({ reference_id: item.referenceId, disposition: item.disposition, comment: item.comment }))
+}
+
 /** Save one exact source/revision-guarded Full QA review revision. */
 export async function submitFullQaReview(input: { readonly callId: string; readonly expectedRevision: number; readonly expectedDecisionId: number | null; readonly expectedSourceFingerprint: string; readonly draft: FullQaReviewDraft }) {
   try {
-    const { data, error } = await rpc('submit_full_qa_review', { p_call_id: input.callId, p_expected_revision: input.expectedRevision,
+    const { data, error } = await rpc('submit_full_qa_review_with_evidence', { p_call_id: input.callId, p_expected_revision: input.expectedRevision,
       p_expected_decision_id: input.expectedDecisionId, p_expected_source_fingerprint: input.expectedSourceFingerprint,
-      p_corrections: correctionsToRpc(input.draft.corrections), p_findings: findingsToRpc(input.draft.findings),
+      p_corrections: correctionsToRpc(input.draft.corrections), p_evidence_feedback: evidenceFeedbackToRpc(input.draft.evidenceFeedback),
+      p_findings: findingsToRpc(input.draft.findings),
       p_escalation_justified: input.draft.escalationJustified, p_escalation_reason: input.draft.escalationReason,
       p_inaccuracy_reason: input.draft.inaccuracyReason, p_action: input.draft.actionTaken, p_action_details: input.draft.actionDetails })
     if (error) return { ok: false as const, error: classifyInternalReviewMutationError(error) }
