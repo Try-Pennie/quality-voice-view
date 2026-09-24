@@ -27,4 +27,15 @@ Stop for ambiguous evidence identity that requires invented associations, produc
 - Applied only the new migration to isolated staging, ledger version `20260924141216_evidence_level_manager_feedback`. Local SQL SHA-256: `14f87accf0b41a3c63c103ba3336acced6bbfe18a7763563217fdc93100561c8`. All seven deployed function bodies match local source; the legacy submit function is unchanged.
 - Post-migration hashes verify all existing 5 review revisions, 4 feedback rows and 30 module-result rows unchanged. Existing revisions have empty evidence feedback, not invented opinions. Added one separate synthetic check call, `DEMO-EVIDENCE-FEEDBACK-20260924`; existing examples are not overwritten.
 - Security advisor flags the new authenticated SECURITY DEFINER RPC as expected: it retains actor scope, role, source and revision checks; private helpers are not executable by API roles. See [advisor guidance](https://supabase.com/docs/guides/database/database-linter?lint=0029_authenticated_security_definer_function_executable). Unrelated existing [security-definer views](https://supabase.com/docs/guides/database/database-linter?lint=0010_security_definer_view), search-path and auth notices remain outside scope.
-- No production changes, backfill, call reprocessing, provider requests or merge. Hosted deployment receipt follows separately.
+- No production changes, backfill, call reprocessing, provider requests or merge.
+
+## Hosted staging receipt
+
+- Source commit: `e05ea9e7939a52affb5c5444ae2054ca7f022d62`.
+- Stable preview: https://rubric-staging.eavesly.pages.dev/login
+- Immutable deployment: https://de891b9c.eavesly.pages.dev/login
+- Fresh guarded deploy installed locked dependencies and built staging from the clean review branch. Both hosts serve `/assets/index-B8Ybi-MY.js` with SHA-256 `cf0e63d322c6e359d4837f5f83405bbab28382c232b7c09e536b6de3532e7b05`, matching the local artifact.
+- Real hosted manager session: unreviewed defaults; Correct/Incorrect/Partly correct independently saved and reloaded; optional comment persisted; clearing one response persisted; both saves required no coaching. Only the new synthetic call was written (two immutable revisions). Existing review, feedback and source hashes remain unchanged after all hosted checks.
+- Four native password/role logins, wrong-password rejection, desktop transcript-first layout, keyboard switching, widths 320/375/414/768, retained draft and audio position passed. Real-sample read-only playback check verified all 3 available Listen actions, exact full-quote transcript highlights, mobile return-to-review and one audio player. Ten unsupported timestamps remain honestly unavailable; no provider/transcription requests were made.
+- Synthetic screenshots, generated against the unchanged source in the pinned commit: [desktop card](screenshots/evidence-feedback-e05ea9e/desktop-card.png), [375px mobile](screenshots/evidence-feedback-e05ea9e/mobile-375.png). Hosted customer-sample captures and credentials remain private.
+- Await Noah's staging review. Do not merge or deploy production without approval; complete cross-family review before production.
