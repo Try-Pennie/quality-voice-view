@@ -760,11 +760,11 @@ export function AlertReviewDrawer({
           event.preventDefault()
           target.focus()
         }}
-        className={`flex flex-col gap-0 overflow-hidden bg-pennie-white p-0 shadow-xl [&_textarea]:border-pennie-navy/60 [&_select]:border-pennie-navy/60 ${isFullQa ? '[--border:225_12%_88%] sm:inset-x-2 sm:inset-y-[2dvh] sm:h-[96dvh] sm:w-[calc(100%-1rem)] sm:max-w-none xl:max-w-[1600px]' : '[--border:225_12%_72%]'}`}
+        className={`flex flex-col gap-0 overflow-hidden bg-pennie-white p-0 shadow-xl [&_textarea]:border-pennie-navy/60 [&_select]:border-pennie-navy/60 ${isFullQa ? '[--border:225_12%_72%] sm:inset-x-2 sm:inset-y-[2dvh] sm:h-[96dvh] sm:w-[calc(100%-1rem)] sm:max-w-none xl:max-w-[1600px]' : '[--border:225_12%_72%]'}`}
       >
         <SheetDescription className="sr-only">Review the call evidence, record a decision and follow-up, or approve the manager’s saved review.</SheetDescription>
         {/* Header */}
-        <SheetHeader className="shrink-0 space-y-1 border-b border-border px-4 py-1.5 text-left sm:px-6 lg:px-8">
+        <SheetHeader className={`shrink-0 space-y-1 border-b border-border px-4 py-1.5 text-left sm:px-6 lg:px-8 ${isFullQa ? 'bg-pennie-blue-main/60' : ''}`}>
           <div className="flex items-center gap-2 sm:gap-3">
             <button
               type="button"
@@ -845,7 +845,7 @@ export function AlertReviewDrawer({
           </p>
         </SheetHeader>
 
-        <section aria-label="Call recording" className={`shrink-0 border-b border-border px-4 py-1.5 sm:px-6 lg:px-8 ${isFullQa ? 'bg-pennie-white' : 'bg-pennie-blue-main/30'}`}>
+        <section aria-label="Call recording" className={`shrink-0 border-b border-border px-4 py-1.5 sm:px-6 lg:px-8 ${isFullQa ? 'bg-pennie-blue-light' : 'bg-pennie-blue-main/30'}`}>
           <div className="flex flex-wrap items-center justify-between gap-x-3">
             {alert.recording_link ? <h2 className="pennie-label hidden sm:inline-flex items-center gap-1.5">
               <Headphones className="w-3.5 h-3.5" aria-hidden="true" />Recording
@@ -887,15 +887,15 @@ export function AlertReviewDrawer({
         )}
         {/* Full QA keeps transcript and review mounted together; other modules retain the original single flow. */}
         <div className={isFullQa ? 'flex min-h-0 flex-1 flex-col' : 'relative min-h-0 flex-1 space-y-6 overflow-y-auto px-4 py-4 sm:space-y-7 sm:px-8 sm:py-6 lg:px-10'}>
-          {isFullQa && <div role="group" aria-label="Full QA workspace view" className="grid shrink-0 grid-cols-2 gap-1 border-b border-border bg-pennie-beige/60 p-1.5 lg:hidden">
-            <button type="button" aria-pressed={fullQaView === 'transcript'} aria-controls="full-qa-transcript-panel" onClick={() => setFullQaView('transcript')} className={`pennie-focus-ring min-h-[44px] rounded-full text-sm font-semibold ${fullQaView === 'transcript' ? 'bg-pennie-white text-pennie-navy shadow-[var(--shadow-resting)]' : 'text-pennie-graphite'}`}>Transcript</button>
-            <button type="button" aria-pressed={fullQaView === 'review'} aria-controls="full-qa-review-panel" onClick={() => setFullQaView('review')} className={`pennie-focus-ring min-h-[44px] rounded-full text-sm font-semibold ${fullQaView === 'review' ? 'bg-pennie-white text-pennie-navy shadow-[var(--shadow-resting)]' : 'text-pennie-graphite'}`}>Review</button>
+          {isFullQa && <div role="group" aria-label="Full QA workspace view" className="grid shrink-0 grid-cols-2 gap-1 border-b border-border bg-pennie-beige p-1.5 lg:hidden">
+            <button type="button" aria-pressed={fullQaView === 'transcript'} aria-controls="full-qa-transcript-panel" onClick={() => setFullQaView('transcript')} className={`pennie-focus-ring min-h-[44px] rounded-full text-sm font-semibold ${fullQaView === 'transcript' ? 'bg-pennie-navy text-pennie-white' : 'text-pennie-graphite'}`}>Transcript</button>
+            <button type="button" aria-pressed={fullQaView === 'review'} aria-controls="full-qa-review-panel" onClick={() => setFullQaView('review')} className={`pennie-focus-ring min-h-[44px] rounded-full text-sm font-semibold ${fullQaView === 'review' ? 'bg-pennie-navy text-pennie-white' : 'text-pennie-graphite'}`}>Review</button>
           </div>}
           <div className={isFullQa ? 'grid min-h-0 flex-1 lg:grid-cols-[minmax(0,3fr)_minmax(360px,2fr)]' : 'contents'}>
-            {isFullQa && <section id="full-qa-transcript-panel" aria-label="Transcript workspace" onFocusCapture={() => setFullQaView('transcript')} className={`${fullQaView === 'transcript' ? 'flex' : 'hidden lg:flex'} min-h-0 flex-col gap-3 overflow-y-auto overscroll-contain px-4 py-4 sm:px-6 lg:px-8`}>
+            {isFullQa && <section id="full-qa-transcript-panel" aria-label="Transcript workspace" onFocusCapture={() => setFullQaView('transcript')} className={`${fullQaView === 'transcript' ? 'flex' : 'hidden lg:flex'} min-h-0 flex-col gap-3 overflow-y-auto overscroll-contain bg-pennie-beige px-4 py-4 sm:px-6 lg:px-8`}>
               <header className="hidden lg:flex items-baseline justify-between gap-3">
                 <h2 className="text-lg font-semibold text-pennie-navy">Transcript</h2>
-                <span className="text-xs text-pennie-graphite/70">Original conversation</span>
+                <span className="text-xs text-pennie-graphite">Original conversation</span>
               </header>
               <AlertTranscript key={alert.call_id} callId={alert.call_id} scope={scope} agentEmail={alert.agent_email} focusRequest={transcriptFocusRequest} selectedEvidence={selectedEvidence} onReturnToReview={returnToSelectedEvidence} audioElement={audioElement} recordingTiming={verifiedTiming} renderAudioLink={renderAudioLink} evidence={extractEvidenceQuotes(alert.violation_type, reviewSource)} />
               {(alert.call_summary || alert.sfdc_lead_id) && <aside className="border-t border-border pt-4">
@@ -903,7 +903,7 @@ export function AlertReviewDrawer({
                 {alert.sfdc_lead_id && <a href={`https://trypennie.lightning.force.com/lightning/r/Lead/${alert.sfdc_lead_id}/view`} target="_blank" rel="noopener noreferrer" className="mt-3 inline-flex min-h-[44px] items-center gap-1 text-sm font-semibold text-pennie-blue-deeper hover:underline">SFDC: {alert.sfdc_lead_id} <ExternalLink className="h-3 w-3" aria-hidden="true" /></a>}
               </aside>}
             </section>}
-            <div id={isFullQa ? 'full-qa-review-panel' : undefined} role={isFullQa ? 'region' : undefined} aria-label={isFullQa ? 'Review workspace' : undefined} onFocusCapture={isFullQa ? () => setFullQaView('review') : undefined} className={isFullQa ? `${fullQaView === 'review' ? 'block' : 'hidden lg:block'} min-h-0 space-y-4 overflow-y-auto overscroll-contain border-border px-4 py-4 sm:px-6 lg:border-l lg:px-7` : 'contents'}>
+            <div id={isFullQa ? 'full-qa-review-panel' : undefined} role={isFullQa ? 'region' : undefined} aria-label={isFullQa ? 'Review workspace' : undefined} onFocusCapture={isFullQa ? () => setFullQaView('review') : undefined} className={isFullQa ? `${fullQaView === 'review' ? 'block' : 'hidden lg:block'} min-h-0 space-y-4 overflow-y-auto overscroll-contain border-border bg-pennie-blue-light px-4 py-4 sm:px-6 lg:border-l lg:px-7` : 'contents'}>
           {returnedToCurrentManager && alert.current_decision_instructions && (
             <div className="rounded-2xl bg-pennie-peach-light/60 px-4 py-3">
               <p className="pennie-label mb-1">Changes requested by {alert.current_decision_by ? emailLabel(alert.current_decision_by) : 'Kris'}</p>
@@ -1073,7 +1073,7 @@ export function AlertReviewDrawer({
         </div>
 
         {(showStructuredForm || (showInternalDecisionBar && scope.isGodMode && alert.current_decision === null)) && (
-          <footer className="shrink-0 border-t border-border bg-pennie-white px-4 py-3 sm:px-8 lg:px-10">
+          <footer className={`shrink-0 border-t border-border px-4 py-3 sm:px-8 lg:px-10 ${isFullQa ? 'bg-pennie-beige' : 'bg-pennie-white'}`}>
             {approvalBlockedByDraft && scope.isGodMode && alert.current_decision === null && (
               <p className="mb-2 text-xs text-pennie-graphite/70">Complete and save review changes before approval.</p>
             )}

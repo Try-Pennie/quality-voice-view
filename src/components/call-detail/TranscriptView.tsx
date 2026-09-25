@@ -122,8 +122,8 @@ export function TranscriptView({ transcript, evidence = [], constrainHeight = tr
 
   return (
     <div className="space-y-3">
-      <div className={`space-y-1 ${constrainHeight ? '' : 'sticky top-0 z-10 bg-pennie-white pb-2'}`}>
-      {selectedEvidence && <aside aria-label="Selected evidence" data-evidence-reference={selectedEvidence.referenceId} className="flex min-w-0 items-center justify-between gap-2 rounded-xl bg-pennie-blue-light px-3 text-pennie-navy">
+      <div className={`space-y-1 ${constrainHeight ? '' : 'sticky top-0 z-10 bg-pennie-beige pb-2'}`}>
+      {selectedEvidence && <aside aria-label="Selected evidence" data-evidence-reference={selectedEvidence.referenceId} className="flex min-w-0 items-center justify-between gap-2 rounded-xl border border-pennie-blue-deeper bg-pennie-blue-light px-3 text-pennie-navy">
         <div className="min-w-0">
           <p className="text-[11px] font-bold uppercase tracking-[0.06em] text-pennie-blue-deeper">Selected evidence</p>
           <p className="truncate text-sm font-semibold">{selectedEvidence.label}</p>
@@ -164,7 +164,7 @@ export function TranscriptView({ transcript, evidence = [], constrainHeight = tr
         {searching && <button type="button" className={buttonClass} aria-label="Show evidence" title="Clear search and show evidence" onClick={() => { setSearch(''); setNavigationMode('evidence'); setActive(selectedEvidence ? 0 : -1) }}><X className="h-4 w-4" aria-hidden="true" /></button>}
       </div>
       </div>
-      <p className="text-xs text-pennie-graphite/70" role="status">
+      <p className="text-xs text-pennie-graphite" role="status">
         {status}
         {navigatingSearch && <span className="sr-only"> · Enter / Shift+Enter moves between matches.</span>}
       </p>
@@ -184,7 +184,7 @@ export function TranscriptView({ transcript, evidence = [], constrainHeight = tr
                 data-transcript-match={matchId}
                 data-evidence-reference={selectedEvidence && !navigatingSearch ? selectedEvidence.referenceId : undefined}
                 aria-current={current ? 'true' : undefined}
-                className={`${navigatingSearch ? 'bg-pennie-blue-light' : 'bg-pennie-yellow-light'} pennie-focus-ring scroll-mb-4 scroll-mt-24 text-pennie-graphite ${current ? 'underline decoration-pennie-blue-deeper decoration-2 underline-offset-4' : ''}`}
+                className={`${navigatingSearch ? 'bg-pennie-blue-main' : 'bg-pennie-yellow-main'} pennie-focus-ring scroll-mb-4 scroll-mt-24 text-pennie-graphite ${current ? 'underline decoration-pennie-blue-deeper decoration-2 underline-offset-4' : ''}`}
               >{block.text.slice(range.start, range.end)}</mark>)
               cursor = range.end
             })

@@ -180,11 +180,11 @@ function EvidenceFeedbackCard({ reference, index, feedback, editable, disabled, 
     setCommentOpen(false)
     requestAnimationFrame(() => document.getElementById(`${commentId}-trigger`)?.focus())
   }
-  return <div id={`evidence-reference-${reference.referenceId}`} role="group" tabIndex={-1} aria-current={selected ? 'location' : undefined} aria-label={`${reference.claimLabel} evidence ${index + 1}`} className={`pennie-focus-ring space-y-3 rounded-xl border-l-2 px-3 py-3 ${selected ? 'border-pennie-blue-deeper bg-pennie-blue-light/70' : 'border-border bg-pennie-beige/35'}`}>
+  return <div id={`evidence-reference-${reference.referenceId}`} role="group" tabIndex={-1} aria-current={selected ? 'location' : undefined} aria-label={`${reference.claimLabel} evidence ${index + 1}`} className={`pennie-focus-ring space-y-3 rounded-xl border-l-2 px-3 py-3 ${selected ? 'border-pennie-blue-deeper bg-pennie-blue-main/25' : 'border-pennie-navy/50 bg-pennie-white'}`}>
     {reference.evidenceKind === 'quote' ? <figure className="space-y-1">
-      {attribution && <figcaption className="text-xs font-semibold text-pennie-graphite/70">{attribution}</figcaption>}
+      {attribution && <figcaption className="text-xs font-semibold text-pennie-graphite">{attribution}</figcaption>}
       <blockquote className="whitespace-pre-wrap break-words text-sm leading-relaxed text-pennie-graphite">{reference.text}</blockquote>
-      {reference.context && <p className="whitespace-pre-wrap break-words text-xs text-pennie-graphite/80"><span className="font-semibold">Saved context: </span>{reference.context}</p>}
+      {reference.context && <p className="whitespace-pre-wrap break-words text-xs text-pennie-graphite"><span className="font-semibold">Saved context: </span>{reference.context}</p>}
       {reference.text && renderEvidenceLink?.(reference)}
     </figure> : reference.evidenceKind === 'note' ? <div>
       <p className="text-xs font-semibold text-pennie-graphite/70">Saved note — not a transcript quote</p>
@@ -193,7 +193,7 @@ function EvidenceFeedbackCard({ reference, index, feedback, editable, disabled, 
     {editable && reference.evidenceKind !== 'missing' ? <div className="space-y-2 border-t border-pennie-navy/10 pt-3">
       <fieldset disabled={disabled}>
         <legend className="text-sm font-semibold text-pennie-navy">{question} <span className="font-normal">(optional)</span></legend>
-        <div className="mt-2 flex flex-wrap gap-2">{([{ disposition: 'correct', label: 'Correct' }, { disposition: 'incorrect', label: 'Incorrect' }, { disposition: 'partly_correct', label: 'Partly correct' }] as const).map(option => <label key={option.disposition} className={`flex min-h-[44px] cursor-pointer items-center gap-2 rounded-xl border px-3 py-2 text-sm has-[:disabled]:cursor-not-allowed has-[:disabled]:opacity-50 ${feedback?.disposition === option.disposition ? 'border-pennie-blue-deeper bg-white text-pennie-navy' : 'border-border bg-white/80 text-pennie-graphite hover:bg-pennie-blue-light'}`}>
+        <div className="mt-2 flex flex-wrap gap-2">{([{ disposition: 'correct', label: 'Correct' }, { disposition: 'incorrect', label: 'Incorrect' }, { disposition: 'partly_correct', label: 'Partly correct' }] as const).map(option => <label key={option.disposition} className={`flex min-h-[44px] cursor-pointer items-center gap-2 rounded-xl border px-3 py-2 text-sm has-[:disabled]:cursor-not-allowed has-[:disabled]:opacity-50 ${feedback?.disposition === option.disposition ? 'border-pennie-navy bg-pennie-navy text-pennie-white' : 'border-pennie-navy/60 bg-white text-pennie-graphite hover:bg-pennie-blue-light'}`}>
           <input type="radio" name={`evidence-${reference.referenceId}`} aria-label={`Evidence: ${option.label}`} checked={feedback?.disposition === option.disposition} onChange={() => onChange({ referenceId: reference.referenceId, disposition: option.disposition, comment: feedback?.comment ?? null })} className="pennie-focus-ring h-4 w-4 accent-pennie-blue-deeper" />
           {option.label}
         </label>)}</div>
@@ -641,7 +641,7 @@ export function FullQaRubricReview({ alert, scope, editable, canReloadReview, re
     <section aria-label="What Eavesly flagged" className="border-t border-border pt-4">
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div><h2 id={`${scorecardId}-scores`} tabIndex={-1} className="pennie-focus-ring text-lg font-semibold text-pennie-navy">What Eavesly flagged</h2>
-          <p className="mt-1 max-w-2xl text-xs text-pennie-graphite/70">Judge whether each saved passage supports its claim—not transcript spelling. Responses are optional and unanswered passages stay unreviewed.</p></div>
+          <p className="mt-1 max-w-2xl text-xs text-pennie-graphite">Judge whether each saved passage supports its claim—not transcript spelling. Responses are optional and unanswered passages stay unreviewed.</p></div>
         <button type="button" aria-expanded={showFullScorecard} aria-controls={scorecardId} onClick={() => setShowFullScorecard(value => !value)} className="pennie-focus-ring min-h-[44px] whitespace-nowrap rounded-full px-3 text-xs font-semibold text-pennie-blue-deeper hover:bg-pennie-blue-light">
           {showFullScorecard ? 'Show only items to check' : `View full scorecard · ${context.criteria.length} criteria`}
         </button>
