@@ -35,3 +35,17 @@ This UI change itself requires **no backfill or migration**. No manager response
 Independent static review caught three issues before staging: the quote button's accessible name hid its text; a collapsed optional follow-up could hide a required explanation; and the saved-transcript cue disappeared on mobile. All are fixed and covered by browser assertions. The final review found no remaining actionable issues. Claude was unavailable due usage limits; the completed review used a separate OpenAI context (same family), not a cross-family review. The latter remains a production gate.
 
 The candidate plus existing evidence-feedback focused run passed **8/8**. The new follow-up check exercises select → collapse → Continue review → focused explanation → save/reload → clear. No SQL or API contracts changed.
+
+## Live staging receipt — 2026-09-25
+
+- Implementation: `99d14ec`; deployed clean commit: `ca76ca5` (adds the updated walkthrough only). Existing draft [PR130](https://github.com/Try-Pennie/quality-voice-view/pull/130).
+- [Open the mixed findings example](https://rubric-staging.eavesly.pages.dev/dashboard/alerts/DEMO-SOURCE-EVIDENCE-20260925-MIXED/full_qa?status=all). Same preview password, Manager view. Existing saved test responses remain editable and were not overwritten during this pass. Search **Source-linked evidence** for the other examples.
+- Immutable deployment: https://84342933.eavesly.pages.dev/login.
+- Fresh complete browser run: **251/251 passed**, one worker, no retries, **16.2 minutes**. An earlier run was intentionally interrupted to incorporate review fixes; only the final complete run is counted here.
+- TypeScript, ESLint (zero errors; five existing Fast Refresh warnings), production build, release preflight and staging isolation checks passed. Guarded deployment installed locked dependencies and rebuilt staging. Existing bundle-size/dependency warnings remain; no dependency changes.
+- Initial local deployment attempts were correctly stopped before upload: missing staging environment, then a modern publishable key incompatible with the existing JWT-only guard. Final deployment used the existing staging-only `anon` JWT after checking its project and role. No guard was weakened and no privileged key was bundled.
+- Both stable and immutable hosts matched all **34 local JS/CSS assets** (68 comparisons), including main `index-Cntcq5sD.js`, SHA256 `9dde6398bc48914323c8336692e13a51f0aaf9fcb7f0c69e4d5b44d9684d90b3`. Staging-only CSP, noindex, no-store, no-referrer, and password exclusion checked.
+- Native hosted checks passed with **zero errors and zero persistent writes**: Details disclosure, keyboard quote activation, exact interrupted/repeated-word navigation, focus return, unchanged saved responses on reload, and 320/375/414/768px layouts with at-least-44px response targets. Mutating review endpoints were blocked in this read-only hosted harness. Fresh save/reload/clear was exercised through the local browser fixture seam, not by overwriting the manager's hosted test responses.
+- Parent inspected [hosted desktop](screenshots/evidence-simplify-99d14ec/desktop.png) and [375px mobile](screenshots/evidence-simplify-99d14ec/mobile-375.png), plus local fixture captures. These contain synthetic data only.
+
+This simplifies the source-linked candidate examples; it does not convert legacy calls to the candidate format. Existing legacy evidence and Listen behavior remain. No database migration, seed replacement, backfill, provider call, production deploy or merge was performed.
