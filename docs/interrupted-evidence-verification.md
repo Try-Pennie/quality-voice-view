@@ -1,6 +1,6 @@
 # Interrupted evidence + chat transcript verification
 
-Source `f26601f` (initial implementation `2c36b7b`), base `bea432e`, PR #130. Staging only.
+Source `0a58692` (initial implementation `2c36b7b`), base `bea432e`, PR #130. Staging only.
 
 ## Root cause and change
 
@@ -18,13 +18,13 @@ The shared source matcher now maps an exact quote across turns of its explicitly
 - Typecheck, lint, build and diff check passed; existing lint/build warnings only.
 - Full browser command: 243 passed / 2 failed. New Find-only test used an incorrect accessible group name; fixed to match its existing explicit label. Unmodified history test missed its instrumentation attribute once during the run.
 - Fresh clean-process run of **interrupted-evidence, review-history, recording-placement: 38 passed**, including both failures and all timing/playback guards. No remaining reproduced failure; full command not rerun afterward.
-- Hosted visual inspection caught the first fragment sitting under the sticky toolbar. Explicit evidence jumps now center the fragment; search/playback scrolling policies otherwise remain unchanged. A long-transcript visibility regression and the workspace suite passed fresh: **14 tests**.
+- Hosted visual inspection caught the first fragment sitting under the sticky toolbar. Explicit evidence jumps now center the fragment using only the transcript scroll pane, never scrolling/clipping the enclosing dialog header; search/playback scrolling policies otherwise remain unchanged. Long-transcript visibility and stationary-dialog regressions plus the workspace suite passed fresh: **14 tests**.
 - New coverage: exact three-fragment offsets, missing/wrong speaker, unknown-speaker barriers, repeated source/audio, preserved amounts/signs/negation, no skipped same-speaker words, non-monotonic timing, no audio interjection guessing, Find without timing, native Listen, one grouped occurrence, mobile draft return and agent-right/contact-left geometry at 1440/375/320px.
 - Independent same-family Sol read-only review identified the unknown-speaker boundary; fixed and re-reviewed with no remaining blocker. No cross-family review claimed.
 - Existing review/save schemas and rules unchanged. No migrations, backfills, provider jobs or production writes.
 
 ## Source-pinned synthetic screenshots
 
-[Desktop](screenshots/chat-evidence-f26601f/chat-evidence-1440.png) · [Mobile](screenshots/chat-evidence-f26601f/chat-evidence-375.png)
+[Desktop](screenshots/chat-evidence-0a58692/chat-evidence-1440.png) · [Mobile](screenshots/chat-evidence-0a58692/chat-evidence-375.png)
 
 Parent visually inspected both. Hosted verification of the reported staging call and deployment artifact is recorded in the PR receipt after deployment.
