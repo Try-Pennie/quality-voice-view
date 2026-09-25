@@ -103,7 +103,7 @@ export function TranscriptView({ transcript, evidence = [], constrainHeight = tr
   useEffect(() => {
     if (position < 0) return
     const match = contentRef.current?.querySelector<HTMLElement>(`[data-transcript-match="${position}"]`)
-    match?.scrollIntoView({ block: 'nearest' })
+    match?.scrollIntoView({ block: selectedEvidence && !navigatingSearch ? 'center' : 'nearest' })
     if (selectedEvidence && !navigatingSearch && focusRequest > 0) match?.focus({ preventScroll: true })
   }, [position, search, focusRequest, selectedEvidence, navigatingSearch])
 

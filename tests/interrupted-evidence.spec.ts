@@ -66,7 +66,7 @@ test('interrupted evidence listens, highlights one occurrence across chat bubble
     critical_red_flag_hits: [{ red_flag: 'Synthetic interrupted claim', evidence: [{ quote, speaker: 'handling agent' }] }],
   } }
   const state = await reviewFixture(page, [alertRow('interrupted', { result_json: result, recording_link: reference })])
-  state.transcript = transcript
+  state.transcript = Array.from({ length: 12 }, (_, index) => `[handling agent]: Earlier context ${index + 1}.\n[contact]: Please continue.`).join('\n') + '\n' + transcript
   const wav = Buffer.alloc(44 + 30 * 8000 * 2)
   wav.write('RIFF', 0); wav.writeUInt32LE(wav.length - 8, 4); wav.write('WAVEfmt ', 8)
   wav.writeUInt32LE(16, 16); wav.writeUInt16LE(1, 20); wav.writeUInt16LE(1, 22)
@@ -80,7 +80,7 @@ test('interrupted evidence listens, highlights one occurrence across chat bubble
       headers: range ? { 'Accept-Ranges': 'bytes', 'Content-Range': `bytes ${start}-${end}/${wav.length}` } : { 'Accept-Ranges': 'bytes' } })
   })
   await page.route('**/rest/v1/rpc/get_recording_word_timestamps', route => route.fulfill({ json: {
-    recording_reference: reference, original_transcript: transcript, duration: 30,
+    recording_reference: reference, original_transcript: state.transcript, duration: 30,
     words: quote.split(' ').map((text, index) => ({ text, start: 12 + index * .3, end: 12.2 + index * .3 })),
   } }))
   await page.setViewportSize({ width: 1440, height: 900 })
@@ -93,6 +93,11 @@ test('interrupted evidence listens, highlights one occurrence across chat bubble
   await page.getByRole('button', { name: 'Pause', exact: true }).click()
   const pane = page.getByRole('region', { name: 'Transcript workspace', exact: true })
   await expect(pane.locator('mark[aria-current="true"]')).toHaveText(fragments)
+  await expect.poll(async () => {
+    const mark = await pane.locator('mark[aria-current="true"]').first().boundingBox()
+    const search = await pane.getByRole('searchbox', { name: 'Search transcript' }).boundingBox()
+    return mark!.y >= search!.y + search!.height
+  }).toBe(true)
   await expect(pane.getByRole('status').filter({ hasText: 'matching passages for the selected evidence' })).toHaveText('1 of 1 matching passages for the selected evidence')
   await expect(pane.getByText('Yeah.', { exact: true })).toBeVisible()
   await expect(pane.getByText('Yep.', { exact: true })).toBeVisible()
