@@ -4,14 +4,17 @@ import { findEvidenceOccurrences, findTranscriptRanges, parseTranscriptTurns } f
 import { createAudioQuoteMatcher, type RecordingTiming } from '@/lib/recording-timestamps'
 
 /** Searchable speaker turns with literal evidence navigation; no inferred audio timestamps. */
-export function TranscriptView({ transcript, evidence = [], constrainHeight = true, focusRequest = 0, selectedEvidence, onReturnToReview, audioElement, recordingTiming, renderAudioLink }: {
+export function TranscriptView({ transcript, evidence = [], sourceTurns, constrainHeight = true, focusRequest = 0, selectedEvidence, onReturnToReview, audioElement, recordingTiming, renderAudioLink }: {
   transcript: string
   evidence?: string[]
+  /** Already validated source turns; bypasses the legacy display parser. */
+  sourceTurns?: readonly { readonly speaker: string; readonly text: string }[]
   constrainHeight?: boolean
   /** Explicit navigation request, not focus on every data refresh. */
   focusRequest?: number
   /** Source-pinned evidence selected outside the transcript. It never becomes free-text search. */
-  selectedEvidence?: { readonly referenceId: string; readonly quote: string; readonly speaker?: string; readonly label: string } | null
+  selectedEvidence?: { readonly referenceId: string; readonly label: string; readonly quote?: string; readonly speaker?: string;
+    readonly passages?: readonly { readonly ordinal: number; readonly start: number; readonly end: number }[] } | null
   /** Returns to the exact review occurrence represented by selectedEvidence. */
   onReturnToReview?: (referenceId: string) => void
   audioElement?: HTMLAudioElement | null
@@ -27,7 +30,7 @@ export function TranscriptView({ transcript, evidence = [], constrainHeight = tr
   const contentId = useId()
   const contentRef = useRef<HTMLDivElement>(null)
   const searchRef = useRef<HTMLInputElement>(null)
-  const turns = useMemo(() => parseTranscriptTurns(transcript), [transcript])
+  const turns = useMemo(() => sourceTurns ? sourceTurns.map(turn => ({ speaker: turn.speaker, text: turn.text })) : parseTranscriptTurns(transcript), [sourceTurns, transcript])
   const timedTurns = useMemo(() => {
     // A refreshed original transcript must not inherit another revision's highlighting.
     if (!recordingTiming || recordingTiming.original_transcript !== transcript) return []
@@ -57,24 +60,37 @@ export function TranscriptView({ transcript, evidence = [], constrainHeight = tr
 
   const searching = search.trim().length > 0
   const navigatingSearch = searching && navigationMode === 'search'
-  const selectedQuote = selectedEvidence?.quote.trim() ?? ''
-  const selectedOccurrences = useMemo(() => selectedQuote && !navigatingSearch
+  const selectedQuote = selectedEvidence?.quote?.trim() ?? ''
+  const selectedPassages = selectedEvidence?.passages
+  const resolvedSelectedPassages = useMemo(() => {
+    if (!selectedPassages) return undefined
+    if (!selectedPassages.length || !selectedPassages.every(passage => {
+      const turn = turns?.[passage.ordinal]
+      return !!turn && Number.isSafeInteger(passage.ordinal) && passage.start >= 0 && passage.end > passage.start
+        && passage.end <= turn.text.length
+    })) return null
+    return selectedPassages
+  }, [selectedPassages, turns])
+  const selectedOccurrences = useMemo(() => selectedQuote && !selectedPassages && !navigatingSearch
     ? findEvidenceOccurrences(turns ?? [{ speaker: '', text: transcript }], selectedQuote, selectedEvidence?.speaker) : null,
-  [turns, transcript, selectedQuote, selectedEvidence?.speaker, navigatingSearch])
+  [turns, transcript, selectedQuote, selectedPassages, selectedEvidence?.speaker, navigatingSearch])
   const blocks = useMemo(() => {
     const needles = navigatingSearch ? [search]
       : selectedQuote ? [selectedQuote]
         : evidence.filter(quote => quote.trim().length >= 12)
     let offset = 0
     return (turns ?? [{ speaker: '', text: transcript }]).map((turn, turnIndex) => {
-      const ranges = selectedOccurrences
-        ? selectedOccurrences.flatMap((occurrence, matchId) => occurrence.filter(range => range.turnIndex === turnIndex).map(range => ({ ...range, matchId })))
-        : findTranscriptRanges(turn.text, needles).map((range, matchIndex) => ({ ...range, matchId: offset + matchIndex }))
+      const ranges = resolvedSelectedPassages && !navigatingSearch
+        ? resolvedSelectedPassages.filter(passage => passage.ordinal === turnIndex).map(passage => ({ start: passage.start, end: passage.end, matchId: 0 }))
+        : selectedOccurrences
+          ? selectedOccurrences.flatMap((occurrence, matchId) => occurrence.filter(range => range.turnIndex === turnIndex).map(range => ({ ...range, matchId })))
+          : findTranscriptRanges(turn.text, needles).map((range, matchIndex) => ({ ...range, matchId: offset + matchIndex }))
       offset += ranges.length
       return { ...turn, ranges }
     })
-  }, [transcript, turns, search, navigatingSearch, selectedQuote, selectedOccurrences, evidence])
-  const count = selectedOccurrences ? selectedOccurrences.length : blocks.reduce((total, block) => total + block.ranges.length, 0)
+  }, [transcript, turns, search, navigatingSearch, selectedQuote, resolvedSelectedPassages, selectedOccurrences, evidence])
+  const count = selectedPassages && !navigatingSearch ? resolvedSelectedPassages ? 1 : 0
+    : selectedOccurrences ? selectedOccurrences.length : blocks.reduce((total, block) => total + block.ranges.length, 0)
   const searchCount = useMemo(() => {
     if (!searching) return 0
     let total = 0
@@ -128,7 +144,9 @@ export function TranscriptView({ transcript, evidence = [], constrainHeight = tr
   const status = count > 0
     ? `${position >= 0 ? `${position + 1} of ` : ''}${count} ${navigatingSearch ? 'search matches' : selectedEvidence ? 'matching passages for the selected evidence' : 'evidence passages'}`
     : navigatingSearch ? 'No search matches.'
-      : selectedEvidence ? 'The selected evidence has no literal match in this transcript. Review the saved passage in the review pane; it may be paraphrased or come from another source.'
+      : selectedEvidence ? selectedPassages
+          ? 'The selected evidence is unavailable in this immutable transcript source.'
+          : 'The selected evidence has no literal match in this transcript. Review the saved passage in the review pane; it may be paraphrased or come from another source.'
         : evidence.length ? 'No evidence passage is selected. Choose a passage in Review or search the call.'
           : 'No verbatim evidence quotes are available. Search to inspect the call.'
 

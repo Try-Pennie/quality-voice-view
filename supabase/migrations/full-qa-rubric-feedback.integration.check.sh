@@ -7,6 +7,8 @@ duplicate_fix="$repo_root/supabase/migrations/20260921210000_reject_duplicate_no
 decision_first="$repo_root/supabase/migrations/20260922040000_full_qa_alert_decision_first.sql"
 partly_correct="$repo_root/supabase/migrations/20260922140000_full_qa_partially_correct_feedback.sql"
 evidence_feedback="$repo_root/supabase/migrations/20260923120000_evidence_level_manager_feedback.sql"
+source_evidence="$repo_root/supabase/migrations/20260925160000_source_evidence_staging_integration.sql"
+source_evidence_fixture="$repo_root/tests/fixtures/source-evidence-candidate-mixed.json"
 container="full-qa-rubric-check-$RANDOM-$$"
 tmp="$(mktemp -d)"
 cleanup() { docker rm -f "$container" >/dev/null 2>&1 || true; rm -rf "$tmp"; }
@@ -103,8 +105,18 @@ cat "$duplicate_fix"
 cat "$decision_first"
 cat "$partly_correct"
 cat "$evidence_feedback"
-printf 'commit;\n'
+cat "$source_evidence"
+printf 'commit;\ncreate temporary table source_evidence_fixture(value jsonb);\ninsert into source_evidence_fixture values ($fixture$\n'
+cat "$source_evidence_fixture"
+printf '\n$fixture$::jsonb);\n'
 cat <<'SQL'
+insert into public.eavesly_module_results(call_id,module_name,violation_type,agent_email,result_json)
+select 'CALL-SOURCE-EVIDENCE','full_qa','manager_escalation','decision-agent@example.test',value from source_evidence_fixture;
+insert into public.eavesly_module_results(call_id,module_name,violation_type,agent_email,result_json)
+select 'CALL-SOURCE-EVIDENCE-MALFORMED','full_qa','manager_escalation','decision-agent@example.test',
+  jsonb_set(value,'{source_candidate,candidate,source,turns}',(value#>'{source_candidate,candidate,source,turns}')-3) from source_evidence_fixture;
+insert into public.eavesly_calls(call_id,agent_email,started_at)
+values('CALL-SOURCE-EVIDENCE','decision-agent@example.test',clock_timestamp());
 -- Exact prompt bytes and immutable catalog contract.
 do $$ declare body text; begin
  select prompt_text into body from public.eavesly_full_qa_rubric_catalog;
@@ -484,6 +496,60 @@ do $$ declare source jsonb; manifest jsonb; refs jsonb; item jsonb; begin
       and x->>'claim_label'='Scalar flag' and x->>'text'='Flag quote') then
     raise exception 'scalar critical evidence used a nonexistent array path'; end if;
 end $$;
+-- The source candidate projects only exact occurrence references and round-trips through the existing review seam.
+select set_config('request.jwt.claims','{"sub":"11111111-1111-1111-1111-111111111111","email":"manager@trypennie.com"}',false);
+set role authenticated;
+do $$ declare ctx jsonb; refs jsonb; first_ref jsonb; second_ref jsonb; omission_ref jsonb; feedback jsonb; saved jsonb; result jsonb; begin
+  ctx:=public.get_full_qa_review_context('CALL-SOURCE-EVIDENCE'); refs:=ctx->'evidence_references';
+  if jsonb_array_length(refs)<>3 or exists(select 1 from jsonb_array_elements(refs) ref where ref->>'claim_kind'<>'source_finding')
+    or exists(select 1 from jsonb_array_elements(refs) ref where ref->>'claim_kind' in ('criterion','critical_flag','general_focus'))
+    then raise exception 'candidate was mixed into legacy evidence'; end if;
+  select value into first_ref from jsonb_array_elements(refs) where value->>'reference_id' like '%fqae1_11233b18%';
+  select value into second_ref from jsonb_array_elements(refs) where value->>'reference_id' like '%fqae1_304e3dde%';
+  select value into omission_ref from jsonb_array_elements(refs) where value->>'evidence_kind'='omission';
+  if first_ref->>'claim_label'<>'Outcome guarantee' or first_ref->>'source_path'<>'source_candidate.candidate.findings[0].evidence_occurrences[0]'
+    or jsonb_array_length(first_ref->'source_passages')<>2
+    or first_ref#>>'{source_passages,0,ordinal}'<>'2' or first_ref#>>'{source_passages,1,ordinal}'<>'4'
+    or first_ref#>>'{source_passages,0,text}'<>'We guarantee that your credit'
+    or first_ref#>>'{source_passages,1,text}'<>'will be fully restored in twelve months.'
+    or second_ref#>>'{source_passages,0,ordinal}'<>'6'
+    or omission_ref->>'source_path'<>'source_candidate.candidate.findings[2].reviewed_source'
+    or omission_ref->'source_passages'<>'[]'::jsonb or omission_ref->>'text'<>'No call recording disclosure was found in the supplied source.'
+    then raise exception 'candidate reference projection changed'; end if;
+  feedback:=jsonb_build_array(
+    jsonb_build_object('reference_id',first_ref->>'reference_id','disposition','correct','comment','Interrupted source turns support this assessment.'),
+    jsonb_build_object('reference_id',second_ref->>'reference_id','disposition','incorrect','comment',null),
+    jsonb_build_object('reference_id',omission_ref->>'reference_id','disposition','partly_correct','comment','Scoped only to the supplied source.'));
+  result:=public.submit_full_qa_review_with_evidence('CALL-SOURCE-EVIDENCE',0,null,ctx->>'source_fingerprint','[]',feedback,'[]',true,'',null,null,null);
+  saved:=public.get_full_qa_review_context('CALL-SOURCE-EVIDENCE');
+  if saved->'review'->'evidence_feedback' is distinct from feedback or saved->'source_result_json' is distinct from ctx->'source_result_json'
+    or saved->'source_fingerprint' is distinct from ctx->'source_fingerprint' then raise exception 'candidate save/reload changed source feedback'; end if;
+  begin perform public.submit_full_qa_review_with_evidence('CALL-SOURCE-EVIDENCE',0,null,ctx->>'source_fingerprint','[]',jsonb_set(feedback,'{0,disposition}','"incorrect"'),'[]',true,'',null,null,null); raise exception 'TEST_EXPECTED_FAILURE_MISSING';
+  exception when others then if sqlerrm='TEST_EXPECTED_FAILURE_MISSING' or sqlerrm<>'EAVESLY_STALE_REVIEW' then raise; end if; end;
+  begin perform public.submit_full_qa_review_with_evidence('CALL-SOURCE-EVIDENCE',1,null,repeat('0',64),'[]',feedback,'[]',true,'',null,null,null); raise exception 'TEST_EXPECTED_FAILURE_MISSING';
+  exception when others then if sqlerrm='TEST_EXPECTED_FAILURE_MISSING' or sqlerrm<>'EAVESLY_STALE_FULL_QA_SOURCE' then raise; end if; end;
+  begin perform public.submit_full_qa_review_with_evidence('CALL-SOURCE-EVIDENCE',1,null,ctx->>'source_fingerprint','[]',
+    jsonb_build_array(jsonb_build_object('reference_id',('fqae1|'||(ctx->>'source_fingerprint')||'|source_finding|forged|fqae1_'||repeat('0',64)),'disposition','correct','comment',null)),
+    '[]',true,'',null,null,null); raise exception 'TEST_EXPECTED_FAILURE_MISSING';
+  exception when others then if sqlerrm='TEST_EXPECTED_FAILURE_MISSING' or sqlerrm<>'EAVESLY_INVALID_FULL_QA_EVIDENCE_FEEDBACK' then raise; end if; end;
+end $$;
+reset role;
+do $$ begin
+  begin perform public.get_full_qa_review_context('CALL-SOURCE-EVIDENCE-MALFORMED'); raise exception 'TEST_EXPECTED_FAILURE_MISSING';
+  exception when others then if sqlerrm='TEST_EXPECTED_FAILURE_MISSING' or sqlerrm<>'EAVESLY_INVALID_FULL_QA_SOURCE_CANDIDATE' then raise; end if; end;
+end $$;
+-- Later ingestion cannot replace the immutable candidate source already reviewed.
+update public.eavesly_module_results set result_json=result_json||jsonb_build_object('later_unreviewed_metadata',true)
+where call_id='CALL-SOURCE-EVIDENCE';
+select set_config('request.jwt.claims','{"sub":"11111111-1111-1111-1111-111111111111","email":"manager@trypennie.com"}',false);
+set role authenticated;
+do $$ declare saved jsonb; begin
+  saved:=public.get_full_qa_review_context('CALL-SOURCE-EVIDENCE');
+  if saved->'source_result_json' ? 'later_unreviewed_metadata'
+    or saved#>>'{source_result_json,source_candidate,candidate,source,source_id}'<>'DEMO-SOURCE-EVIDENCE-20260925-MIXED'
+    then raise exception 'immutable candidate source was replaced'; end if;
+end $$;
+reset role;
 -- Evidence judgments stay bound to an exact readable occurrence + claim and survive legacy callers.
 select set_config('request.jwt.claims','{"sub":"11111111-1111-1111-1111-111111111111","email":"manager@trypennie.com"}',false);
 set role authenticated;
@@ -572,6 +638,10 @@ do $$ declare anchor timestamptz:=clock_timestamp(); begin
  begin perform public.submit_full_qa_review('CALL-DECISION',4,null,repeat('0',64),'[]','[]',true,'',null,null,null); raise exception 'TEST_EXPECTED_FAILURE_MISSING';
  exception when others then if sqlerrm='TEST_EXPECTED_FAILURE_MISSING' or sqlerrm<>'EAVESLY_FORBIDDEN' then raise; end if; end;
  begin perform public.submit_full_qa_review_with_evidence('CALL-EVIDENCE',2,null,repeat('0',64),'[]','[]','[]',true,'',null,null,null); raise exception 'TEST_EXPECTED_FAILURE_MISSING';
+ exception when others then if sqlerrm='TEST_EXPECTED_FAILURE_MISSING' or sqlerrm<>'EAVESLY_FORBIDDEN' then raise; end if; end;
+ begin perform public.get_full_qa_review_context('CALL-SOURCE-EVIDENCE'); raise exception 'TEST_EXPECTED_FAILURE_MISSING';
+ exception when others then if sqlerrm='TEST_EXPECTED_FAILURE_MISSING' or sqlerrm<>'EAVESLY_FORBIDDEN' then raise; end if; end;
+ begin perform public.submit_full_qa_review_with_evidence('CALL-SOURCE-EVIDENCE',1,null,repeat('0',64),'[]','[]','[]',true,'',null,null,null); raise exception 'TEST_EXPECTED_FAILURE_MISSING';
  exception when others then if sqlerrm='TEST_EXPECTED_FAILURE_MISSING' or sqlerrm<>'EAVESLY_FORBIDDEN' then raise; end if; end;
 end $$;
 reset role;

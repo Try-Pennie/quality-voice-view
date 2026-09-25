@@ -183,6 +183,16 @@ export function AlertReviewDrawer({
   }, [transcriptCall?.qa?.original_transcript, verifiedTiming])
   const renderAudioLink = (quote: string, speaker?: string, allowFind = false, evidenceReference?: FullQaEvidenceReference) => {
     const isFlag = isFullQa && allowFind
+    if (evidenceReference?.evidenceKind === 'source_passages') {
+      const navigationEvidence = { referenceId: evidenceReference.referenceId, label: evidenceReference.claimLabel,
+        passages: evidenceReference.sourcePassages.map(passage => ({ ordinal: passage.ordinal, start: 0, end: passage.text.length })) }
+      const selected = selectedEvidence?.referenceId === navigationEvidence.referenceId
+      return <span className="flex flex-wrap items-center gap-x-2">
+        <button type="button" className="pennie-focus-ring inline-flex min-h-[44px] items-center gap-2 whitespace-nowrap rounded-full bg-pennie-white px-3 text-xs font-semibold text-pennie-blue-deeper transition-colors duration-150 hover:bg-pennie-blue-light"
+          onClick={() => selectEvidence(navigationEvidence)} aria-current={selected ? 'location' : undefined}>Find exact source turns <ChevronRight className="h-3.5 w-3.5" aria-hidden="true" /></button>
+        <span className="text-xs text-pennie-graphite/70">Listen unavailable — candidate timing is not verified</span>
+      </span>
+    }
     const range = (isFlag ? matchFlagQuote : matchAudioQuote)?.(quote, speaker)
     const canFind = allowFind && hasTranscriptQuote(quote, speaker)
     const navigationEvidence = evidenceReference ? { referenceId: evidenceReference.referenceId, quote, speaker, label: evidenceReference.claimLabel }
@@ -225,14 +235,16 @@ export function AlertReviewDrawer({
   const [showTranscript, setShowTranscript] = useState(false)
   const [fullQaView, setFullQaView] = useState<'transcript' | 'review'>('transcript')
   const [transcriptFocusRequest, setTranscriptFocusRequest] = useState(0)
-  const [selectedEvidence, setSelectedEvidence] = useState<{ readonly referenceId: string; readonly quote: string; readonly speaker?: string; readonly label: string } | null>(null)
+  const [selectedEvidence, setSelectedEvidence] = useState<{ readonly referenceId: string; readonly label: string; readonly quote?: string; readonly speaker?: string;
+    readonly passages?: readonly { readonly ordinal: number; readonly start: number; readonly end: number }[] } | null>(null)
   const openTranscript = () => {
     setSelectedEvidence(null)
     if (isFullQa) setFullQaView('transcript')
     else setShowTranscript(true)
     setTranscriptFocusRequest(request => request + 1)
   }
-  const selectEvidence = (evidence: { readonly referenceId: string; readonly quote: string; readonly speaker?: string; readonly label: string }) => {
+  const selectEvidence = (evidence: { readonly referenceId: string; readonly label: string; readonly quote?: string; readonly speaker?: string;
+    readonly passages?: readonly { readonly ordinal: number; readonly start: number; readonly end: number }[] }) => {
     setSelectedEvidence(evidence)
     if (isFullQa) setFullQaView('transcript')
     else setShowTranscript(true)
@@ -269,6 +281,9 @@ export function AlertReviewDrawer({
   // Share the rubric's cached, revision-pinned source for every Full QA evidence surface.
   const fullQaContext = useQuery({ queryKey: ['fullQaReviewContext', alert?.call_id],
     queryFn: () => fetchFullQaReviewContext(alert?.call_id ?? ''), enabled: isFullQa })
+  const reviewedSourceTurns = useMemo(() => fullQaContext.data?.sourceCandidate?.turns.map(turn => ({ speaker: turn.speakerSourceLabel, text: turn.text })), [fullQaContext.data?.sourceCandidate])
+  const activeSelectedEvidence = !isFullQa || (fullQaContext.data
+    && fullQaContext.data.evidenceReferences.some(reference => reference.referenceId === selectedEvidence?.referenceId)) ? selectedEvidence : null
   useEffect(() => {
     if (!isFullQa || !selectedEvidence || !fullQaContext.data) return
     if (!fullQaContext.data.evidenceReferences.some(reference => reference.referenceId === selectedEvidence.referenceId)) setSelectedEvidence(null)
@@ -896,9 +911,9 @@ export function AlertReviewDrawer({
             {isFullQa && <section id="full-qa-transcript-panel" aria-label="Transcript workspace" onFocusCapture={() => setFullQaView('transcript')} className={`${fullQaView === 'transcript' ? 'flex' : 'hidden lg:flex'} min-h-0 flex-col gap-3 overflow-y-auto overscroll-contain bg-pennie-beige px-4 py-4 sm:px-6 lg:px-8`}>
               <header className="hidden lg:flex items-baseline justify-between gap-3">
                 <h2 className="text-lg font-semibold text-pennie-navy">Transcript</h2>
-                <span className="text-xs text-pennie-graphite">Original conversation</span>
+                <span className="text-xs text-pennie-graphite">{fullQaContext.data?.sourceCandidate ? 'Immutable reviewed source' : 'Original conversation'}</span>
               </header>
-              <AlertTranscript key={alert.call_id} callId={alert.call_id} scope={scope} agentEmail={alert.agent_email} focusRequest={transcriptFocusRequest} selectedEvidence={selectedEvidence} onReturnToReview={returnToSelectedEvidence} audioElement={audioElement} recordingTiming={verifiedTiming} renderAudioLink={renderAudioLink} evidence={extractEvidenceQuotes(alert.violation_type, reviewSource)} />
+              <AlertTranscript key={alert.call_id} callId={alert.call_id} scope={scope} agentEmail={alert.agent_email} reviewedTranscript={fullQaContext.data?.sourceCandidate?.transcript} reviewedTurns={reviewedSourceTurns} focusRequest={transcriptFocusRequest} selectedEvidence={activeSelectedEvidence} onReturnToReview={returnToSelectedEvidence} audioElement={audioElement} recordingTiming={fullQaContext.data?.sourceCandidate ? null : verifiedTiming} renderAudioLink={fullQaContext.data?.sourceCandidate ? undefined : renderAudioLink} evidence={extractEvidenceQuotes(alert.violation_type, reviewSource)} />
               {(alert.call_summary || alert.sfdc_lead_id) && <aside className="border-t border-border pt-4">
                 {alert.call_summary && <CallSummary summary={alert.call_summary} />}
                 {alert.sfdc_lead_id && <a href={`https://trypennie.lightning.force.com/lightning/r/Lead/${alert.sfdc_lead_id}/view`} target="_blank" rel="noopener noreferrer" className="mt-3 inline-flex min-h-[44px] items-center gap-1 text-sm font-semibold text-pennie-blue-deeper hover:underline">SFDC: {alert.sfdc_lead_id} <ExternalLink className="h-3 w-3" aria-hidden="true" /></a>}
@@ -993,7 +1008,7 @@ export function AlertReviewDrawer({
               editable={showStructuredForm}
               canReloadReview={!detailsLoading && !detailsError}
               renderEvidenceLink={reference => renderAudioLink(reference.text, reference.speaker ?? undefined, true, reference)}
-              selectedEvidenceReferenceId={selectedEvidence?.referenceId}
+              selectedEvidenceReferenceId={activeSelectedEvidence?.referenceId}
               verdictPortalTarget={fullQaVerdictTarget}
               onStaleReview={onRetryDetails}
               onDirtyChange={setFullQaDraftDirty}

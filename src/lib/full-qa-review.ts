@@ -6,9 +6,11 @@ import {
   parseFullQaEvidenceFeedback,
   parseFullQaEvidenceFeedbackDraft,
   parseFullQaEvidenceReferences,
+  parseFullQaSourceCandidate,
   projectFullQaEvidence,
   type FullQaEvidenceFeedback,
   type FullQaEvidenceReference,
+  type FullQaSourceCandidate,
 } from './full-qa-evidence'
 
 type Rpc = (name: string, input: Readonly<Record<string, unknown>>) => PromiseLike<{ readonly data: unknown; readonly error: unknown }>
@@ -97,6 +99,7 @@ export type FullQaReviewContext = {
   readonly rubricPromptText: string | null
   readonly criteria: readonly FullQaCriterion[]
   readonly evidenceReferences: readonly FullQaEvidenceReference[]
+  readonly sourceCandidate: FullQaSourceCandidate | null
   readonly review: FullQaSavedReview | null
   readonly proposals: readonly FullQaRuleProposal[]
 }
@@ -256,9 +259,11 @@ export function parseFullQaReviewContext(input: unknown): ParseResult<FullQaRevi
     || !nullableString(input.rubric_prompt_text) || !Array.isArray(input.criteria_manifest) || !Array.isArray(input.proposals)) return { ok: false, message: 'The Full QA review context is unavailable.' }
   const criteria = input.criteria_manifest.map(parseCriterion)
   const evidenceReferences = parseFullQaEvidenceReferences(input.evidence_references)
+  const sourceCandidate = parseFullQaSourceCandidate(input.source_result_json)
   const proposals = input.proposals.map(parseProposal)
   const review = parseReview(input.review)
-  if (criteria.length !== 23 || criteria.some(value => value === null) || evidenceReferences.ok === false || proposals.some(value => value === null) || review === false) {
+  if (criteria.length !== 23 || criteria.some(value => value === null) || evidenceReferences.ok === false || sourceCandidate.ok === false
+    || proposals.some(value => value === null) || review === false) {
     return { ok: false, message: 'The Full QA review context is invalid.' }
   }
   const parsedCriteria = criteria.filter((value): value is FullQaCriterion => value !== null)
@@ -270,7 +275,7 @@ export function parseFullQaReviewContext(input: unknown): ParseResult<FullQaRevi
     sourcePromptSha256: input.source_prompt_sha256, referencePromptSha256: input.reference_prompt_sha256,
     sourceReferenceKind: input.source_reference_kind, criteriaReferenceKind: input.criteria_reference_kind,
     rubricPromptText: input.rubric_prompt_text, criteria: parsedCriteria,
-    evidenceReferences: evidenceReferences.value,
+    evidenceReferences: evidenceReferences.value, sourceCandidate: sourceCandidate.value,
     review, proposals: proposals.filter((value): value is FullQaRuleProposal => value !== null) } }
 }
 

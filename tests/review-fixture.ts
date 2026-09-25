@@ -26,7 +26,10 @@ function fixtureEvidenceReferences(source: unknown, criteria = FULL_QA_CRITERIA,
   return projectFullQaEvidence(source, criteria.map(item => ({ key: item.key, label: item.label, evidencePath: item.evidence_path })), fingerprint)
     .map(item => ({ reference_id: item.referenceId, claim_kind: item.claimKind, claim_key: item.claimKey,
       claim_label: item.claimLabel, source_path: item.sourcePath, evidence_kind: item.evidenceKind,
-      text: item.text, speaker: item.speaker, context: item.context, process_step: item.processStep }))
+      text: item.text, speaker: item.speaker, context: item.context, process_step: item.processStep,
+      source_passages: item.sourcePassages.map(passage => ({ turn_id: passage.turnId, ordinal: passage.ordinal,
+        raw_start: passage.rawStart, raw_end: passage.rawEnd, text_start: passage.textStart, text_end: passage.textEnd,
+        text: passage.text, speaker_source_label: passage.speakerSourceLabel, speaker_role: passage.speakerRole })) }))
 }
 
 export const FULL_QA_RESULT = {
