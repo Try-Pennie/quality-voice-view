@@ -21,6 +21,8 @@ Stop for unavailable isolated staging credentials, a required production write/c
 
 ## Live staging — 2026-09-25
 
+The follow-up [UI simplification and selective-backfill plan](evidence-review-simplification.md) builds on this integration. The receipt below records the initial integration deployment.
+
 **This integration is now in the manager-facing staging application**, not just the private backend validator. Use the existing preview password at https://rubric-staging.eavesly.pages.dev/login, choose Manager, then open:
 
 - [Mixed findings](https://rubric-staging.eavesly.pages.dev/dashboard/alerts/DEMO-SOURCE-EVIDENCE-20260925-MIXED/full_qa?status=all): an interrupted guarantee, a separate guarantee, and a missing-disclosure assessment. Contains two saved test revisions; all responses remain editable.
@@ -31,7 +33,7 @@ Search the queue for **Source-linked evidence** to find all three. These are new
 
 ### What to test
 
-1. Select **Find exact source turns**. An interrupted statement highlights both exact turns while preserving the customer's interruption.
+1. Click a supporting passage or **View in transcript**. An interrupted statement highlights both exact turns while preserving the customer's interruption.
 2. Mark evidence Correct, Incorrect or Partly correct independently. Comments are optional; untouched evidence remains unreviewed.
 3. Judge the overall alert, save, reload, and clear/change a response. No coaching point is required.
 4. Try the mobile Transcript/Review switch and Back to evidence. Kris can view saved evidence and omission responses without editing them.
