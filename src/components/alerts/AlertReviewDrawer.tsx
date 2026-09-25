@@ -21,7 +21,7 @@ import {
 } from '@/components/ui/alert-dialog'
 import { AudioPlayer, type RecordingControls } from '@/components/call-detail/AudioPlayer'
 import { AlertTranscript } from './AlertTranscript'
-import { extractEvidenceQuotes, findTranscriptRanges, parseTranscriptTurns } from '@/lib/transcript-evidence'
+import { extractEvidenceQuotes, findEvidenceOccurrences, parseTranscriptTurns } from '@/lib/transcript-evidence'
 import { createAudioQuoteMatcher } from '@/lib/recording-timestamps'
 import { isHumanReviewed, needsCoachingFollowUp } from '@/lib/alert-review-queue'
 import {
@@ -173,19 +173,20 @@ export function AlertReviewDrawer({
   const hasTranscriptQuote = useMemo(() => {
     const loadedTranscript = transcriptCall?.qa?.original_transcript
     const transcript = typeof loadedTranscript === 'string' ? loadedTranscript : verifiedTiming?.original_transcript ?? ''
-    const original = (parseTranscriptTurns(transcript) ?? [{ text: transcript }]).map(turn => turn.text).join('\u0000')
+    const turns = parseTranscriptTurns(transcript) ?? [{ speaker: '', text: transcript }]
     const matches = new Map<string, boolean>()
-    return (quote: string) => {
-      if (!matches.has(quote)) matches.set(quote, quote.trim().length >= 12 && findTranscriptRanges(original, [quote]).length > 0)
-      return matches.get(quote) === true
+    return (quote: string, speaker?: string) => {
+      const key = JSON.stringify([quote, speaker ?? null])
+      if (!matches.has(key)) matches.set(key, quote.trim().length >= 12 && findEvidenceOccurrences(turns, quote, speaker).length > 0)
+      return matches.get(key) === true
     }
   }, [transcriptCall?.qa?.original_transcript, verifiedTiming])
   const renderAudioLink = (quote: string, speaker?: string, allowFind = false, evidenceReference?: FullQaEvidenceReference) => {
     const isFlag = isFullQa && allowFind
-    const range = (isFlag ? matchFlagQuote : matchAudioQuote)?.(quote)
-    const canFind = allowFind && hasTranscriptQuote(quote)
-    const navigationEvidence = evidenceReference ? { referenceId: evidenceReference.referenceId, quote, label: evidenceReference.claimLabel }
-      : { referenceId: `${alert?.call_id ?? 'call'}:${alert?.module_name ?? 'alert'}:${speaker ?? ''}:${quote}`, quote, label: 'Flagged passage' }
+    const range = (isFlag ? matchFlagQuote : matchAudioQuote)?.(quote, speaker)
+    const canFind = allowFind && hasTranscriptQuote(quote, speaker)
+    const navigationEvidence = evidenceReference ? { referenceId: evidenceReference.referenceId, quote, speaker, label: evidenceReference.claimLabel }
+      : { referenceId: `${alert?.call_id ?? 'call'}:${alert?.module_name ?? 'alert'}:${speaker ?? ''}:${quote}`, quote, speaker, label: 'Flagged passage' }
     const selected = selectedEvidence?.referenceId === navigationEvidence.referenceId
       && (evidenceReference !== undefined || selectedEvidence.quote === quote)
     const buttonClass = 'pennie-focus-ring inline-flex min-h-[44px] items-center gap-2 whitespace-nowrap rounded-full px-3 text-xs font-semibold text-pennie-blue-deeper transition-colors duration-150 hover:bg-pennie-blue-light'
@@ -224,14 +225,14 @@ export function AlertReviewDrawer({
   const [showTranscript, setShowTranscript] = useState(false)
   const [fullQaView, setFullQaView] = useState<'transcript' | 'review'>('transcript')
   const [transcriptFocusRequest, setTranscriptFocusRequest] = useState(0)
-  const [selectedEvidence, setSelectedEvidence] = useState<{ readonly referenceId: string; readonly quote: string; readonly label: string } | null>(null)
+  const [selectedEvidence, setSelectedEvidence] = useState<{ readonly referenceId: string; readonly quote: string; readonly speaker?: string; readonly label: string } | null>(null)
   const openTranscript = () => {
     setSelectedEvidence(null)
     if (isFullQa) setFullQaView('transcript')
     else setShowTranscript(true)
     setTranscriptFocusRequest(request => request + 1)
   }
-  const selectEvidence = (evidence: { readonly referenceId: string; readonly quote: string; readonly label: string }) => {
+  const selectEvidence = (evidence: { readonly referenceId: string; readonly quote: string; readonly speaker?: string; readonly label: string }) => {
     setSelectedEvidence(evidence)
     if (isFullQa) setFullQaView('transcript')
     else setShowTranscript(true)

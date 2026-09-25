@@ -47,6 +47,39 @@ export function findTranscriptRanges(text: string, needles: readonly string[]): 
   return merged
 }
 
+/** One saved quote occurrence can occupy several turns by its explicitly saved speaker.
+ * Only that speaker's intervening text is joined; no words are removed or inferred.
+ * Offsets refer to the untouched turn text, so interruptions remain visible.
+ */
+export function findEvidenceOccurrences(
+  turns: readonly { readonly speaker: string; readonly text: string }[],
+  quote: string,
+  speaker?: string,
+): { readonly turnIndex: number; readonly start: number; readonly end: number }[][] {
+  const speakerKey = (value: string) => value.trim().toLowerCase().replace(/\s+/g, ' ')
+  if (!speaker?.trim()) return turns.flatMap((turn, turnIndex) =>
+    findTranscriptRanges(turn.text, [quote]).map(range => [{ turnIndex, ...range }]))
+
+  const isUnidentified = (value: string) => !value || /^(?:(?:unknown|unidentified|unattributed)(?: speaker)?|speaker)(?:[ _-]*\d+)?$/.test(value)
+  const target = speakerKey(speaker)
+  if (isUnidentified(target)) return []
+  let source = ''
+  const spans: { turnIndex: number; start: number; end: number }[] = []
+  turns.forEach((turn, turnIndex) => {
+    const key = speakerKey(turn.speaker)
+    // An unidentified interruption may belong to the target speaker: never skip it.
+    if (isUnidentified(key)) { source += '\u0000'; return }
+    if (key !== target) return
+    if (source) source += ' '
+    const start = source.length
+    source += turn.text
+    spans.push({ turnIndex, start, end: source.length })
+  })
+  return findTranscriptRanges(source, [quote]).map(match => spans
+    .filter(span => span.start < match.end && span.end > match.start)
+    .map(span => ({ turnIndex: span.turnIndex, start: Math.max(match.start, span.start) - span.start, end: Math.min(match.end, span.end) - span.start })))
+}
+
 /** Parse only actual evidence quote fields from stored module JSON.
  * Separate full-QA/structured quotes must not be concatenated into an unmatchable quote.
  */

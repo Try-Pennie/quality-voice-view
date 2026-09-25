@@ -1,5 +1,5 @@
 import { supabase } from '@/integrations/supabase/client'
-import { findTranscriptRanges, parseTranscriptTurns } from './transcript-evidence'
+import { findEvidenceOccurrences, parseTranscriptTurns } from './transcript-evidence'
 
 /** Audio-only timing cache; the original transcript and QA remain authoritative. */
 export type RecordingTiming = {
@@ -43,16 +43,17 @@ function tokens(text: string): string[] {
 
 /** Pre-index once per recording and memoize each quote, including misses. Only a
  * unique literal sequence in BOTH the original transcript and STT receives a time.
- * Evidence-only spoken-spelling mode accepts gonna/going-to spelling, but also
- * requires the full saved quote to match literally once in the original.
- * No fillers removed, semantic/fuzzy alignment, partial quotes, or guessed times.
+ * Evidence-only spoken-spelling mode accepts gonna/going-to spelling in audio.
+ * The full saved quote must occur literally once in the original; an explicitly
+ * saved speaker may span interrupted turns, without dropping any of their words.
+ * Audio still requires a contiguous unique match: no fillers removed, fuzzy
+ * alignment, partial quotes, or guessed times.
  */
-export function createAudioQuoteMatcher(timing: RecordingTiming, mode: 'literal' | 'spoken-spelling' = 'literal'): (quote: string) => { readonly start: number; readonly end: number } | null {
+export function createAudioQuoteMatcher(timing: RecordingTiming, mode: 'literal' | 'spoken-spelling' = 'literal'): (quote: string, speaker?: string) => { readonly start: number; readonly end: number } | null {
   // Expand both sides, never removing words, negation, signs or amounts.
   const matchTokens = (text: string) => tokens(text).flatMap(word => mode === 'spoken-spelling' && word === 'gonna' ? ['going', 'to'] : [word])
   // A sentinel prevents a quote from crossing speaker turns after labels are removed.
-  const turns = parseTranscriptTurns(timing.original_transcript) ?? [{ text: timing.original_transcript }]
-  const rawOriginal = turns.map(turn => turn.text).join('\u0000')
+  const turns = parseTranscriptTurns(timing.original_transcript) ?? [{ speaker: '', text: timing.original_transcript }]
   const original = turns.flatMap(turn => [...matchTokens(turn.text), '\u0000'])
   const words = timing.words.flatMap(word => matchTokens(word.text).map(token => ({ token, start: word.start, end: word.end })))
   const cache = new Map<string, { readonly start: number; readonly end: number } | null>()
@@ -77,19 +78,20 @@ export function createAudioQuoteMatcher(timing: RecordingTiming, mode: 'literal'
   const audioTokens = words.map(word => word.token)
   const originalPositions = positionsFor(original)
   const audioPositions = positionsFor(audioTokens)
-  return quote => {
-    if (cache.has(quote)) return cache.get(quote) ?? null
-    if (mode === 'spoken-spelling' && findTranscriptRanges(rawOriginal, [quote]).length !== 1) {
-      cache.set(quote, null)
-      return null
-    }
+  return (quote, speaker) => {
+    const key = JSON.stringify([quote, speaker ?? null])
+    if (cache.has(key)) return cache.get(key) ?? null
     const needle = matchTokens(quote)
-    const originalIndex = uniqueIndex(original, originalPositions, needle)
-    const index = quote.trim().split(/\s+/).length >= 4 && needle.length >= 4 && quote.trim().length >= 12 && originalIndex >= 0 ? uniqueIndex(audioTokens, audioPositions, needle) : -1
+    const speakerSource = mode === 'spoken-spelling' && speaker?.trim()
+      ? turns.filter(turn => turn.speaker.trim().toLowerCase().replace(/\s+/g, ' ') === speaker.trim().toLowerCase().replace(/\s+/g, ' ')).flatMap(turn => matchTokens(turn.text))
+      : null
+    const originalIndex = speakerSource ? uniqueIndex(speakerSource, positionsFor(speakerSource), needle) : uniqueIndex(original, originalPositions, needle)
+    const originalVerified = originalIndex >= 0 && (mode !== 'spoken-spelling' || findEvidenceOccurrences(turns, quote, speaker).length === 1)
+    const index = quote.trim().split(/\s+/).length >= 4 && needle.length >= 4 && quote.trim().length >= 12 && originalVerified ? uniqueIndex(audioTokens, audioPositions, needle) : -1
     const range = index < 0 ? [] : words.slice(index, index + needle.length)
     const time = range.length && !range.some((word, offset) => offset > 0 && (word.start < range[offset - 1].start || word.end < range[offset - 1].end))
       ? { start: range[0].start, end: range[range.length - 1].end } : null
-    cache.set(quote, time)
+    cache.set(key, time)
     return time
   }
 }

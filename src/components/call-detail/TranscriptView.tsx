@@ -1,6 +1,6 @@
 import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from 'react'
 import { ArrowLeft, ChevronDown, ChevronLeft, ChevronRight, Search, X } from 'lucide-react'
-import { findTranscriptRanges, parseTranscriptTurns } from '@/lib/transcript-evidence'
+import { findEvidenceOccurrences, findTranscriptRanges, parseTranscriptTurns } from '@/lib/transcript-evidence'
 import { createAudioQuoteMatcher, type RecordingTiming } from '@/lib/recording-timestamps'
 
 /** Searchable speaker turns with literal evidence navigation; no inferred audio timestamps. */
@@ -11,7 +11,7 @@ export function TranscriptView({ transcript, evidence = [], constrainHeight = tr
   /** Explicit navigation request, not focus on every data refresh. */
   focusRequest?: number
   /** Source-pinned evidence selected outside the transcript. It never becomes free-text search. */
-  selectedEvidence?: { readonly referenceId: string; readonly quote: string; readonly label: string } | null
+  selectedEvidence?: { readonly referenceId: string; readonly quote: string; readonly speaker?: string; readonly label: string } | null
   /** Returns to the exact review occurrence represented by selectedEvidence. */
   onReturnToReview?: (referenceId: string) => void
   audioElement?: HTMLAudioElement | null
@@ -58,19 +58,23 @@ export function TranscriptView({ transcript, evidence = [], constrainHeight = tr
   const searching = search.trim().length > 0
   const navigatingSearch = searching && navigationMode === 'search'
   const selectedQuote = selectedEvidence?.quote.trim() ?? ''
+  const selectedOccurrences = useMemo(() => selectedQuote && !navigatingSearch
+    ? findEvidenceOccurrences(turns ?? [{ speaker: '', text: transcript }], selectedQuote, selectedEvidence?.speaker) : null,
+  [turns, transcript, selectedQuote, selectedEvidence?.speaker, navigatingSearch])
   const blocks = useMemo(() => {
     const needles = navigatingSearch ? [search]
       : selectedQuote ? [selectedQuote]
         : evidence.filter(quote => quote.trim().length >= 12)
     let offset = 0
-    return (turns ?? [{ speaker: '', text: transcript }]).map(turn => {
-      const ranges = findTranscriptRanges(turn.text, needles)
-      const block = { ...turn, ranges, offset }
+    return (turns ?? [{ speaker: '', text: transcript }]).map((turn, turnIndex) => {
+      const ranges = selectedOccurrences
+        ? selectedOccurrences.flatMap((occurrence, matchId) => occurrence.filter(range => range.turnIndex === turnIndex).map(range => ({ ...range, matchId })))
+        : findTranscriptRanges(turn.text, needles).map((range, matchIndex) => ({ ...range, matchId: offset + matchIndex }))
       offset += ranges.length
-      return block
+      return { ...turn, ranges }
     })
-  }, [transcript, turns, search, navigatingSearch, selectedQuote, evidence])
-  const count = blocks.reduce((total, block) => total + block.ranges.length, 0)
+  }, [transcript, turns, search, navigatingSearch, selectedQuote, selectedOccurrences, evidence])
+  const count = selectedOccurrences ? selectedOccurrences.length : blocks.reduce((total, block) => total + block.ranges.length, 0)
   const searchCount = useMemo(() => {
     if (!searching) return 0
     let total = 0
@@ -176,7 +180,7 @@ export function TranscriptView({ transcript, evidence = [], constrainHeight = tr
             let cursor = 0
             block.ranges.forEach((range, matchIndex) => {
               if (range.start > cursor) parts.push(block.text.slice(cursor, range.start))
-              const matchId = block.offset + matchIndex
+              const matchId = range.matchId
               const current = matchId === position
               parts.push(<mark
                 key={matchIndex}
@@ -189,13 +193,14 @@ export function TranscriptView({ transcript, evidence = [], constrainHeight = tr
               cursor = range.end
             })
             parts.push(block.text.slice(cursor))
+            const isAgent = /^(handling agent|agent)$/i.test(block.speaker.trim())
             return <li key={index} aria-current={index === playingTurn ? 'true' : undefined}
-              className={`rounded-r-xl border-l-2 px-3 py-2 ${index === playingTurn ? 'border-pennie-blue-deeper bg-pennie-blue-light' : 'border-transparent'}`}>
+              className={`min-w-0 rounded-2xl border-2 px-4 py-3 ${block.speaker ? `w-fit max-w-[92%] sm:max-w-[85%] ${isAgent ? 'ml-auto rounded-br-lg bg-pennie-blue-light' : 'mr-auto rounded-bl-lg bg-pennie-white'}` : 'w-full bg-pennie-white'} ${index === playingTurn ? 'border-pennie-blue-deeper' : 'border-pennie-navy/15'}`}>
               <div className="mb-1 flex flex-wrap items-center justify-between gap-x-3">
                 {block.speaker && <span className="text-xs font-semibold capitalize text-pennie-navy">{block.speaker}</span>}
                 {renderAudioLink?.(block.text, block.speaker)}
               </div>
-              <p className="whitespace-pre-wrap text-sm leading-7 text-pennie-graphite">{parts}</p>
+              <p className="whitespace-pre-wrap break-words text-sm leading-7 text-pennie-graphite">{parts}</p>
               {index === playingTurn && <span className="sr-only">Playing this passage</span>}
             </li>
           })}
