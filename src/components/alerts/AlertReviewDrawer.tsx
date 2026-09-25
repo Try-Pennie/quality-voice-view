@@ -1,4 +1,4 @@
-import { useEffect, useId, useMemo, useRef, useState } from 'react'
+import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from 'react'
 import { toast } from 'sonner'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
@@ -181,17 +181,17 @@ export function AlertReviewDrawer({
       return matches.get(key) === true
     }
   }, [transcriptCall?.qa?.original_transcript, verifiedTiming])
-  const renderAudioLink = (quote: string, speaker?: string, allowFind = false, evidenceReference?: FullQaEvidenceReference) => {
+  const renderAudioLink = (quote: string, speaker?: string, allowFind = false, evidenceReference?: FullQaEvidenceReference, passageContent?: ReactNode) => {
     const isFlag = isFullQa && allowFind
     if (evidenceReference?.evidenceKind === 'source_passages') {
       const navigationEvidence = { referenceId: evidenceReference.referenceId, label: evidenceReference.claimLabel,
         passages: evidenceReference.sourcePassages.map(passage => ({ ordinal: passage.ordinal, start: 0, end: passage.text.length })) }
       const selected = selectedEvidence?.referenceId === navigationEvidence.referenceId
-      return <span className="flex flex-wrap items-center gap-x-2">
-        <button type="button" className="pennie-focus-ring inline-flex min-h-[44px] items-center gap-2 whitespace-nowrap rounded-full bg-pennie-white px-3 text-xs font-semibold text-pennie-blue-deeper transition-colors duration-150 hover:bg-pennie-blue-light"
-          onClick={() => selectEvidence(navigationEvidence)} aria-current={selected ? 'location' : undefined}>Find exact source turns <ChevronRight className="h-3.5 w-3.5" aria-hidden="true" /></button>
-        <span className="text-xs text-pennie-graphite/70">Listen unavailable — candidate timing is not verified</span>
-      </span>
+      return <button type="button" className={`pennie-focus-ring block min-h-[44px] w-full rounded-xl border-l-2 p-3 text-left transition-colors duration-150 hover:bg-pennie-blue-light ${selected ? 'border-pennie-blue-deeper bg-pennie-blue-light' : 'border-pennie-navy/40 bg-pennie-beige'}`}
+        onClick={() => selectEvidence(navigationEvidence)} aria-current={selected ? 'location' : undefined}>
+        {passageContent}
+        <span className="mt-2 inline-flex items-center gap-1 text-xs font-semibold text-pennie-blue-deeper">View in transcript <ChevronRight className="h-3.5 w-3.5" aria-hidden="true" /></span>
+      </button>
     }
     const range = (isFlag ? matchFlagQuote : matchAudioQuote)?.(quote, speaker)
     const canFind = allowFind && hasTranscriptQuote(quote, speaker)
@@ -911,7 +911,7 @@ export function AlertReviewDrawer({
             {isFullQa && <section id="full-qa-transcript-panel" aria-label="Transcript workspace" onFocusCapture={() => setFullQaView('transcript')} className={`${fullQaView === 'transcript' ? 'flex' : 'hidden lg:flex'} min-h-0 flex-col gap-3 overflow-y-auto overscroll-contain bg-pennie-beige px-4 py-4 sm:px-6 lg:px-8`}>
               <header className="hidden lg:flex items-baseline justify-between gap-3">
                 <h2 className="text-lg font-semibold text-pennie-navy">Transcript</h2>
-                <span className="text-xs text-pennie-graphite">{fullQaContext.data?.sourceCandidate ? 'Immutable reviewed source' : 'Original conversation'}</span>
+                <span className="text-xs text-pennie-graphite">{fullQaContext.data?.sourceCandidate ? 'Saved transcript' : 'Original conversation'}</span>
               </header>
               <AlertTranscript key={alert.call_id} callId={alert.call_id} scope={scope} agentEmail={alert.agent_email} reviewedTranscript={fullQaContext.data?.sourceCandidate?.transcript} reviewedTurns={reviewedSourceTurns} focusRequest={transcriptFocusRequest} selectedEvidence={activeSelectedEvidence} onReturnToReview={returnToSelectedEvidence} audioElement={audioElement} recordingTiming={fullQaContext.data?.sourceCandidate ? null : verifiedTiming} renderAudioLink={fullQaContext.data?.sourceCandidate ? undefined : renderAudioLink} evidence={extractEvidenceQuotes(alert.violation_type, reviewSource)} />
               {(alert.call_summary || alert.sfdc_lead_id) && <aside className="border-t border-border pt-4">
@@ -1007,7 +1007,7 @@ export function AlertReviewDrawer({
               scope={scope}
               editable={showStructuredForm}
               canReloadReview={!detailsLoading && !detailsError}
-              renderEvidenceLink={reference => renderAudioLink(reference.text, reference.speaker ?? undefined, true, reference)}
+              renderEvidenceLink={(reference, passageContent) => renderAudioLink(reference.text, reference.speaker ?? undefined, true, reference, passageContent)}
               selectedEvidenceReferenceId={activeSelectedEvidence?.referenceId}
               verdictPortalTarget={fullQaVerdictTarget}
               onStaleReview={onRetryDetails}
@@ -1121,6 +1121,9 @@ export function AlertReviewDrawer({
                   setFullQaView('review')
                   requestAnimationFrame(() => {
                     const section = document.getElementById(fullQaSave.nextSectionId ?? '')
+                    for (let ancestor = section?.parentElement; ancestor; ancestor = ancestor.parentElement) {
+                      if (ancestor instanceof HTMLDetailsElement) ancestor.open = true
+                    }
                     section?.focus({ preventScroll: true })
                     section?.scrollIntoView({ block: section instanceof HTMLTextAreaElement ? 'center' : 'start', behavior: 'instant' })
                   })

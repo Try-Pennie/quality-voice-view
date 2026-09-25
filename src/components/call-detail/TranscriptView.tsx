@@ -147,6 +147,7 @@ export function TranscriptView({ transcript, evidence = [], sourceTurns, constra
       : selectedEvidence ? selectedPassages
           ? 'The selected evidence is unavailable in this immutable transcript source.'
           : 'The selected evidence has no literal match in this transcript. Review the saved passage in the review pane; it may be paraphrased or come from another source.'
+        : sourceTurns ? 'Select a passage in Review to see it here, or search the transcript.'
         : evidence.length ? 'No evidence passage is selected. Choose a passage in Review or search the call.'
           : 'No verbatim evidence quotes are available. Search to inspect the call.'
 

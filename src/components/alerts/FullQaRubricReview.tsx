@@ -46,7 +46,7 @@ interface Props {
   readonly scope: UserScope
   readonly editable: boolean
   readonly canReloadReview: boolean
-  readonly renderEvidenceLink?: (reference: FullQaEvidenceReference) => ReactNode
+  readonly renderEvidenceLink?: (reference: FullQaEvidenceReference, passageContent?: ReactNode) => ReactNode
   readonly selectedEvidenceReferenceId?: string | null
   readonly verdictPortalTarget?: HTMLElement | null
   readonly onStaleReview: () => void
@@ -157,7 +157,7 @@ function EvidenceFeedbackCard({ reference, index, feedback, editable, disabled, 
   readonly editable: boolean
   readonly disabled: boolean
   readonly selected: boolean
-  readonly renderEvidenceLink?: (reference: FullQaEvidenceReference) => ReactNode
+  readonly renderEvidenceLink?: (reference: FullQaEvidenceReference, passageContent?: ReactNode) => ReactNode
   readonly onChange: (feedback: FullQaEvidenceFeedback | null) => void
 }) {
   const [commentOpen, setCommentOpen] = useState(false)
@@ -173,6 +173,11 @@ function EvidenceFeedbackCard({ reference, index, feedback, editable, disabled, 
     : 'No readable evidence was saved for this claim. Check the transcript before judging it.'
   const attribution = [reference.speaker ?? (reference.evidenceKind === 'quote' ? 'Speaker not saved' : null), reference.processStep].filter(Boolean).join(' · ')
   const comment = savedText(feedback?.comment)
+  const isSourceFinding = reference.claimKind === 'source_finding'
+  const passages = reference.evidenceKind === 'source_passages' && <span className="block space-y-3">{reference.sourcePassages.map(passage => <span key={passage.turnId} className="block">
+    <span className="block text-xs font-semibold text-pennie-navy">{passage.speakerSourceLabel}</span>
+    <span className="mt-1 block whitespace-pre-wrap break-words text-sm leading-relaxed text-pennie-graphite">{passage.text}</span>
+  </span>)}</span>
   const sourceResponseLabel = reference.evidenceKind === 'omission' ? 'assessment' : 'evidence'
   useEffect(() => { if (!feedback) setCommentOpen(false) }, [feedback])
   const openComment = () => {
@@ -183,18 +188,10 @@ function EvidenceFeedbackCard({ reference, index, feedback, editable, disabled, 
     setCommentOpen(false)
     requestAnimationFrame(() => document.getElementById(`${commentId}-trigger`)?.focus())
   }
-  return <div id={`evidence-reference-${reference.referenceId}`} role="group" tabIndex={-1} aria-current={selected ? 'location' : undefined} aria-label={`${reference.claimLabel} evidence ${index + 1}`} className={`pennie-focus-ring space-y-3 rounded-xl border-l-2 px-3 py-3 ${selected ? 'border-pennie-blue-deeper bg-pennie-blue-main/25' : 'border-pennie-navy/50 bg-pennie-white'}`}>
-    {reference.evidenceKind === 'source_passages' ? <figure className="space-y-2">
-      <figcaption className="text-xs font-semibold text-pennie-graphite">Supporting passages (one feedback set)</figcaption>
-      <ol className="space-y-2">{reference.sourcePassages.map(passage => <li key={passage.turnId} className="rounded-xl bg-pennie-beige/70 px-3 py-2">
-        <p className="text-xs font-semibold text-pennie-navy">{passage.speakerSourceLabel}</p>
-        <blockquote className="mt-1 whitespace-pre-wrap break-words text-sm leading-relaxed text-pennie-graphite">{passage.text}</blockquote>
-      </li>)}</ol>
-      {renderEvidenceLink?.(reference)}
-    </figure> : reference.evidenceKind === 'omission' ? <div className="space-y-1">
-      <p className="text-xs font-bold uppercase tracking-[0.06em] text-pennie-yellow-deeper">Scoped absence assessment</p>
-      <p className="text-sm text-pennie-graphite">No passage is claimed. This assessment applies only to the immutable source shown with this review; it is not proof that speech was absent from a complete call.</p>
-    </div> : reference.evidenceKind === 'quote' ? <figure className="space-y-1">
+  return <div id={`evidence-reference-${reference.referenceId}`} role="group" tabIndex={-1} aria-current={selected ? 'location' : undefined} aria-label={`${reference.claimLabel} evidence ${index + 1}`} className={`pennie-focus-ring space-y-3 ${isSourceFinding ? 'rounded-xl' : `rounded-xl border-l-2 px-3 py-3 ${selected ? 'border-pennie-blue-deeper bg-pennie-blue-main/25' : 'border-pennie-navy/50 bg-pennie-white'}`}`}>
+    {reference.evidenceKind === 'source_passages' ? <div>
+      {renderEvidenceLink ? renderEvidenceLink(reference, passages) : passages}
+    </div> : reference.evidenceKind === 'omission' ? <p className="text-sm text-pennie-graphite">Not found in the supplied transcript. There is no passage to jump to.</p> : reference.evidenceKind === 'quote' ? <figure className="space-y-1">
       {attribution && <figcaption className="text-xs font-semibold text-pennie-graphite">{attribution}</figcaption>}
       <blockquote className="whitespace-pre-wrap break-words text-sm leading-relaxed text-pennie-graphite">{reference.text}</blockquote>
       {reference.context && <p className="whitespace-pre-wrap break-words text-xs text-pennie-graphite"><span className="font-semibold">Saved context: </span>{reference.context}</p>}
@@ -203,10 +200,11 @@ function EvidenceFeedbackCard({ reference, index, feedback, editable, disabled, 
       <p className="text-xs font-semibold text-pennie-graphite/70">Saved note — not a transcript quote</p>
       <p className="mt-1 whitespace-pre-wrap break-words text-sm leading-relaxed text-pennie-graphite">{reference.text}</p>
     </div> : <p className="text-sm text-pennie-graphite">{missingMessage}</p>}
-    {editable && reference.evidenceKind !== 'missing' ? <div className="space-y-2 border-t border-pennie-navy/10 pt-3">
+    {editable && reference.evidenceKind !== 'missing' ? <div className={isSourceFinding ? 'space-y-2' : 'space-y-2 border-t border-pennie-navy/10 pt-3'}>
       <fieldset disabled={disabled}>
-        <legend className="text-sm font-semibold text-pennie-navy">{question} <span className="font-normal">(optional)</span></legend>
-        <div className="mt-2 flex flex-wrap gap-2">{([{ disposition: 'correct', label: 'Correct' }, { disposition: 'incorrect', label: 'Incorrect' }, { disposition: 'partly_correct', label: 'Partly correct' }] as const).map(option => <label key={option.disposition} className={`flex min-h-[44px] cursor-pointer items-center gap-2 rounded-xl border px-3 py-2 text-sm has-[:disabled]:cursor-not-allowed has-[:disabled]:opacity-50 ${feedback?.disposition === option.disposition ? 'border-pennie-navy bg-pennie-navy text-pennie-white' : 'border-pennie-navy/60 bg-white text-pennie-graphite hover:bg-pennie-blue-light'}`}>
+        <legend className={isSourceFinding ? 'sr-only' : 'text-sm font-semibold text-pennie-navy'}>{question} <span className="font-normal">(optional)</span></legend>
+        {isSourceFinding && !feedback && <p className="text-xs text-pennie-graphite">Not reviewed</p>}
+        <div className={isSourceFinding ? 'mt-2 grid grid-cols-3 gap-2' : 'mt-2 flex flex-wrap gap-2'}>{([{ disposition: 'correct', label: 'Correct' }, { disposition: 'incorrect', label: 'Incorrect' }, { disposition: 'partly_correct', label: 'Partly correct' }] as const).map(option => <label key={option.disposition} className={`flex min-h-[44px] cursor-pointer items-center rounded-xl border py-2 has-[:disabled]:cursor-not-allowed has-[:disabled]:opacity-50 ${isSourceFinding ? 'justify-center gap-1 px-2 text-xs' : 'gap-2 px-3 text-sm'} ${feedback?.disposition === option.disposition ? 'border-pennie-navy bg-pennie-navy text-pennie-white' : 'border-pennie-navy/60 bg-white text-pennie-graphite hover:bg-pennie-blue-light'}`}>
           <input type="radio" name={`evidence-${reference.referenceId}`} aria-label={`Evidence: ${option.label}`} checked={feedback?.disposition === option.disposition} onChange={() => onChange({ referenceId: reference.referenceId, disposition: option.disposition, comment: feedback?.comment ?? null })} className="pennie-focus-ring h-4 w-4 accent-pennie-blue-deeper" />
           {option.label}
         </label>)}</div>
@@ -215,7 +213,7 @@ function EvidenceFeedbackCard({ reference, index, feedback, editable, disabled, 
         {comment && !commentOpen && <div className="rounded-lg bg-white/80 px-3 py-2 text-sm text-pennie-graphite"><p className="text-xs font-semibold text-pennie-navy">Comment</p><p className="mt-1 whitespace-pre-wrap break-words">{comment}</p></div>}
         {commentOpen ? <div>
           <label htmlFor={commentId} className="block text-sm font-semibold">Comment <span className="font-normal">(optional)</span></label>
-          <ReviewText id={commentId} required={false} label={`${reference.claimLabel} evidence comment`} disabled={disabled} value={feedback.comment ?? ''} placeholder={reference.claimKind === 'source_finding' ? 'Add context for this experimental assessment.' : reference.claimKind === 'general_focus' ? 'Add context for why this passage was or was not worth flagging.' : 'Add context for this evidence and claim.'} onChange={value => onChange({ ...feedback, comment: value || null })} />
+          <ReviewText id={commentId} required={false} label={`${reference.claimLabel} evidence comment`} disabled={disabled} value={feedback.comment ?? ''} placeholder={reference.claimKind === 'source_finding' ? 'What did Eavesly get right or wrong?' : reference.claimKind === 'general_focus' ? 'Add context for why this passage was or was not worth flagging.' : 'Add context for this evidence and claim.'} onChange={value => onChange({ ...feedback, comment: value || null })} />
           <button type="button" disabled={disabled} onClick={finishComment} className="pennie-focus-ring min-h-[44px] text-xs font-semibold text-pennie-blue-deeper">Done</button>
         </div> : <button id={`${commentId}-trigger`} type="button" disabled={disabled} onClick={openComment} className="pennie-focus-ring min-h-[44px] rounded-full px-2 text-xs font-semibold text-pennie-blue-deeper hover:bg-white/70">{comment ? 'Edit comment' : 'Add comment'}</button>}
         <button type="button" disabled={disabled} onClick={() => onChange(null)} className="pennie-focus-ring min-h-[44px] px-2 text-xs font-semibold text-pennie-blue-deeper">{reference.claimKind === 'source_finding' ? `Clear ${sourceResponseLabel} response` : 'Clear passage response'}</button>
@@ -380,7 +378,8 @@ export function FullQaRubricReview({ alert, scope, editable, canReloadReview, re
             : parsed.ok === false ? reviewDirty ? parsed.message : 'Choose whether this alert was warranted. Score feedback and coaching are optional.' : null
   const nextSectionId = context && initializedFor.current === alert.call_id && !query.isError && !contextChanged && !busy && parsed.ok === false
     ? parsed.finding ? `${scorecardId}-finding-${parsed.finding.id}-${parsed.finding.field}`
-      : parsed.section === 'decision' && escalationJustified !== null ? `${scorecardId}-decision-details` : `${scorecardId}-${parsed.section}` : null
+      : parsed.section === 'decision' && escalationJustified !== null ? `${scorecardId}-decision-details`
+        : parsed.section === 'followup' && context.sourceCandidate ? `${scorecardId}-followup-details` : `${scorecardId}-${parsed.section}` : null
   useEffect(() => { onDirtyChange(dirty) }, [dirty, onDirtyChange])
   useEffect(() => { onBusyChange(busy) }, [busy, onBusyChange])
   useEffect(() => { onSaveStateChange({ disabled: saveDisabled, label: saveLabel, message: saveMessage, nextSectionId }) }, [saveDisabled, saveLabel, saveMessage, nextSectionId, onSaveStateChange])
@@ -512,9 +511,7 @@ export function FullQaRubricReview({ alert, scope, editable, canReloadReview, re
     const references = context.evidenceReferences.filter(reference => reference.claimKind === 'source_finding' && reference.claimKey === finding.claimId)
     return <article key={finding.claimId} aria-label={`${references[0]?.claimLabel ?? finding.ruleKey} finding ${findingIndex + 1}`} className="space-y-3 border-b border-border py-5">
       <div className="space-y-1">
-        <p className="text-xs font-bold uppercase tracking-[0.06em] text-pennie-yellow-deeper">{finding.findingType === 'omission' ? 'Scoped omission hypothesis' : 'Reported statement'}</p>
         <h3 className="text-base font-semibold text-pennie-navy">{references[0]?.claimLabel ?? finding.ruleKey.replace(/_/g, ' ')}</h3>
-        <p className="text-xs font-semibold text-pennie-graphite/70">Unverified model assessment</p>
         <p className="whitespace-pre-wrap break-words text-sm leading-relaxed text-pennie-graphite">{finding.assessment}</p>
       </div>
       <div className="space-y-3">{references.map(evidenceCard)}</div>
@@ -641,14 +638,6 @@ export function FullQaRubricReview({ alert, scope, editable, canReloadReview, re
   </>
 
   return <form id={FULL_QA_FORM_ID} onSubmit={event => { event.preventDefault(); void save() }} className="space-y-6" aria-label="Full QA rubric review">
-    {context.sourceCandidate && <aside aria-label="Experimental source review" className="rounded-2xl border border-pennie-yellow-dark/60 bg-pennie-yellow-light/35 px-4 py-3 text-sm text-pennie-graphite">
-      <p className="text-xs font-bold uppercase tracking-[0.06em] text-pennie-yellow-deeper">Six-rule synthetic trial</p>
-      <details className="mt-1">
-        <summary className="pennie-focus-ring min-h-[36px] cursor-pointer py-2 text-xs font-semibold text-pennie-blue-deeper">About this example</summary>
-        <p className="mt-1">Review each finding against only the immutable source shown beside this form. The model details and findings are unverified; supporting passages are exact saved source text.</p>
-        <p className="mt-2 text-xs text-pennie-graphite/70">{context.sourceCandidate.modelProvider} · {context.sourceCandidate.modelId} · source revision {context.sourceCandidate.sourceRevision}</p>
-      </details>
-    </aside>}
     {(practiceFalsePositive || practiceSupported) && <aside aria-label="Staging practice guidance" className="text-xs text-pennie-graphite/70">
       <details>
         <summary className="pennie-focus-ring cursor-pointer font-semibold">Practice call (synthetic) · about this example</summary>
@@ -671,10 +660,22 @@ export function FullQaRubricReview({ alert, scope, editable, canReloadReview, re
     {alertDecision}
     {decisionDetails}
 
-    {context.sourceCandidate ? <section aria-label="Six-rule experimental findings" className="border-t border-border pt-4">
-      <div><h2 id={`${scorecardId}-scores`} tabIndex={-1} className="pennie-focus-ring text-lg font-semibold text-pennie-navy">Six-rule experimental findings</h2>
-        <p className="mt-1 max-w-2xl text-xs text-pennie-graphite">Each occurrence has independent optional feedback. Separate cited turns remain separate; omissions have no fabricated quote or transcript target.</p></div>
-      <div id={scorecardId}>{candidateFindings?.length ? candidateFindings : <p className="py-4 text-sm text-pennie-graphite">The candidate returned no findings for this source.</p>}</div>
+    {context.sourceCandidate ? <section aria-label="What Eavesly flagged">
+      <div><h2 id={`${scorecardId}-scores`} tabIndex={-1} className="pennie-focus-ring text-lg font-semibold text-pennie-navy">What Eavesly flagged</h2>
+        <p className="mt-1 text-sm text-pennie-graphite">Does the evidence support each flag? Feedback is optional.</p></div>
+      <aside aria-label="Experimental source review" className="mt-3 flex flex-wrap items-baseline justify-between gap-x-3 text-xs text-pennie-graphite">
+        <p>Synthetic example · transcript only</p>
+        <details>
+          <summary className="pennie-focus-ring min-h-[44px] cursor-pointer py-3 font-semibold text-pennie-blue-deeper">Details</summary>
+          <div className="max-w-prose space-y-2 pb-3 text-xs leading-relaxed">
+            <p>Six-rule synthetic trial, not a full QA scorecard. Listen is unavailable: audio timing has not been verified for this source.</p>
+            <p>The findings are AI assessments, not verified facts. Supporting passages reproduce exact saved transcript turns. Separate passages grouped together receive one response; each separate evidence item has its own response.</p>
+            <p>Missing-content assessments apply only to the supplied transcript, which may not cover the complete call. No quote or audio location is inferred.</p>
+            <p>{context.sourceCandidate.modelProvider} · {context.sourceCandidate.modelId} · source revision {context.sourceCandidate.sourceRevision}</p>
+          </div>
+        </details>
+      </aside>
+      <div id={scorecardId}>{candidateFindings?.length ? candidateFindings : <p className="py-4 text-sm text-pennie-graphite">No findings were returned for this transcript.</p>}</div>
     </section> : <section aria-label="What Eavesly flagged" className="border-t border-border pt-4">
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div><h2 id={`${scorecardId}-scores`} tabIndex={-1} className="pennie-focus-ring text-lg font-semibold text-pennie-navy">What Eavesly flagged</h2>
@@ -702,16 +703,19 @@ export function FullQaRubricReview({ alert, scope, editable, canReloadReview, re
       <button type="button" disabled={locked} onClick={addBlankIssue} className="min-h-[40px] rounded-full border border-border px-3 text-xs font-semibold text-pennie-blue-deeper disabled:opacity-40"><Plus className="mr-1 inline h-4 w-4" aria-hidden="true" />{findings.length ? 'Add another issue' : 'Add an issue'}</button>
     </section></fieldset>}
 
-    {editable && escalationJustified !== null && <section aria-label="Follow-up with the rep" className="space-y-3 border-t border-border pt-5 [&_textarea]:min-h-28">
-      <h2 id={`${scorecardId}-followup`} tabIndex={-1} className="pennie-focus-ring text-base font-semibold text-pennie-navy">Follow-up with the rep</h2>
+    {editable && escalationJustified !== null && <section aria-label="Follow-up with the rep" className="border-t border-border pt-5 [&_textarea]:min-h-28">
+      <h2 id={`${scorecardId}-followup`} tabIndex={-1} className={context.sourceCandidate ? 'sr-only' : 'pennie-focus-ring mb-3 text-base font-semibold text-pennie-navy'}>Follow-up with the rep</h2>
+      <details open={!context.sourceCandidate || actionTaken !== null || undefined} className="space-y-3">
+      <summary className={context.sourceCandidate ? 'pennie-focus-ring min-h-[44px] cursor-pointer py-3 text-sm font-semibold text-pennie-blue-deeper' : 'hidden'}>{actionTaken ? `Follow-up · ${ACTION_TAKEN_LABELS[actionTaken]}` : 'Add follow-up (optional)'}</summary>
       <p className="text-sm text-pennie-graphite">Optional. Saving a review does not mark the agent as coached.</p>
       <fieldset disabled={locked} className="space-y-3">
         <legend className="text-sm font-semibold">Record coaching or follow-up (optional)</legend><div className="flex flex-wrap gap-2" role="radiogroup" aria-label={escalationJustified ? 'Action taken' : 'What did you do about the issue?'}>{ACTIONS.map(value => <ReviewChoice key={value} name={`${scorecardId}-action`} checked={actionTaken === value} onChange={() => setActionTaken(value)} label={ACTION_TAKEN_LABELS[value]} />)}</div>
         {actionTaken !== null && <>
-          <label className="block text-sm font-semibold">{escalationJustified ? 'What action did you take?' : 'Coaching or next steps'}<ReviewText label={escalationJustified ? 'What action did you take?' : 'Coaching or next steps'} value={actionDetails} placeholder="Describe the coaching, escalation, or planned follow-up." onChange={setActionDetails} /></label>
+          <label className="block text-sm font-semibold">{escalationJustified ? 'What action did you take?' : 'Coaching or next steps'}<ReviewText id={`${scorecardId}-followup-details`} label={escalationJustified ? 'What action did you take?' : 'Coaching or next steps'} value={actionDetails} placeholder="Describe the coaching, escalation, or planned follow-up." onChange={setActionDetails} /></label>
           <button type="button" onClick={() => { setActionTaken(null); setActionDetails('') }} className="pennie-focus-ring min-h-[44px] text-xs font-semibold text-pennie-blue-deeper">Clear optional follow-up</button>
         </>}
       </fieldset>
+      </details>
     </section>}
 
     {!context.sourceCandidate && <details className="border-t border-border py-3">

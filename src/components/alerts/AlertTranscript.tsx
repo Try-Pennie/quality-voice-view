@@ -29,7 +29,7 @@ export function AlertTranscript({ callId, scope, agentEmail, reviewedTranscript,
     {!allowed ? <p className="text-sm text-muted-foreground">Transcript unavailable outside your assigned team.</p>
       : !reviewedTranscript && isPending ? <p role="status" className="text-sm text-muted-foreground">Loading transcript…</p>
       : !reviewedTranscript && isError ? <ErrorState compact message="Couldn't load the transcript. Retry, or use the external transcript link above." onRetry={() => refetch()} />
-        : hasTranscript ? <>{reviewedTranscript && <p className="mb-3 text-xs font-semibold text-pennie-graphite/70">Immutable source saved with this review</p>}<TranscriptView {...navigation} transcript={transcript} sourceTurns={reviewedTurns} constrainHeight={false} focusRequest={focusRequest} /></>
+        : hasTranscript ? <>{reviewedTranscript && <p className="mb-3 text-xs font-semibold text-pennie-graphite lg:hidden">Saved transcript</p>}<TranscriptView {...navigation} transcript={transcript} sourceTurns={reviewedTurns} constrainHeight={false} focusRequest={focusRequest} /></>
           : <p className="text-sm text-muted-foreground">No transcript text is available for this call. Use the recording or external transcript link above.</p>}
   </section>
 }
