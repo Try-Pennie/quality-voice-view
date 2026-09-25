@@ -189,7 +189,7 @@ test('inline transcript loading, failure/retry, empty and raw/no-evidence states
   state.transcript = 'Plain transcript without speaker markers. A repeated phrase. A repeated phrase.'
   await page.reload()
   await page.getByRole('button', { name: 'Inspect transcript context' }).click()
-  await expect(page.getByText('No literal evidence match in this transcript.', { exact: false })).toBeVisible()
+  await expect(page.getByText('No evidence passage is selected.', { exact: false })).toBeVisible()
   await page.getByRole('searchbox', { name: 'Search transcript' }).fill('repeated phrase')
   await expect(page.locator('mark')).toHaveCount(2)
 })

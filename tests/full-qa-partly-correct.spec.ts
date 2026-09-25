@@ -1,13 +1,19 @@
-import { test, expect } from '@playwright/test'
+import { test, expect, type Locator, type Page } from '@playwright/test'
 import { alertRow, reviewFixture } from './review-fixture'
 
 const explanation = 'The guarantee was misleading, but the interest explanation was qualified.'
+
+async function openAdjustment(page: Page, item: Locator) {
+  const disclosure = item.locator('summary').filter({ hasText: 'Optional criterion score adjustment' })
+  if (await disclosure.count() === 0) await page.getByRole('button', { name: /View full scorecard/ }).click()
+  await disclosure.click()
+}
 
 test('partly correct saves explicit mixed feedback, survives failure, and reopens for manager and approver', async ({ page, browser }, testInfo) => {
   const state = await reviewFixture(page, [alertRow('partly-correct')])
   await page.goto('/dashboard/alerts/partly-correct/full_qa')
   const item = page.getByRole('article', { name: 'Credit pull consent', exact: true })
-  await item.locator('summary').filter({ hasText: 'Optional criterion score adjustment' }).click()
+  await openAdjustment(page, item)
   await expect(item.getByRole('radiogroup', { name: 'Credit pull consent disposition' }).getByRole('radio', { checked: true })).toHaveCount(0)
   await item.getByRole('radio', { name: 'Partly correct', exact: true }).check()
   await expect(item.getByRole('combobox')).toHaveCount(0)
@@ -39,7 +45,7 @@ test('partly correct saves explicit mixed feedback, survives failure, and reopen
   expect(state.writes).toContainEqual(expect.objectContaining({ p_corrections: [correction], p_findings: [], p_action: null, p_escalation_justified: true }))
   await page.goto('/dashboard/alerts/partly-correct/full_qa')
   await page.getByRole('button', { name: 'Review', exact: true }).click()
-  await item.locator('summary').filter({ hasText: 'Optional criterion score adjustment' }).click()
+  await openAdjustment(page, item)
   await expect(page.getByRole('button', { name: 'Update review', exact: true })).toBeDisabled()
   await expect(item.getByRole('radio', { name: 'Partly correct', exact: true })).toBeChecked()
   await expect(note).toHaveValue(explanation)
@@ -64,7 +70,7 @@ test('switching mixed feedback retains the explanation, clears incompatible scor
   await page.goto('/dashboard/alerts/switch-partly/full_qa')
   await page.getByRole('radio', { name: 'Yes, the alert was warranted', exact: true }).check()
   const item = page.getByRole('article', { name: 'Credit pull consent', exact: true })
-  await item.locator('summary').filter({ hasText: 'Optional criterion score adjustment' }).click()
+  await openAdjustment(page, item)
   const save = page.getByRole('button', { name: 'Save review', exact: true })
   await item.getByRole('radio', { name: 'Incorrect', exact: true }).check()
   await item.getByRole('textbox', { name: 'Credit pull consent correction reason', exact: true }).fill(explanation)
@@ -88,7 +94,7 @@ test('mixed explanations use the same Unicode character bounds as PostgreSQL and
   await reviewFixture(page, [alertRow('unicode-partly')])
   await page.goto('/dashboard/alerts/unicode-partly/full_qa')
   const item = page.getByRole('article', { name: 'Credit pull consent', exact: true })
-  await item.locator('summary').filter({ hasText: 'Optional criterion score adjustment' }).click()
+  await openAdjustment(page, item)
   await item.getByRole('radio', { name: 'Partly correct', exact: true }).check()
   await page.getByRole('radio', { name: 'Yes, the alert was warranted', exact: true }).check()
   const note = item.getByRole('textbox', { name: 'Credit pull consent partly correct explanation', exact: true })
@@ -102,7 +108,7 @@ test('mixed explanations use the same Unicode character bounds as PostgreSQL and
   await save.click()
   await expect(page.getByText('Full QA review saved', { exact: true })).toBeVisible()
   await page.goto('/dashboard/alerts/unicode-partly/full_qa')
-  await item.locator('summary').filter({ hasText: 'Optional criterion score adjustment' }).click()
+  await openAdjustment(page, item)
   await expect(note).toHaveValue('😀'.repeat(4000))
   await expect(page.getByRole('button', { name: 'Update review', exact: true })).toBeDisabled()
 })

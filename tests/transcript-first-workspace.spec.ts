@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
-import { alertRow, QUOTES, reviewFixture } from './review-fixture'
+import { alertRow, FULL_QA_RESULT, QUOTES, reviewFixture } from './review-fixture'
 
 const wav = Buffer.alloc(44 + 2 * 8000 * 2)
 wav.write('RIFF', 0); wav.writeUInt32LE(wav.length - 8, 4); wav.write('WAVEfmt ', 8)
@@ -45,13 +45,15 @@ test('desktop gives transcript sixty percent and keeps both panes independently 
   expect(Math.abs((sourceBox?.x ?? 0) - (responseBox?.x ?? 0))).toBeLessThanOrEqual(1)
   expect(responseBox?.y).toBeGreaterThanOrEqual((sourceBox?.y ?? 0) + (sourceBox?.height ?? 0))
 
-  await page.screenshot({ path: testInfo.outputPath('transcript-first-desktop-entry.png'), animations: 'disabled' })
   await expect.poll(() => transcript.evaluate(element => element.scrollHeight > element.clientHeight)).toBe(true)
   await expect.poll(() => review.evaluate(element => element.scrollHeight > element.clientHeight)).toBe(true)
   await transcript.evaluate(element => { element.scrollTop = 200 })
   expect(await review.evaluate(element => element.scrollTop)).toBe(0)
   await review.evaluate(element => { element.scrollTop = 250 })
   expect(await transcript.evaluate(element => element.scrollTop)).toBe(200)
+  await review.evaluate(element => { element.scrollTop = 0 })
+  await page.screenshot({ path: testInfo.outputPath('transcript-first-desktop-entry.png'), animations: 'disabled' })
+  await consent.screenshot({ path: testInfo.outputPath('calm-review-desktop-evidence.png'), animations: 'disabled' })
   await expect(page.getByRole('region', { name: 'Call recording', exact: true })).toBeInViewport()
   await expect(page.getByRole('contentinfo').getByRole('button', { name: 'Save review', exact: true })).toBeInViewport()
 })
@@ -71,6 +73,9 @@ test('mobile switch preserves one draft and audio instance through every support
   const audio = page.locator('audio')
   await expect.poll(() => audio.evaluate(element => element.duration)).toBe(2)
   await audio.evaluate(element => { element.dataset.workspaceOwner = 'same-audio' })
+  await audio.dispatchEvent('waiting')
+  await expect(page.getByRole('region', { name: 'Call recording', exact: true }).getByText('Buffering recording…', { exact: true })).toBeVisible()
+  await audio.dispatchEvent('playing')
   await page.getByRole('region', { name: 'Call recording', exact: true }).getByRole('button', { name: 'Play', exact: true }).click()
   await expect.poll(() => audio.evaluate(element => element.currentTime)).toBeGreaterThan(0)
 
@@ -100,44 +105,72 @@ test('mobile switch preserves one draft and audio instance through every support
   expect(state.writes).toContainEqual(expect.objectContaining({ p_escalation_justified: false }))
 })
 
-test('exact evidence jumps to selected transcript text without timing and keeps the review draft', async ({ page }, testInfo) => {
-  await reviewFixture(page, [alertRow('literal-jump')])
+test('exact evidence selection stays independent from search and returns to the same review occurrence', async ({ page }, testInfo) => {
+  const state = await reviewFixture(page, [alertRow('literal-jump')])
+  state.transcript = `${Array.from({ length: 35 }, (_, index) => `[contact]: Customer context ${index}.`).join('\n')}\n[handling agent]: ${QUOTES[0]}`
   await page.setViewportSize({ width: 375, height: 812 })
   await page.goto('/dashboard/alerts/literal-jump/full_qa')
+  const transcript = page.getByRole('region', { name: 'Transcript workspace' })
+  const search = transcript.getByRole('searchbox', { name: 'Search transcript' })
+  await search.fill('Customer')
+  await expect(transcript.getByRole('status')).toContainText('1 of 35 search matches')
+
   await switchView(page, 'Review')
   await page.getByRole('radio', { name: 'No, the alert was unnecessary', exact: true }).check()
   const explanation = page.getByRole('textbox', { name: 'Explain your decision', exact: true })
   await explanation.fill('Keep this draft while checking the exact evidence in the transcript.')
-
   const consent = page.getByRole('article', { name: 'Credit pull consent', exact: true })
-  const find = consent.getByRole('button', { name: 'Find in transcript', exact: true })
+  const occurrence = consent.getByRole('group', { name: 'Credit pull consent evidence 1', exact: true })
+  await occurrence.getByRole('radio', { name: 'Evidence: Correct', exact: true }).check()
+  const find = occurrence.getByRole('button', { name: /^Find in transcript/ })
   await expect(find).toBeVisible()
-  await expect(consent.getByRole('button', { name: /^Play from here/ })).toHaveCount(0)
+  await expect(occurrence.getByRole('button', { name: /^Play from here/ })).toHaveCount(0)
   await find.click()
 
-  const transcript = page.getByRole('region', { name: 'Transcript workspace' })
   await expect(transcript).toBeVisible()
-  await expect(transcript.getByRole('searchbox', { name: 'Search transcript' })).toHaveValue(QUOTES[0])
-  await expect(transcript.getByRole('searchbox', { name: 'Search transcript' })).toBeFocused()
+  await expect(search).toHaveValue('Customer')
+  await expect(transcript.getByRole('complementary', { name: 'Selected evidence', exact: true })).toContainText('Credit pull consent')
   await expect(transcript.locator('mark[aria-current="true"]')).toHaveText(QUOTES[0])
-  await expect(transcript.locator('mark[aria-current="true"]')).toBeInViewport()
-  await page.screenshot({ path: testInfo.outputPath('transcript-first-literal-match-375.png'), animations: 'disabled' })
-  await switchView(page, 'Review')
+  await expect(transcript.locator('mark[aria-current="true"]')).toBeFocused()
+  const back = transcript.getByRole('button', { name: 'Back to evidence', exact: true })
+  await expect(back).toBeInViewport()
+  await expect.poll(() => page.locator('audio').count()).toBe(0)
+
+  await search.focus()
+  await expect(transcript.getByRole('status')).toContainText('1 of 35 search matches')
+  await search.press('Enter')
+  await expect(transcript.getByRole('status')).toContainText('2 of 35 search matches')
+  await transcript.getByRole('button', { name: 'Previous match', exact: true }).click()
+  await expect(transcript.getByRole('status')).toContainText('1 of 35 search matches')
+  await expect(transcript.getByRole('complementary', { name: 'Selected evidence', exact: true })).toBeVisible()
+
+  await back.click()
+  await expect(page.getByRole('region', { name: 'Review workspace' })).toBeVisible()
+  await expect(occurrence).toBeFocused()
+  await expect(occurrence).toBeInViewport()
+  await expect(occurrence).toHaveAttribute('aria-current', 'location')
+  await expect(occurrence.getByRole('radio', { name: 'Evidence: Correct', exact: true })).toBeChecked()
   await expect(explanation).toHaveValue('Keep this draft while checking the exact evidence in the transcript.')
+  await page.screenshot({ path: testInfo.outputPath('calm-review-mobile-375.png'), animations: 'disabled' })
 })
 
-test('refined workspace keeps evidence before the decision and search navigation compact', async ({ page }, testInfo) => {
-  const state = await reviewFixture(page, [alertRow('refined-workspace')])
+test('refined workspace keeps the first response visible with a long saved reason and recording', async ({ page }, testInfo) => {
+  const state = await reviewFixture(page, [alertRow('refined-workspace', { recording_link: '/transcript-first.wav' })])
+  await serveRecording(page)
+  state.fullQaSources.set('refined-workspace', { ...FULL_QA_RESULT, call_overview: {
+    ...FULL_QA_RESULT.call_overview,
+    manager_review_reason: 'The saved review reason contains the manager’s original detailed context without inventing a shorter summary. '.repeat(8),
+  } })
   const errors: string[] = []
   page.on('pageerror', error => errors.push(error.name))
   await page.setViewportSize({ width: 1440, height: 900 })
   await page.goto('/dashboard/alerts/refined-workspace/full_qa')
   const flags = page.getByRole('region', { name: 'What Eavesly flagged', exact: true })
-  const decision = page.getByText('Was this alert warranted?', { exact: true })
+  const decision = page.getByRole('contentinfo').getByRole('group', { name: 'Was this alert warranted?', exact: true })
   const scores = flags.getByRole('article', { name: 'Credit pull consent', exact: true })
   await expect(decision).toBeVisible()
-  expect((await decision.boundingBox())!.y).toBeGreaterThan((await flags.boundingBox())!.y)
-  expect((await scores.boundingBox())!.y).toBeLessThan((await decision.boundingBox())!.y)
+  await expect(page.getByText('Show full saved reason', { exact: true })).toBeVisible()
+  await expect(scores.getByRole('radio', { name: 'Evidence: Correct', exact: true }).first()).toBeInViewport()
   await page.screenshot({ path: testInfo.outputPath('refined-workspace-desktop.png') })
   const transcript = page.getByRole('region', { name: 'Transcript context', exact: true })
   const search = transcript.getByRole('searchbox', { name: 'Search transcript' })
@@ -172,8 +205,8 @@ test('decision jump and saved-review footer finish the queue without bypassing f
   const footer = page.getByRole('contentinfo')
   const next = footer.getByRole('button', { name: 'Next alert', exact: true })
   await expect(next).toHaveCount(0)
-  await footer.getByRole('button', { name: 'Your decision', exact: true }).click()
-  await expect(page.getByText('Was this alert warranted?', { exact: true })).toBeFocused()
+  await expect(footer.getByRole('button', { name: 'Your decision', exact: true })).toHaveCount(0)
+  await expect(footer.getByRole('group', { name: 'Was this alert warranted?', exact: true })).toBeVisible()
   await page.getByRole('radio', { name: 'Yes, the alert was warranted', exact: true }).check()
   const save = footer.getByRole('button', { name: 'Save review', exact: true })
   state.failFeedback = true
@@ -189,6 +222,7 @@ test('decision jump and saved-review footer finish the queue without bypassing f
   await expect(next).toHaveCount(0)
   release()
   await expect(next).toBeVisible()
+  await page.getByRole('button', { name: 'Add overall note', exact: true }).click()
   const feedback = page.getByRole('textbox', { name: 'Feedback on Eavesly (optional)', exact: true })
   await feedback.fill('A new unsaved detail after the successful review.')
   await expect(next).toHaveCount(0)

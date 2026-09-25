@@ -31,21 +31,19 @@ test('quiet recording and evidence surfaces retain accessible text and input bou
   await page.goto('/dashboard/alerts/contrast/full_qa')
   const recording = page.getByRole('region', { name: 'Call recording', exact: true })
   const source = page.getByRole('region', { name: 'Credit pull consent: What Eavesly flagged', exact: true })
-  const response = page.getByRole('region', { name: 'Credit pull consent: Your review', exact: true })
   await expect(source).toBeVisible()
-  await expect(recording.getByText('Ready to play', { exact: true })).toBeVisible()
+  await expect(recording.getByRole('button', { name: 'Play', exact: true })).toBeVisible()
   expect(await contrast(recording.getByRole('combobox', { name: 'Playback speed' }), 'borderTopColor', 'parent')).toBeGreaterThanOrEqual(3)
   for (const width of [1440, 375]) {
     await page.setViewportSize({ width, height: width < 768 ? 812 : 900 })
     if (width === 375) await page.getByRole('button', { name: 'Review', exact: true }).click()
     await source.scrollIntoViewIfNeeded()
     await page.screenshot({ path: testInfo.outputPath(`review-contrast-${width}.png`) })
-    // Surfaces are intentionally quieter and the noninteractive card frame is removed.
-    // Keep actual text/control accessibility thresholds; don't require the former blue fill.
-    expect(await contrast(recording, 'color', 'white')).toBeGreaterThan(1)
+    // Full QA recording chrome is intentionally white; contrast lives in its border and controls.
+    await expect(recording).toHaveCSS('background-color', 'rgb(255, 255, 255)')
     expect(await contrast(source.getByRole('heading'), 'color')).toBeGreaterThanOrEqual(4.5)
-    expect(await contrast(response.getByText('Correct', { exact: true }), 'color')).toBeGreaterThanOrEqual(4.5)
-    expect(await contrast(recording.getByText('Ready to play', { exact: true }), 'color')).toBeGreaterThanOrEqual(4.5)
+    expect(await contrast(source.getByText('Correct', { exact: true }), 'color')).toBeGreaterThanOrEqual(4.5)
+    expect(await contrast(recording.getByRole('button', { name: 'Play', exact: true }), 'color')).toBeGreaterThanOrEqual(4.5)
     expect(await recording.evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true)
   }
   await page.getByRole('radio', { name: 'No, the alert was unnecessary', exact: true }).check()

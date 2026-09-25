@@ -37,7 +37,7 @@ test('one flag list pairs saved failures with passages without losing contexts o
   const general = flags.getByRole('article', { name: 'General review focus', exact: true })
   await expect(general).toHaveCount(3)
   const additional = general.filter({ has: page.locator('blockquote').filter({ hasText: unlinked.quote }) })
-  await expect(additional).toContainText('not linked to a specific claim')
+  await expect(additional).toContainText('Saved call-level review focus.')
   await expect(additional.getByRole('radio')).toHaveCount(3)
   const notes = flags.getByRole('article', { name: 'Accurate representations', exact: true })
   await expect(notes).toContainText('Synthetic inaccurate statement')
@@ -58,7 +58,6 @@ test('one flag list pairs saved failures with passages without losing contexts o
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
     if (width === 375) { await outcome.scrollIntoViewIfNeeded(); await page.screenshot({ path: testInfo.outputPath('consolidated-flags-mobile.png') }) }
   }
-  await page.getByRole('button', { name: 'Your decision', exact: true }).click()
   await page.getByRole('radio', { name: 'Yes, the alert was warranted', exact: true }).check()
   await page.getByRole('button', { name: 'Save review', exact: true }).click()
   await expect(page.getByText('Full QA review saved', { exact: true })).toBeVisible()

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useId, useMemo, useRef, useState, type ReactNode } from 'react'
+import { createPortal } from 'react-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { ChevronDown, Flag, MessageSquare, Plus, Trash2 } from 'lucide-react'
 import { toast } from 'sonner'
@@ -45,7 +46,9 @@ interface Props {
   readonly scope: UserScope
   readonly editable: boolean
   readonly canReloadReview: boolean
-  readonly renderAudioLink?: (quote: string, speaker?: string) => ReactNode
+  readonly renderEvidenceLink?: (reference: FullQaEvidenceReference) => ReactNode
+  readonly selectedEvidenceReferenceId?: string | null
+  readonly verdictPortalTarget?: HTMLElement | null
   readonly onStaleReview: () => void
   readonly onDirtyChange: (dirty: boolean) => void
   readonly onBusyChange: (busy: boolean) => void
@@ -147,63 +150,84 @@ function seededEvidence(evidence: unknown, notes: readonly string[]): string {
   return [...new Set([...notes, ...lines])].join('\n')
 }
 
-function EvidenceFeedbackCard({ reference, index, feedback, editable, disabled, renderAudioLink, onChange }: {
+function EvidenceFeedbackCard({ reference, index, feedback, editable, disabled, selected, renderEvidenceLink, onChange }: {
   readonly reference: FullQaEvidenceReference
   readonly index: number
   readonly feedback: FullQaEvidenceFeedback | undefined
   readonly editable: boolean
   readonly disabled: boolean
-  readonly renderAudioLink?: (quote: string, speaker?: string) => ReactNode
+  readonly selected: boolean
+  readonly renderEvidenceLink?: (reference: FullQaEvidenceReference) => ReactNode
   readonly onChange: (feedback: FullQaEvidenceFeedback | null) => void
 }) {
+  const [commentOpen, setCommentOpen] = useState(false)
+  const commentId = useId()
   const question = reference.claimKind === 'general_focus'
     ? reference.evidenceKind === 'note' ? 'Was Eavesly right to flag this saved note for review?' : 'Was Eavesly right to flag this passage for review?'
     : reference.evidenceKind === 'note' ? 'Does this saved note support Eavesly’s claim?'
       : 'Does this evidence support Eavesly’s claim?'
-  const guidance = reference.claimKind === 'general_focus'
-    ? 'Judge whether this passage belonged in manager review—not transcript spelling.'
-    : 'Judge whether the saved evidence supports the claim—not transcript spelling.'
   const missingMessage = reference.claimKind === 'general_focus'
     ? 'No readable passage or note was saved for this general review focus.'
     : 'No readable evidence was saved for this claim. Check the transcript before judging it.'
   const attribution = [reference.speaker ?? (reference.evidenceKind === 'quote' ? 'Speaker not saved' : null), reference.processStep].filter(Boolean).join(' · ')
-  return <div role="group" aria-label={`${reference.claimLabel} evidence ${index + 1}`} className="space-y-3 rounded-xl border border-border bg-white p-3">
+  const comment = savedText(feedback?.comment)
+  useEffect(() => { if (!feedback) setCommentOpen(false) }, [feedback])
+  const openComment = () => {
+    setCommentOpen(true)
+    requestAnimationFrame(() => document.getElementById(commentId)?.focus())
+  }
+  const finishComment = () => {
+    setCommentOpen(false)
+    requestAnimationFrame(() => document.getElementById(`${commentId}-trigger`)?.focus())
+  }
+  return <div id={`evidence-reference-${reference.referenceId}`} role="group" tabIndex={-1} aria-current={selected ? 'location' : undefined} aria-label={`${reference.claimLabel} evidence ${index + 1}`} className={`pennie-focus-ring space-y-3 rounded-xl border-l-2 px-3 py-3 ${selected ? 'border-pennie-blue-deeper bg-pennie-blue-light/70' : 'border-border bg-pennie-beige/35'}`}>
     {reference.evidenceKind === 'quote' ? <figure className="space-y-1">
       {attribution && <figcaption className="text-xs font-semibold text-pennie-graphite/70">{attribution}</figcaption>}
-      <blockquote className="whitespace-pre-wrap break-words border-l-2 border-pennie-yellow-dark pl-3 text-sm leading-relaxed text-pennie-graphite">{reference.text}</blockquote>
+      <blockquote className="whitespace-pre-wrap break-words text-sm leading-relaxed text-pennie-graphite">{reference.text}</blockquote>
       {reference.context && <p className="whitespace-pre-wrap break-words text-xs text-pennie-graphite/80"><span className="font-semibold">Saved context: </span>{reference.context}</p>}
-      {reference.text && renderAudioLink?.(reference.text, reference.speaker ?? undefined)}
+      {reference.text && renderEvidenceLink?.(reference)}
     </figure> : reference.evidenceKind === 'note' ? <div>
       <p className="text-xs font-semibold text-pennie-graphite/70">Saved note — not a transcript quote</p>
       <p className="mt-1 whitespace-pre-wrap break-words text-sm leading-relaxed text-pennie-graphite">{reference.text}</p>
     </div> : <p className="text-sm text-pennie-graphite">{missingMessage}</p>}
-    {editable && reference.evidenceKind !== 'missing' ? <div className="space-y-2 border-t border-border pt-3">
+    {editable && reference.evidenceKind !== 'missing' ? <div className="space-y-2 border-t border-pennie-navy/10 pt-3">
       <fieldset disabled={disabled}>
         <legend className="text-sm font-semibold text-pennie-navy">{question} <span className="font-normal">(optional)</span></legend>
-        <p className="mt-1 text-xs text-pennie-graphite/70">{guidance}</p>
-        <div className="mt-2 flex flex-wrap gap-2">{([{ disposition: 'correct', label: 'Correct' }, { disposition: 'incorrect', label: 'Incorrect' }, { disposition: 'partly_correct', label: 'Partly correct' }] as const).map(option => <label key={option.disposition} className={`flex min-h-[44px] cursor-pointer items-center gap-2 rounded-xl border px-3 py-2 text-sm has-[:disabled]:cursor-not-allowed has-[:disabled]:opacity-50 ${feedback?.disposition === option.disposition ? 'border-pennie-blue-deeper bg-pennie-blue-light text-pennie-navy' : 'border-border text-pennie-graphite hover:bg-pennie-blue-light/50'}`}>
+        <div className="mt-2 flex flex-wrap gap-2">{([{ disposition: 'correct', label: 'Correct' }, { disposition: 'incorrect', label: 'Incorrect' }, { disposition: 'partly_correct', label: 'Partly correct' }] as const).map(option => <label key={option.disposition} className={`flex min-h-[44px] cursor-pointer items-center gap-2 rounded-xl border px-3 py-2 text-sm has-[:disabled]:cursor-not-allowed has-[:disabled]:opacity-50 ${feedback?.disposition === option.disposition ? 'border-pennie-blue-deeper bg-white text-pennie-navy' : 'border-border bg-white/80 text-pennie-graphite hover:bg-pennie-blue-light'}`}>
           <input type="radio" name={`evidence-${reference.referenceId}`} aria-label={`Evidence: ${option.label}`} checked={feedback?.disposition === option.disposition} onChange={() => onChange({ referenceId: reference.referenceId, disposition: option.disposition, comment: feedback?.comment ?? null })} className="pennie-focus-ring h-4 w-4 accent-pennie-blue-deeper" />
           {option.label}
         </label>)}</div>
       </fieldset>
-      {feedback && <>
-        <label className="block text-sm font-semibold">Comment <span className="font-normal">(optional)</span><ReviewText required={false} label={`${reference.claimLabel} evidence comment`} disabled={disabled} value={feedback.comment ?? ''} placeholder={reference.claimKind === 'general_focus' ? 'Add context for why this passage was or was not worth flagging.' : 'Add context for this evidence and claim.'} onChange={comment => onChange({ ...feedback, comment: comment || null })} /></label>
-        <button type="button" disabled={disabled} onClick={() => onChange(null)} className="pennie-focus-ring min-h-[44px] text-xs font-semibold text-pennie-blue-deeper">Clear passage response</button>
-      </>}
-    </div> : feedback ? <div className="border-t border-border pt-3 text-sm text-pennie-graphite">
+      {feedback && <div className="space-y-2">
+        {comment && !commentOpen && <div className="rounded-lg bg-white/80 px-3 py-2 text-sm text-pennie-graphite"><p className="text-xs font-semibold text-pennie-navy">Comment</p><p className="mt-1 whitespace-pre-wrap break-words">{comment}</p></div>}
+        {commentOpen ? <div>
+          <label htmlFor={commentId} className="block text-sm font-semibold">Comment <span className="font-normal">(optional)</span></label>
+          <ReviewText id={commentId} required={false} label={`${reference.claimLabel} evidence comment`} disabled={disabled} value={feedback.comment ?? ''} placeholder={reference.claimKind === 'general_focus' ? 'Add context for why this passage was or was not worth flagging.' : 'Add context for this evidence and claim.'} onChange={value => onChange({ ...feedback, comment: value || null })} />
+          <button type="button" disabled={disabled} onClick={finishComment} className="pennie-focus-ring min-h-[44px] text-xs font-semibold text-pennie-blue-deeper">Done</button>
+        </div> : <button id={`${commentId}-trigger`} type="button" disabled={disabled} onClick={openComment} className="pennie-focus-ring min-h-[44px] rounded-full px-2 text-xs font-semibold text-pennie-blue-deeper hover:bg-white/70">{comment ? 'Edit comment' : 'Add comment'}</button>}
+        <button type="button" disabled={disabled} onClick={() => onChange(null)} className="pennie-focus-ring min-h-[44px] px-2 text-xs font-semibold text-pennie-blue-deeper">Clear passage response</button>
+      </div>}
+    </div> : feedback ? <div className="border-t border-pennie-navy/10 pt-3 text-sm text-pennie-graphite">
       <p className="text-xs font-bold text-pennie-blue-deeper">Saved passage response</p>
       <p className="mt-1 font-semibold text-pennie-navy">{feedback.disposition === 'partly_correct' ? 'Partly correct' : feedback.disposition === 'correct' ? 'Correct' : 'Incorrect'}</p>
       {feedback.comment && <p className="mt-1 whitespace-pre-wrap break-words">{feedback.comment}</p>}
-    </div> : reference.evidenceKind === 'missing' ? <p className="border-t border-border pt-3 text-xs text-pennie-graphite/70">No passage response is available because no readable evidence was saved. {reference.claimKind === 'criterion' ? 'Use the optional criterion adjustment below if needed.' : 'The overall alert decision remains separate.'}</p>
-      : <p className="border-t border-border pt-3 text-xs text-pennie-graphite/70">No passage-level response was recorded.</p>}
+    </div> : reference.evidenceKind === 'missing' ? <p className="border-t border-pennie-navy/10 pt-3 text-xs text-pennie-graphite/70">No passage response is available because no readable evidence was saved. {reference.claimKind === 'criterion' ? 'Use the full scorecard if a criterion-level correction is needed.' : 'The overall alert decision remains separate.'}</p>
+      : <p className="border-t border-pennie-navy/10 pt-3 text-xs text-pennie-graphite/70">No passage-level response was recorded.</p>}
   </div>
 }
 
 function ReasonText({ text, violations }: { readonly text: string | null; readonly violations: readonly string[] }) {
+  const isLong = (text?.length ?? 0) > 220
   return <>
-    {text ? <p className="mt-2 whitespace-pre-wrap break-words text-sm leading-relaxed text-pennie-graphite">{text}</p>
-      : <p className="mt-2 text-sm text-pennie-graphite">No alert reason saved.</p>}
-    {violations.length > 0 && <details className="mt-2 text-sm">
+    {text && (isLong ? <details className="group mt-1 text-sm text-pennie-graphite">
+      <summary className="pennie-focus-ring cursor-pointer list-none">
+        <span className="line-clamp-2 whitespace-pre-wrap break-words leading-relaxed group-open:hidden">{text}</span>
+        <span className="mt-1 inline-block min-h-[36px] py-2 text-xs font-semibold text-pennie-blue-deeper group-open:hidden">Show full saved reason</span>
+        <span className="hidden min-h-[36px] py-2 text-xs font-semibold text-pennie-blue-deeper group-open:inline-block">Hide full saved reason</span>
+      </summary>
+      <p className="whitespace-pre-wrap break-words leading-relaxed">{text}</p>
+    </details> : <p className="mt-1 whitespace-pre-wrap break-words text-sm leading-relaxed text-pennie-graphite">{text}</p>)}
+    {violations.length > 0 && <details className="mt-1 text-sm">
       <summary className="pennie-focus-ring flex min-h-[36px] cursor-pointer items-center text-xs font-semibold text-pennie-blue-deeper">Recorded compliance issues ({violations.length})</summary>
       <ul className="mt-1 list-disc space-y-1 pl-5 text-pennie-graphite">{violations.map((item, index) => <li key={index} className="whitespace-pre-wrap break-words">{item}</li>)}</ul>
     </details>}
@@ -261,9 +285,10 @@ function ManagerReviewOutcome({ context }: { readonly context: FullQaReviewConte
 }
 
 /** An alert decision with optional explicit score feedback and coaching; original AI judgments stay immutable. */
-export function FullQaRubricReview({ alert, scope, editable, canReloadReview, renderAudioLink, onStaleReview, onDirtyChange, onBusyChange, onSaveStateChange, onSubmitted }: Props) {
+export function FullQaRubricReview({ alert, scope, editable, canReloadReview, renderEvidenceLink, selectedEvidenceReferenceId, verdictPortalTarget, onStaleReview, onDirtyChange, onBusyChange, onSaveStateChange, onSubmitted }: Props) {
   const queryClient = useQueryClient()
   const scorecardId = useId()
+  const overallNoteTriggerId = useId()
   const [showFullScorecard, setShowFullScorecard] = useState(false)
   const query = useQuery({ queryKey: ['fullQaReviewContext', alert.call_id], queryFn: () => fetchFullQaReviewContext(alert.call_id) })
   const context = query.data
@@ -279,6 +304,7 @@ export function FullQaRubricReview({ alert, scope, editable, canReloadReview, re
   // No verdict is preselected locally; the saved contract stays boolean.
   const [escalationJustified, setEscalationJustified] = useState<boolean | null>(null)
   const [escalationReason, setEscalationReason] = useState('')
+  const [showOverallNote, setShowOverallNote] = useState(false)
   const [inaccuracyReason, setInaccuracyReason] = useState<AlertInaccuracyReason | null>(null)
   const [actionTaken, setActionTaken] = useState<AlertActionTaken | null>(null)
   const [actionDetails, setActionDetails] = useState('')
@@ -302,7 +328,7 @@ export function FullQaRubricReview({ alert, scope, editable, canReloadReview, re
       actionTaken: nextContext.review?.actionTaken ?? null,
       actionDetails: nextContext.review?.actionDetails ?? null }
     setCorrections(next.corrections); setEvidenceFeedback(next.evidenceFeedback); setFindings(next.findings); setEscalationJustified(next.escalationJustified)
-    setEscalationReason(next.escalationReason); setInaccuracyReason(next.inaccuracyReason); setActionTaken(next.actionTaken); setActionDetails(next.actionDetails ?? '')
+    setEscalationReason(next.escalationReason); setShowOverallNote(false); setInaccuracyReason(next.inaccuracyReason); setActionTaken(next.actionTaken); setActionDetails(next.actionDetails ?? '')
     setProposalCriterion(nextContext.criteria[0]?.key ?? '')
     setShowFullScorecard(false)
     baseline.current = serializeDraft({ ...next,
@@ -340,7 +366,8 @@ export function FullQaRubricReview({ alert, scope, editable, canReloadReview, re
           : context.review && !reviewDirty ? 'No unsaved review changes.'
             : parsed.ok === false ? reviewDirty ? parsed.message : 'Choose whether this alert was warranted. Score feedback and coaching are optional.' : null
   const nextSectionId = context && initializedFor.current === alert.call_id && !query.isError && !contextChanged && !busy && parsed.ok === false
-    ? parsed.finding ? `${scorecardId}-finding-${parsed.finding.id}-${parsed.finding.field}` : `${scorecardId}-${parsed.section}` : null
+    ? parsed.finding ? `${scorecardId}-finding-${parsed.finding.id}-${parsed.finding.field}`
+      : parsed.section === 'decision' && escalationJustified !== null ? `${scorecardId}-decision-details` : `${scorecardId}-${parsed.section}` : null
   useEffect(() => { onDirtyChange(dirty) }, [dirty, onDirtyChange])
   useEffect(() => { onBusyChange(busy) }, [busy, onBusyChange])
   useEffect(() => { onSaveStateChange({ disabled: saveDisabled, label: saveLabel, message: saveMessage, nextSectionId }) }, [saveDisabled, saveLabel, saveMessage, nextSectionId, onSaveStateChange])
@@ -466,8 +493,29 @@ export function FullQaRubricReview({ alert, scope, editable, canReloadReview, re
   const generalFocusReferences = context.evidenceReferences.filter(item => item.claimKind === 'general_focus')
   const evidenceCard = (reference: FullQaEvidenceReference, index: number) => <EvidenceFeedbackCard key={reference.referenceId}
     reference={reference} index={index} feedback={evidenceFeedback.find(item => item.referenceId === reference.referenceId)}
-    editable={editable} disabled={locked} renderAudioLink={renderAudioLink}
+    editable={editable} disabled={locked} selected={selectedEvidenceReferenceId === reference.referenceId} renderEvidenceLink={renderEvidenceLink}
     onChange={next => updateEvidenceFeedback(reference.referenceId, next)} />
+
+  const alertDecision = editable && verdictPortalTarget ? createPortal(<fieldset disabled={locked} aria-label="Was this alert warranted?" className="flex min-w-0 flex-wrap items-center gap-2">
+    <legend id={`${scorecardId}-decision`} tabIndex={-1} className="pennie-focus-ring mr-1 text-sm font-semibold text-pennie-navy">Alert warranted?</legend>
+    <ReviewChoice name={`${scorecardId}-escalation`} checked={escalationJustified === true} onChange={() => setEscalationJustified(true)} pill={false} label="Yes" ariaLabel="Yes, the alert was warranted" />
+    <ReviewChoice name={`${scorecardId}-escalation`} checked={escalationJustified === false} onChange={() => setEscalationJustified(false)} pill={false} label="No" ariaLabel="No, the alert was unnecessary" />
+  </fieldset>, verdictPortalTarget) : null
+
+  const decisionDetails = editable && escalationJustified !== null && <section aria-label="Alert decision details" className="border-b border-border pb-4"><fieldset disabled={locked} className="space-y-3">
+    {escalationJustified === true ? <div className="text-sm">
+      {savedText(escalationReason) && !showOverallNote && <p className="whitespace-pre-wrap break-words text-pennie-graphite"><span className="font-semibold text-pennie-navy">Overall note: </span>{escalationReason.trim()}</p>}
+      {showOverallNote ? <div><label className="block font-semibold">Feedback on Eavesly (optional)<ReviewText id={`${scorecardId}-decision-details`} required={false} label="Feedback on Eavesly (optional)" value={escalationReason} placeholder="Agree with the alert, but not every reason? Add a short note." onChange={setEscalationReason} /></label><button type="button" onClick={() => {
+          if (Array.from(escalationReason.trim()).length > INTERNAL_REVIEW_TEXT_LIMITS.max) { document.getElementById(`${scorecardId}-decision-details`)?.focus(); return }
+          setShowOverallNote(false); requestAnimationFrame(() => document.getElementById(overallNoteTriggerId)?.focus())
+        }} className="pennie-focus-ring min-h-[44px] text-xs font-semibold text-pennie-blue-deeper">Done</button></div>
+        : <button id={overallNoteTriggerId} type="button" onClick={() => setShowOverallNote(true)} className="pennie-focus-ring min-h-[44px] rounded-full px-2 text-xs font-semibold text-pennie-blue-deeper hover:bg-pennie-blue-light">{savedText(escalationReason) ? 'Edit overall note' : 'Add overall note'}</button>}
+    </div> : <>
+      <label className="block text-sm font-semibold">Explain your decision<ReviewText id={`${scorecardId}-decision-details`} label="Explain your decision" value={escalationReason} placeholder="What did Eavesly miss or misunderstand? A brief explanation is enough." onChange={setEscalationReason} /></label>
+      <details className="text-sm"><summary className="pennie-focus-ring min-h-[44px] cursor-pointer py-3 text-xs font-semibold text-pennie-blue-deeper">Reason category (optional){inaccuracyReason ? ` · ${INACCURACY_REASON_LABELS[inaccuracyReason]}` : ''}</summary><fieldset><div className="flex flex-wrap gap-2" role="radiogroup" aria-label="Why was the alert unnecessary?">{REASONS.map(value => <ReviewChoice key={value} name={`${scorecardId}-reason`} checked={inaccuracyReason === value} onChange={() => setInaccuracyReason(value)} label={INACCURACY_REASON_LABELS[value]} />)}</div>{inaccuracyReason !== null && <button type="button" onClick={() => setInaccuracyReason(null)} className="pennie-focus-ring min-h-[44px] text-xs font-semibold text-pennie-blue-deeper">Clear reason category</button>}</fieldset></details>
+      {findings.length > 0 && <p className="text-sm text-pennie-graphite/70">Coaching issues won’t be included when you save No. Select Yes to restore your draft. Earlier saved revisions remain in review history.</p>}
+    </>}
+  </fieldset></section>
 
   const scorecard = <>
     {criticalClaimKeys.map(claimKey => {
@@ -502,20 +550,20 @@ export function FullQaRubricReview({ alert, scope, editable, canReloadReview, re
       const evidenceReferences = context.evidenceReferences.filter(item => item.claimKind === 'criterion' && item.claimKey === criterion.key)
       const sourceHeading = aiConcern ? 'What Eavesly flagged' : 'Eavesly’s assessment'
       const responseHeading = editable ? 'Your review' : 'Manager’s response'
-      return <article key={criterion.key} aria-label={criterion.label} hidden={!showFullScorecard && !attentionKeys.has(criterion.key)} className="border-b border-border py-5">
-        <div className="min-w-0 space-y-4">
+      return <article key={criterion.key} aria-label={criterion.label} hidden={!showFullScorecard && !attentionKeys.has(criterion.key)} className="border-b border-border py-4">
+        <div className="min-w-0 space-y-3">
           <section aria-label={`${criterion.label}: ${sourceHeading}`} className="min-w-0 space-y-3">
             <div>
               <p className={`mb-0.5 inline-flex items-center gap-2 text-xs font-bold ${aiConcern ? 'text-pennie-yellow-deeper' : 'text-pennie-blue-deeper'}`}>{aiConcern ? <Flag className="h-4 w-4 shrink-0" aria-hidden="true" /> : <MessageSquare className="h-4 w-4 shrink-0" aria-hidden="true" />}{label}</p>
               <h3 className="min-w-0 break-words text-base font-semibold text-pennie-navy">{criterion.label}</h3>
               <p className="mt-1 text-sm text-pennie-graphite">Eavesly’s result: <strong>{scoreLabel(originalValue)}</strong></p>
             </div>
-            {aiConcern && (notes.length > 0 ? <div className="space-y-1 text-sm text-pennie-graphite">
+            {aiConcern && notes.length > 0 && <div className="space-y-1 text-sm text-pennie-graphite">
               <p className="text-xs font-semibold">Why this was flagged</p>
               {notes.map((note, index) => <p key={index} className="whitespace-pre-wrap break-words leading-relaxed">{note}</p>)}
-            </div> : <p className="text-xs text-pennie-graphite/70">{criterion.findingCategory === 'program_expectations' && (programSummary || programGaps.length > 0) ? 'No separate reason saved for this score; see the saved section notes above.' : 'No reason saved for this score.'}</p>)}
+            </div>}
             <div className="space-y-3">
-              <p className="text-xs font-semibold text-pennie-graphite">Evidence tied to this claim</p>
+              <p className="sr-only">Evidence tied to this claim</p>
               {evidenceReferences.map(evidenceCard)}
             </div>
             <details>
@@ -530,7 +578,7 @@ export function FullQaRubricReview({ alert, scope, editable, canReloadReview, re
               <p className="font-semibold text-pennie-navy">{correctionLabels(saved).saved}</p>
               {saved.reason && <p className="mt-1 whitespace-pre-wrap break-words text-pennie-graphite">{saved.reason}</p>}
             </div>}
-            {editable && <details className="rounded-xl border border-border px-3 py-2">
+            {editable && (showFullScorecard || correction?.disposition === 'corrected' || correction?.disposition === 'partially_correct') && <details className="rounded-xl bg-pennie-beige/55 px-3 py-2">
               <summary className="pennie-focus-ring min-h-[44px] cursor-pointer py-3 text-sm font-semibold text-pennie-blue-deeper">Optional criterion score adjustment</summary>
               <div className="space-y-3 pb-2 pt-1">
               <fieldset disabled={locked} role="radiogroup" aria-label={`${criterion.label} disposition`}>
@@ -562,14 +610,9 @@ export function FullQaRubricReview({ alert, scope, editable, canReloadReview, re
       </article>
     })}</div>
     {generalFocusReferences.map((reference, index) => <article key={reference.referenceId} aria-label="General review focus" className="space-y-3 border-b border-border py-5">
-      <div><h3 className="text-base font-semibold text-pennie-navy">General review focus</h3><p className="text-xs text-pennie-graphite/70">This saved focus was not linked to a specific claim. It stays separate rather than being matched by quote text.</p></div>
+      <div><h3 className="text-base font-semibold text-pennie-navy">General review focus</h3><p className="text-xs text-pennie-graphite/70">Saved call-level review focus.</p></div>
       {evidenceCard(reference, index)}
     </article>)}
-    <div className="flex flex-wrap items-center justify-end gap-x-3">
-      <button type="button" aria-expanded={showFullScorecard} aria-controls={scorecardId} onClick={() => setShowFullScorecard(value => !value)} className="pennie-focus-ring min-h-[44px] rounded-lg py-2 text-sm font-semibold text-pennie-blue-deeper underline-offset-4 hover:underline active:bg-pennie-beige">
-        {showFullScorecard ? 'Show only items to check' : `View full scorecard · ${context.criteria.length} criteria`}
-      </button>
-    </div>
   </>
 
   return <form id={FULL_QA_FORM_ID} onSubmit={event => { event.preventDefault(); void save() }} className="space-y-6" aria-label="Full QA rubric review">
@@ -592,23 +635,21 @@ export function FullQaRubricReview({ alert, scope, editable, canReloadReview, re
     {context.sourceReferenceKind !== 'known' && <p className={context.sourceReferenceKind === 'legacy_current_reference' ? 'text-xs text-pennie-graphite/70' : 'rounded-xl border border-pennie-peach-dark bg-pennie-peach-light/30 p-3 text-xs text-pennie-graphite'}>{context.sourceReferenceKind === 'legacy_current_reference' ? 'Original rubric unknown; current reference only.' : 'Original rubric unavailable for this stamped hash; current field map only.'}</p>}
     {editable && context.review && <p className="text-xs text-pennie-graphite/70">Saved revision {context.review.feedbackRevision} · {formatDateTime(context.review.savedAt)} by {context.review.savedBy}</p>}
 
-    <section aria-label="What Eavesly flagged" className="border-t border-border pt-5">
-      <h2 id={`${scorecardId}-scores`} tabIndex={-1} className="pennie-focus-ring text-lg font-semibold text-pennie-navy">What Eavesly flagged</h2>
-      <p className="mt-1 text-xs text-pennie-graphite/70">Passage feedback is optional; unanswered evidence stays unreviewed. Your overall alert decision is separate.</p>
+    {alertDecision}
+    {decisionDetails}
+
+    <section aria-label="What Eavesly flagged" className="border-t border-border pt-4">
+      <div className="flex flex-wrap items-start justify-between gap-2">
+        <div><h2 id={`${scorecardId}-scores`} tabIndex={-1} className="pennie-focus-ring text-lg font-semibold text-pennie-navy">What Eavesly flagged</h2>
+          <p className="mt-1 max-w-2xl text-xs text-pennie-graphite/70">Judge whether each saved passage supports its claim—not transcript spelling. Responses are optional and unanswered passages stay unreviewed.</p></div>
+        <button type="button" aria-expanded={showFullScorecard} aria-controls={scorecardId} onClick={() => setShowFullScorecard(value => !value)} className="pennie-focus-ring min-h-[44px] whitespace-nowrap rounded-full px-3 text-xs font-semibold text-pennie-blue-deeper hover:bg-pennie-blue-light">
+          {showFullScorecard ? 'Show only items to check' : `View full scorecard · ${context.criteria.length} criteria`}
+        </button>
+      </div>
       {scorecard}
     </section>
 
-    {editable && <fieldset disabled={locked} className="space-y-3 border-t border-border pt-5"><legend id={`${scorecardId}-decision`} tabIndex={-1} className="pennie-focus-ring pr-2 text-base font-semibold text-pennie-navy">Was this alert warranted?</legend>
-      <p className="text-sm text-pennie-graphite/70">Your decision is enough. Add feedback only when useful.</p>
-      <div role="radiogroup" aria-label="Alert verdict" className="flex flex-wrap gap-2">{([true, false] as const).map(value => <ReviewChoice key={String(value)} name={`${scorecardId}-escalation`} checked={escalationJustified === value} onChange={() => setEscalationJustified(value)} pill={false} label={value ? 'Yes, the alert was warranted' : 'No, the alert was unnecessary'} />)}</div>
-      {escalationJustified === true && <label className="block text-sm font-semibold">Feedback on Eavesly (optional)<ReviewText required={false} label="Feedback on Eavesly (optional)" value={escalationReason} placeholder="Agree with the alert, but not every reason? Tell us which part was wrong. No coaching plan needed." onChange={setEscalationReason} /></label>}
-      {escalationJustified === false && <>
-        <label className="block text-sm font-semibold">Explain your decision<ReviewText label="Explain your decision" value={escalationReason} placeholder="What did Eavesly miss or misunderstand? A brief explanation is enough." onChange={setEscalationReason} /></label>
-        <fieldset><legend className="mb-2 text-xs font-semibold">Reason category (optional)</legend><div className="flex flex-wrap gap-2" role="radiogroup" aria-label="Why was the alert unnecessary?">{REASONS.map(value => <ReviewChoice key={value} name={`${scorecardId}-reason`} checked={inaccuracyReason === value} onChange={() => setInaccuracyReason(value)} label={INACCURACY_REASON_LABELS[value]} />)}</div>{inaccuracyReason !== null && <button type="button" onClick={() => setInaccuracyReason(null)} className="pennie-focus-ring min-h-[44px] text-xs font-semibold text-pennie-blue-deeper">Clear reason category</button>}</fieldset>
-        {findings.length > 0 && <p className="text-sm text-pennie-graphite/70">Coaching issues won’t be included when you save No. Select Yes to restore your draft. Earlier saved revisions remain in review history.</p>}
-      </>}
-
-    {escalationJustified === true && <section aria-label="Coaching issues" className="space-y-4 border-t border-border pt-5">
+    {editable && escalationJustified === true && <fieldset disabled={locked}><section aria-label="Coaching issues" className="space-y-4 border-t border-border pt-5">
       <div><h2 id={`${scorecardId}-coaching`} tabIndex={-1} className="pennie-focus-ring text-base font-semibold text-pennie-navy">Coaching issues (optional)</h2><p className="mt-1 text-sm text-pennie-graphite">Only add details if useful for coaching. You can save the alert decision without adding any issues.</p></div>
       {findings.map((finding, index) => <fieldset key={finding.findingId} id={findingElementId(finding.findingId)} disabled={locked} className="rounded-xl bg-pennie-beige/60 p-3 space-y-2"><legend className="px-1 text-xs font-semibold">Issue {index + 1}</legend>
         <label className="block text-xs font-semibold">Category<select aria-label={`Finding ${index + 1} category`} value={finding.category} onChange={event => updateFinding(finding.findingId, { category: event.target.value as FullQaFindingCategory })} className="mt-1 min-h-[40px] w-full rounded-lg border bg-white px-2 font-normal">{Object.entries(CATEGORY_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
@@ -622,8 +663,7 @@ export function FullQaRubricReview({ alert, scope, editable, canReloadReview, re
       </fieldset>)}
       {findings.length === 0 && <p className="text-sm text-pennie-graphite/70">No coaching issues added.</p>}
       <button type="button" disabled={locked} onClick={addBlankIssue} className="min-h-[40px] rounded-full border border-border px-3 text-xs font-semibold text-pennie-blue-deeper disabled:opacity-40"><Plus className="mr-1 inline h-4 w-4" aria-hidden="true" />{findings.length ? 'Add another issue' : 'Add an issue'}</button>
-    </section>}
-    </fieldset>}
+    </section></fieldset>}
 
     {editable && escalationJustified !== null && <section aria-label="Follow-up with the rep" className="space-y-3 border-t border-border pt-5 [&_textarea]:min-h-28">
       <h2 id={`${scorecardId}-followup`} tabIndex={-1} className="pennie-focus-ring text-base font-semibold text-pennie-navy">Follow-up with the rep</h2>
