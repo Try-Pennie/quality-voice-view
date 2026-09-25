@@ -103,8 +103,16 @@ export function TranscriptView({ transcript, evidence = [], constrainHeight = tr
   useEffect(() => {
     if (position < 0) return
     const match = contentRef.current?.querySelector<HTMLElement>(`[data-transcript-match="${position}"]`)
-    match?.scrollIntoView({ block: selectedEvidence && !navigatingSearch ? 'center' : 'nearest' })
-    if (selectedEvidence && !navigatingSearch && focusRequest > 0) match?.focus({ preventScroll: true })
+    if (match && selectedEvidence && !navigatingSearch) {
+      // Scroll only the transcript, not the enclosing clipped dialog/header.
+      let scroller: HTMLElement | null = contentRef.current
+      while (scroller && !/auto|scroll/.test(getComputedStyle(scroller).overflowY)) scroller = scroller.parentElement
+      if (scroller) {
+        const box = match.getBoundingClientRect()
+        scroller.scrollTop += box.top - scroller.getBoundingClientRect().top - scroller.clientHeight / 2 + box.height / 2
+      }
+      if (focusRequest > 0) match.focus({ preventScroll: true })
+    } else match?.scrollIntoView({ block: 'nearest' })
   }, [position, search, focusRequest, selectedEvidence, navigatingSearch])
 
   const advance = (delta: number) => {

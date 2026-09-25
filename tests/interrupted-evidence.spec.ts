@@ -93,6 +93,7 @@ test('interrupted evidence listens, highlights one occurrence across chat bubble
   await page.getByRole('button', { name: 'Pause', exact: true }).click()
   const pane = page.getByRole('region', { name: 'Transcript workspace', exact: true })
   await expect(pane.locator('mark[aria-current="true"]')).toHaveText(fragments)
+  expect(await page.getByRole('dialog').evaluate(element => element.scrollTop)).toBe(0)
   await expect.poll(async () => {
     const mark = await pane.locator('mark[aria-current="true"]').first().boundingBox()
     const search = await pane.getByRole('searchbox', { name: 'Search transcript' }).boundingBox()
