@@ -118,7 +118,7 @@ const priorContext = (overrides: Record<string, unknown> = {}) => ({
     qa_status: 'found', qa_source: { table: 'eavesly_transcription_qa', row_id: 101, created_at: '2026-09-01T16:00:00Z', prompt_sha256: null, transcript_sha256: null },
     stages: [
       { step: 2, ai_status: 'complete', ai_listed_completed: true, ai_listed_attempted: true, ai_location: 'middle of call', credit: 'assessed_complete', evidence: [{ quote: 'Let us walk through your credit report.', speaker: 'handling agent' }] },
-      { step: 6, ai_status: 'complete', ai_listed_completed: false, ai_location: null, credit: 'conflicting', evidence: [] },
+      { step: 6, ai_status: 'complete', ai_listed_completed: false, ai_listed_attempted: true, ai_location: null, credit: 'conflicting', evidence: [] },
     ],
   }, {
     call_id: 'PRIOR-B', started_at: '2026-08-28T15:00:00Z', agent_email: null, direction: null, talk_time: null, campaign_name: null,
@@ -133,8 +133,11 @@ const priorContext = (overrides: Record<string, unknown> = {}) => ({
   ...overrides,
 })
 
-async function openPrior(page: Page, id: string, context: unknown) {
-  const source = { ...FULL_QA_RESULT, sales_process_scorecard: { ...FULL_QA_RESULT.sales_process_scorecard, step2_credit_review: 'missing', step2_location: null }, _prior_call_context: context }
+// Current call attempted 1, 3, 5, 6 (6 only partly); step 2 was not attempted at all.
+const CURRENT_SALES = { ...FULL_QA_RESULT.sales_process_scorecard, step2_credit_review: 'missing', step2_location: null, sections_attempted: [1, 3, 5, 6], sections_completed: [1, 3, 5] }
+
+async function openPrior(page: Page, id: string, context: unknown, sales: Record<string, unknown> = CURRENT_SALES) {
+  const source = { ...FULL_QA_RESULT, sales_process_scorecard: sales, _prior_call_context: context }
   const state = await reviewFixture(page, [alertRow(id, { result_json: LIVE })])
   state.fullQaSources.set(id, source)
   await page.goto(`/dashboard/alerts/${id}/full_qa`)
@@ -182,19 +185,55 @@ test('prior-call credit is labeled AI-assessed, distinguishes step states, and n
   expect(state.writes[0]).toMatchObject({ p_corrections: [], p_findings: [] })
 })
 
-test('unavailable, none and malformed prior context stay honest and grant no credit', async ({ page }) => {
-  const cases = [
+
+const PRIOR_A = priorContext().prior_calls[0]
+function withStages(stages: unknown[]) {
+  return priorContext({ prior_calls: [{ ...PRIOR_A, stages }, ...priorContext().prior_calls.slice(1)] })
+}
+
+test('a reattempted partial step or unprovable attempt record is never masked by prior credit', async ({ page }) => {
+  // Prior call completed step 6 (all three raw fields agree), but this call attempted it and scored it partial.
+  const step6 = { step: 6, ai_status: 'complete', ai_listed_completed: true, ai_listed_attempted: true, ai_location: 'closing', credit: 'assessed_complete', evidence: [] }
+  const credit6 = { ...priorContext().stage_credits[0], step: 6, ai_location: 'closing' }
+  const context = priorContext({ prior_calls: [{ ...PRIOR_A, stages: [PRIOR_A.stages[0], step6] }, ...priorContext().prior_calls.slice(1)], stage_credits: [...priorContext().stage_credits, credit6] })
+  const { review } = await openPrior(page, 'prior-reattempted', context)
+  const steps = review.getByRole('list', { name: 'Sales steps across calls' })
+  const row6 = steps.getByRole('listitem').filter({ hasText: 'step6 debt resolution' })
+  await expect(row6).toContainText('Outstanding')
+  await expect(row6).not.toContainText('Completed previously')
+  await expect(row6).toContainText('Earlier call PRIOR-A completed this step (AI-assessed)')
+  await expect(review.getByRole('article', { name: 'step6 debt resolution', exact: true })).toContainText('Eavesly score concern')
+  await expect(review.getByRole('article', { name: 'step6 debt resolution', exact: true })).not.toContainText('Prior-call credit')
+  // The non-attempted step 2 still receives the waiver.
+  await expect(steps.getByRole('listitem').filter({ hasText: 'step2 credit review' })).toContainText('Completed previously (AI-assessed)')
+  await page.unrouteAll({ behavior: 'ignoreErrors' })
+
+  // Without current attempt lists, non-attempt cannot be proven: no waiver even for step 2.
+  const { sections_attempted: _a, sections_completed: _c, ...unprovable } = CURRENT_SALES
+  const second = await openPrior(page, 'prior-unprovable', priorContext(), unprovable)
+  await expect(second.review.getByRole('list', { name: 'Sales steps across calls' }).getByRole('listitem').filter({ hasText: 'step2 credit review' })).toContainText('Outstanding')
+  await expect(second.review.getByRole('article', { name: 'step2 credit review', exact: true })).toContainText('Eavesly score concern')
+})
+
+const priorCases = () => [
     ['prior-unavailable', priorContext({ status: 'unavailable', reason: 'identity_unproven', prior_calls: [], stage_credits: [] }), 'Prior-call context unavailable: the lead could not be confirmed.'],
     ['prior-none', priorContext({ status: 'none', prior_calls: [], stage_credits: [], total_prior_calls: 0 }), 'No earlier calls were found for this lead.'],
     ['prior-malformed', priorContext({ stage_credits: [{ ...priorContext().stage_credits[0], transcript_verified: true }] }), 'Prior-call context couldn’t be read, so no prior-call credit is shown.'],
     ['prior-mismatched-row', priorContext({ stage_credits: [{ ...priorContext().stage_credits[0], source_qa_row_id: 999 }] }), 'Prior-call context couldn’t be read, so no prior-call credit is shown.'],
+    ['prior-missing-row', priorContext({ stage_credits: [{ ...priorContext().stage_credits[0], source_qa_row_id: null }] }), 'Prior-call context couldn’t be read, so no prior-call credit is shown.'],
+    ['prior-not-attempted', withStages([{ ...PRIOR_A.stages[0], ai_listed_attempted: false }, PRIOR_A.stages[1]]), 'Prior-call context couldn’t be read, so no prior-call credit is shown.'],
+    ['prior-duplicate-step', withStages([PRIOR_A.stages[0], PRIOR_A.stages[0]]), 'Prior-call context couldn’t be read, so no prior-call credit is shown.'],
+    ['prior-duplicate-call', priorContext({ prior_calls: [PRIOR_A, { ...PRIOR_A, stages: [], qa_status: 'missing', qa_source: null }] }), 'Prior-call context couldn’t be read, so no prior-call credit is shown.'],
+    ['prior-not-earlier', priorContext({ prior_calls: [{ ...PRIOR_A, started_at: '2026-09-04T16:00:00Z' }], stage_credits: [{ ...priorContext().stage_credits[0], source_started_at: '2026-09-04T16:00:00Z' }] }), 'Prior-call context couldn’t be read, so no prior-call credit is shown.'],
+    ['prior-no-current-time', priorContext({ current_call: { call_id: 'current', sfdc_lead_id: 'LEAD-SYNTH', started_at: null, started_at_source: null } }), 'Prior-call context couldn’t be read, so no prior-call credit is shown.'],
   ] as const
-  for (const [id, context, message] of cases) {
+
+for (const [id, context, message] of priorCases()) {
+  test(`${id}: prior context stays honest and grants no credit`, async ({ page }) => {
     const { review } = await openPrior(page, id, context)
     await expect(review.getByText(message, { exact: true })).toBeVisible()
     await expect(review).not.toContainText('Completed previously')
     // Without credit, the raw missing step remains a visible score concern.
     await expect(review.getByRole('article', { name: 'step2 credit review', exact: true })).toContainText('Eavesly score concern')
-    await page.unrouteAll({ behavior: 'ignoreErrors' })
-  }
-})
+  })
+}

@@ -26,7 +26,7 @@ import { formatDateTime } from '../../lib/utils'
 import { INTERNAL_REVIEW_TEXT_LIMITS } from '../../lib/internal-alert-review'
 import { ReviewChoice } from './ReviewChoice'
 import type { FullQaEvidenceFeedback, FullQaEvidenceReference } from '../../lib/full-qa-evidence'
-import { parsePriorCallContext, type PriorCallContext, type PriorStageCredit, type PriorUnavailableReason } from '../../lib/prior-call-context'
+import { applicablePriorCredit, parsePriorCallContext, type PriorCallContext, type PriorStageCredit, type PriorUnavailableReason } from '../../lib/prior-call-context'
 
 /** The review footer submits this form, so the primary action stays reachable while scrolling. */
 export const FULL_QA_FORM_ID = 'full-qa-review-form'
@@ -290,13 +290,15 @@ function PriorCallContextSection({ prior, source, criteria }: { readonly prior: 
     const step = stepNumber(criterion.key)
     if (step === null) return []
     const current = valueAtPath(source, criterion.scorePath)
-    const credit = prior.credits.find(item => item.step === step)
+    const credit = applicablePriorCredit(prior, source, step, current)
+    // Historical only: an earlier completion that does not waive this call's attempted/partial step.
+    const earlier = credit ? null : prior.credits.find(item => item.step === step) ?? null
     const conflicting = !credit && prior.priorCalls.some(call => call.stages.some(stage => stage.step === step && stage.credit === 'conflicting'))
     const status = current === 'complete' ? 'Completed on this call'
       : credit ? 'Completed previously (AI-assessed)'
         : current === 'partial' || current === 'missing' ? 'Outstanding'
           : current === 'not_applicable' ? 'Not applicable' : 'Unknown'
-    return [{ step, label: criterion.label, status, credit, conflicting }]
+    return [{ step, label: criterion.label, status, credit, earlier, conflicting }]
   })
   return <section aria-label="Earlier calls" className="space-y-2 border-t border-border pt-3">
     <div>
@@ -305,7 +307,8 @@ function PriorCallContextSection({ prior, source, criteria }: { readonly prior: 
     </div>
     <ul aria-label="Sales steps across calls" className="space-y-1 text-sm text-pennie-graphite">{steps.map(item => <li key={item.step} className="break-words">
       <span className="font-semibold text-pennie-navy">{item.label}</span>: {item.status}
-      {item.credit && item.status !== 'Completed on this call' && <span className="block text-xs text-pennie-graphite/70">Call {item.credit.sourceCallId} · {formatDateTime(item.credit.sourceStartedAt)}</span>}
+      {item.credit && <span className="block text-xs text-pennie-graphite/70">Call {item.credit.sourceCallId} · {formatDateTime(item.credit.sourceStartedAt)}</span>}
+      {item.earlier && item.status !== 'Completed on this call' && <span className="block text-xs text-pennie-graphite/70">Earlier call {item.earlier.sourceCallId} completed this step (AI-assessed). Not credited here: this call attempted it, or its attempt record is unavailable.</span>}
       {item.conflicting && <span className="block text-xs text-pennie-graphite/70">Earlier AI assessment conflicting — not credited</span>}
     </li>)}</ul>
     {prior.priorCalls.map(call => <details key={call.callId} className="text-sm text-pennie-graphite">
@@ -504,13 +507,14 @@ export function FullQaRubricReview({ alert, scope, editable, canReloadReview, re
   const priorContext = parsePriorCallContext(context.sourceResult)
   const priorCredit = (key: string) => {
     const step = stepNumber(key)
-    return priorContext.kind === 'included' && step !== null ? priorContext.credits.find(item => item.step === step) ?? null : null
+    const criterion = context.criteria.find(item => item.key === key)
+    return step !== null && criterion ? applicablePriorCredit(priorContext, context.sourceResult, step, valueAtPath(context.sourceResult, criterion.scorePath)) : null
   }
   const aiConcernKeys = new Set(context.criteria.filter(criterion => {
     const original = valueAtPath(context.sourceResult, criterion.scorePath)
     if (!criterion.domain.some(value => value === original)) return false
     // Display only: a step credited from an earlier call is not shown as an agent failure; its score is unchanged.
-    if (original !== 'complete' && priorCredit(criterion.key)) return false
+    if (priorCredit(criterion.key)) return false
     if (criterion.findingCategory === 'program_expectations') {
       return original === false && valueAtPath(context.sourceResult, 'program_expectations_scorecard.section_status') !== 'not_applicable'
         && valueAtPath(context.sourceResult, 'program_expectations_scorecard.enrollment_completed') !== false
@@ -679,7 +683,7 @@ export function FullQaRubricReview({ alert, scope, editable, canReloadReview, re
       const saved = context.review?.corrections.find(item => item.criterionKey === criterion.key)
       const humanChanged = [correction, saved].some(item => item && item.disposition !== 'confirmed')
       const linkedIndex = findings.findIndex(item => item.relatedCriteria.includes(criterion.key))
-      const credit = original !== 'complete' ? priorCredit(criterion.key) : null
+      const credit = priorCredit(criterion.key)
       const label = aiConcern ? original === 'fail' ? 'Eavesly flagged this' : 'Eavesly score concern'
         : credit ? 'Prior-call credit'
         : originalValue === undefined ? 'Eavesly score unavailable' : humanChanged ? 'Manager review item'
