@@ -170,7 +170,14 @@ test('refined workspace keeps the first response visible with a long saved reaso
   const scores = flags.getByRole('article', { name: 'Credit pull consent', exact: true })
   await expect(decision).toBeVisible()
   await expect(page.getByText('Show full saved reason', { exact: true })).toBeVisible()
-  await expect(scores.getByRole('radio', { name: 'Evidence: Correct', exact: true }).first()).toBeInViewport()
+  // Coaching-first flow: summary, prior context and AI coaching intentionally precede evidence, so the
+  // long reason stays collapsed, the evidence heading is visible at entry, and the first response is one pane-scroll away.
+  await expect(flags.getByRole('heading', { name: 'What Eavesly flagged', exact: true })).toBeInViewport()
+  const firstResponse = scores.getByRole('radio', { name: 'Evidence: Correct', exact: true }).first()
+  await firstResponse.scrollIntoViewIfNeeded()
+  await expect(firstResponse).toBeInViewport()
+  await expect(decision).toBeInViewport()
+  await page.getByRole('region', { name: 'Review workspace' }).evaluate(element => { element.scrollTop = 0 })
   await page.screenshot({ path: testInfo.outputPath('refined-workspace-desktop.png') })
   const transcript = page.getByRole('region', { name: 'Transcript context', exact: true })
   const search = transcript.getByRole('searchbox', { name: 'Search transcript' })

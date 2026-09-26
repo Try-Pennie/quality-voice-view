@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useId, useMemo, useRef, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { ChevronDown, Flag, MessageSquare, Plus, Trash2 } from 'lucide-react'
+import { ChevronDown, Flag, Lightbulb, MessageSquare, Plus, Trash2 } from 'lucide-react'
 import { toast } from 'sonner'
 import { ACTION_TAKEN_LABELS, INACCURACY_REASON_LABELS } from '../../lib/alert-queries'
 import {
@@ -26,6 +26,7 @@ import { formatDateTime } from '../../lib/utils'
 import { INTERNAL_REVIEW_TEXT_LIMITS } from '../../lib/internal-alert-review'
 import { ReviewChoice } from './ReviewChoice'
 import type { FullQaEvidenceFeedback, FullQaEvidenceReference } from '../../lib/full-qa-evidence'
+import { parsePriorCallContext, type PriorCallContext, type PriorStageCredit, type PriorUnavailableReason } from '../../lib/prior-call-context'
 
 /** The review footer submits this form, so the primary action stays reachable while scrolling. */
 export const FULL_QA_FORM_ID = 'full-qa-review-form'
@@ -245,6 +246,112 @@ function ReasonText({ text, violations }: { readonly text: string | null; readon
   </>
 }
 
+/** Call overview saved in the pinned review source; never invents a summary when none was saved. */
+function SourceCallSummary({ source, children }: { readonly source: unknown; readonly children: ReactNode }) {
+  const rows = ([['Topic', 'call_topic'], ['Purpose', 'call_purpose'], ['Outcome', 'call_outcome']] as const)
+    .flatMap(([label, key]) => { const text = savedText(valueAtPath(source, `call_overview.${key}`)); return text ? [{ label, text }] : [] })
+  if (!rows.length) return <>{children}</>
+  return <section aria-label="Call summary" className="space-y-2">
+    <h2 className="text-lg font-semibold text-pennie-navy">Call summary</h2>
+    <dl className="grid grid-cols-1 gap-x-3 gap-y-1 text-sm text-pennie-graphite [&>dd]:mb-2 sm:grid-cols-[auto_1fr] sm:[&>dd]:mb-0">
+      {rows.map(row => <div key={row.label} className="contents"><dt className="font-semibold text-pennie-navy">{row.label}</dt><dd className="whitespace-pre-wrap break-words">{row.text}</dd></div>)}
+    </dl>
+    {children}
+  </section>
+}
+
+const UNAVAILABLE_REASONS: Record<PriorUnavailableReason, string> = {
+  no_lead_id: 'no lead ID on this call', identity_unproven: 'the lead could not be confirmed',
+  chronology_unproven: 'the call time could not be confirmed', dependency_failure: 'history could not be loaded when this call was scored',
+}
+const PRIOR_CREDIT_LABELS: Record<PriorStageCredit, string> = {
+  assessed_complete: 'Completed (AI-assessed)', conflicting: 'Conflicting AI assessment — not credited', not_complete: 'Not credited',
+}
+
+function stepNumber(key: string): number | null {
+  const match = /^step([1-6])_/.exec(key)
+  return match ? Number(match[1]) : null
+}
+
+function evidenceText(evidence: readonly unknown[], location: string | null): string {
+  return [location ? `Saved AI location: ${location}` : null, seededEvidence(evidence, [])].filter(Boolean).join('\n')
+}
+
+/** Persisted prior-call snapshot from the pinned source. Credits are prior AI assessments, never verified facts. */
+function PriorCallContextSection({ prior, source, criteria }: { readonly prior: PriorCallContext; readonly source: unknown; readonly criteria: readonly FullQaCriterion[] }) {
+  if (prior.kind !== 'included') {
+    const text = prior.kind === 'absent' ? 'Prior-call context not available for this assessment.'
+      : prior.kind === 'malformed' ? 'Prior-call context couldn’t be read, so no prior-call credit is shown.'
+        : prior.kind === 'none' ? 'No earlier calls were found for this lead.'
+          : `Prior-call context unavailable${prior.reason ? `: ${UNAVAILABLE_REASONS[prior.reason]}` : ''}.`
+    return <p className="text-xs text-pennie-graphite/70">{text}</p>
+  }
+  const steps = criteria.flatMap(criterion => {
+    const step = stepNumber(criterion.key)
+    if (step === null) return []
+    const current = valueAtPath(source, criterion.scorePath)
+    const credit = prior.credits.find(item => item.step === step)
+    const conflicting = !credit && prior.priorCalls.some(call => call.stages.some(stage => stage.step === step && stage.credit === 'conflicting'))
+    const status = current === 'complete' ? 'Completed on this call'
+      : credit ? 'Completed previously (AI-assessed)'
+        : current === 'partial' || current === 'missing' ? 'Outstanding'
+          : current === 'not_applicable' ? 'Not applicable' : 'Unknown'
+    return [{ step, label: criterion.label, status, credit, conflicting }]
+  })
+  return <section aria-label="Earlier calls" className="space-y-2 border-t border-border pt-3">
+    <div>
+      <h3 className="text-sm font-semibold text-pennie-navy">Earlier calls for this lead</h3>
+      <p className="text-xs text-pennie-graphite/70">Showing {prior.priorCalls.length} of {prior.totalPriorCalls}. Earlier steps are prior AI assessments, not transcript-verified or manager-confirmed.</p>
+    </div>
+    <ul aria-label="Sales steps across calls" className="space-y-1 text-sm text-pennie-graphite">{steps.map(item => <li key={item.step} className="break-words">
+      <span className="font-semibold text-pennie-navy">{item.label}</span>: {item.status}
+      {item.credit && item.status !== 'Completed on this call' && <span className="block text-xs text-pennie-graphite/70">Call {item.credit.sourceCallId} · {formatDateTime(item.credit.sourceStartedAt)}</span>}
+      {item.conflicting && <span className="block text-xs text-pennie-graphite/70">Earlier AI assessment conflicting — not credited</span>}
+    </li>)}</ul>
+    {prior.priorCalls.map(call => <details key={call.callId} className="text-sm text-pennie-graphite">
+      <summary className="pennie-focus-ring min-h-[44px] cursor-pointer py-3 text-xs font-semibold text-pennie-blue-deeper">Call {call.callId} · {formatDateTime(call.startedAt)}</summary>
+      <dl className="grid grid-cols-1 gap-x-3 gap-y-1 [&>dd]:mb-2 sm:grid-cols-[auto_1fr] sm:[&>dd]:mb-0">
+        <dt className="font-semibold text-pennie-navy">Disposition (CRM)</dt><dd className="break-words">{call.disposition ?? 'Not saved'}</dd>
+        {call.notes && <><dt className="font-semibold text-pennie-navy">Notes (CRM)</dt><dd className="whitespace-pre-wrap break-words">{call.notes}</dd></>}
+        <dt className="font-semibold text-pennie-navy">AI summary</dt><dd className="whitespace-pre-wrap break-words">{call.callSummary ?? 'Not saved'}</dd>
+      </dl>
+      {call.qaStatus !== 'found' ? <p className="mt-2 text-xs">Prior AI assessment {call.qaStatus} — no step credit from this call.</p>
+        : <ul className="mt-2 space-y-2">{call.stages.map(stage => {
+          const detail = evidenceText(stage.evidence, stage.aiLocation)
+          return <li key={stage.step} className="break-words">
+            <span className="font-semibold">{steps.find(item => item.step === stage.step)?.label ?? `Step ${stage.step}`}</span>: {scoreLabel(stage.aiStatus)} · {PRIOR_CREDIT_LABELS[stage.credit]}
+            {detail && <p className="mt-1 whitespace-pre-wrap text-xs text-pennie-graphite/80">{detail}</p>}
+          </li>
+        })}</ul>}
+      {call.qaCreatedAt && <p className="mt-2 text-xs text-pennie-graphite/70">AI assessment saved {formatDateTime(call.qaCreatedAt)}</p>}
+    </details>)}
+  </section>
+}
+
+const COACHING_GROUPS = [
+  ['Strengths', 'strengths'], ['Areas for improvement', 'areas_for_improvement'],
+  ['Specific coaching points', 'specific_coaching_points'], ['Training recommendations', 'training_recommendations'],
+] as const
+
+/** AI-generated suggestions from the pinned review source. Display only: never seeded into findings or follow-up. */
+function AiCoachingSuggestions({ source }: { readonly source: unknown }) {
+  const groups = COACHING_GROUPS.flatMap(([label, key]) => {
+    const items = savedNotes(valueAtPath(source, `coaching_recommendations.${key}`))
+    return items.length ? [{ label, items }] : []
+  })
+  if (!groups.length) return <p className="text-xs text-pennie-graphite/70">No AI coaching suggestions were saved with this assessment.</p>
+  return <section aria-label="AI coaching suggestions" className="space-y-3 rounded-2xl bg-pennie-white p-4">
+    <div>
+      <h2 className="inline-flex items-center gap-2 text-lg font-semibold text-pennie-navy"><Lightbulb className="h-5 w-5 shrink-0 text-pennie-yellow-dark" aria-hidden="true" />AI coaching suggestions</h2>
+      <p className="mt-1 text-xs text-pennie-graphite/70">Suggested by Eavesly, not recorded as coaching or follow-up. Nothing here is saved with your review.</p>
+    </div>
+    {groups.map(group => <div key={group.label}>
+      <h3 className="text-sm font-semibold text-pennie-navy">{group.label}</h3>
+      <ul className="mt-1 list-disc space-y-1 pl-5 text-sm leading-relaxed text-pennie-graphite">{group.items.map((item, index) => <li key={index} className="whitespace-pre-wrap break-words">{item}</li>)}</ul>
+    </div>)}
+  </section>
+}
+
 function sourceNotice(context: FullQaReviewContext) {
   if (context.sourceReferenceKind === 'known') return `Exact production rubric · ${context.sourcePromptSha256}`
   if (context.sourceReferenceKind === 'legacy_current_reference') return `Original rubric unknown; current reference only · ${context.referencePromptSha256}`
@@ -394,9 +501,16 @@ export function FullQaRubricReview({ alert, scope, editable, canReloadReview, re
 
   // This is a display filter, not an escalation rule. Keep the immutable AI concerns
   // and saved/draft human changes visible even after a score is corrected to pass.
+  const priorContext = parsePriorCallContext(context.sourceResult)
+  const priorCredit = (key: string) => {
+    const step = stepNumber(key)
+    return priorContext.kind === 'included' && step !== null ? priorContext.credits.find(item => item.step === step) ?? null : null
+  }
   const aiConcernKeys = new Set(context.criteria.filter(criterion => {
     const original = valueAtPath(context.sourceResult, criterion.scorePath)
     if (!criterion.domain.some(value => value === original)) return false
+    // Display only: a step credited from an earlier call is not shown as an agent failure; its score is unchanged.
+    if (original !== 'complete' && priorCredit(criterion.key)) return false
     if (criterion.findingCategory === 'program_expectations') {
       return original === false && valueAtPath(context.sourceResult, 'program_expectations_scorecard.section_status') !== 'not_applicable'
         && valueAtPath(context.sourceResult, 'program_expectations_scorecard.enrollment_completed') !== false
@@ -565,7 +679,9 @@ export function FullQaRubricReview({ alert, scope, editable, canReloadReview, re
       const saved = context.review?.corrections.find(item => item.criterionKey === criterion.key)
       const humanChanged = [correction, saved].some(item => item && item.disposition !== 'confirmed')
       const linkedIndex = findings.findIndex(item => item.relatedCriteria.includes(criterion.key))
+      const credit = original !== 'complete' ? priorCredit(criterion.key) : null
       const label = aiConcern ? original === 'fail' ? 'Eavesly flagged this' : 'Eavesly score concern'
+        : credit ? 'Prior-call credit'
         : originalValue === undefined ? 'Eavesly score unavailable' : humanChanged ? 'Manager review item'
           : attentionKeys.has(criterion.key) ? 'Included in this review' : 'Other Eavesly score'
       const entries = evidenceEntries(evidence)
@@ -579,6 +695,7 @@ export function FullQaRubricReview({ alert, scope, editable, canReloadReview, re
               <p className={`mb-0.5 inline-flex items-center gap-2 text-xs font-bold ${aiConcern ? 'text-pennie-yellow-deeper' : 'text-pennie-blue-deeper'}`}>{aiConcern ? <Flag className="h-4 w-4 shrink-0" aria-hidden="true" /> : <MessageSquare className="h-4 w-4 shrink-0" aria-hidden="true" />}{label}</p>
               <h3 className="min-w-0 break-words text-base font-semibold text-pennie-navy">{criterion.label}</h3>
               <p className="mt-1 text-sm text-pennie-graphite">Eavesly’s result: <strong>{scoreLabel(originalValue)}</strong></p>
+              {credit && <p className="mt-1 text-sm text-pennie-graphite"><span className="font-semibold text-pennie-navy">Prior-call credit:</span> Completed previously (AI-assessed) on call {credit.sourceCallId} · {formatDateTime(credit.sourceStartedAt)}. Not transcript-verified or manager-confirmed.</p>}
             </div>
             {aiConcern && notes.length > 0 && <div className="space-y-1 text-sm text-pennie-graphite">
               <p className="text-xs font-semibold">Why this was flagged</p>
@@ -649,6 +766,7 @@ export function FullQaRubricReview({ alert, scope, editable, canReloadReview, re
 
     {!editable && <ManagerReviewOutcome context={context} />}
 
+    <SourceCallSummary source={context.sourceResult}><PriorCallContextSection prior={priorContext} source={context.sourceResult} criteria={context.criteria} /></SourceCallSummary>
     {!context.sourceCandidate && <section aria-label="Why Eavesly requested review" className="space-y-2">
       <h2 className="text-lg font-semibold text-pennie-navy">Why Eavesly requested review</h2>
       <ReasonText text={reviewReason} violations={recordedViolations} />
@@ -656,6 +774,8 @@ export function FullQaRubricReview({ alert, scope, editable, canReloadReview, re
     </section>}
     {!context.sourceCandidate && context.sourceReferenceKind !== 'known' && <p className={context.sourceReferenceKind === 'legacy_current_reference' ? 'text-xs text-pennie-graphite/70' : 'rounded-xl border border-pennie-peach-dark bg-pennie-peach-light/30 p-3 text-xs text-pennie-graphite'}>{context.sourceReferenceKind === 'legacy_current_reference' ? 'Original rubric unknown; current reference only.' : 'Original rubric unavailable for this stamped hash; current field map only.'}</p>}
     {editable && context.review && <p className="text-xs text-pennie-graphite/70">Saved revision {context.review.feedbackRevision} · {formatDateTime(context.review.savedAt)} by {context.review.savedBy}</p>}
+
+    <AiCoachingSuggestions source={context.sourceResult} />
 
     {alertDecision}
     {decisionDetails}
