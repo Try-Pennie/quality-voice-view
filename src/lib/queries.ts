@@ -40,6 +40,9 @@ export async function fetchCallDetail(callId: string) {
     .from('eavesly_transcription_qa')
     .select('*')
     .eq('call_id', callId)
+    .order('created_at', { ascending: false, nullsFirst: false })
+    .order('id', { ascending: false })
+    .limit(1)
     .maybeSingle()
 
   if (qaError) {

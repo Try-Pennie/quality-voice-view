@@ -58,7 +58,7 @@ test('standalone modules use the centered evidence-to-response workspace and pre
   await page.goto('/dashboard/alerts/unified-litigation/litigation_check')
 
   await expectUnifiedWorkspace(page, 1440, 900)
-  await expect(page.getByText('agent@example.test · Example unified-litigation', { exact: false })).toBeVisible()
+  await expect(page.getByText('agent@example.test · Example unified-litigation', { exact: false }).filter({ visible: true })).toBeVisible()
   const evidence = page.getByRole('region', { name: 'Litigation check: Eavesly evidence' })
   const response = page.getByRole('region', { name: 'Litigation check: Your response' })
   const [evidenceBox, responseBox] = await Promise.all([evidence.boundingBox(), response.boundingBox()])

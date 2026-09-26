@@ -34,6 +34,7 @@ test('warranted reviews save issue descriptions once, retain evidence, and reope
 
   for (const width of [1440, 375, 320]) {
     await page.setViewportSize({ width, height: 900 })
+    if (width === 375) await page.getByRole('button', { name: 'Review', exact: true }).click()
     await action.scrollIntoViewIfNeeded()
     await expect(page.getByRole('button', { name: 'Save review', exact: true })).toBeInViewport()
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
@@ -51,6 +52,7 @@ test('warranted reviews save issue descriptions once, retain evidence, and reope
     findings: summaries.map(summary => expect.objectContaining({ summary })),
   })
   await page.goto('/dashboard/alerts/less-typing/full_qa?status=all')
+  await page.getByRole('button', { name: 'Review', exact: true }).click()
   await expect(page.getByRole('button', { name: 'Update review', exact: true })).toBeDisabled()
   await expect(page.getByRole('textbox', { name: 'Finding 1 summary' })).toHaveValue(summaries[0])
   await expect(action).toHaveValue(actionDetails)
@@ -68,8 +70,9 @@ test('warranted reviews save issue descriptions once, retain evidence, and reope
   state.rows[0].violation_details = 'An older separately written manager explanation.'
   const writesBeforeReopen = state.writes.length
   await page.goto('/dashboard/alerts/less-typing/full_qa?status=all')
+  await page.getByRole('button', { name: 'Review', exact: true }).click()
   await expect(page.getByRole('button', { name: 'Update review', exact: true })).toBeDisabled()
-  await expect(page.getByRole('status')).toContainText('No unsaved review changes.')
+  await expect(page.getByRole('contentinfo').getByRole('status')).toContainText('No unsaved review changes.')
   expect(state.writes).toHaveLength(writesBeforeReopen)
 })
 
@@ -77,6 +80,7 @@ test('three logged issues guide directly to the missing summary and evidence, in
   const state = await reviewFixture(page, [alertRow('missing-fields')])
   await page.setViewportSize({ width: 375, height: 812 })
   await page.goto('/dashboard/alerts/missing-fields/full_qa')
+  await page.getByRole('button', { name: 'Review', exact: true }).click()
   await page.getByRole('radio', { name: 'Yes, the alert was warranted', exact: true }).check()
   for (const criterion of ['Credit pull consent', 'Accurate representations', 'patience empathy']) {
     await page.getByRole('article', { name: criterion, exact: true }).getByRole('button', { name: 'Add as coaching issue' }).click()
@@ -87,7 +91,7 @@ test('three logged issues guide directly to the missing summary and evidence, in
   await page.getByRole('radiogroup', { name: 'Action taken', exact: true }).getByRole('radio', { name: 'Coached the agent', exact: true }).check()
   await page.getByRole('textbox', { name: 'What action did you take?', exact: true }).fill(actionDetails)
   const status = page.getByRole('contentinfo').getByRole('status')
-  const next = page.getByRole('button', { name: 'Continue review', exact: true })
+  const next = page.getByRole('button', { name: /^(Your decision|Continue review)$/ })
   const firstSummary = page.getByRole('textbox', { name: 'Finding 1 summary' })
   await expect(status).toContainText('Issue 1: complete “What was the issue?” using 12–4,000 characters.')
   await next.click()

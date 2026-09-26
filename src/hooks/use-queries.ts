@@ -375,11 +375,12 @@ export function useUniqueAgents() {
   })
 }
 
-export function useCallDetail(callId: string | null | undefined) {
+export function useCallDetail(callId: string | null | undefined, scope?: UserScope, agentEmail?: string | null) {
+  const allowed = !scope || scope.isGodMode || (!!agentEmail && scope.managedAgents.some(email => email.toLowerCase() === agentEmail.toLowerCase()))
   return useQuery({
-    queryKey: ['callDetail', callId],
+    queryKey: scope ? ['callDetail', callId, scopeKey(scope)] : ['callDetail', callId],
     queryFn: () => fetchCallDetail(callId!),
-    enabled: !!callId,
+    enabled: !!callId && allowed,
   })
 }
 

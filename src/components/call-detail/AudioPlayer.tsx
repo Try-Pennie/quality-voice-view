@@ -24,6 +24,8 @@ function isInteractiveTarget(target: EventTarget | null): boolean {
 
 interface Props {
   readonly recordingUrl: string | null | undefined
+  /** Uses the same controls without the decorative live-audio row. */
+  readonly compact?: boolean
   /** Space = play/pause, ←/→ = ±10s. Off when two players could coexist. */
   readonly enableKeyboard?: boolean
   /** Reload details to refresh private signed URLs without losing the review draft. */
@@ -40,7 +42,7 @@ export const AudioPlayer = forwardRef<RecordingControls, Props>(function AudioPl
   return <RecordingPlayer key={props.recordingUrl} {...props} ref={ref} />
 })
 
-const RecordingPlayer = forwardRef<RecordingControls, Props>(function RecordingPlayer({ recordingUrl, enableKeyboard = true, onRetry, onAudioElement }, ref) {
+const RecordingPlayer = forwardRef<RecordingControls, Props>(function RecordingPlayer({ recordingUrl, compact = false, enableKeyboard = true, onRetry, onAudioElement }, ref) {
   const audioRef = useRef<HTMLAudioElement>(null)
   const [isPlaying, setIsPlaying] = useState(false)
   const [currentTime, setCurrentTime] = useState(0)
@@ -184,7 +186,7 @@ const RecordingPlayer = forwardRef<RecordingControls, Props>(function RecordingP
   const hasDuration = Number.isFinite(duration) && duration > 0
   const skipClass = 'pennie-focus-ring min-h-[44px] min-w-[44px] inline-flex items-center justify-center gap-0.5 rounded-full border border-border text-pennie-graphite hover:bg-pennie-beige transition-[transform,background-color] duration-150 motion-safe:active:scale-[0.96]'
 
-  return <div>
+  return <div className={compact ? 'space-y-1' : undefined}>
     <audio
       key={audioOnly ? 'native' : 'analysed'}
       ref={attachAudio}
@@ -224,11 +226,11 @@ const RecordingPlayer = forwardRef<RecordingControls, Props>(function RecordingP
         else audioRef.current?.load()
       }} className="pennie-focus-ring min-h-[44px] rounded-full border border-border px-3 font-semibold text-pennie-blue-deeper">Retry recording</button>
     </div>}
-    <div className="flex h-6 items-center gap-3" title={audioOnly ? 'This recording plays without live visualization.' : 'Live frequency levels of the sound playing now, not a full-recording waveform.'}>
+    {compact ? <p className={buffering ? 'text-xs font-semibold text-pennie-graphite/70' : 'sr-only'} role="status">{failed ? 'Recording unavailable' : buffering ? 'Buffering recording…' : isPlaying ? 'Recording playing' : currentTime > 0 ? 'Recording paused' : 'Recording ready to play'}</p> : <div className="flex h-6 items-center gap-3" title={audioOnly ? 'This recording plays without live visualization.' : 'Live frequency levels of the sound playing now, not a full-recording waveform.'}>
       <span className="w-[76px] shrink-0 text-[10px] font-semibold tracking-wide text-pennie-graphite/70">{failed ? 'Unavailable' : buffering ? 'Buffering…' : audioOnly ? 'Audio only' : isPlaying ? 'Live audio' : currentTime > 0 ? 'Paused' : 'Ready to play'}</span>
       {audioOnly ? <span aria-hidden="true" className="h-px flex-1 bg-border" /> : <AudioSpectrum analyser={analyser} active={isPlaying && !buffering && !failed} />}
-    </div>
-    <div className="grid grid-cols-[44px_44px_44px_minmax(0,1fr)_64px] items-center gap-x-1 sm:flex sm:gap-3">
+    </div>}
+    <div className={`grid items-center gap-x-1 sm:flex ${compact ? 'grid-cols-[44px_44px_44px_minmax(0,1fr)_58px] sm:gap-2' : 'grid-cols-[44px_44px_44px_minmax(0,1fr)_64px] sm:gap-3'}`}>
       <button type="button" onClick={() => skip(-SKIP_SECONDS)} aria-label={`Back ${SKIP_SECONDS} seconds`} title={`Back ${SKIP_SECONDS}s (←)`} className={skipClass}>
         <RotateCcw className="w-4 h-4" aria-hidden="true" /><span className="text-[10px] sm:hidden">10s</span>
       </button>

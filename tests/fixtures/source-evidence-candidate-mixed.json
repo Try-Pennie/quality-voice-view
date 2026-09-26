@@ -1,0 +1,62 @@
+{
+  "source_candidate": {
+    "candidate": {
+      "metadata": {
+        "schema_version": "full_qa_evidence_candidate_v1",
+        "index_version": "full_qa_transcript_index_v1",
+        "prompt_version": "full_qa_evidence_candidate_prompt_v1",
+        "prompt_sha256": "1af083936f148200b9dc417145470ad3ff5e1a9d3e73168f10c97712f88b8f2a",
+        "rubric_version": "full_qa_high_risk_subset_v1",
+        "model": {
+          "provider": "openrouter",
+          "model_id": "openai/gpt-4.1",
+          "declared_by": "caller"
+        },
+        "provenance": "unverified_submission",
+        "prompt_role": "contract_reference_not_execution_attestation"
+      },
+      "source": {
+        "index_version": "full_qa_transcript_index_v1",
+        "source_id": "DEMO-SOURCE-EVIDENCE-20260925-MIXED",
+        "source_revision": "synthetic-v1",
+        "source_fingerprint": "ebbdfa289bb2f5c7b91e694b781b64a359e35bc4b9d2a1925f00a1daf57551c1",
+        "transcript_sha256": "ddeedf50d79dd8d67775fac88fa62ca259bd9d76681372ec19c5d404aaf0ab81",
+        "offset_unit": "utf16_code_unit",
+        "raw_start": 0,
+        "raw_end": 437,
+        "turns": [
+          { "ordinal": 0, "raw_start": 0, "raw_end": 64, "raw_text": "[handling agent]: Hello. We will not pull a credit report today.", "text_start": 18, "text_end": 64, "text": "Hello. We will not pull a credit report today.", "speaker": { "source_label": "handling agent", "role": "handling_agent", "attribution_basis": "caller_supplied_not_identity_proof" }, "turn_id": "turn_v1_ebbdfa289bb2f5c7b91e694b781b64a359e35bc4b9d2a1925f00a1daf57551c1_000000" },
+          { "ordinal": 1, "raw_start": 65, "raw_end": 104, "raw_text": "[contact]: When will my credit recover?", "text_start": 76, "text_end": 104, "text": "When will my credit recover?", "speaker": { "source_label": "contact", "role": "customer", "attribution_basis": "caller_supplied_not_identity_proof" }, "turn_id": "turn_v1_ebbdfa289bb2f5c7b91e694b781b64a359e35bc4b9d2a1925f00a1daf57551c1_000001" },
+          { "ordinal": 2, "raw_start": 105, "raw_end": 152, "raw_text": "[handling agent]: We guarantee that your credit", "text_start": 123, "text_end": 152, "text": "We guarantee that your credit", "speaker": { "source_label": "handling agent", "role": "handling_agent", "attribution_basis": "caller_supplied_not_identity_proof" }, "turn_id": "turn_v1_ebbdfa289bb2f5c7b91e694b781b64a359e35bc4b9d2a1925f00a1daf57551c1_000002" },
+          { "ordinal": 3, "raw_start": 153, "raw_end": 171, "raw_text": "[contact]: Really?", "text_start": 164, "text_end": 171, "text": "Really?", "speaker": { "source_label": "contact", "role": "customer", "attribution_basis": "caller_supplied_not_identity_proof" }, "turn_id": "turn_v1_ebbdfa289bb2f5c7b91e694b781b64a359e35bc4b9d2a1925f00a1daf57551c1_000003" },
+          { "ordinal": 4, "raw_start": 172, "raw_end": 230, "raw_text": "[handling agent]: will be fully restored in twelve months.", "text_start": 190, "text_end": 230, "text": "will be fully restored in twelve months.", "speaker": { "source_label": "handling agent", "role": "handling_agent", "attribution_basis": "caller_supplied_not_identity_proof" }, "turn_id": "turn_v1_ebbdfa289bb2f5c7b91e694b781b64a359e35bc4b9d2a1925f00a1daf57551c1_000004" },
+          { "ordinal": 5, "raw_start": 231, "raw_end": 280, "raw_text": "[contact]: And how much will my creditors accept?", "text_start": 242, "text_end": 280, "text": "And how much will my creditors accept?", "speaker": { "source_label": "contact", "role": "customer", "attribution_basis": "caller_supplied_not_identity_proof" }, "turn_id": "turn_v1_ebbdfa289bb2f5c7b91e694b781b64a359e35bc4b9d2a1925f00a1daf57551c1_000005" },
+          { "ordinal": 6, "raw_start": 281, "raw_end": 361, "raw_text": "[handling agent]: We guarantee every creditor will accept half the balance owed.", "text_start": 299, "text_end": 361, "text": "We guarantee every creditor will accept half the balance owed.", "speaker": { "source_label": "handling agent", "role": "handling_agent", "attribution_basis": "caller_supplied_not_identity_proof" }, "turn_id": "turn_v1_ebbdfa289bb2f5c7b91e694b781b64a359e35bc4b9d2a1925f00a1daf57551c1_000006" },
+          { "ordinal": 7, "raw_start": 362, "raw_end": 410, "raw_text": "[contact]: I understand those are your promises.", "text_start": 373, "text_end": 410, "text": "I understand those are your promises.", "speaker": { "source_label": "contact", "role": "customer", "attribution_basis": "caller_supplied_not_identity_proof" }, "turn_id": "turn_v1_ebbdfa289bb2f5c7b91e694b781b64a359e35bc4b9d2a1925f00a1daf57551c1_000007" },
+          { "ordinal": 8, "raw_start": 411, "raw_end": 437, "raw_text": "[handling agent]: Goodbye.", "text_start": 429, "text_end": 437, "text": "Goodbye.", "speaker": { "source_label": "handling agent", "role": "handling_agent", "attribution_basis": "caller_supplied_not_identity_proof" }, "turn_id": "turn_v1_ebbdfa289bb2f5c7b91e694b781b64a359e35bc4b9d2a1925f00a1daf57551c1_000008" }
+        ]
+      },
+      "findings": [
+        {
+          "claim_id": "fqac1_317fb368fff0f74a3996d77f1bd0cc925b591ba88ae87c6a5397f8581932425a",
+          "claim": { "rule_key": "outcome_guarantee", "finding_type": "statement", "text": "Agent unconditionally guarantees that the customer's credit will be fully restored in twelve months.", "interpretation": "unverified_ai_assessment_not_source_evidence" },
+          "evidence_occurrences": [{ "evidence_id": "fqae1_11233b18c072d2439094acd54b536edd733834ba565686dd41d4e4b4aac6adf3", "supporting_turn_ids": ["turn_v1_ebbdfa289bb2f5c7b91e694b781b64a359e35bc4b9d2a1925f00a1daf57551c1_000002", "turn_v1_ebbdfa289bb2f5c7b91e694b781b64a359e35bc4b9d2a1925f00a1daf57551c1_000004"] }],
+          "reviewed_source": null
+        },
+        {
+          "claim_id": "fqac1_ecf247c06a387cdd9c298020395fb1bdb23f6c0ce6491d8ea2203d771be2a5eb",
+          "claim": { "rule_key": "outcome_guarantee", "finding_type": "statement", "text": "Agent unconditionally guarantees that every creditor will accept half the balance owed.", "interpretation": "unverified_ai_assessment_not_source_evidence" },
+          "evidence_occurrences": [{ "evidence_id": "fqae1_304e3dde5f8e7ce1f176c798b65555037f4b2f9de0a4e340e25c5c4ae67a573e", "supporting_turn_ids": ["turn_v1_ebbdfa289bb2f5c7b91e694b781b64a359e35bc4b9d2a1925f00a1daf57551c1_000006"] }],
+          "reviewed_source": null
+        },
+        {
+          "claim_id": "fqac1_d48916c52bb6466bd7bdfc7beeae5b77a57cb3270b7a8cd509028b7f1a9b7c7b",
+          "claim": { "rule_key": "call_recording_disclosure", "finding_type": "omission", "text": "No call recording disclosure was found in the supplied source.", "interpretation": "unverified_ai_assessment_not_source_evidence" },
+          "evidence_occurrences": [],
+          "reviewed_source": { "source_fingerprint": "ebbdfa289bb2f5c7b91e694b781b64a359e35bc4b9d2a1925f00a1daf57551c1", "transcript_sha256": "ddeedf50d79dd8d67775fac88fa62ca259bd9d76681372ec19c5d404aaf0ab81", "raw_start": 0, "raw_end": 437, "interpretation": "ai_omission_hypothesis_scoped_to_supplied_source_not_proof_of_absence" }
+        }
+      ]
+    },
+    "transcript": "[handling agent]: Hello. We will not pull a credit report today.\n[contact]: When will my credit recover?\n[handling agent]: We guarantee that your credit\n[contact]: Really?\n[handling agent]: will be fully restored in twelve months.\n[contact]: And how much will my creditors accept?\n[handling agent]: We guarantee every creditor will accept half the balance owed.\n[contact]: I understand those are your promises.\n[handling agent]: Goodbye."
+  }
+}

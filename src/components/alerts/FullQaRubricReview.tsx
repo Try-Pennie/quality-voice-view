@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useId, useMemo, useRef, useState, type ReactNode } from 'react'
+import { createPortal } from 'react-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { ChevronDown, Flag, MessageSquare, Plus, Trash2 } from 'lucide-react'
+import { ChevronDown, Flag, Lightbulb, MessageSquare, Plus, Trash2 } from 'lucide-react'
 import { toast } from 'sonner'
 import { ACTION_TAKEN_LABELS, INACCURACY_REASON_LABELS } from '../../lib/alert-queries'
 import {
@@ -24,6 +25,8 @@ import type { UserScope } from '../../lib/alert-queries'
 import { formatDateTime } from '../../lib/utils'
 import { INTERNAL_REVIEW_TEXT_LIMITS } from '../../lib/internal-alert-review'
 import { ReviewChoice } from './ReviewChoice'
+import type { FullQaEvidenceFeedback, FullQaEvidenceReference } from '../../lib/full-qa-evidence'
+import { applicablePriorCredit, parsePriorCallContext, type PriorCallContext, type PriorStageCredit, type PriorUnavailableReason } from '../../lib/prior-call-context'
 
 /** The review footer submits this form, so the primary action stays reachable while scrolling. */
 export const FULL_QA_FORM_ID = 'full-qa-review-form'
@@ -44,7 +47,9 @@ interface Props {
   readonly scope: UserScope
   readonly editable: boolean
   readonly canReloadReview: boolean
-  readonly renderAudioLink?: (quote: string, speaker?: string) => ReactNode
+  readonly renderEvidenceLink?: (reference: FullQaEvidenceReference, passageContent?: ReactNode) => ReactNode
+  readonly selectedEvidenceReferenceId?: string | null
+  readonly verdictPortalTarget?: HTMLElement | null
   readonly onStaleReview: () => void
   readonly onDirtyChange: (dirty: boolean) => void
   readonly onBusyChange: (busy: boolean) => void
@@ -146,55 +151,208 @@ function seededEvidence(evidence: unknown, notes: readonly string[]): string {
   return [...new Set([...notes, ...lines])].join('\n')
 }
 
-// Stored evidence can be a note, a list of notes, or structured speaker/quote/context
-// entries. Only explicit quote fields are presented as quotations; notes stay notes.
-type Excerpt = { readonly key: number; readonly lead: JSX.Element; readonly context: string | null; readonly attribution: string | null }
-
-function excerptItems(evidence: unknown, displayedNotes: readonly string[], renderAudioLink?: (quote: string, speaker?: string) => ReactNode): readonly Excerpt[] {
-  return evidenceEntries(evidence).flatMap((entry, index): Excerpt[] => {
-    if (typeof entry === 'string' && entry.trim()) return displayedNotes.includes(entry.trim()) ? [] : [{ key: index, context: null, attribution: null,
-      lead: <p key={index} className="whitespace-pre-wrap break-words text-sm leading-relaxed">{entry}</p> }]
-    const quote = valueAtPath(entry, 'quote')
-    if (typeof quote !== 'string' || !quote.trim()) return []
-    const attribution = [savedText(valueAtPath(entry, 'speaker')) ?? 'Speaker not saved', savedText(valueAtPath(entry, 'process_step'))].filter(value => value !== null).join(' · ')
-    const context = savedText(valueAtPath(entry, 'context'))
-    return [{ key: index, attribution, context: context && !displayedNotes.includes(context) ? context : null,
-      lead: <figure key={index} className="space-y-1">
-        <figcaption className="text-xs font-semibold text-pennie-graphite/70">{attribution}</figcaption>
-        <blockquote className="whitespace-pre-wrap break-words border-l-2 border-pennie-yellow-dark pl-3 text-sm leading-relaxed">{quote}</blockquote>
-        {renderAudioLink?.(quote, savedText(valueAtPath(entry, 'speaker')) ?? undefined)}
-      </figure> }]
-  })
-}
-
-function ContextLine({ excerpt, attributed = false }: { readonly excerpt: Excerpt; readonly attributed?: boolean }) {
-  if (!excerpt.context) return null
-  return <p className="whitespace-pre-wrap break-words text-xs text-pennie-graphite/80"><span className="font-semibold">Saved context{attributed && excerpt.attribution ? ` (${excerpt.attribution})` : ''}: </span>{excerpt.context}</p>
-}
-
-function hasUnreadableEvidence(evidence: unknown): boolean {
-  return evidenceEntries(evidence).some(entry => !savedText(entry) && !savedText(valueAtPath(entry, 'quote')) && !savedText(valueAtPath(entry, 'context')))
-}
-
-/** Read-only view: all excerpts and contexts in one block. */
-function CriterionEvidence({ evidence, excerpts }: { readonly evidence: unknown; readonly excerpts: readonly Excerpt[] }) {
-  const unreadable = hasUnreadableEvidence(evidence) && excerpts.length > 0
-  return <div className="space-y-2 text-pennie-graphite">
-    <p className="text-xs font-semibold">Evidence</p>
-    {excerpts.length ? excerpts.map(excerpt => <div key={excerpt.key} className="space-y-1">{excerpt.lead}<ContextLine excerpt={excerpt} attributed={excerpts.length > 1} /></div>) : <p className="text-sm">No readable excerpt was saved. Check the transcript before deciding.</p>}
-    {unreadable && <p className="text-xs">Some evidence is only available in the saved details below.</p>}
+function EvidenceFeedbackCard({ reference, index, feedback, editable, disabled, selected, renderEvidenceLink, onChange }: {
+  readonly reference: FullQaEvidenceReference
+  readonly index: number
+  readonly feedback: FullQaEvidenceFeedback | undefined
+  readonly editable: boolean
+  readonly disabled: boolean
+  readonly selected: boolean
+  readonly renderEvidenceLink?: (reference: FullQaEvidenceReference, passageContent?: ReactNode) => ReactNode
+  readonly onChange: (feedback: FullQaEvidenceFeedback | null) => void
+}) {
+  const [commentOpen, setCommentOpen] = useState(false)
+  const commentId = useId()
+  const question = reference.claimKind === 'source_finding'
+    ? reference.evidenceKind === 'omission' ? 'Did Eavesly correctly identify what is missing?' : 'Do these passages support this finding?'
+    : reference.claimKind === 'general_focus'
+      ? reference.evidenceKind === 'note' ? 'Was Eavesly right to flag this saved note for review?' : 'Was Eavesly right to flag this passage for review?'
+      : reference.evidenceKind === 'note' ? 'Does this saved note support Eavesly’s claim?'
+        : 'Does this evidence support Eavesly’s claim?'
+  const missingMessage = reference.claimKind === 'general_focus'
+    ? 'No readable passage or note was saved for this general review focus.'
+    : 'No readable evidence was saved for this claim. Check the transcript before judging it.'
+  const attribution = [reference.speaker ?? (reference.evidenceKind === 'quote' ? 'Speaker not saved' : null), reference.processStep].filter(Boolean).join(' · ')
+  const comment = savedText(feedback?.comment)
+  const isSourceFinding = reference.claimKind === 'source_finding'
+  const passages = reference.evidenceKind === 'source_passages' && <span className="block space-y-3">{reference.sourcePassages.map(passage => <span key={passage.turnId} className="block">
+    <span className="block text-xs font-semibold text-pennie-navy">{passage.speakerSourceLabel}</span>
+    <span className="mt-1 block whitespace-pre-wrap break-words text-sm leading-relaxed text-pennie-graphite">{passage.text}</span>
+  </span>)}</span>
+  const sourceResponseLabel = reference.evidenceKind === 'omission' ? 'assessment' : 'evidence'
+  useEffect(() => { if (!feedback) setCommentOpen(false) }, [feedback])
+  const openComment = () => {
+    setCommentOpen(true)
+    requestAnimationFrame(() => document.getElementById(commentId)?.focus())
+  }
+  const finishComment = () => {
+    setCommentOpen(false)
+    requestAnimationFrame(() => document.getElementById(`${commentId}-trigger`)?.focus())
+  }
+  return <div id={`evidence-reference-${reference.referenceId}`} role="group" tabIndex={-1} aria-current={selected ? 'location' : undefined} aria-label={`${reference.claimLabel} evidence ${index + 1}`} className={`pennie-focus-ring space-y-3 ${isSourceFinding ? 'rounded-xl' : `rounded-xl border-l-2 px-3 py-3 ${selected ? 'border-pennie-blue-deeper bg-pennie-blue-main/25' : 'border-pennie-navy/50 bg-pennie-white'}`}`}>
+    {reference.evidenceKind === 'source_passages' ? <div>
+      {renderEvidenceLink ? renderEvidenceLink(reference, passages) : passages}
+    </div> : reference.evidenceKind === 'omission' ? <p className="text-sm text-pennie-graphite">Not found in the supplied transcript. There is no passage to jump to.</p> : reference.evidenceKind === 'quote' ? <figure className="space-y-1">
+      {attribution && <figcaption className="text-xs font-semibold text-pennie-graphite">{attribution}</figcaption>}
+      <blockquote className="whitespace-pre-wrap break-words text-sm leading-relaxed text-pennie-graphite">{reference.text}</blockquote>
+      {reference.context && <p className="whitespace-pre-wrap break-words text-xs text-pennie-graphite"><span className="font-semibold">Saved context: </span>{reference.context}</p>}
+      {reference.text && renderEvidenceLink?.(reference)}
+    </figure> : reference.evidenceKind === 'note' ? <div>
+      <p className="text-xs font-semibold text-pennie-graphite/70">Saved note — not a transcript quote</p>
+      <p className="mt-1 whitespace-pre-wrap break-words text-sm leading-relaxed text-pennie-graphite">{reference.text}</p>
+    </div> : <p className="text-sm text-pennie-graphite">{missingMessage}</p>}
+    {editable && reference.evidenceKind !== 'missing' ? <div className={isSourceFinding ? 'space-y-2' : 'space-y-2 border-t border-pennie-navy/10 pt-3'}>
+      <fieldset disabled={disabled}>
+        <legend className={isSourceFinding ? 'sr-only' : 'text-sm font-semibold text-pennie-navy'}>{question} <span className="font-normal">(optional)</span></legend>
+        {isSourceFinding && !feedback && <p className="text-xs text-pennie-graphite">Not reviewed</p>}
+        <div className={isSourceFinding ? 'mt-2 grid grid-cols-3 gap-2' : 'mt-2 flex flex-wrap gap-2'}>{([{ disposition: 'correct', label: 'Correct' }, { disposition: 'incorrect', label: 'Incorrect' }, { disposition: 'partly_correct', label: 'Partly correct' }] as const).map(option => <label key={option.disposition} className={`flex min-h-[44px] cursor-pointer items-center rounded-xl border py-2 has-[:disabled]:cursor-not-allowed has-[:disabled]:opacity-50 ${isSourceFinding ? 'justify-center gap-1 px-2 text-xs' : 'gap-2 px-3 text-sm'} ${feedback?.disposition === option.disposition ? 'border-pennie-navy bg-pennie-navy text-pennie-white' : 'border-pennie-navy/60 bg-white text-pennie-graphite hover:bg-pennie-blue-light'}`}>
+          <input type="radio" name={`evidence-${reference.referenceId}`} aria-label={`Evidence: ${option.label}`} checked={feedback?.disposition === option.disposition} onChange={() => onChange({ referenceId: reference.referenceId, disposition: option.disposition, comment: feedback?.comment ?? null })} className="pennie-focus-ring h-4 w-4 accent-pennie-blue-deeper" />
+          {option.label}
+        </label>)}</div>
+      </fieldset>
+      {feedback && <div className="space-y-2">
+        {comment && !commentOpen && <div className="rounded-lg bg-white/80 px-3 py-2 text-sm text-pennie-graphite"><p className="text-xs font-semibold text-pennie-navy">Comment</p><p className="mt-1 whitespace-pre-wrap break-words">{comment}</p></div>}
+        {commentOpen ? <div>
+          <label htmlFor={commentId} className="block text-sm font-semibold">Comment <span className="font-normal">(optional)</span></label>
+          <ReviewText id={commentId} required={false} label={`${reference.claimLabel} evidence comment`} disabled={disabled} value={feedback.comment ?? ''} placeholder={reference.claimKind === 'source_finding' ? 'What did Eavesly get right or wrong?' : reference.claimKind === 'general_focus' ? 'Add context for why this passage was or was not worth flagging.' : 'Add context for this evidence and claim.'} onChange={value => onChange({ ...feedback, comment: value || null })} />
+          <button type="button" disabled={disabled} onClick={finishComment} className="pennie-focus-ring min-h-[44px] text-xs font-semibold text-pennie-blue-deeper">Done</button>
+        </div> : <button id={`${commentId}-trigger`} type="button" disabled={disabled} onClick={openComment} className="pennie-focus-ring min-h-[44px] rounded-full px-2 text-xs font-semibold text-pennie-blue-deeper hover:bg-white/70">{comment ? 'Edit comment' : 'Add comment'}</button>}
+        <button type="button" disabled={disabled} onClick={() => onChange(null)} className="pennie-focus-ring min-h-[44px] px-2 text-xs font-semibold text-pennie-blue-deeper">{reference.claimKind === 'source_finding' ? `Clear ${sourceResponseLabel} response` : 'Clear passage response'}</button>
+      </div>}
+    </div> : feedback ? <div className="border-t border-pennie-navy/10 pt-3 text-sm text-pennie-graphite">
+      <p className="text-xs font-bold text-pennie-blue-deeper">{reference.claimKind === 'source_finding' ? `Saved ${sourceResponseLabel} response` : 'Saved passage response'}</p>
+      <p className="mt-1 font-semibold text-pennie-navy">{feedback.disposition === 'partly_correct' ? 'Partly correct' : feedback.disposition === 'correct' ? 'Correct' : 'Incorrect'}</p>
+      {feedback.comment && <p className="mt-1 whitespace-pre-wrap break-words">{feedback.comment}</p>}
+    </div> : reference.evidenceKind === 'missing' ? <p className="border-t border-pennie-navy/10 pt-3 text-xs text-pennie-graphite/70">No passage response is available because no readable evidence was saved. {reference.claimKind === 'criterion' ? 'Use the full scorecard if a criterion-level correction is needed.' : 'The overall alert decision remains separate.'}</p>
+      : <p className="border-t border-pennie-navy/10 pt-3 text-xs text-pennie-graphite/70">{reference.claimKind === 'source_finding' ? `No ${sourceResponseLabel} response was recorded.` : 'No passage-level response was recorded.'}</p>}
   </div>
 }
 
 function ReasonText({ text, violations }: { readonly text: string | null; readonly violations: readonly string[] }) {
+  const isLong = (text?.length ?? 0) > 220
   return <>
-    {text ? <p className="mt-2 whitespace-pre-wrap break-words text-sm leading-relaxed text-pennie-graphite">{text}</p>
-      : <p className="mt-2 text-sm text-pennie-graphite">No alert reason saved.</p>}
-    {violations.length > 0 && <details className="mt-2 text-sm">
+    {text && (isLong ? <details className="group mt-1 text-sm text-pennie-graphite">
+      <summary className="pennie-focus-ring cursor-pointer list-none">
+        <span className="line-clamp-2 whitespace-pre-wrap break-words leading-relaxed group-open:hidden">{text}</span>
+        <span className="mt-1 inline-block min-h-[36px] py-2 text-xs font-semibold text-pennie-blue-deeper group-open:hidden">Show full saved reason</span>
+        <span className="hidden min-h-[36px] py-2 text-xs font-semibold text-pennie-blue-deeper group-open:inline-block">Hide full saved reason</span>
+      </summary>
+      <p className="whitespace-pre-wrap break-words leading-relaxed">{text}</p>
+    </details> : <p className="mt-1 whitespace-pre-wrap break-words text-sm leading-relaxed text-pennie-graphite">{text}</p>)}
+    {violations.length > 0 && <details className="mt-1 text-sm">
       <summary className="pennie-focus-ring flex min-h-[36px] cursor-pointer items-center text-xs font-semibold text-pennie-blue-deeper">Recorded compliance issues ({violations.length})</summary>
       <ul className="mt-1 list-disc space-y-1 pl-5 text-pennie-graphite">{violations.map((item, index) => <li key={index} className="whitespace-pre-wrap break-words">{item}</li>)}</ul>
     </details>}
   </>
+}
+
+/** Call overview saved in the pinned review source; never invents a summary when none was saved. */
+function SourceCallSummary({ source, children }: { readonly source: unknown; readonly children: ReactNode }) {
+  const rows = ([['Topic', 'call_topic'], ['Purpose', 'call_purpose'], ['Outcome', 'call_outcome']] as const)
+    .flatMap(([label, key]) => { const text = savedText(valueAtPath(source, `call_overview.${key}`)); return text ? [{ label, text }] : [] })
+  if (!rows.length) return <>{children}</>
+  return <section aria-label="Call summary" className="space-y-2">
+    <h2 className="text-lg font-semibold text-pennie-navy">Call summary</h2>
+    <dl className="grid grid-cols-1 gap-x-3 gap-y-1 text-sm text-pennie-graphite [&>dd]:mb-2 sm:grid-cols-[auto_1fr] sm:[&>dd]:mb-0">
+      {rows.map(row => <div key={row.label} className="contents"><dt className="font-semibold text-pennie-navy">{row.label}</dt><dd className="whitespace-pre-wrap break-words">{row.text}</dd></div>)}
+    </dl>
+    {children}
+  </section>
+}
+
+const UNAVAILABLE_REASONS: Record<PriorUnavailableReason, string> = {
+  no_lead_id: 'no lead ID on this call', identity_unproven: 'the lead could not be confirmed',
+  chronology_unproven: 'the call time could not be confirmed', dependency_failure: 'history could not be loaded when this call was scored',
+}
+const PRIOR_CREDIT_LABELS: Record<PriorStageCredit, string> = {
+  assessed_complete: 'Completed (AI-assessed)', conflicting: 'Conflicting AI assessment — not credited', not_complete: 'Not credited',
+}
+
+function stepNumber(key: string): number | null {
+  const match = /^step([1-6])_/.exec(key)
+  return match ? Number(match[1]) : null
+}
+
+function evidenceText(evidence: readonly unknown[], location: string | null): string {
+  return [location ? `Saved AI location: ${location}` : null, seededEvidence(evidence, [])].filter(Boolean).join('\n')
+}
+
+/** Persisted prior-call snapshot from the pinned source. Credits are prior AI assessments, never verified facts. */
+function PriorCallContextSection({ prior, source, criteria }: { readonly prior: PriorCallContext; readonly source: unknown; readonly criteria: readonly FullQaCriterion[] }) {
+  if (prior.kind !== 'included') {
+    const text = prior.kind === 'absent' ? 'Prior-call context not available for this assessment.'
+      : prior.kind === 'malformed' ? 'Prior-call context couldn’t be read, so no prior-call credit is shown.'
+        : prior.kind === 'none' ? 'No earlier calls were found for this lead.'
+          : `Prior-call context unavailable${prior.reason ? `: ${UNAVAILABLE_REASONS[prior.reason]}` : ''}.`
+    return <p className="text-xs text-pennie-graphite/70">{text}</p>
+  }
+  const steps = criteria.flatMap(criterion => {
+    const step = stepNumber(criterion.key)
+    if (step === null) return []
+    const current = valueAtPath(source, criterion.scorePath)
+    const credit = applicablePriorCredit(prior, source, step, current)
+    // Historical only: an earlier completion that does not waive this call's attempted/partial step.
+    const earlier = credit ? null : prior.credits.find(item => item.step === step) ?? null
+    const conflicting = !credit && prior.priorCalls.some(call => call.stages.some(stage => stage.step === step && stage.credit === 'conflicting'))
+    const status = current === 'complete' ? 'Completed on this call'
+      : credit ? 'Completed previously (AI-assessed)'
+        : current === 'partial' || current === 'missing' ? 'Outstanding'
+          : current === 'not_applicable' ? 'Not applicable' : 'Unknown'
+    return [{ step, label: criterion.label, status, credit, earlier, conflicting }]
+  })
+  return <section aria-label="Earlier calls" className="space-y-2 border-t border-border pt-3">
+    <div>
+      <h3 className="text-sm font-semibold text-pennie-navy">Earlier calls for this lead</h3>
+      <p className="text-xs text-pennie-graphite/70">Showing {prior.priorCalls.length} of {prior.totalPriorCalls}. Earlier steps are prior AI assessments, not transcript-verified or manager-confirmed.</p>
+    </div>
+    <ul aria-label="Sales steps across calls" className="space-y-1 text-sm text-pennie-graphite">{steps.map(item => <li key={item.step} className="break-words">
+      <span className="font-semibold text-pennie-navy">{item.label}</span>: {item.status}
+      {item.credit && <span className="block text-xs text-pennie-graphite/70">Call {item.credit.sourceCallId} · {formatDateTime(item.credit.sourceStartedAt)}</span>}
+      {item.earlier && item.status !== 'Completed on this call' && <span className="block text-xs text-pennie-graphite/70">Earlier call {item.earlier.sourceCallId} completed this step (AI-assessed). Not credited here: this call attempted it, or its attempt record is unavailable.</span>}
+      {item.conflicting && <span className="block text-xs text-pennie-graphite/70">Earlier AI assessment conflicting — not credited</span>}
+    </li>)}</ul>
+    {prior.priorCalls.map(call => <details key={call.callId} className="text-sm text-pennie-graphite">
+      <summary className="pennie-focus-ring min-h-[44px] cursor-pointer py-3 text-xs font-semibold text-pennie-blue-deeper">Call {call.callId} · {formatDateTime(call.startedAt)}</summary>
+      <dl className="grid grid-cols-1 gap-x-3 gap-y-1 [&>dd]:mb-2 sm:grid-cols-[auto_1fr] sm:[&>dd]:mb-0">
+        <dt className="font-semibold text-pennie-navy">Disposition (CRM)</dt><dd className="break-words">{call.disposition ?? 'Not saved'}</dd>
+        {call.notes && <><dt className="font-semibold text-pennie-navy">Notes (CRM)</dt><dd className="whitespace-pre-wrap break-words">{call.notes}</dd></>}
+        <dt className="font-semibold text-pennie-navy">AI summary</dt><dd className="whitespace-pre-wrap break-words">{call.callSummary ?? 'Not saved'}</dd>
+      </dl>
+      {call.qaStatus !== 'found' ? <p className="mt-2 text-xs">Prior AI assessment {call.qaStatus} — no step credit from this call.</p>
+        : <ul className="mt-2 space-y-2">{call.stages.map(stage => {
+          const detail = evidenceText(stage.evidence, stage.aiLocation)
+          return <li key={stage.step} className="break-words">
+            <span className="font-semibold">{steps.find(item => item.step === stage.step)?.label ?? `Step ${stage.step}`}</span>: {scoreLabel(stage.aiStatus)} · {PRIOR_CREDIT_LABELS[stage.credit]}
+            {detail && <p className="mt-1 whitespace-pre-wrap text-xs text-pennie-graphite/80">{detail}</p>}
+          </li>
+        })}</ul>}
+      {call.qaCreatedAt && <p className="mt-2 text-xs text-pennie-graphite/70">AI assessment saved {formatDateTime(call.qaCreatedAt)}</p>}
+    </details>)}
+  </section>
+}
+
+const COACHING_GROUPS = [
+  ['Strengths', 'strengths'], ['Areas for improvement', 'areas_for_improvement'],
+  ['Specific coaching points', 'specific_coaching_points'], ['Training recommendations', 'training_recommendations'],
+] as const
+
+/** AI-generated suggestions from the pinned review source. Display only: never seeded into findings or follow-up. */
+function AiCoachingSuggestions({ source }: { readonly source: unknown }) {
+  const groups = COACHING_GROUPS.flatMap(([label, key]) => {
+    const items = savedNotes(valueAtPath(source, `coaching_recommendations.${key}`))
+    return items.length ? [{ label, items }] : []
+  })
+  if (!groups.length) return <p className="text-xs text-pennie-graphite/70">No AI coaching suggestions were saved with this assessment.</p>
+  return <section aria-label="AI coaching suggestions" className="space-y-3 rounded-2xl bg-pennie-white p-4">
+    <div>
+      <h2 className="inline-flex items-center gap-2 text-lg font-semibold text-pennie-navy"><Lightbulb className="h-5 w-5 shrink-0 text-pennie-yellow-dark" aria-hidden="true" />AI coaching suggestions</h2>
+      <p className="mt-1 text-xs text-pennie-graphite/70">Suggested by Eavesly, not recorded as coaching or follow-up. Nothing here is saved with your review.</p>
+    </div>
+    {groups.map(group => <div key={group.label}>
+      <h3 className="text-sm font-semibold text-pennie-navy">{group.label}</h3>
+      <ul className="mt-1 list-disc space-y-1 pl-5 text-sm leading-relaxed text-pennie-graphite">{group.items.map((item, index) => <li key={index} className="whitespace-pre-wrap break-words">{item}</li>)}</ul>
+    </div>)}
+  </section>
 }
 
 function sourceNotice(context: FullQaReviewContext) {
@@ -214,6 +372,7 @@ function ManagerReviewOutcome({ context }: { readonly context: FullQaReviewConte
     return scoreLabel(criterion?.domain.find(value => value === original))
   }
   const changed = review.corrections.filter(item => item.disposition !== 'confirmed')
+  const evidenceLabel = (referenceId: string) => context.evidenceReferences.find(item => item.referenceId === referenceId)?.claimLabel ?? 'Unavailable saved claim'
   return <section aria-label="Manager’s review" className="space-y-3 rounded-2xl border border-pennie-blue-deeper bg-pennie-blue-light p-4 sm:p-5">
     <div>
       <h2 className="text-lg font-semibold text-pennie-navy">Manager’s review</h2>
@@ -225,26 +384,32 @@ function ManagerReviewOutcome({ context }: { readonly context: FullQaReviewConte
       <dt className="font-semibold text-pennie-navy">{review.escalationJustified ? 'Review summary' : 'Manager’s reason'}</dt>
       <dd className="whitespace-pre-wrap break-words">{review.escalationReason || 'No additional feedback recorded.'}</dd>
     </dl>
-    <div className="text-sm text-pennie-graphite">
+    {!context.sourceCandidate && <div className="text-sm text-pennie-graphite">
       <p className="font-semibold text-pennie-navy">Coaching issues ({review.findings.length})</p>
       {review.findings.length ? <ul className="mt-1 list-disc space-y-1 pl-5">{review.findings.map(finding => <li key={finding.findingId} className="break-words">{finding.summary} <span className="text-xs text-pennie-graphite/70">({CATEGORY_LABELS[finding.category]} · {finding.relatedCriteria.map(label).join(', ')})</span>
         <details className="mt-1"><summary className="pennie-focus-ring min-h-[44px] cursor-pointer py-3.5 text-xs font-semibold text-pennie-blue-deeper sm:min-h-0 sm:py-0">Manager’s evidence</summary><p className="mt-1 whitespace-pre-wrap break-words text-sm">{finding.evidence}</p></details></li>)}</ul> : <p className="mt-1">None recorded.</p>}
-    </div>
+    </div>}
     <div className="text-sm text-pennie-graphite">
       <p className="font-semibold text-pennie-navy">{review.escalationJustified ? 'What action did you take?' : 'Follow-up with the rep'}</p>
       <p className="mt-1 whitespace-pre-wrap break-words">{review.actionTaken ? ACTION_TAKEN_LABELS[review.actionTaken] : 'No follow-up recorded'}{review.actionDetails ? ` · ${review.actionDetails}` : ''}</p>
     </div>
     <div className="text-sm text-pennie-graphite">
-      <p className="font-semibold text-pennie-navy">Changed, partial, or unresolved scores ({changed.length})</p>
-      {changed.length ? <ul className="mt-1 list-disc space-y-1 pl-5">{changed.map(item => <li key={item.criterionKey} className="break-words"><span className="font-semibold">{label(item.criterionKey)}</span>: Eavesly said {originalLabel(item.criterionKey)} → {correctionLabels(item).summary}{item.reason ? ` — ${item.reason}` : ''}</li>)}</ul> : <p className="mt-1">No score corrections recorded. Unanswered scores are not manager-confirmed.</p>}
+      <p className="font-semibold text-pennie-navy">{context.sourceCandidate ? 'Evidence and assessment' : 'Passage-level'} responses ({review.evidenceFeedback.length})</p>
+      {review.evidenceFeedback.length ? <ul className="mt-1 list-disc space-y-1 pl-5">{review.evidenceFeedback.map(item => <li key={item.referenceId} className="break-words"><span className="font-semibold">{evidenceLabel(item.referenceId)}</span>: {item.disposition === 'partly_correct' ? 'Partly correct' : item.disposition === 'correct' ? 'Correct' : 'Incorrect'}{item.comment ? ` — ${item.comment}` : ''}</li>)}</ul> : <p className="mt-1">{context.sourceCandidate ? 'No evidence or assessment responses recorded.' : 'No passage-level responses recorded. Unanswered evidence remains unreviewed.'}</p>}
     </div>
+    {!context.sourceCandidate && <div className="text-sm text-pennie-graphite">
+      <p className="font-semibold text-pennie-navy">Saved criterion-level opinions ({changed.length})</p>
+      <p className="mt-1 text-xs text-pennie-graphite/70">These score opinions are separate from passage-level responses.</p>
+      {changed.length ? <ul className="mt-1 list-disc space-y-1 pl-5">{changed.map(item => <li key={item.criterionKey} className="break-words"><span className="font-semibold">{label(item.criterionKey)}</span>: Eavesly said {originalLabel(item.criterionKey)} → {correctionLabels(item).summary}{item.reason ? ` — ${item.reason}` : ''}</li>)}</ul> : <p className="mt-1">No criterion-level score corrections recorded. Unanswered scores are not manager-confirmed.</p>}
+    </div>}
   </section>
 }
 
 /** An alert decision with optional explicit score feedback and coaching; original AI judgments stay immutable. */
-export function FullQaRubricReview({ alert, scope, editable, canReloadReview, renderAudioLink, onStaleReview, onDirtyChange, onBusyChange, onSaveStateChange, onSubmitted }: Props) {
+export function FullQaRubricReview({ alert, scope, editable, canReloadReview, renderEvidenceLink, selectedEvidenceReferenceId, verdictPortalTarget, onStaleReview, onDirtyChange, onBusyChange, onSaveStateChange, onSubmitted }: Props) {
   const queryClient = useQueryClient()
   const scorecardId = useId()
+  const overallNoteTriggerId = useId()
   const [showFullScorecard, setShowFullScorecard] = useState(false)
   const query = useQuery({ queryKey: ['fullQaReviewContext', alert.call_id], queryFn: () => fetchFullQaReviewContext(alert.call_id) })
   const context = query.data
@@ -255,10 +420,12 @@ export function FullQaRubricReview({ alert, scope, editable, canReloadReview, re
   const [staleReview, setStaleReview] = useState(false)
   const baseline = useRef('')
   const [corrections, setCorrections] = useState<readonly FullQaCriterionCorrection[]>([])
+  const [evidenceFeedback, setEvidenceFeedback] = useState<readonly FullQaEvidenceFeedback[]>([])
   const [findings, setFindings] = useState<readonly FullQaFinding[]>([])
   // No verdict is preselected locally; the saved contract stays boolean.
   const [escalationJustified, setEscalationJustified] = useState<boolean | null>(null)
   const [escalationReason, setEscalationReason] = useState('')
+  const [showOverallNote, setShowOverallNote] = useState(false)
   const [inaccuracyReason, setInaccuracyReason] = useState<AlertInaccuracyReason | null>(null)
   const [actionTaken, setActionTaken] = useState<AlertActionTaken | null>(null)
   const [actionDetails, setActionDetails] = useState('')
@@ -270,19 +437,19 @@ export function FullQaRubricReview({ alert, scope, editable, canReloadReview, re
   const [proposalDecisionPending, setProposalDecisionPending] = useState(false)
   const [decisionReason, setDecisionReason] = useState<Record<number, string>>({})
 
-  const draft = useMemo((): LocalDraft => ({ corrections, findings, escalationJustified, escalationReason,
+  const draft = useMemo((): LocalDraft => ({ corrections, evidenceFeedback, findings, escalationJustified, escalationReason,
     inaccuracyReason: escalationJustified === true ? null : inaccuracyReason, actionTaken,
-    actionDetails: actionDetails || null }), [corrections, findings, escalationJustified, escalationReason, inaccuracyReason, actionTaken, actionDetails])
+    actionDetails: actionDetails || null }), [corrections, evidenceFeedback, findings, escalationJustified, escalationReason, inaccuracyReason, actionTaken, actionDetails])
 
   const loadContext = useCallback((nextContext: FullQaReviewContext) => {
-    const next: LocalDraft = { corrections: initialFullQaCorrections(nextContext), findings: nextContext.review?.findings ?? [],
+    const next: LocalDraft = { corrections: initialFullQaCorrections(nextContext), evidenceFeedback: nextContext.review?.evidenceFeedback ?? [], findings: nextContext.review?.findings ?? [],
       escalationJustified: nextContext.review?.escalationJustified ?? null,
       escalationReason: nextContext.review?.escalationReason ?? '',
       inaccuracyReason: nextContext.review?.inaccuracyReason ?? null,
       actionTaken: nextContext.review?.actionTaken ?? null,
       actionDetails: nextContext.review?.actionDetails ?? null }
-    setCorrections(next.corrections); setFindings(next.findings); setEscalationJustified(next.escalationJustified)
-    setEscalationReason(next.escalationReason); setInaccuracyReason(next.inaccuracyReason); setActionTaken(next.actionTaken); setActionDetails(next.actionDetails ?? '')
+    setCorrections(next.corrections); setEvidenceFeedback(next.evidenceFeedback); setFindings(next.findings); setEscalationJustified(next.escalationJustified)
+    setEscalationReason(next.escalationReason); setShowOverallNote(false); setInaccuracyReason(next.inaccuracyReason); setActionTaken(next.actionTaken); setActionDetails(next.actionDetails ?? '')
     setProposalCriterion(nextContext.criteria[0]?.key ?? '')
     setShowFullScorecard(false)
     baseline.current = serializeDraft({ ...next,
@@ -320,7 +487,9 @@ export function FullQaRubricReview({ alert, scope, editable, canReloadReview, re
           : context.review && !reviewDirty ? 'No unsaved review changes.'
             : parsed.ok === false ? reviewDirty ? parsed.message : 'Choose whether this alert was warranted. Score feedback and coaching are optional.' : null
   const nextSectionId = context && initializedFor.current === alert.call_id && !query.isError && !contextChanged && !busy && parsed.ok === false
-    ? parsed.finding ? `${scorecardId}-finding-${parsed.finding.id}-${parsed.finding.field}` : `${scorecardId}-${parsed.section}` : null
+    ? parsed.finding ? `${scorecardId}-finding-${parsed.finding.id}-${parsed.finding.field}`
+      : parsed.section === 'decision' && escalationJustified !== null ? `${scorecardId}-decision-details`
+        : parsed.section === 'followup' && context.sourceCandidate ? `${scorecardId}-followup-details` : `${scorecardId}-${parsed.section}` : null
   useEffect(() => { onDirtyChange(dirty) }, [dirty, onDirtyChange])
   useEffect(() => { onBusyChange(busy) }, [busy, onBusyChange])
   useEffect(() => { onSaveStateChange({ disabled: saveDisabled, label: saveLabel, message: saveMessage, nextSectionId }) }, [saveDisabled, saveLabel, saveMessage, nextSectionId, onSaveStateChange])
@@ -335,18 +504,28 @@ export function FullQaRubricReview({ alert, scope, editable, canReloadReview, re
 
   // This is a display filter, not an escalation rule. Keep the immutable AI concerns
   // and saved/draft human changes visible even after a score is corrected to pass.
+  const priorContext = parsePriorCallContext(context.sourceResult)
+  const priorCredit = (key: string) => {
+    const step = stepNumber(key)
+    const criterion = context.criteria.find(item => item.key === key)
+    return step !== null && criterion ? applicablePriorCredit(priorContext, context.sourceResult, step, valueAtPath(context.sourceResult, criterion.scorePath)) : null
+  }
   const aiConcernKeys = new Set(context.criteria.filter(criterion => {
     const original = valueAtPath(context.sourceResult, criterion.scorePath)
     if (!criterion.domain.some(value => value === original)) return false
+    // Display only: a step credited from an earlier call is not shown as an agent failure; its score is unchanged.
+    if (priorCredit(criterion.key)) return false
     if (criterion.findingCategory === 'program_expectations') {
       return original === false && valueAtPath(context.sourceResult, 'program_expectations_scorecard.section_status') !== 'not_applicable'
         && valueAtPath(context.sourceResult, 'program_expectations_scorecard.enrollment_completed') !== false
     }
     return original === 'fail' || original === 'poor' || original === 'fair' || original === 'partial' || original === 'missing'
   }).map(criterion => criterion.key))
+  const evidenceResponseIds = new Set([...evidenceFeedback, ...(context.review?.evidenceFeedback ?? [])].map(item => item.referenceId))
   const attentionKeys = new Set(context.criteria.filter(criterion => aiConcernKeys.has(criterion.key)
     || [corrections, context.review?.corrections ?? []].some(items => items.some(item => item.criterionKey === criterion.key && item.disposition !== 'confirmed'))
     || [...findings, ...(context.review?.findings ?? [])].some(item => item.relatedCriteria.includes(criterion.key))
+    || context.evidenceReferences.some(item => item.claimKind === 'criterion' && item.claimKey === criterion.key && evidenceResponseIds.has(item.referenceId))
     || !criterion.domain.some(value => value === valueAtPath(context.sourceResult, criterion.scorePath))).map(criterion => criterion.key))
   const reviewReason = savedText(valueAtPath(context.sourceResult, 'call_overview.manager_review_reason'))
   const recordedViolations = savedNotes(valueAtPath(context.sourceResult, 'compliance_scorecard.compliance_violations'))
@@ -360,6 +539,11 @@ export function FullQaRubricReview({ alert, scope, editable, canReloadReview, re
   const practiceSupported = import.meta.env.MODE === 'staging'
     && valueAtPath(context.sourceResult, '_synthetic_staging') === true && alert.call_id === 'DEMO-SUPPORTED-001'
   const locked = busy || contextChanged
+  const updateEvidenceFeedback = (referenceId: string, next: FullQaEvidenceFeedback | null) => setEvidenceFeedback(items => {
+    const current = items.find(item => item.referenceId === referenceId)
+    if (next === null) return items.filter(item => item.referenceId !== referenceId)
+    return current ? items.map(item => item.referenceId === referenceId ? next : item) : [...items, next]
+  })
   const updateCorrection = (key: string, patch: Partial<FullQaCriterionCorrection>) => setCorrections(items => {
     const current = items.find(item => item.criterionKey === key)
     const next: FullQaCriterionCorrection = { criterionKey: key, disposition: 'corrected', correctedValue: null, reason: null, ...current, ...patch }
@@ -395,6 +579,8 @@ export function FullQaRubricReview({ alert, scope, editable, canReloadReview, re
       }
       return
     }
+    // Replace locally edited values with the normalized payload that was persisted.
+    setEvidenceFeedback(parsed.value.evidenceFeedback)
     // Keep hidden coaching in the draft until the manager successfully saves No.
     setFindings(parsed.value.findings)
     baseline.current = serializeDraft(parsed.value)
@@ -433,11 +619,53 @@ export function FullQaRubricReview({ alert, scope, editable, canReloadReview, re
     toast.success(decision === 'accepted_for_evaluation' ? 'Approved for evaluation — not published' : 'Proposal rejected')
   }
 
+  const criticalClaimKeys = [...new Set(context.evidenceReferences.filter(item => item.claimKind === 'critical_flag').map(item => item.claimKey))]
+  const generalFocusReferences = context.evidenceReferences.filter(item => item.claimKind === 'general_focus')
+  const evidenceCard = (reference: FullQaEvidenceReference, index: number) => <EvidenceFeedbackCard key={reference.referenceId}
+    reference={reference} index={index} feedback={evidenceFeedback.find(item => item.referenceId === reference.referenceId)}
+    editable={editable} disabled={locked} selected={selectedEvidenceReferenceId === reference.referenceId} renderEvidenceLink={renderEvidenceLink}
+    onChange={next => updateEvidenceFeedback(reference.referenceId, next)} />
+  const candidateFindings = context.sourceCandidate?.findings.map((finding, findingIndex) => {
+    const references = context.evidenceReferences.filter(reference => reference.claimKind === 'source_finding' && reference.claimKey === finding.claimId)
+    return <article key={finding.claimId} aria-label={`${references[0]?.claimLabel ?? finding.ruleKey} finding ${findingIndex + 1}`} className="space-y-3 border-b border-border py-5">
+      <div className="space-y-1">
+        <h3 className="text-base font-semibold text-pennie-navy">{references[0]?.claimLabel ?? finding.ruleKey.replace(/_/g, ' ')}</h3>
+        <p className="whitespace-pre-wrap break-words text-sm leading-relaxed text-pennie-graphite">{finding.assessment}</p>
+      </div>
+      <div className="space-y-3">{references.map(evidenceCard)}</div>
+    </article>
+  })
+
+  const alertDecision = editable && verdictPortalTarget ? createPortal(<fieldset disabled={locked} aria-label="Was this alert warranted?" className="flex min-w-0 flex-wrap items-center gap-2">
+    <legend id={`${scorecardId}-decision`} tabIndex={-1} className="pennie-focus-ring mr-1 text-sm font-semibold text-pennie-navy">Alert warranted?</legend>
+    <ReviewChoice name={`${scorecardId}-escalation`} checked={escalationJustified === true} onChange={() => setEscalationJustified(true)} pill={false} label="Yes" ariaLabel="Yes, the alert was warranted" />
+    <ReviewChoice name={`${scorecardId}-escalation`} checked={escalationJustified === false} onChange={() => setEscalationJustified(false)} pill={false} label="No" ariaLabel="No, the alert was unnecessary" />
+  </fieldset>, verdictPortalTarget) : null
+
+  const decisionDetails = editable && escalationJustified !== null && <section aria-label="Alert decision details" className="border-b border-border pb-4"><fieldset disabled={locked} className="space-y-3">
+    {escalationJustified === true ? <div className="text-sm">
+      {savedText(escalationReason) && !showOverallNote && <p className="whitespace-pre-wrap break-words text-pennie-graphite"><span className="font-semibold text-pennie-navy">Overall note: </span>{escalationReason.trim()}</p>}
+      {showOverallNote ? <div><label className="block font-semibold">Feedback on Eavesly (optional)<ReviewText id={`${scorecardId}-decision-details`} required={false} label="Feedback on Eavesly (optional)" value={escalationReason} placeholder="Agree with the alert, but not every reason? Add a short note." onChange={setEscalationReason} /></label><button type="button" onClick={() => {
+          if (Array.from(escalationReason.trim()).length > INTERNAL_REVIEW_TEXT_LIMITS.max) { document.getElementById(`${scorecardId}-decision-details`)?.focus(); return }
+          setShowOverallNote(false); requestAnimationFrame(() => document.getElementById(overallNoteTriggerId)?.focus())
+        }} className="pennie-focus-ring min-h-[44px] text-xs font-semibold text-pennie-blue-deeper">Done</button></div>
+        : <button id={overallNoteTriggerId} type="button" onClick={() => setShowOverallNote(true)} className="pennie-focus-ring min-h-[44px] rounded-full px-2 text-xs font-semibold text-pennie-blue-deeper hover:bg-pennie-blue-light">{savedText(escalationReason) ? 'Edit overall note' : 'Add overall note'}</button>}
+    </div> : <>
+      <label className="block text-sm font-semibold">Explain your decision<ReviewText id={`${scorecardId}-decision-details`} label="Explain your decision" value={escalationReason} placeholder="What did Eavesly miss or misunderstand? A brief explanation is enough." onChange={setEscalationReason} /></label>
+      <details className="text-sm"><summary className="pennie-focus-ring min-h-[44px] cursor-pointer py-3 text-xs font-semibold text-pennie-blue-deeper">Reason category (optional){inaccuracyReason ? ` · ${INACCURACY_REASON_LABELS[inaccuracyReason]}` : ''}</summary><fieldset><div className="flex flex-wrap gap-2" role="radiogroup" aria-label="Why was the alert unnecessary?">{REASONS.map(value => <ReviewChoice key={value} name={`${scorecardId}-reason`} checked={inaccuracyReason === value} onChange={() => setInaccuracyReason(value)} label={INACCURACY_REASON_LABELS[value]} />)}</div>{inaccuracyReason !== null && <button type="button" onClick={() => setInaccuracyReason(null)} className="pennie-focus-ring min-h-[44px] text-xs font-semibold text-pennie-blue-deeper">Clear reason category</button>}</fieldset></details>
+      {findings.length > 0 && <p className="text-sm text-pennie-graphite/70">Coaching issues won’t be included when you save No. Select Yes to restore your draft. Earlier saved revisions remain in review history.</p>}
+    </>}
+  </fieldset></section>
+
   const scorecard = <>
-    <div className="flex flex-wrap items-baseline justify-between gap-2 border-b border-border pb-3">
-      <h2 id={`${scorecardId}-scores`} tabIndex={-1} className="pennie-focus-ring text-base font-semibold text-pennie-navy">{showFullScorecard ? 'Full scorecard' : 'Scores to review'}</h2>
-      <p className="text-xs text-pennie-graphite/80">{attentionKeys.size} {attentionKeys.size === 1 ? 'item' : 'items'} to check</p>
-    </div>
+    {criticalClaimKeys.map(claimKey => {
+      const references = context.evidenceReferences.filter(item => item.claimKind === 'critical_flag' && item.claimKey === claimKey)
+      const label = references[0]?.claimLabel ?? 'Unlabeled critical flag'
+      return <article key={claimKey} aria-label={label} className="space-y-3 border-b border-border py-5">
+        <div><p className="text-xs font-semibold text-pennie-yellow-deeper">Eavesly flagged</p><h3 className="text-base font-semibold text-pennie-navy">{label}</h3></div>
+        <div className="space-y-3">{references.map(evidenceCard)}</div>
+      </article>
+    })}
     {hasProgramConcerns && (programSummary || programGaps.length > 0) && <aside aria-label="Program expectations section notes" className="border-b border-border pb-4 text-sm text-pennie-graphite">
       <p className="font-semibold">Program expectations — saved section notes</p>
       <p className="mt-1 text-xs">These notes cover the whole section, not an individual score. Program-expectations gaps alone do not trigger this alert.</p>
@@ -455,41 +683,49 @@ export function FullQaRubricReview({ alert, scope, editable, canReloadReview, re
       const saved = context.review?.corrections.find(item => item.criterionKey === criterion.key)
       const humanChanged = [correction, saved].some(item => item && item.disposition !== 'confirmed')
       const linkedIndex = findings.findIndex(item => item.relatedCriteria.includes(criterion.key))
+      const credit = priorCredit(criterion.key)
       const label = aiConcern ? original === 'fail' ? 'Eavesly flagged this' : 'Eavesly score concern'
+        : credit ? 'Prior-call credit'
         : originalValue === undefined ? 'Eavesly score unavailable' : humanChanged ? 'Manager review item'
           : attentionKeys.has(criterion.key) ? 'Included in this review' : 'Other Eavesly score'
       const entries = evidenceEntries(evidence)
-      const excerpts = excerptItems(evidence, aiConcern ? notes : [], renderAudioLink)
+      const evidenceReferences = context.evidenceReferences.filter(item => item.claimKind === 'criterion' && item.claimKey === criterion.key)
       const sourceHeading = aiConcern ? 'What Eavesly flagged' : 'Eavesly’s assessment'
       const responseHeading = editable ? 'Your review' : 'Manager’s response'
-      return <article key={criterion.key} aria-label={criterion.label} hidden={!showFullScorecard && !attentionKeys.has(criterion.key)} className="border-b border-border py-5">
-        <div className="grid min-w-0 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
-          <section aria-label={`${criterion.label}: ${sourceHeading}`} className="min-w-0 space-y-3 bg-pennie-beige p-4 sm:p-5">
+      return <article key={criterion.key} aria-label={criterion.label} hidden={!showFullScorecard && !attentionKeys.has(criterion.key)} className="border-b border-border py-4">
+        <div className="min-w-0 space-y-3">
+          <section aria-label={`${criterion.label}: ${sourceHeading}`} className="min-w-0 space-y-3">
             <div>
               <p className={`mb-0.5 inline-flex items-center gap-2 text-xs font-bold ${aiConcern ? 'text-pennie-yellow-deeper' : 'text-pennie-blue-deeper'}`}>{aiConcern ? <Flag className="h-4 w-4 shrink-0" aria-hidden="true" /> : <MessageSquare className="h-4 w-4 shrink-0" aria-hidden="true" />}{label}</p>
               <h3 className="min-w-0 break-words text-base font-semibold text-pennie-navy">{criterion.label}</h3>
-              <p className="mt-1 text-sm text-pennie-graphite">Result: <strong>{scoreLabel(originalValue)}</strong></p>
+              <p className="mt-1 text-sm text-pennie-graphite">Eavesly’s result: <strong>{scoreLabel(originalValue)}</strong></p>
+              {credit && <p className="mt-1 text-sm text-pennie-graphite"><span className="font-semibold text-pennie-navy">Prior-call credit:</span> Completed previously (AI-assessed) on call {credit.sourceCallId} · {formatDateTime(credit.sourceStartedAt)}. Not transcript-verified or manager-confirmed.</p>}
             </div>
-            {aiConcern && (notes.length > 0 ? <div className="space-y-1 text-sm text-pennie-graphite">
+            {aiConcern && notes.length > 0 && <div className="space-y-1 text-sm text-pennie-graphite">
               <p className="text-xs font-semibold">Why this was flagged</p>
               {notes.map((note, index) => <p key={index} className="whitespace-pre-wrap break-words leading-relaxed">{note}</p>)}
-            </div> : <p className="text-xs text-pennie-graphite/70">{criterion.findingCategory === 'program_expectations' && (programSummary || programGaps.length > 0) ? 'No separate reason saved for this score; see the saved section notes above.' : 'No reason saved for this score.'}</p>)}
-            <CriterionEvidence evidence={evidence} excerpts={excerpts} />
+            </div>}
+            <div className="space-y-3">
+              <p className="sr-only">Evidence tied to this claim</p>
+              {evidenceReferences.map(evidenceCard)}
+            </div>
             <details>
               <summary className="pennie-focus-ring min-h-[44px] cursor-pointer py-3.5 text-xs font-semibold text-pennie-blue-deeper sm:min-h-0 sm:py-0">Rule and saved evidence</summary>
               {context.sourceReferenceKind !== 'unknown_hash' ? <p className="mt-2 text-sm leading-relaxed text-pennie-graphite">{criterion.rule}</p> : <p className="mt-2 text-xs text-pennie-peach-deeper">Original rule unavailable for this stamped hash.</p>}
               {entries.length > 0 && <pre className="mt-2 whitespace-pre-wrap break-words text-xs">{JSON.stringify(evidence, null, 2)}</pre>}
             </details>
           </section>
-          <section aria-label={`${criterion.label}: ${responseHeading}`} className="min-w-0 space-y-3 border-t border-border p-4 sm:p-5 md:border-l md:border-t-0">
+          <section aria-label={`${criterion.label}: ${responseHeading}`} className="min-w-0 space-y-3">
             {saved && <div className="border-b border-pennie-blue-main pb-3 text-sm">
-              <p className="mb-1 text-xs font-bold text-pennie-blue-deeper">Manager’s saved response</p>
+              <p className="mb-1 text-xs font-bold text-pennie-blue-deeper">Saved criterion-level opinion</p>
               <p className="font-semibold text-pennie-navy">{correctionLabels(saved).saved}</p>
               {saved.reason && <p className="mt-1 whitespace-pre-wrap break-words text-pennie-graphite">{saved.reason}</p>}
             </div>}
-            {editable && <div className="space-y-3">
+            {editable && (showFullScorecard || correction?.disposition === 'corrected' || correction?.disposition === 'partially_correct') && <details className="rounded-xl bg-pennie-beige/55 px-3 py-2">
+              <summary className="pennie-focus-ring min-h-[44px] cursor-pointer py-3 text-sm font-semibold text-pennie-blue-deeper">Optional criterion score adjustment</summary>
+              <div className="space-y-3 pb-2 pt-1">
               <fieldset disabled={locked} role="radiogroup" aria-label={`${criterion.label} disposition`}>
-                <legend className="mb-2 text-sm font-semibold text-pennie-navy">Is Eavesly’s assessment correct? <span className="font-normal">(optional)</span></legend>
+                <legend className="mb-2 text-sm font-semibold text-pennie-navy">Criterion-level opinion <span className="font-normal">(optional; separate from passage feedback)</span></legend>
                 <div className="flex flex-wrap gap-2">{([{ disposition: 'confirmed', label: 'Correct' }, { disposition: 'corrected', label: 'Incorrect' }, { disposition: 'partially_correct', label: 'Partly correct' }] as const).map(({ disposition, label }) => <label key={disposition} className={`flex min-h-[44px] cursor-pointer items-center gap-2 rounded-xl border px-3 py-2 text-sm has-[:disabled]:cursor-not-allowed has-[:disabled]:opacity-50 ${correction?.disposition === disposition ? 'border-pennie-blue-deeper bg-pennie-blue-light text-pennie-navy' : 'border-border text-pennie-graphite hover:bg-pennie-blue-light/50'}`}>
                   <input type="radio" name={`${scorecardId}-${criterion.key}`} checked={correction?.disposition === disposition} disabled={disposition === 'confirmed' && originalValue === undefined} className="pennie-focus-ring h-4 w-4 accent-pennie-blue-deeper" onChange={() => {
                     if (correction?.disposition === disposition) return
@@ -506,8 +742,9 @@ export function FullQaRubricReview({ alert, scope, editable, canReloadReview, re
               {correction && <button type="button" disabled={locked} onClick={() => setCorrections(items => items.filter(item => item.criterionKey !== criterion.key))} className="pennie-focus-ring min-h-[44px] text-xs font-semibold text-pennie-blue-deeper">Clear score response</button>}
               {correction?.disposition === 'corrected' && <label className="block text-sm font-semibold">Why is the assessment incorrect?<ReviewText label={`${criterion.label} correction reason`} disabled={locked} value={correction.reason ?? ''} onChange={reason => updateCorrection(criterion.key, { reason })} /></label>}
               {correction?.disposition === 'partially_correct' && <label className="block text-sm font-semibold">Which parts are right or wrong?<ReviewText label={`${criterion.label} partly correct explanation`} disabled={locked} value={correction.reason ?? ''} placeholder="A brief explanation is enough. No replacement score or coaching plan needed." onChange={reason => updateCorrection(criterion.key, { reason })} /></label>}
-            </div>}
-            {!editable && !saved && <p className="text-sm text-pennie-graphite/70">No structured response was recorded for this criterion.</p>}
+              </div>
+            </details>}
+            {!editable && !saved && <p className="text-sm text-pennie-graphite/70">No criterion-level opinion was recorded.</p>}
             {editable && escalationJustified === true && (linkedIndex >= 0
               ? <button type="button" disabled={locked} onClick={() => focusFinding(findings[linkedIndex].findingId)} className="pennie-focus-ring min-h-[44px] sm:min-h-[36px] text-xs font-semibold text-pennie-blue-deeper underline-offset-4 hover:underline">Edit coaching issue {linkedIndex + 1}</button>
               : <button type="button" disabled={locked} onClick={() => addIssueFromCriterion(criterion, evidence, notes)} className="pennie-focus-ring min-h-[44px] sm:min-h-[36px] rounded-full border border-border px-3 text-xs font-semibold text-pennie-blue-deeper disabled:opacity-40"><Plus className="mr-1 inline h-3.5 w-3.5" aria-hidden="true" />Add as coaching issue</button>)}
@@ -515,11 +752,10 @@ export function FullQaRubricReview({ alert, scope, editable, canReloadReview, re
         </div>
       </article>
     })}</div>
-    <div className="flex flex-wrap items-center justify-end gap-x-3">
-      <button type="button" aria-expanded={showFullScorecard} aria-controls={scorecardId} onClick={() => setShowFullScorecard(value => !value)} className="pennie-focus-ring min-h-[44px] rounded-lg py-2 text-sm font-semibold text-pennie-blue-deeper underline-offset-4 hover:underline active:bg-pennie-beige">
-        {showFullScorecard ? 'Show only items to check' : `View full scorecard · ${context.criteria.length} criteria`}
-      </button>
-    </div>
+    {generalFocusReferences.map((reference, index) => <article key={reference.referenceId} aria-label="General review focus" className="space-y-3 border-b border-border py-5">
+      <div><h3 className="text-base font-semibold text-pennie-navy">General review focus</h3><p className="text-xs text-pennie-graphite/70">Saved call-level review focus.</p></div>
+      {evidenceCard(reference, index)}
+    </article>)}
   </>
 
   return <form id={FULL_QA_FORM_ID} onSubmit={event => { event.preventDefault(); void save() }} className="space-y-6" aria-label="Full QA rubric review">
@@ -534,31 +770,48 @@ export function FullQaRubricReview({ alert, scope, editable, canReloadReview, re
 
     {!editable && <ManagerReviewOutcome context={context} />}
 
-    <section aria-label="Why Eavesly requested review" className="border-y border-pennie-yellow-dark bg-pennie-yellow-light px-4 py-4">
-      <h2 className="pennie-label text-pennie-navy">Why Eavesly requested review</h2>
+    <SourceCallSummary source={context.sourceResult}><PriorCallContextSection prior={priorContext} source={context.sourceResult} criteria={context.criteria} /></SourceCallSummary>
+    {!context.sourceCandidate && <section aria-label="Why Eavesly requested review" className="space-y-2">
+      <h2 className="text-lg font-semibold text-pennie-navy">Why Eavesly requested review</h2>
       <ReasonText text={reviewReason} violations={recordedViolations} />
       {requestedReview === false && <p className="mt-2 text-xs font-semibold text-pennie-peach-deeper">Eavesly’s saved assessment says manager review was not required, but this alert was sent.</p>}
-    </section>
-    {context.sourceReferenceKind !== 'known' && <p className={context.sourceReferenceKind === 'legacy_current_reference' ? 'text-xs text-pennie-graphite/70' : 'rounded-xl border border-pennie-peach-dark bg-pennie-peach-light/30 p-3 text-xs text-pennie-graphite'}>{context.sourceReferenceKind === 'legacy_current_reference' ? 'Original rubric unknown; current reference only.' : 'Original rubric unavailable for this stamped hash; current field map only.'}</p>}
+    </section>}
+    {!context.sourceCandidate && context.sourceReferenceKind !== 'known' && <p className={context.sourceReferenceKind === 'legacy_current_reference' ? 'text-xs text-pennie-graphite/70' : 'rounded-xl border border-pennie-peach-dark bg-pennie-peach-light/30 p-3 text-xs text-pennie-graphite'}>{context.sourceReferenceKind === 'legacy_current_reference' ? 'Original rubric unknown; current reference only.' : 'Original rubric unavailable for this stamped hash; current field map only.'}</p>}
     {editable && context.review && <p className="text-xs text-pennie-graphite/70">Saved revision {context.review.feedbackRevision} · {formatDateTime(context.review.savedAt)} by {context.review.savedBy}</p>}
 
-    {editable && <p className="text-sm text-pennie-graphite/70">Optional score feedback below helps improve Eavesly. Only answers you select are recorded; you do not need to review every score.</p>}
-    {editable ? scorecard : <details className="border-y border-border py-3">
-      <summary className="pennie-focus-ring min-h-[36px] cursor-pointer text-sm font-semibold text-pennie-blue-deeper">Eavesly’s evidence and scores · {attentionKeys.size} {attentionKeys.size === 1 ? 'item' : 'items'}</summary>
-      <div className="mt-3 space-y-5">{scorecard}</div>
-    </details>}
+    <AiCoachingSuggestions source={context.sourceResult} />
 
-    {editable && <fieldset disabled={locked} className="space-y-3 border-t border-border pt-5"><legend id={`${scorecardId}-decision`} tabIndex={-1} className="pennie-focus-ring pr-2 text-base font-semibold text-pennie-navy">Was this alert warranted?</legend>
-      <p className="text-sm text-pennie-graphite">Choose your decision and save. Score feedback and coaching are optional.</p>
-      <div role="radiogroup" aria-label="Alert verdict" className="flex flex-wrap gap-2">{([true, false] as const).map(value => <ReviewChoice key={String(value)} name={`${scorecardId}-escalation`} checked={escalationJustified === value} onChange={() => setEscalationJustified(value)} pill={false} label={value ? 'Yes, the alert was warranted' : 'No, the alert was unnecessary'} />)}</div>
-      {escalationJustified === true && <label className="block text-sm font-semibold">Feedback on Eavesly (optional)<ReviewText required={false} label="Feedback on Eavesly (optional)" value={escalationReason} placeholder="Agree with the alert, but not every reason? Tell us which part was wrong. No coaching plan needed." onChange={setEscalationReason} /></label>}
-      {escalationJustified === false && <>
-        <label className="block text-sm font-semibold">Explain your decision<ReviewText label="Explain your decision" value={escalationReason} placeholder="What did Eavesly miss or misunderstand? A brief explanation is enough." onChange={setEscalationReason} /></label>
-        <fieldset><legend className="mb-2 text-xs font-semibold">Reason category (optional)</legend><div className="flex flex-wrap gap-2" role="radiogroup" aria-label="Why was the alert unnecessary?">{REASONS.map(value => <ReviewChoice key={value} name={`${scorecardId}-reason`} checked={inaccuracyReason === value} onChange={() => setInaccuracyReason(value)} label={INACCURACY_REASON_LABELS[value]} />)}</div>{inaccuracyReason !== null && <button type="button" onClick={() => setInaccuracyReason(null)} className="pennie-focus-ring min-h-[44px] text-xs font-semibold text-pennie-blue-deeper">Clear reason category</button>}</fieldset>
-        {findings.length > 0 && <p className="text-sm text-pennie-graphite/70">Coaching issues won’t be included when you save No. Select Yes to restore your draft. Earlier saved revisions remain in review history.</p>}
-      </>}
+    {alertDecision}
+    {decisionDetails}
 
-    {escalationJustified === true && <section aria-label="Coaching issues" className="space-y-4 border-t border-border pt-5">
+    {context.sourceCandidate ? <section aria-label="What Eavesly flagged">
+      <div><h2 id={`${scorecardId}-scores`} tabIndex={-1} className="pennie-focus-ring text-lg font-semibold text-pennie-navy">What Eavesly flagged</h2>
+        <p className="mt-1 text-sm text-pennie-graphite">Does the evidence support each flag? Feedback is optional.</p></div>
+      <aside aria-label="Experimental source review" className="mt-3 flex flex-wrap items-baseline justify-between gap-x-3 text-xs text-pennie-graphite">
+        <p>Synthetic example · transcript only</p>
+        <details>
+          <summary className="pennie-focus-ring min-h-[44px] cursor-pointer py-3 font-semibold text-pennie-blue-deeper">Details</summary>
+          <div className="max-w-prose space-y-2 pb-3 text-xs leading-relaxed">
+            <p>Six-rule synthetic trial, not a full QA scorecard. Listen is unavailable: audio timing has not been verified for this source.</p>
+            <p>The findings are AI assessments, not verified facts. Supporting passages reproduce exact saved transcript turns. Separate passages grouped together receive one response; each separate evidence item has its own response.</p>
+            <p>Missing-content assessments apply only to the supplied transcript, which may not cover the complete call. No quote or audio location is inferred.</p>
+            <p>{context.sourceCandidate.modelProvider} · {context.sourceCandidate.modelId} · source revision {context.sourceCandidate.sourceRevision}</p>
+          </div>
+        </details>
+      </aside>
+      <div id={scorecardId}>{candidateFindings?.length ? candidateFindings : <p className="py-4 text-sm text-pennie-graphite">No findings were returned for this transcript.</p>}</div>
+    </section> : <section aria-label="What Eavesly flagged" className="border-t border-border pt-4">
+      <div className="flex flex-wrap items-start justify-between gap-2">
+        <div><h2 id={`${scorecardId}-scores`} tabIndex={-1} className="pennie-focus-ring text-lg font-semibold text-pennie-navy">What Eavesly flagged</h2>
+          <p className="mt-1 max-w-2xl text-xs text-pennie-graphite">Judge whether each saved passage supports its claim—not transcript spelling. Responses are optional and unanswered passages stay unreviewed.</p></div>
+        <button type="button" aria-expanded={showFullScorecard} aria-controls={scorecardId} onClick={() => setShowFullScorecard(value => !value)} className="pennie-focus-ring min-h-[44px] whitespace-nowrap rounded-full px-3 text-xs font-semibold text-pennie-blue-deeper hover:bg-pennie-blue-light">
+          {showFullScorecard ? 'Show only items to check' : `View full scorecard · ${context.criteria.length} criteria`}
+        </button>
+      </div>
+      {scorecard}
+    </section>}
+
+    {editable && !context.sourceCandidate && escalationJustified === true && <fieldset disabled={locked}><section aria-label="Coaching issues" className="space-y-4 border-t border-border pt-5">
       <div><h2 id={`${scorecardId}-coaching`} tabIndex={-1} className="pennie-focus-ring text-base font-semibold text-pennie-navy">Coaching issues (optional)</h2><p className="mt-1 text-sm text-pennie-graphite">Only add details if useful for coaching. You can save the alert decision without adding any issues.</p></div>
       {findings.map((finding, index) => <fieldset key={finding.findingId} id={findingElementId(finding.findingId)} disabled={locked} className="rounded-xl bg-pennie-beige/60 p-3 space-y-2"><legend className="px-1 text-xs font-semibold">Issue {index + 1}</legend>
         <label className="block text-xs font-semibold">Category<select aria-label={`Finding ${index + 1} category`} value={finding.category} onChange={event => updateFinding(finding.findingId, { category: event.target.value as FullQaFindingCategory })} className="mt-1 min-h-[40px] w-full rounded-lg border bg-white px-2 font-normal">{Object.entries(CATEGORY_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
@@ -572,30 +825,32 @@ export function FullQaRubricReview({ alert, scope, editable, canReloadReview, re
       </fieldset>)}
       {findings.length === 0 && <p className="text-sm text-pennie-graphite/70">No coaching issues added.</p>}
       <button type="button" disabled={locked} onClick={addBlankIssue} className="min-h-[40px] rounded-full border border-border px-3 text-xs font-semibold text-pennie-blue-deeper disabled:opacity-40"><Plus className="mr-1 inline h-4 w-4" aria-hidden="true" />{findings.length ? 'Add another issue' : 'Add an issue'}</button>
-    </section>}
-    </fieldset>}
+    </section></fieldset>}
 
-    {editable && escalationJustified !== null && <section aria-label="Follow-up with the rep" className="space-y-3 border-t border-border pt-5 [&_textarea]:min-h-28">
-      <h2 id={`${scorecardId}-followup`} tabIndex={-1} className="pennie-focus-ring text-base font-semibold text-pennie-navy">Follow-up with the rep</h2>
+    {editable && escalationJustified !== null && <section aria-label="Follow-up with the rep" className="border-t border-border pt-5 [&_textarea]:min-h-28">
+      <h2 id={`${scorecardId}-followup`} tabIndex={-1} className={context.sourceCandidate ? 'sr-only' : 'pennie-focus-ring mb-3 text-base font-semibold text-pennie-navy'}>Follow-up with the rep</h2>
+      <details open={!context.sourceCandidate || actionTaken !== null || undefined} className="space-y-3">
+      <summary className={context.sourceCandidate ? 'pennie-focus-ring min-h-[44px] cursor-pointer py-3 text-sm font-semibold text-pennie-blue-deeper' : 'hidden'}>{actionTaken ? `Follow-up · ${ACTION_TAKEN_LABELS[actionTaken]}` : 'Add follow-up (optional)'}</summary>
       <p className="text-sm text-pennie-graphite">Optional. Saving a review does not mark the agent as coached.</p>
       <fieldset disabled={locked} className="space-y-3">
         <legend className="text-sm font-semibold">Record coaching or follow-up (optional)</legend><div className="flex flex-wrap gap-2" role="radiogroup" aria-label={escalationJustified ? 'Action taken' : 'What did you do about the issue?'}>{ACTIONS.map(value => <ReviewChoice key={value} name={`${scorecardId}-action`} checked={actionTaken === value} onChange={() => setActionTaken(value)} label={ACTION_TAKEN_LABELS[value]} />)}</div>
         {actionTaken !== null && <>
-          <label className="block text-sm font-semibold">{escalationJustified ? 'What action did you take?' : 'Coaching or next steps'}<ReviewText label={escalationJustified ? 'What action did you take?' : 'Coaching or next steps'} value={actionDetails} placeholder="Describe the coaching, escalation, or planned follow-up." onChange={setActionDetails} /></label>
+          <label className="block text-sm font-semibold">{escalationJustified ? 'What action did you take?' : 'Coaching or next steps'}<ReviewText id={`${scorecardId}-followup-details`} label={escalationJustified ? 'What action did you take?' : 'Coaching or next steps'} value={actionDetails} placeholder="Describe the coaching, escalation, or planned follow-up." onChange={setActionDetails} /></label>
           <button type="button" onClick={() => { setActionTaken(null); setActionDetails('') }} className="pennie-focus-ring min-h-[44px] text-xs font-semibold text-pennie-blue-deeper">Clear optional follow-up</button>
         </>}
       </fieldset>
+      </details>
     </section>}
 
-    <details className="border-t border-border py-3">
+    {!context.sourceCandidate && <details className="border-t border-border py-3">
       <summary className="pennie-focus-ring min-h-[36px] cursor-pointer text-sm font-semibold text-pennie-blue-deeper">Scoring policy &amp; source</summary>
       <p className="mt-1 break-all text-xs text-pennie-graphite">{sourceNotice(context)}</p>
       <p className="mt-1 text-xs text-pennie-graphite/70">Each saved review keeps the original AI assessment for reference.</p>
       {context.sourceReferenceKind !== 'unknown_hash' && <div className="mt-3 rounded-xl bg-white/70 p-3 text-xs text-pennie-graphite"><p><strong>AI escalation policy:</strong> two or more distinct compliance findings, or severe customer mistreatment. This describes Eavesly’s scoring policy, not a requirement to create findings before saving your review.</p><p className="mt-1"><strong>Program expectations:</strong> enrollment gating applies; only handling-agent delivery counts, and ACDR/GOTA-only delivery does not count for discussion points.</p></div>}
       {context.rubricPromptText && <details className="mt-3"><summary className="cursor-pointer text-xs font-semibold text-pennie-blue-deeper">{context.sourceReferenceKind === 'known' ? 'Full exact scoring policy used' : 'Full current scoring policy — reference only'}</summary><pre className="mt-2 whitespace-pre-wrap break-words bg-white py-3 text-[11px] text-pennie-graphite">{context.rubricPromptText}</pre></details>}
-    </details>
+    </details>}
 
-    {(context.proposals.length > 0 || (editable && context.review)) && <details className="group border-t border-border py-3"><summary className="flex cursor-pointer list-none items-center justify-between text-sm font-semibold text-pennie-blue-deeper">{editable ? 'Suggest a rule change' : 'Rule change proposals'} <ChevronDown className="h-4 w-4 transition-transform group-open:rotate-180" /></summary><div className="mt-3 space-y-3">
+    {!context.sourceCandidate && (context.proposals.length > 0 || (editable && context.review)) && <details className="group border-t border-border py-3"><summary className="flex cursor-pointer list-none items-center justify-between text-sm font-semibold text-pennie-blue-deeper">{editable ? 'Suggest a rule change' : 'Rule change proposals'} <ChevronDown className="h-4 w-4 transition-transform group-open:rotate-180" /></summary><div className="mt-3 space-y-3">
       <p className="text-xs text-pennie-graphite/70">Proposals are separate from per-call findings. Accepted means approved for evaluation, not published; the production rubric remains unchanged.</p>
       {context.proposals.map(proposal => <article key={proposal.id} className="rounded-xl bg-pennie-beige/60 p-3 text-sm"><p className="font-semibold">{context.criteria.find(item => item.key === proposal.criterionKey)?.label ?? proposal.criterionKey}</p><p className="mt-1">{proposal.proposedRule}</p><p className="mt-1 text-xs text-muted-foreground">Why: {proposal.why}</p><p className="mt-2 text-xs font-semibold">{proposal.decision === 'accepted_for_evaluation' ? 'Approved for evaluation — not published' : proposal.decision.replace('_', ' ')}</p>
         {scope.isGodMode && proposal.decision === 'pending' && <div className="mt-2"><textarea aria-label={`Proposal ${proposal.id} decision reason`} value={decisionReason[proposal.id] ?? ''} onChange={event => setDecisionReason(value => ({ ...value, [proposal.id]: event.target.value }))} className="min-h-16 w-full rounded-lg border bg-white p-2 text-xs" placeholder="Required decision reason" /><div className="mt-2 flex gap-2"><button type="button" disabled={proposalDecisionPending || (decisionReason[proposal.id]?.trim().length ?? 0) < 12} onClick={() => decideProposal(proposal.id, 'accepted_for_evaluation')} className="min-h-[36px] rounded-full bg-pennie-navy px-3 text-xs font-semibold text-white disabled:opacity-40">Approve for evaluation</button><button type="button" disabled={proposalDecisionPending || (decisionReason[proposal.id]?.trim().length ?? 0) < 12} onClick={() => decideProposal(proposal.id, 'rejected')} className="min-h-[36px] rounded-full border px-3 text-xs font-semibold disabled:opacity-40">Reject</button></div></div>}
