@@ -225,6 +225,8 @@ const priorCases = () => [
     ['prior-duplicate-step', withStages([PRIOR_A.stages[0], PRIOR_A.stages[0]]), 'Prior-call context couldn’t be read, so no prior-call credit is shown.'],
     ['prior-duplicate-call', priorContext({ prior_calls: [PRIOR_A, { ...PRIOR_A, stages: [], qa_status: 'missing', qa_source: null }] }), 'Prior-call context couldn’t be read, so no prior-call credit is shown.'],
     ['prior-not-earlier', priorContext({ prior_calls: [{ ...PRIOR_A, started_at: '2026-09-04T16:00:00Z' }], stage_credits: [{ ...priorContext().stage_credits[0], source_started_at: '2026-09-04T16:00:00Z' }] }), 'Prior-call context couldn’t be read, so no prior-call credit is shown.'],
+    ['prior-wrong-table', priorContext({ prior_calls: [{ ...PRIOR_A, qa_source: { ...PRIOR_A.qa_source, table: 'eavesly_module_results' } }, ...priorContext().prior_calls.slice(1)] }), 'Prior-call context couldn’t be read, so no prior-call credit is shown.'],
+    ['prior-missing-table', priorContext({ prior_calls: [{ ...PRIOR_A, qa_source: { row_id: 101, created_at: '2026-09-01T16:00:00Z', prompt_sha256: null, transcript_sha256: null } }, ...priorContext().prior_calls.slice(1)] }), 'Prior-call context couldn’t be read, so no prior-call credit is shown.'],
     ['prior-no-current-time', priorContext({ current_call: { call_id: 'current', sfdc_lead_id: 'LEAD-SYNTH', started_at: null, started_at_source: null } }), 'Prior-call context couldn’t be read, so no prior-call credit is shown.'],
   ] as const
 
@@ -235,5 +237,23 @@ for (const [id, context, message] of priorCases()) {
     await expect(review).not.toContainText('Completed previously')
     // Without credit, the raw missing step remains a visible score concern.
     await expect(review.getByRole('article', { name: 'step2 credit review', exact: true })).toContainText('Eavesly score concern')
+  })
+}
+
+// Valid context and credit for step 2, but the current call's own step-2 data is not provably "missing and not attempted".
+const invalidCurrent = [
+  ['current-status-unknown', { ...CURRENT_SALES, step2_credit_review: 'skipped' }],
+  ['current-status-absent', (({ step2_credit_review: _s, ...rest }) => rest)(CURRENT_SALES)],
+  ['current-status-not-applicable', { ...CURRENT_SALES, step2_credit_review: 'not_applicable' }],
+  ['current-attempted-string-step', { ...CURRENT_SALES, sections_attempted: [1, 3, 5, 6, '2'] }],
+  ['current-completed-invalid-step', { ...CURRENT_SALES, sections_completed: [1, 3, 5, 7] }],
+] as const
+for (const [id, sales] of invalidCurrent) {
+  test(`${id}: invalid current score or attempt list fails closed (no waiver)`, async ({ page }) => {
+    const { review } = await openPrior(page, id, priorContext(), sales)
+    const row = review.getByRole('list', { name: 'Sales steps across calls' }).getByRole('listitem').filter({ hasText: 'step2 credit review' })
+    await expect(row).not.toContainText('Completed previously')
+    await review.getByRole('button', { name: /^View full scorecard/ }).click()
+    await expect(review.getByRole('article', { name: 'step2 credit review', exact: true })).not.toContainText('Prior-call credit')
   })
 }

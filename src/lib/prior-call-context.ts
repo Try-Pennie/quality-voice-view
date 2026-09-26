@@ -76,7 +76,7 @@ function parsePriorCall(input: unknown): PriorCall | null {
     || !optText(input.disposition) || !optText(input.notes) || !optText(input.call_summary)
     || !isQaStatus(input.qa_status) || !Array.isArray(input.stages)) return null
   const qaSource = input.qa_source
-  if (qaSource !== null && (!rec(qaSource) || !iso(qaSource.created_at) || !rowId(qaSource.row_id))) return null
+  if (qaSource !== null && (!rec(qaSource) || qaSource.table !== 'eavesly_transcription_qa' || !iso(qaSource.created_at) || !rowId(qaSource.row_id))) return null
   const stages = input.stages.map(parseStage).filter((value): value is PriorCallStage => value !== null)
   // Only a found prior QA row with a pinned source can carry stages; one entry per step.
   if (stages.length !== input.stages.length || ((input.qa_status !== 'found' || !rec(qaSource)) && stages.length > 0)
@@ -125,13 +125,14 @@ export function parsePriorCallContext(source: unknown): PriorCallContext {
 /**
  * The one waiver rule shared by summary and criterion display, mirroring the backend applicability
  * condition: a credited step counts as done earlier only when this call did not attempt it at all —
- * current status not complete/partial and step absent from sections_attempted and sections_completed.
- * Unprovable attempt data yields no waiver. Scores are never changed.
+ * current status exactly `missing` and step absent from sections_attempted and sections_completed.
+ * Any unknown/invalid status or malformed attempt list fails closed (no waiver). Scores are never changed.
  */
 export function applicablePriorCredit(prior: PriorCallContext, source: unknown, stepNumber: number, currentStatus: unknown): PriorStageCreditRecord | null {
-  if (prior.kind !== 'included' || currentStatus === 'complete' || currentStatus === 'partial') return null
+  if (prior.kind !== 'included' || currentStatus !== 'missing') return null
   const credit = prior.credits.find(item => item.step === stepNumber)
   const scorecard = rec(source) ? source.sales_process_scorecard : undefined
-  if (!credit || !rec(scorecard) || !Array.isArray(scorecard.sections_attempted) || !Array.isArray(scorecard.sections_completed)) return null
+  const steps = (value: unknown): value is number[] => Array.isArray(value) && value.every(step)
+  if (!credit || !rec(scorecard) || !steps(scorecard.sections_attempted) || !steps(scorecard.sections_completed)) return null
   return scorecard.sections_attempted.includes(stepNumber) || scorecard.sections_completed.includes(stepNumber) ? null : credit
 }
