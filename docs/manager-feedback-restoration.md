@@ -30,7 +30,7 @@ Parent-run checks (not only worker-reported):
 
 - Backend typecheck and full Vitest suite: **940 tests / 84 files passed**.
 - UI typecheck, lint (zero errors; five existing Fast Refresh warnings), release-preflight, PostgreSQL integration checks and Achieve checks passed.
-- Isolated staging build passed. Final complete single-worker browser-suite result is recorded in the deployment receipt below.
+- Isolated staging build passed. Final complete browser suite: **274 passed**, one worker, no retries, 15.6 minutes.
 - Real model checks used the final backend module, prompt and database history lookup against fictional examples. With prior context, stages 1–5 are credited; without it, the same follow-up is assessed for skipped stages. Both retain the current-call consent/misleading-claims failures and manager escalation. Process adherence remained `fair` in both examples; no score-improvement claim is made.
 - Real staging DB lookup excluded an intentionally later same-lead sentinel call. Original sample/review tables and auth counts were fingerprinted before/after insertion and stayed unchanged.
 - Native local browser against the actual sandbox: summary, coaching, prior context, no-history comparison, widths 320/375/414/768, no overflow or browser errors. Existing recording sample retained six verified Listen actions and seven honestly unavailable timestamps, full-quote highlighting, keyboard navigation and unsaved mobile drafts. No transcription was invoked.
@@ -48,7 +48,7 @@ All new examples are fictional, labelled synthetic and have no recording. Their 
 
 ## Screenshots
 
-Synthetic-data captures of runtime `f7d2595`, built in staging mode against the isolated sandbox:
+Synthetic-data captures from hosted deployment `6c7fc0d` (runtime `f7d2595`) against the isolated sandbox. The displayed Yes decision is the explicitly saved synthetic verification review, not a default:
 
 - [Desktop summary](screenshots/manager-feedback-f7d2595/desktop-summary.png)
 - [Desktop coaching](screenshots/manager-feedback-f7d2595/desktop-coaching.png)
@@ -58,4 +58,13 @@ Real-recording screenshots and credentials stay outside Git.
 
 ## Deployment receipt
 
-Pending final browser suite and isolated Pages deployment. No production endpoint is a deployment target.
+Deployed **2026-09-26**, UI source `6c7fc0d5a664f7016e98d0ac25c265a4d15bc9ed` (runtime unchanged from `f7d2595`), using the guarded `npm run deploy:staging` command. It ran a clean locked dependency install, staging build and isolation verification before targeting only the Pages `rubric-staging` branch. This receipt/screenshot update is documentation-only and does not require another runtime deployment.
+
+- Stable: <https://rubric-staging.eavesly.pages.dev/login>
+- Immutable: <https://0036740f.eavesly.pages.dev/login>
+- Sandbox: `xuvveqaizlletsqvwpgx`. Production untouched; backend source `fdaf3b0` is pushed for review but not deployed to live ingestion.
+- Both URLs' HTML and entry JS/CSS bytes match the local build. JS SHA-256: `cad9c87f5a6adff4d26a60efeae9b696ebaf2e5cef7e00c7579d7fd9fedfd538`; CSS: `d9c9ea95f5f380c075d39809e92203c520fdb96c5abd20fbc66d12a6685e1519`. Restrictive sandbox CSP, `noindex` and `no-store` verified.
+- Hosted native login, summary/coaching, prior/no-history comparison and mobile checks passed with zero browser/network errors. One explicit agreement was saved/reloaded on the dedicated TWO-CALL example. Database verification found exactly one review revision, empty corrections/findings/evidence feedback, no coaching action and no forced explanation.
+- The first hosted-save harness attempt used the wrong parameter name (`p_action_taken` instead of the existing RPC's `p_action`) and blocked the request before transmission. Database counts confirmed zero writes; the corrected harness then passed. No application fix or extra review revision was needed.
+- Existing real-recording read-only regression check passed: six verified Listen actions, seven unavailable timestamps, interrupted-quote navigation/highlighting, keyboard/mobile draft preservation, one native audio element, zero review writes and zero new transcriptions.
+- Final fingerprints confirmed all protected original staging records and auth counts unchanged. Only the explicitly labelled fictional examples and one dedicated synthetic review were added. No production endpoint was a deployment target.
